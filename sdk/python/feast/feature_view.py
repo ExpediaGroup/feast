@@ -568,10 +568,18 @@ class FeatureView(BaseFeatureView):
                 pydantic_featureview.stream_source
             )
 
+        # Mirror the stream/batch source conditions in the FeatureView
+        # constructor; one source is passed, either a stream source
+        # which contains a batch source inside it, or a batch source
+        # on its own.
+        source = stream_source if stream_source else batch_source
+        if stream_source:
+            source.batch_source = batch_source
+
         # Create the FeatureView
         feature_view = FeatureView(
             name=pydantic_featureview.name,
-            source=batch_source,
+            source=source,
             schema=pydantic_featureview.original_schema,
             entities=[
                 Entity.entity_from_pydantic_model(entity)
@@ -584,8 +592,5 @@ class FeatureView(BaseFeatureView):
             owner=pydantic_featureview.owner,
         )
 
-        # Correct the FeatureView to store both sources.
-        feature_view.batch_source = batch_source
-        feature_view.stream_source = stream_source
 
         return feature_view

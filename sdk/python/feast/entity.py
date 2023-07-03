@@ -249,3 +249,5 @@ class Entity:
             tags=pydantic_entity.tags if pydantic_entity.tags else None,
             owner=pydantic_entity.owner,
         )
+        # TO-DO: add the timestamps to the entity after it is has been created
+        
