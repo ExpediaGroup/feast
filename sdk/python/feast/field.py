@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from json import dumps
 from typing import Dict, Optional, Callable
 
 from pydantic import BaseModel, validator
@@ -51,13 +50,8 @@ class Field(BaseModel):
         arbitrary_types_allowed = True
         extra = "allow"
         json_encoders: Dict[object, Callable] = {
-            FeastType: lambda v: int(dumps(v.to_value_type().value, default=str)),
-            ComplexFeastType: lambda v: int(
-                dumps(v.to_value_type().value, default=str)
-            ),
-            PrimitiveFeastType: lambda v: int(
-                dumps(v.to_value_type().value, default=str)
-            ),
+            ComplexFeastType: lambda v: str(v),
+            PrimitiveFeastType: lambda v: str(v)
         }
 
     @validator("dtype", pre=True, always=True)
