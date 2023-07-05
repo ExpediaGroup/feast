@@ -18,7 +18,6 @@ from typing import Dict, List, Optional, Type
 
 from google.protobuf.json_format import MessageToJson
 from proto import Message
-from pydantic import BaseModel, root_validator
 
 from feast.feature_view_projection import FeatureViewProjection
 from feast.field import Field

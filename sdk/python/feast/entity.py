@@ -37,8 +37,8 @@ class EntityModel(BaseModel):
     description: str = ""
     tags: Optional[Dict[str, str]] = None
     owner: str = ""
-    created_timestamp: Optional[datetime]
-    last_updated_timestamp: Optional[datetime]
+    created_timestamp: Optional[datetime] = None
+    last_updated_timestamp: Optional[datetime] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -231,6 +231,8 @@ class Entity:
             description=self.description,
             tags=self.tags if self.tags else None,
             owner=self.owner,
+            created_timestamp=self.created_timestamp,
+            last_updated_timestamp=self.last_updated_timestamp
         )
 
     @staticmethod
@@ -241,7 +243,7 @@ class Entity:
         Returns:
             An Entity.
         """
-        return Entity(
+        entity = Entity(
             name=pydantic_entity.name,
             join_keys=[pydantic_entity.join_key],
             value_type=pydantic_entity.value_type,
@@ -249,5 +251,7 @@ class Entity:
             tags=pydantic_entity.tags if pydantic_entity.tags else None,
             owner=pydantic_entity.owner,
         )
-        # TO-DO: add the timestamps to the entity after it is has been created
-        
+        entity.created_timestamp = pydantic_entity.created_timestamp,
+        entity.last_updated_timestamp = pydantic_entity.last_updated_timestamp
+        return entity
+
