@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Optional, Callable
+from typing import Callable, Dict, Optional
 
 from pydantic import BaseModel, validator
 from typeguard import typechecked
@@ -51,7 +51,7 @@ class Field(BaseModel):
         extra = "allow"
         json_encoders: Dict[object, Callable] = {
             ComplexFeastType: lambda v: str(v),
-            PrimitiveFeastType: lambda v: str(v)
+            PrimitiveFeastType: lambda v: str(v),
         }
 
     @validator("dtype", pre=True, always=True)
@@ -64,7 +64,7 @@ class Field(BaseModel):
         TO-DO: Investigate whether FeastType can be refactored to a json compatible
         format.
         """
-        if not isinstance(v, FeastType): # type: ignore
+        if not isinstance(v, FeastType):  # type: ignore
             if isinstance(v, str):
                 return from_string(v)
             else:

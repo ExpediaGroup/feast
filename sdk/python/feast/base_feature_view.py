@@ -13,7 +13,6 @@
 # limitations under the License.
 from abc import ABC, abstractmethod
 from datetime import datetime
-from json import dumps
 from typing import Dict, List, Optional, Type
 
 from google.protobuf.json_format import MessageToJson

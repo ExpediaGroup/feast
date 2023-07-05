@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from datetime import datetime
-from json import dumps
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional
 
 from google.protobuf.json_format import MessageToJson
-from pydantic import BaseModel
 from typeguard import typechecked
 
 from feast.protos.feast.core.Entity_pb2 import Entity as EntityProto
@@ -24,28 +22,6 @@ from feast.protos.feast.core.Entity_pb2 import EntityMeta as EntityMetaProto
 from feast.protos.feast.core.Entity_pb2 import EntitySpecV2 as EntitySpecProto
 from feast.usage import log_exceptions
 from feast.value_type import ValueType
-
-
-class EntityModel(BaseModel):
-    """
-    Pydantic Model of a Feast Entity.
-    """
-
-    name: str
-    join_key: str
-    value_type: Optional[ValueType] = None
-    description: str = ""
-    tags: Optional[Dict[str, str]] = None
-    owner: str = ""
-    created_timestamp: Optional[datetime] = None
-    last_updated_timestamp: Optional[datetime] = None
-
-    class Config:
-        arbitrary_types_allowed = True
-        extra = "allow"
-        json_encoders: Dict[object, Callable] = {
-            ValueType: lambda v: int(dumps(v.value, default=str))
-        }
 
 
 @typechecked
@@ -216,42 +192,3 @@ class Entity:
         )
 
         return EntityProto(spec=spec, meta=meta)
-
-    def to_pydantic_model(self) -> EntityModel:
-        """
-        Converts an entity object to its pydantic model representation.
-
-        Returns:
-            An EntityModel.
-        """
-        return EntityModel(
-            name=self.name,
-            join_key=self.join_key,
-            value_type=self.value_type,
-            description=self.description,
-            tags=self.tags if self.tags else None,
-            owner=self.owner,
-            created_timestamp=self.created_timestamp,
-            last_updated_timestamp=self.last_updated_timestamp
-        )
-
-    @staticmethod
-    def entity_from_pydantic_model(pydantic_entity):
-        """
-        Given a Pydantic EntityModel, create and return an Entity.
-
-        Returns:
-            An Entity.
-        """
-        entity = Entity(
-            name=pydantic_entity.name,
-            join_keys=[pydantic_entity.join_key],
-            value_type=pydantic_entity.value_type,
-            description=pydantic_entity.description,
-            tags=pydantic_entity.tags if pydantic_entity.tags else None,
-            owner=pydantic_entity.owner,
-        )
-        entity.created_timestamp = pydantic_entity.created_timestamp,
-        entity.last_updated_timestamp = pydantic_entity.last_updated_timestamp
-        return entity
-

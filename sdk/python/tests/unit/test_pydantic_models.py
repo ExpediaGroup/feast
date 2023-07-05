@@ -11,98 +11,78 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import assertpy
-import pytest
-from pydantic.error_wrappers import ValidationError
+from typing import List, Union
 
-from feast.data_source import (
-    DataSource,
-    DataSourceModel,
-    RequestSource,
+from pydantic import BaseModel
+from pydantic import Field as PydanticField
+from typing_extensions import Annotated
+
+from feast.data_source import RequestSource
+from feast.entity import Entity
+from feast.expediagroup.pydantic_models.data_source_model import (
     RequestSourceModel,
+    SparkSourceModel,
 )
-from feast.entity import Entity, EntityModel
-from feast.feature_view import FeatureView, FeatureViewModel
+from feast.expediagroup.pydantic_models.entity_model import EntityModel
+from feast.expediagroup.pydantic_models.feature_view_model import FeatureViewModel
+from feast.feature_view import FeatureView
 from feast.field import Field
 from feast.infra.offline_stores.contrib.spark_offline_store.spark_source import (
     SparkSource,
-    SparkSourceModel,
 )
-from feast.types import Array, Bool, Float32, Int64
+from feast.types import Bool, Float32
 
 
-def test_datasourcemodel_to_sparksource():
-    spark_source_model = DataSourceModel(
-        name="string",
-        model_type="SparkSource",
-        table="table1",
-        query="",
-        path="",
-        file_format="",
-        timestamp_field="",
-        created_timestamp_column="",
-        description="",
-        owner="",
-        date_partition_column="",
-    )
-    spark_source = SparkSource.datasource_from_pydantic_model(spark_source_model)
-    spark_source_model_b = spark_source.to_pydantic_model()
-    assert spark_source_model == spark_source_model_b
-
-    with pytest.raises(ValueError):
-        # No file_format specified
-        spark_source_model = DataSourceModel(
-            name="string",
-            model_type="SparkSource",
-            path="path1",
-            timestamp_field="",
-            created_timestamp_column="",
-            description="",
-            owner="",
-            date_partition_column="",
-        )
-        spark_source = SparkSource.datasource_from_pydantic_model(spark_source_model)
-
-    spark_source_model = DataSourceModel(
-        name="string",
-        model_type="SparkSource",
-        path="path1",
-        file_format="json",
-        table="",
-        query="",
-        timestamp_field="",
-        created_timestamp_column="",
-        description="",
-        owner="",
-        date_partition_column="",
-    )
-    spark_source = SparkSource.datasource_from_pydantic_model(spark_source_model)
-    spark_source_model_b = spark_source.to_pydantic_model()
-    assert spark_source_model == spark_source_model_b
-
-
-def test_datasourcemodel_to_requestsource():
-    with pytest.raises(ValidationError):
-        bad_schema = [
-            Field(name="f1", dtype="Array(Float323)"),
-            Field(name="f2", dtype="Bool"),
-        ]
-
-    schema = [
-        Field(name="f1", dtype="Array(Float32)"),
-        Field(name="f2", dtype="Bool"),
+def test_datasource_child_deserialization():
+    # https://blog.devgenius.io/deserialize-child-classes-with-pydantic-that-gonna-work-784230e1cf83
+    # This lets us discriminate child classes of DataSourceModel with type hints.
+    SourceTypes = Annotated[
+        Union[RequestSourceModel, SparkSourceModel],
+        PydanticField(discriminator="model_type"),
     ]
-    request_source_model = RequestSourceModel(
-        name="source",
-        model_type="RequestSource",
-        schema=schema,
-        description="desc",
-        tags=None,
-        owner="feast",
-    )
-    request_source = RequestSource.datasource_from_pydantic_model(request_source_model)
-    request_source_model_b = request_source.to_pydantic_model()
-    assert request_source_model == request_source_model_b
+
+    class DataSourcesByWire(BaseModel):
+        source_models: List[SourceTypes] = []
+
+        class Config:
+            arbitrary_types_allowed = True
+            extra = "allow"
+
+    spark_source_model_json = {
+        "name": "string",
+        "model_type": "SparkSourceModel",
+        "table": "table1",
+        "query": "",
+        "path": "",
+        "file_format": "",
+        "timestamp_field": "",
+        "created_timestamp_column": "",
+        "description": "",
+        "owner": "",
+        "date_partition_column": "",
+    }
+
+    spark_source_model = SparkSourceModel(**spark_source_model_json)
+
+    request_source_model_json = {
+        "name": "source",
+        "model_type": "RequestSourceModel",
+        "schema": [{"name": "string", "dtype": "Int32", "description": "", "tags": {}}],
+        "description": "desc",
+        "tags": {},
+        "owner": "feast",
+    }
+
+    request_source_model = RequestSourceModel(**request_source_model_json)
+
+    data_dict = {"source_models": [spark_source_model, request_source_model]}
+
+    sources = DataSourcesByWire(**data_dict)
+
+    assert type(sources.source_models[0]).__name__ == "SparkSourceModel"
+    assert sources.source_models[0] == spark_source_model
+    assert type(sources.source_models[1]).__name__ == "RequestSourceModel"
+    assert sources.source_models[1] == request_source_model
 
 
 def test_idempotent_entity_conversion():
@@ -111,8 +91,8 @@ def test_idempotent_entity_conversion():
         description="My entity",
         tags={"key1": "val1", "key2": "val2"},
     )
-    entity_model = entity.to_pydantic_model()
-    entity_b = Entity.entity_from_pydantic_model(entity_model)
+    entity_model = EntityModel.from_entity(entity)
+    entity_b = entity_model.to_entity()
     assert entity == entity_b
 
 
@@ -128,10 +108,8 @@ def test_idempotent_requestsource_conversion():
         tags={},
         owner="feast",
     )
-    request_source_model = request_source.to_pydantic_model()
-    request_source_b = RequestSource.datasource_from_pydantic_model(
-        request_source_model
-    )
+    request_source_model = RequestSourceModel.from_data_source(request_source)
+    request_source_b = request_source_model.to_data_source()
     assert request_source == request_source_b
 
 
@@ -143,8 +121,8 @@ def test_idempotent_sparksource_conversion():
         tags={},
         owner="feast",
     )
-    spark_source_model = spark_source.to_pydantic_model()
-    spark_source_b = SparkSource.datasource_from_pydantic_model(spark_source_model)
+    spark_source_model = SparkSourceModel.from_data_source(spark_source)
+    spark_source_b = spark_source_model.to_data_source()
     assert spark_source == spark_source_b
 
 
@@ -170,13 +148,13 @@ def test_idempotent_featureview_conversion():
         ],
         source=request_source,
     )
-    feature_view_model = feature_view.to_pydantic_model()
-    feature_view_b = FeatureView.featureview_from_pydantic_model(feature_view_model)
+    feature_view_model = FeatureViewModel.from_feature_view(feature_view)
+    feature_view_b = feature_view_model.to_feature_view()
     assert feature_view == feature_view_b
 
     spark_source = SparkSource(
         name="sparky_sparky_boom_man",
-        path=f"/data/driver_hourly_stats",
+        path="/data/driver_hourly_stats",
         file_format="parquet",
         timestamp_field="event_timestamp",
         created_timestamp_column="created",
@@ -190,6 +168,6 @@ def test_idempotent_featureview_conversion():
         ],
         source=spark_source,
     )
-    feature_view_model = feature_view.to_pydantic_model()
-    feature_view_b = FeatureView.featureview_from_pydantic_model(feature_view_model)
+    feature_view_model = FeatureViewModel.from_feature_view(feature_view)
+    feature_view_b = feature_view_model.to_feature_view()
     assert feature_view == feature_view_b
