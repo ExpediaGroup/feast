@@ -260,6 +260,9 @@ class FeatureView(BaseFeatureView):
         if isinstance(self.original_entities, List) and isinstance(
             other.original_entities, List
         ):
+            if len(entity1) != len(entity2):
+                return False
+
             for entity1, entity2 in zip(
                 self.original_entities, other.original_entities
             ):
