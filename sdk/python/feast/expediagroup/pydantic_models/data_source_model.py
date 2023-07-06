@@ -4,10 +4,11 @@ Pydantic Model for Data Source
 Copyright 2023 Expedia Group
 Author: matcarlin@expediagroup.com
 """
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel
 from pydantic import Field as PydanticField
+from typing_extensions import Annotated
 
 from feast.data_source import RequestSource
 from feast.field import Field
@@ -172,3 +173,11 @@ class SparkSourceModel(DataSourceModel):
             if data_source.timestamp_field
             else "",
         )
+
+
+# https://blog.devgenius.io/deserialize-child-classes-with-pydantic-that-gonna-work-784230e1cf83
+# This lets us discriminate child classes of DataSourceModel with type hints.
+AnyDataSource = Annotated[
+    Union[RequestSourceModel, SparkSourceModel],
+    PydanticField(discriminator="model_type"),
+]

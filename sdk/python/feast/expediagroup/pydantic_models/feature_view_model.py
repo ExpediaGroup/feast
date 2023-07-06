@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from feast.data_source import DataSource
 from feast.entity import Entity
 from feast.expediagroup.pydantic_models.data_source_model import (
-    DataSourceModel,
+    AnyDataSource,
     RequestSourceModel,
     SparkSourceModel,
 )
@@ -22,6 +22,8 @@ from feast.expediagroup.pydantic_models.entity_model import EntityModel
 from feast.feature_view import FeatureView
 from feast.field import Field
 from feast.types import ComplexFeastType, PrimitiveFeastType
+
+SUPPORTED_DATA_SOURCES = [RequestSourceModel, SparkSourceModel]
 
 
 class FeatureViewModel(BaseModel):
@@ -33,8 +35,8 @@ class FeatureViewModel(BaseModel):
     original_entities: List[EntityModel] = []
     original_schema: Optional[List[Field]] = None
     ttl: Optional[timedelta]
-    batch_source: DataSourceModel
-    stream_source: Optional[DataSourceModel]
+    batch_source: AnyDataSource
+    stream_source: Optional[AnyDataSource]
     online: bool = True
     description: str = ""
     tags: Optional[Dict[str, str]] = None
@@ -101,6 +103,10 @@ class FeatureViewModel(BaseModel):
                 sys.modules[__name__],
                 type(feature_view.batch_source).__name__ + "Model",
             )
+            if class_ not in SUPPORTED_DATA_SOURCES:
+                raise ValueError(
+                    "Batch source type is not a supported data source type."
+                )
             batch_source = class_.from_data_source(feature_view.batch_source)
         stream_source = None
         if feature_view.stream_source:
@@ -108,6 +114,10 @@ class FeatureViewModel(BaseModel):
                 sys.modules[__name__],
                 type(feature_view.stream_source).__name__ + "Model",
             )
+            if class_ not in SUPPORTED_DATA_SOURCES:
+                raise ValueError(
+                    "Stream source type is not a supported data source type."
+                )
             stream_source = class_.from_data_source(feature_view.stream_source)
         return cls(
             name=feature_view.name,

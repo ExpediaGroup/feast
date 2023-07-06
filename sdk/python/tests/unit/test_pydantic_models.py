@@ -11,15 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List, Union
+from typing import List
 
 from pydantic import BaseModel
-from pydantic import Field as PydanticField
-from typing_extensions import Annotated
 
 from feast.data_source import RequestSource
 from feast.entity import Entity
 from feast.expediagroup.pydantic_models.data_source_model import (
+    AnyDataSource,
     RequestSourceModel,
     SparkSourceModel,
 )
@@ -34,15 +33,8 @@ from feast.types import Bool, Float32
 
 
 def test_datasource_child_deserialization():
-    # https://blog.devgenius.io/deserialize-child-classes-with-pydantic-that-gonna-work-784230e1cf83
-    # This lets us discriminate child classes of DataSourceModel with type hints.
-    SourceTypes = Annotated[
-        Union[RequestSourceModel, SparkSourceModel],
-        PydanticField(discriminator="model_type"),
-    ]
-
     class DataSourcesByWire(BaseModel):
-        source_models: List[SourceTypes] = []
+        source_models: List[AnyDataSource] = []
 
         class Config:
             arbitrary_types_allowed = True
