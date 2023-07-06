@@ -65,10 +65,10 @@ class Field(BaseModel):
         format.
         """
         try:
-            check_type('v', v, FeastType)  # type: ignore
+            check_type("v", v, FeastType)  # type: ignore
         except TypeError:
             try:
-                check_type('v', v, str)
+                check_type("v", v, str)
                 return from_string(v)
             except TypeError:
                 raise TypeError("dtype must be of type FeastType")
