@@ -15,7 +15,7 @@
 from typing import Callable, Dict, Optional
 
 from pydantic import BaseModel, validator
-from typeguard import typechecked
+from typeguard import check_type, typechecked
 
 from feast.feature import Feature
 from feast.protos.feast.core.Feature_pb2 import FeatureSpecV2 as FieldProto
@@ -64,10 +64,13 @@ class Field(BaseModel):
         TO-DO: Investigate whether FeastType can be refactored to a json compatible
         format.
         """
-        if not isinstance(v, FeastType):  # type: ignore
-            if isinstance(v, str):
+        try:
+            check_type('v', v, FeastType)  # type: ignore
+        except TypeError:
+            try:
+                check_type('v', v, str)
                 return from_string(v)
-            else:
+            except TypeError:
                 raise TypeError("dtype must be of type FeastType")
         return v
 
