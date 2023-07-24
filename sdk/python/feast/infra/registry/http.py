@@ -130,7 +130,7 @@ class HttpRegistry(BaseRegistry):
         self,
         name: str,
         project: str,
-        allow_cache: bool = False,
+        allow_cache: bool = True,
     ) -> Entity:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -139,7 +139,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/entities/{name}"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             return EntityModel.parse_obj(response_data).to_entity()
         except EntityNotFoundException as exception:
@@ -150,7 +150,11 @@ class HttpRegistry(BaseRegistry):
         except Exception as exception:
             self._handle_exception(exception)
 
-    def list_entities(self, project: str, allow_cache: bool = False) -> List[Entity]:  # type: ignore[return]
+    def list_entities(  # type: ignore[return]
+        self,
+        project: str,
+        allow_cache: bool = True,
+    ) -> List[Entity]:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
             return proto_registry_utils.list_entities(
@@ -158,7 +162,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/entities"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             response_list = response_data if isinstance(response_data, list) else []
             return [
@@ -206,7 +210,7 @@ class HttpRegistry(BaseRegistry):
         self,
         name: str,
         project: str,
-        allow_cache: bool = False,
+        allow_cache: bool = True,
     ) -> DataSource:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -215,7 +219,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/data_sources/{name}"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             if "model_type" in response_data:
                 if response_data["model_type"] == "RequestSourceModel":
@@ -234,7 +238,9 @@ class HttpRegistry(BaseRegistry):
             self._handle_exception(exception)
 
     def list_data_sources(  # type: ignore[return]
-        self, project: str, allow_cache: bool = False
+        self,
+        project: str,
+        allow_cache: bool = True,
     ) -> List[DataSource]:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -243,7 +249,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/data_sources"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             response_list = response_data if isinstance(response_data, list) else []
             data_source_list = []
@@ -290,7 +296,10 @@ class HttpRegistry(BaseRegistry):
             self._handle_exception(exception)
 
     def get_feature_service(  # type: ignore[return]
-        self, name: str, project: str, allow_cache: bool = False
+        self,
+        name: str,
+        project: str,
+        allow_cache: bool = True,
     ) -> FeatureService:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -299,7 +308,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/feature_services/{name}"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             return FeatureServiceModel.parse_obj(response_data).to_feature_service()
         except FeatureServiceNotFoundException as exception:
@@ -311,7 +320,7 @@ class HttpRegistry(BaseRegistry):
             self._handle_exception(exception)
 
     def list_feature_services(  # type: ignore[return]
-        self, project: str, allow_cache: bool = False
+        self, project: str, allow_cache: bool = True
     ) -> List[FeatureService]:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -320,7 +329,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/feature_services"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             response_list = response_data if isinstance(response_data, list) else []
             return [
@@ -373,7 +382,7 @@ class HttpRegistry(BaseRegistry):
         self,
         name: str,
         project: str,
-        allow_cache: bool = False,
+        allow_cache: bool = True,
     ) -> FeatureView:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -382,7 +391,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/feature_views/{name}"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             return FeatureViewModel.parse_obj(response_data).to_feature_view()
         except FeatureViewNotFoundException as exception:
@@ -394,7 +403,7 @@ class HttpRegistry(BaseRegistry):
             self._handle_exception(exception)
 
     def list_feature_views(  # type: ignore[return]
-        self, project: str, allow_cache: bool = False
+        self, project: str, allow_cache: bool = True
     ) -> List[FeatureView]:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -403,7 +412,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/feature_views"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             response_list = response_data if isinstance(response_data, list) else []
             return [
@@ -414,7 +423,7 @@ class HttpRegistry(BaseRegistry):
             self._handle_exception(exception)
 
     def get_on_demand_feature_view(  # type: ignore[return]
-        self, name: str, project: str, allow_cache: bool = False
+        self, name: str, project: str, allow_cache: bool = True
     ) -> OnDemandFeatureView:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -423,7 +432,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/on_demand_feature_views/{name}"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             return OnDemandFeatureViewModel.parse_obj(response_data).to_feature_view()
         except FeatureViewNotFoundException as exception:
@@ -435,7 +444,7 @@ class HttpRegistry(BaseRegistry):
             self._handle_exception(exception)
 
     def list_on_demand_feature_views(  # type: ignore[return]
-        self, project: str, allow_cache: bool = False
+        self, project: str, allow_cache: bool = True
     ) -> List[OnDemandFeatureView]:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -444,7 +453,7 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}/on_demand_feature_views"
-            params = {"allow_cache": allow_cache}
+            params = {"allow_cache": False}
             response_data = self._send_request("GET", url, params=params)
             response_list = response_data if isinstance(response_data, list) else []
             return [
@@ -455,21 +464,32 @@ class HttpRegistry(BaseRegistry):
             self._handle_exception(exception)
 
     def get_stream_feature_view(
-        self, name: str, project: str, allow_cache: bool = False
+        self,
+        name: str,
+        project: str,
+        allow_cache: bool = True,
     ):
         raise NotImplementedError("Method not implemented")
 
     def list_stream_feature_views(
-        self, project: str, allow_cache: bool = False
+        self,
+        project: str,
+        allow_cache: bool = True,
     ) -> List[StreamFeatureView]:
         # TODO: Implement listing Stream Feature Views
         return []
 
-    def get_request_feature_view(self, name: str, project: str) -> RequestFeatureView:
+    def get_request_feature_view(
+        self,
+        name: str,
+        project: str,
+    ) -> RequestFeatureView:
         raise NotImplementedError("Method not implemented")
 
     def list_request_feature_views(
-        self, project: str, allow_cache: bool = False
+        self,
+        project: str,
+        allow_cache: bool = True,
     ) -> List[RequestFeatureView]:
         # TODO: Implement listing Request Feature Views
         return []
@@ -503,12 +523,17 @@ class HttpRegistry(BaseRegistry):
         raise NotImplementedError("Method not implemented")
 
     def get_saved_dataset(
-        self, name: str, project: str, allow_cache: bool = False
+        self,
+        name: str,
+        project: str,
+        allow_cache: bool = True,
     ) -> SavedDataset:
         raise NotImplementedError("Method not implemented")
 
     def list_saved_datasets(
-        self, project: str, allow_cache: bool = False
+        self,
+        project: str,
+        allow_cache: bool = True,
     ) -> List[SavedDataset]:
         pass
 
@@ -524,14 +549,21 @@ class HttpRegistry(BaseRegistry):
         raise NotImplementedError("Method not implemented")
 
     def get_validation_reference(
-        self, name: str, project: str, allow_cache: bool = False
+        self,
+        name: str,
+        project: str,
+        allow_cache: bool = True,
     ) -> ValidationReference:
         raise NotImplementedError("Method not implemented")
 
     def update_infra(self, infra: Infra, project: str, commit: bool = True):
         raise NotImplementedError("Method not implemented")
 
-    def get_infra(self, project: str, allow_cache: bool = False) -> Infra:
+    def get_infra(
+        self,
+        project: str,
+        allow_cache: bool = True,
+    ) -> Infra:
         # TODO: Need to implement this when necessary
         return Infra()
 
@@ -549,7 +581,9 @@ class HttpRegistry(BaseRegistry):
         raise NotImplementedError("Method not implemented")
 
     def list_validation_references(
-        self, project: str, allow_cache: bool = False
+        self,
+        project: str,
+        allow_cache: bool = True,
     ) -> List[ValidationReference]:
         pass
 
@@ -570,7 +604,7 @@ class HttpRegistry(BaseRegistry):
                 (self.list_validation_references, r.validation_references),
                 (self.list_project_metadata, r.project_metadata),
             ]:
-                objs: List[Any] = lister(project)  # type: ignore
+                objs: List[Any] = lister(project, False)  # type: ignore
                 if objs:
                     obj_protos = [obj.to_proto() for obj in objs]
                     for obj_proto in obj_protos:
@@ -648,7 +682,7 @@ class HttpRegistry(BaseRegistry):
             self._handle_exception(exception)
 
     def list_project_metadata(  # type: ignore[return]
-        self, project: str, allow_cache: bool = False
+        self, project: str, allow_cache: bool = True
     ) -> List[ProjectMetadata]:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
