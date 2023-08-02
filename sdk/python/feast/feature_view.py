@@ -40,7 +40,7 @@ from feast.types import from_value_type
 from feast.usage import log_exceptions
 from feast.value_type import ValueType
 
-warnings.simplefilter("once", DeprecationWarning)
+warnings.simplefilter("ignore", DeprecationWarning)
 
 # DUMMY_ENTITY is a placeholder entity used in entityless FeatureViews
 DUMMY_ENTITY_ID = "__dummy_id"
@@ -172,9 +172,7 @@ class FeatureView(BaseFeatureView):
 
         # Ensure that entities have unique join keys.
         if len(set(join_keys)) < len(join_keys):
-            raise ValueError(
-                "A feature view should not have entities that share a join key."
-            )
+            raise ValueError("A feature view should not have entities that share a join key.")
 
         for field in schema:
             if field.name in join_keys:
@@ -182,9 +180,7 @@ class FeatureView(BaseFeatureView):
 
                 # Confirm that the inferred type matches the specified entity type, if it exists.
                 matching_entities = (
-                    [e for e in entities if e.join_key == field.name]
-                    if entities
-                    else []
+                    [e for e in entities if e.join_key == field.name] if entities else []
                 )
                 assert len(matching_entities) == 1
                 entity = matching_entities[0]
@@ -241,9 +237,7 @@ class FeatureView(BaseFeatureView):
 
     def __eq__(self, other):
         if not isinstance(other, FeatureView):
-            raise TypeError(
-                "Comparisons should only involve FeatureView class objects."
-            )
+            raise TypeError("Comparisons should only involve FeatureView class objects.")
 
         if not super().__eq__(other):
             return False
@@ -258,15 +252,11 @@ class FeatureView(BaseFeatureView):
         ):
             return False
 
-        if isinstance(self.original_entities, List) and isinstance(
-            other.original_entities, List
-        ):
+        if isinstance(self.original_entities, List) and isinstance(other.original_entities, List):
             if len(self.original_entities) != len(other.original_entities):
                 return False
 
-            for entity1, entity2 in zip(
-                self.original_entities, other.original_entities
-            ):
+            for entity1, entity2 in zip(self.original_entities, other.original_entities):
                 if entity1 != entity2:
                     return False
 
@@ -343,7 +333,9 @@ class FeatureView(BaseFeatureView):
         ttl_duration = self.get_ttl_duration()
 
         batch_source_proto = self.batch_source.to_proto()
-        batch_source_proto.data_source_class_type = f"{self.batch_source.__class__.__module__}.{self.batch_source.__class__.__name__}"
+        batch_source_proto.data_source_class_type = (
+            f"{self.batch_source.__class__.__module__}.{self.batch_source.__class__.__name__}"
+        )
 
         stream_source_proto = None
         if self.stream_source:
@@ -427,19 +419,16 @@ class FeatureView(BaseFeatureView):
         # This avoids the deprecation warning.
         feature_view.entities = list(feature_view_proto.spec.entities)
         feature_view.original_entities = [
-            Entity.from_proto(entity)
-            for entity in feature_view_proto.spec.original_entities
+            Entity.from_proto(entity) for entity in feature_view_proto.spec.original_entities
         ]
 
         # Instead of passing in a schema, we set the features and entity columns.
         feature_view.features = [
-            Field.from_proto(field_proto)
-            for field_proto in feature_view_proto.spec.features
+            Field.from_proto(field_proto) for field_proto in feature_view_proto.spec.features
         ]
 
         feature_view.entity_columns = [
-            Field.from_proto(field_proto)
-            for field_proto in feature_view_proto.spec.entity_columns
+            Field.from_proto(field_proto) for field_proto in feature_view_proto.spec.entity_columns
         ]
         if len(feature_view.entities) != len(feature_view.entity_columns):
             warnings.warn(
@@ -447,18 +436,14 @@ class FeatureView(BaseFeatureView):
                 f"Entities: {feature_view.entities} vs Entity Columns: {feature_view.entity_columns}"
             )
 
-        feature_view.original_schema = (
-            feature_view.entity_columns + feature_view.features
-        )
+        feature_view.original_schema = feature_view.entity_columns + feature_view.features
 
         # FeatureViewProjections are not saved in the FeatureView proto.
         # Create the default projection.
         feature_view.projection = FeatureViewProjection.from_definition(feature_view)
 
         if feature_view_proto.meta.HasField("created_timestamp"):
-            feature_view.created_timestamp = (
-                feature_view_proto.meta.created_timestamp.ToDatetime()
-            )
+            feature_view.created_timestamp = feature_view_proto.meta.created_timestamp.ToDatetime()
         if feature_view_proto.meta.HasField("last_updated_timestamp"):
             feature_view.last_updated_timestamp = (
                 feature_view_proto.meta.last_updated_timestamp.ToDatetime()
