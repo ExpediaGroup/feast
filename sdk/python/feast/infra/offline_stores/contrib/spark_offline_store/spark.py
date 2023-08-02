@@ -69,7 +69,9 @@ class SparkOfflineStore(OfflineStore):
         start_date: datetime,
         end_date: datetime,
     ) -> RetrievalJob:
-        spark_session = get_spark_session_or_start_new_with_repoconfig(config.offline_store)
+        spark_session = get_spark_session_or_start_new_with_repoconfig(
+            config.offline_store
+        )
         assert isinstance(config.offline_store, SparkOfflineStoreConfig)
         assert isinstance(data_source, SparkSource)
 
@@ -85,7 +87,9 @@ class SparkOfflineStore(OfflineStore):
 
         partition_by_join_key_string = ", ".join(join_key_columns)
         if partition_by_join_key_string != "":
-            partition_by_join_key_string = "PARTITION BY " + partition_by_join_key_string
+            partition_by_join_key_string = (
+                "PARTITION BY " + partition_by_join_key_string
+            )
         timestamps = [timestamp_field]
         if created_timestamp_column:
             timestamps.append(created_timestamp_column)
@@ -242,9 +246,9 @@ class SparkOfflineStore(OfflineStore):
                 # cast columns if applicable
                 df_batch = _cast_data_frame(df_batch, df_existing)
 
-                df_batch.write.format(feature_view.batch_source.file_format).mode("append").save(
-                    feature_view.batch_source.path
-                )
+                df_batch.write.format(feature_view.batch_source.file_format).mode(
+                    "append"
+                ).save(feature_view.batch_source.path)
         elif feature_view.batch_source.query:
             raise NotImplementedError(
                 "offline_write_batch not implemented for batch sources specified by query"
@@ -371,14 +375,18 @@ class SparkRetrievalJob(RetrievalJob):
                 )
 
                 # write to staging location
-                output_uri = os.path.join(str(local_file_staging_location), str(uuid.uuid4()))
+                output_uri = os.path.join(
+                    str(local_file_staging_location), str(uuid.uuid4())
+                )
                 sdf.write.parquet(output_uri)
 
                 return _list_files_in_folder(output_uri)
             elif self._config.offline_store.staging_location.startswith("s3://"):
 
                 spark_compatible_s3_staging_location = (
-                    self._config.offline_store.staging_location.replace("s3://", "s3a://")
+                    self._config.offline_store.staging_location.replace(
+                        "s3://", "s3a://"
+                    )
                 )
 
                 # write to staging location
@@ -387,7 +395,9 @@ class SparkRetrievalJob(RetrievalJob):
                 )
                 sdf.write.parquet(output_uri)
 
-                return aws_utils.list_s3_files(self._config.offline_store.region, output_uri)
+                return aws_utils.list_s3_files(
+                    self._config.offline_store.region, output_uri
+                )
 
             else:
                 raise NotImplementedError(
@@ -429,9 +439,13 @@ def _get_entity_df_event_timestamp_range(
     spark_session: SparkSession,
 ) -> Tuple[datetime, datetime]:
     if isinstance(entity_df, pd.DataFrame):
-        entity_df_event_timestamp = entity_df.loc[:, entity_df_event_timestamp_col].infer_objects()
+        entity_df_event_timestamp = entity_df.loc[
+            :, entity_df_event_timestamp_col
+        ].infer_objects()
         if pd.api.types.is_string_dtype(entity_df_event_timestamp):
-            entity_df_event_timestamp = pd.to_datetime(entity_df_event_timestamp, utc=True)
+            entity_df_event_timestamp = pd.to_datetime(
+                entity_df_event_timestamp, utc=True
+            )
         entity_df_event_timestamp_range = (
             entity_df_event_timestamp.min().to_pydatetime(),
             entity_df_event_timestamp.max().to_pydatetime(),
@@ -481,7 +495,9 @@ def _upload_entity_df(
     event_timestamp_col: str,
 ) -> None:
     if isinstance(entity_df, pd.DataFrame):
-        entity_df[event_timestamp_col] = pd.to_datetime(entity_df[event_timestamp_col], utc=True)
+        entity_df[event_timestamp_col] = pd.to_datetime(
+            entity_df[event_timestamp_col], utc=True
+        )
         spark_session.createDataFrame(entity_df).createOrReplaceTempView(table_name)
         return
     elif isinstance(entity_df, str):

@@ -118,7 +118,9 @@ class AwsProvider(PassthroughProvider):
         if not self.repo_config.repo_path:
             raise RepoConfigPathDoesNotExist()
 
-        with open(utils.get_default_yaml_file_path(self.repo_config.repo_path), "rb") as f:
+        with open(
+            utils.get_default_yaml_file_path(self.repo_config.repo_path), "rb"
+        ) as f:
             config_bytes = f.read()
             config_base64 = base64.b64encode(config_bytes).decode()
 
@@ -132,7 +134,9 @@ class AwsProvider(PassthroughProvider):
         if function is None:
             # If the Lambda function does not exist, create it.
             _logger.info("  Creating AWS Lambda...")
-            assert isinstance(self.repo_config.feature_server, AwsLambdaFeatureServerConfig)
+            assert isinstance(
+                self.repo_config.feature_server, AwsLambdaFeatureServerConfig
+            )
             lambda_client.create_function(
                 FunctionName=resource_name,
                 Role=self.repo_config.feature_server.execution_role_name,
@@ -208,7 +212,10 @@ class AwsProvider(PassthroughProvider):
     ) -> None:
         super(AwsProvider, self).teardown_infra(project, tables, entities)
 
-        if self.repo_config.feature_server is not None and self.repo_config.feature_server.enabled:
+        if (
+            self.repo_config.feature_server is not None
+            and self.repo_config.feature_server.enabled
+        ):
             _logger.info("Tearing down feature server...")
             resource_name = _get_lambda_name(project)
             lambda_client = boto3.client("lambda")

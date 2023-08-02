@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Make sure spark warning are ignored
 warnings.simplefilter("ignore", RuntimeWarning)
 
+
 class SparkSourceFormat(Enum):
     csv = "csv"
     json = "json"
@@ -151,7 +152,9 @@ class SparkSource(DataSource):
     def source_datatype_to_feast_value_type() -> Callable[[str], ValueType]:
         return spark_to_feast_value_type
 
-    def get_table_column_names_and_types(self, config: RepoConfig) -> Iterable[Tuple[str, str]]:
+    def get_table_column_names_and_types(
+        self, config: RepoConfig
+    ) -> Iterable[Tuple[str, str]]:
         from feast.infra.offline_stores.contrib.spark_offline_store.spark import (
             get_spark_session_or_start_new_with_repoconfig,
         )
@@ -178,7 +181,9 @@ class SparkSource(DataSource):
         try:
             df = spark_session.read.format(self.file_format).load(self.path)
         except Exception:
-            logger.exception("Spark read of file source failed.\n" + traceback.format_exc())
+            logger.exception(
+                "Spark read of file source failed.\n" + traceback.format_exc()
+            )
         tmp_table_name = "feast_entity_df_" + uuid.uuid4().hex
         df.createOrReplaceTempView(tmp_table_name)
 
@@ -198,12 +203,18 @@ class SparkOptions:
         # Check that only one of the ways to load a spark dataframe can be used. We have
         # to treat empty string and null the same due to proto (de)serialization.
         if sum([(not (not arg)) for arg in [table, query, path]]) != 1:
-            raise ValueError("Exactly one of params(table, query, path) must be specified.")
+            raise ValueError(
+                "Exactly one of params(table, query, path) must be specified."
+            )
         if path:
             if not file_format:
-                raise ValueError("If 'path' is specified, then 'file_format' is required.")
+                raise ValueError(
+                    "If 'path' is specified, then 'file_format' is required."
+                )
             if file_format not in self.allowed_formats:
-                raise ValueError(f"'file_format' should be one of {self.allowed_formats}")
+                raise ValueError(
+                    f"'file_format' should be one of {self.allowed_formats}"
+                )
 
         self._table = table
         self._query = query
