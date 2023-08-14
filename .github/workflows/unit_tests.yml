@@ -20,17 +20,7 @@ jobs:
       OS: ${{ matrix.os }}
       PYTHON: ${{ matrix.python-version }}
     steps:
-      - name: Increase swapfile
-        # Increase ubuntu's swapfile to avoid running out of resources which causes the action to terminate
-        if: startsWith(matrix.os, 'ubuntu')
-        run: |
-          sudo swapoff -a
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          sudo swapon --show
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Setup Python
         id: setup-python
         uses: actions/setup-python@v2
@@ -128,7 +118,7 @@ jobs:
     env:
       NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - uses: actions/setup-node@v2
         with:
           node-version: "17.x"
