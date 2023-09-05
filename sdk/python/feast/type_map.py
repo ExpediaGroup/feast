@@ -900,7 +900,18 @@ def feast_value_type_to_pa(
 
 
 def pg_type_code_to_pg_type(code: int) -> str:
-    return {
+    """Map the postgres type code a Feast type string
+
+    Rather than raise an exception on an unknown type, we return the
+    string representation of the type code. This way rather than raising
+    an exception on unknown types, Feast will just skip the problem columns.
+
+    Note that json and jsonb are not supported but this shows up in the
+    log as a warning. Since postgres allows custom types we return an unknown for those cases.
+
+    See: https://jdbc.postgresql.org/documentation/publicapi/index.html?constant-values.html
+    """
+    PG_TYPE_MAP = {
         16: "boolean",
         17: "bytea",
         20: "bigint",
@@ -932,7 +943,9 @@ def pg_type_code_to_pg_type(code: int) -> str:
         1700: "numeric",
         2950: "uuid",
         2951: "uuid[]",
-    }[code]
+    }
+
+    return PG_TYPE_MAP.get(code, "unknown")
 
 
 def pg_type_code_to_arrow(code: int) -> str:
