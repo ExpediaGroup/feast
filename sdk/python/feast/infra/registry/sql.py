@@ -910,7 +910,7 @@ class SqlRegistry(BaseRegistry):
         if self.project is None:
             projects = self._get_all_projects()
         else:
-            projects = [self.project]
+            projects = set([self.project])
 
         # Use a ThreadPoolExecutor to process projects concurrently
         with concurrent.futures.ThreadPoolExecutor(
