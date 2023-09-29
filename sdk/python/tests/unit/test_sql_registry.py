@@ -117,6 +117,7 @@ def sqlite_registry():
         registry_type="sql",
         path="sqlite://",
     )
+    print("Initializing SQL Registry for SQlite..")
 
     yield SqlRegistry(registry_config, "project", None)
 
@@ -574,7 +575,10 @@ def test_apply_data_source(sql_registry):
     [
         lazy_fixture("mysql_registry"),
         lazy_fixture("pg_registry"),
-        lazy_fixture("sqlite_registry"),
+        # SQLite is not designed for a high level of write concurrency. The database
+        # itself, being a file, is locked completely during write operations within
+        # transactions, meaning exactly one “connection”
+        # lazy_fixture("sqlite_registry"),
     ],
 )
 def test_registry_cache(sql_registry):
@@ -631,6 +635,8 @@ def test_registry_cache(sql_registry):
     assert registry_feature_view.batch_source == batch_source
     registry_data_source = registry_data_sources_cached[0]
     assert registry_data_source == batch_source
+
+    sql_registry.close()
 
     sql_registry.teardown()
 
