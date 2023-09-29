@@ -187,6 +187,9 @@ feast_metadata = Table(
 
 logger = logging.getLogger(__name__)
 
+CACHE_REFRESH_THRESHOLD_SECONDS = 300
+MAX_WORKERS = 5
+
 
 class SqlRegistryConfig(RegistryConfig):
     registry_type: StrictStr = "sql"
@@ -236,6 +239,9 @@ class SqlRegistry(BaseRegistry):
         self.stop_thread = True
         self.refresh_cache_thread.join()
 
+    def __del__(self):
+        self.close()
+
     def teardown(self):
         for t in {
             entities,
@@ -250,6 +256,8 @@ class SqlRegistry(BaseRegistry):
             with self.engine.connect() as conn:
                 stmt = delete(t)
                 conn.execute(stmt)
+
+        self.close()
 
     def refresh(self, project: Optional[str] = None):
         if project:
@@ -287,7 +295,6 @@ class SqlRegistry(BaseRegistry):
                 self.refresh()
 
     def _check_if_registry_refreshed(self):
-        CACHE_REFRESH_THRESHOLD_SECONDS = 300
         if (
             self.cached_registry_proto is None
             or self.cached_registry_proto_created is None
@@ -914,7 +921,7 @@ class SqlRegistry(BaseRegistry):
 
         # Use a ThreadPoolExecutor to process projects concurrently
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=5
+            max_workers=MAX_WORKERS
         ) as executor:  # Adjust max_workers as needed
             executor.map(process_project, projects)
 
