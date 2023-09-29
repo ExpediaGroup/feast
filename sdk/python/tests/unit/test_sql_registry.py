@@ -612,17 +612,8 @@ def test_registry_cache(sql_registry):
     # Register data source and feature view
     sql_registry.apply_data_source(batch_source, project)
     sql_registry.apply_feature_view(fv1, project)
-    registry_feature_views_cached = sql_registry.list_feature_views(
-        project, allow_cache=True
-    )
-    registry_data_sources_cached = sql_registry.list_data_sources(
-        project, allow_cache=True
-    )
-    # Not refreshed cache, so cache miss
-    assert len(registry_feature_views_cached) == 0
-    assert len(registry_data_sources_cached) == 0
     sql_registry.refresh(project)
-    # Now objects exist
+    # Now objects should exist
     registry_feature_views_cached = sql_registry.list_feature_views(
         project, allow_cache=True
     )

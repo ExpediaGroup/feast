@@ -102,9 +102,7 @@ class HttpRegistry(BaseRegistry):
         except Exception as exception:
             self._handle_exception(exception)
 
-    def apply_project(
-        self, entity: Entity, project: str, commit: bool = True
-    ) -> ProjectMetadataModel:
+    def apply_project(self, project: str, commit: bool = True) -> ProjectMetadataModel:
         try:
             url = f"{self.base_url}/projects"
             params = {"project": project, "commit": commit}
