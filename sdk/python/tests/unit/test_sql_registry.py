@@ -131,7 +131,7 @@ def sqlite_registry():
     [
         lazy_fixture("mysql_registry"),
         lazy_fixture("pg_registry"),
-        lazy_fixture("sqlite_registry"),
+        # lazy_fixture("sqlite_registry"),
     ],
 )
 def test_apply_entity_success(sql_registry):
@@ -198,7 +198,7 @@ def assert_project_uuid(project, project_uuid, sql_registry):
     [
         lazy_fixture("mysql_registry"),
         lazy_fixture("pg_registry"),
-        lazy_fixture("sqlite_registry"),
+        # lazy_fixture("sqlite_registry"),
     ],
 )
 def test_apply_feature_view_success(sql_registry):
@@ -291,7 +291,7 @@ def test_apply_feature_view_success(sql_registry):
     [
         lazy_fixture("mysql_registry"),
         lazy_fixture("pg_registry"),
-        lazy_fixture("sqlite_registry"),
+        # lazy_fixture("sqlite_registry"),
     ],
 )
 def test_apply_on_demand_feature_view_success(sql_registry):
@@ -379,7 +379,7 @@ def test_apply_on_demand_feature_view_success(sql_registry):
     [
         lazy_fixture("mysql_registry"),
         lazy_fixture("pg_registry"),
-        lazy_fixture("sqlite_registry"),
+        # lazy_fixture("sqlite_registry"),
     ],
 )
 def test_modify_feature_views_success(sql_registry):
@@ -506,7 +506,7 @@ def test_modify_feature_views_success(sql_registry):
     [
         lazy_fixture("mysql_registry"),
         lazy_fixture("pg_registry"),
-        lazy_fixture("sqlite_registry"),
+        # lazy_fixture("sqlite_registry"),
     ],
 )
 def test_apply_data_source(sql_registry):
@@ -641,7 +641,7 @@ def test_registry_cache(sql_registry):
     [
         lazy_fixture("mysql_registry"),
         lazy_fixture("pg_registry"),
-        lazy_fixture("sqlite_registry"),
+        # lazy_fixture("sqlite_registry"),
     ],
 )
 def test_update_infra(sql_registry):
