@@ -133,7 +133,7 @@ func CallTransformations(
 		if e := recover(); e != nil {
 			ret = -1
 			log.Printf("panic recovered: %v\n", e)
-			fmt.Errorf("python transformation callback error: %v", e)
+			err = fmt.Errorf("python transformation callback error: %v", e)
 		}
 	}()
 
