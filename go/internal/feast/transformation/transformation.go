@@ -3,6 +3,7 @@ package transformation
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"unsafe"
 
@@ -127,12 +128,11 @@ func CallTransformations(
 	cdata.ExportArrowRecordBatch(inputRecord, &inputArr, &inputSchema)
 
 	// Recover from a panic from FFI so the server doesn't crash
-	var err error
 	ret := callback(featureView.Base.Name, inputArrPtr, inputSchemaPtr, outArrPtr, outSchemaPtr, fullFeatureNames)
 	defer func() {
 		if e := recover(); e != nil {
 			ret = -1
-			err = e.(error)
+			log.Printf("Execption in python transform callback: %s\n", e.(error).Error())
 		}
 	}()
 

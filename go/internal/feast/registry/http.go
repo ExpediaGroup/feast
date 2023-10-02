@@ -12,7 +12,6 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/core"
 )
 
-const BUFFER_SIZE = 8192 // Adjust buffer size as needed
 
 type HttpRegistryStore struct {
 	project  string
@@ -93,23 +92,13 @@ func (r *HttpRegistryStore) loadProtobufMessages(url string, messageProcessor fu
 	}
 	defer resp.Body.Close()
 
-	buffer := make([]byte, BUFFER_SIZE)
+	buffer, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
 
-	for {
-		n, err := resp.Body.Read(buffer)
-		if err != nil && err != io.EOF {
-			return err
-		}
-
-		if n > 0 {
-			if err := messageProcessor(buffer[:n]); err != nil {
+	if err := messageProcessor(buffer); err != nil {
 				return err
-			}
-		}
-
-		if err == io.EOF {
-			break
-		}
 	}
 
 	return nil
