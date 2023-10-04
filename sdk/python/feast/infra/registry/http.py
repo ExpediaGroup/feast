@@ -626,7 +626,7 @@ class HttpRegistry(BaseRegistry):
 
     def proto(self, allow_cache: bool = True) -> RegistryProto:
         r = RegistryProto()
-        last_updated_timestamps = []
+        # last_updated_timestamps = []
         if self.project is None:
             projects = self._get_all_projects()
         else:
@@ -658,10 +658,11 @@ class HttpRegistry(BaseRegistry):
             # This is suuuper jank. Because of https://github.com/feast-dev/feast/issues/2783,
             # the registry proto only has a single infra field, which we're currently setting as the "last" project.
             r.infra.CopyFrom(self.get_infra(project).to_proto())
-            last_updated_timestamps.append(self._get_last_updated_metadata(project))
+            # last_updated_timestamps.append(self._get_last_updated_metadata(project))
 
-        if last_updated_timestamps:
-            r.last_updated.FromDatetime(max(last_updated_timestamps))
+        # if last_updated_timestamps:
+        #     r.last_updated.FromDatetime(max(last_updated_timestamps))
+        r.last_updated.FromDatetime(datetime.utcnow())
 
         return r
 
@@ -754,7 +755,8 @@ class HttpRegistry(BaseRegistry):
             )
         try:
             url = f"{self.base_url}/projects/{project}"
-            response_data = self._send_request("GET", url)
+            params = {"allow_cache": False}
+            response_data = self._send_request("GET", url, params=params)
             return [ProjectMetadataModel.parse_obj(response_data).to_project_metadata()]
         except ProjectMetadataNotFoundException as exception:
             logger.error(
