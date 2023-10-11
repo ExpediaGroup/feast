@@ -288,7 +288,9 @@ class SqlRegistry(BaseRegistry):
             if project_metadata:
                 usage.set_current_project_uuid(project_metadata.project_uuid)
             else:
-                proto_registry_utils.init_project_metadata(self.cached_registry_proto, project)
+                proto_registry_utils.init_project_metadata(
+                    self.cached_registry_proto, project
+                )
         refreshed_cache_registry_proto = self.proto()
         with self._refresh_lock:
             self.cached_registry_proto = refreshed_cache_registry_proto
@@ -297,12 +299,17 @@ class SqlRegistry(BaseRegistry):
     def _refresh_cached_registry_if_necessary(self):
         with self._refresh_lock:
             expired = (
-                self.cached_registry_proto is None or self.cached_registry_proto_created is None
+                self.cached_registry_proto is None
+                or self.cached_registry_proto_created is None
             ) or (
-                self.cached_registry_proto_ttl.total_seconds() > 0  # 0 ttl means infinity
+                self.cached_registry_proto_ttl.total_seconds()
+                > 0  # 0 ttl means infinity
                 and (
                     datetime.utcnow()
-                    > (self.cached_registry_proto_created + self.cached_registry_proto_ttl)
+                    > (
+                        self.cached_registry_proto_created
+                        + self.cached_registry_proto_ttl
+                    )
                 )
             )
 
@@ -311,7 +318,10 @@ class SqlRegistry(BaseRegistry):
                 self.refresh()
 
     def _check_if_registry_refreshed(self):
-        if (self.cached_registry_proto is None or self.cached_registry_proto_created is None) or (
+        if (
+            self.cached_registry_proto is None
+            or self.cached_registry_proto_created is None
+        ) or (
             self.cached_registry_proto_ttl.total_seconds() > 0  # 0 ttl means infinity
             and (
                 datetime.utcnow()
@@ -326,7 +336,9 @@ class SqlRegistry(BaseRegistry):
                     f"Cache is stale: {seconds_since_last_refresh} seconds since last refresh"
                 )
 
-    def get_stream_feature_view(self, name: str, project: str, allow_cache: bool = False):
+    def get_stream_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ):
         if allow_cache:
             self._check_if_registry_refreshed()
             return proto_registry_utils.get_stream_feature_view(
@@ -375,7 +387,9 @@ class SqlRegistry(BaseRegistry):
     def get_entity(self, name: str, project: str, allow_cache: bool = False) -> Entity:
         if allow_cache:
             self._check_if_registry_refreshed()
-            return proto_registry_utils.get_entity(self.cached_registry_proto, name, project)
+            return proto_registry_utils.get_entity(
+                self.cached_registry_proto, name, project
+            )
         return self._get_object(
             table=entities,
             name=name,
@@ -387,10 +401,14 @@ class SqlRegistry(BaseRegistry):
             not_found_exception=EntityNotFoundException,
         )
 
-    def get_feature_view(self, name: str, project: str, allow_cache: bool = False) -> FeatureView:
+    def get_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> FeatureView:
         if allow_cache:
             self._check_if_registry_refreshed()
-            return proto_registry_utils.get_feature_view(self.cached_registry_proto, name, project)
+            return proto_registry_utils.get_feature_view(
+                self.cached_registry_proto, name, project
+            )
         return self._get_object(
             table=feature_views,
             name=name,
@@ -421,7 +439,9 @@ class SqlRegistry(BaseRegistry):
             not_found_exception=FeatureViewNotFoundException,
         )
 
-    def get_request_feature_view(self, name: str, project: str, allow_cache: bool = False):
+    def get_request_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ):
         if allow_cache:
             self._check_if_registry_refreshed()
             return proto_registry_utils.get_request_feature_view(
@@ -514,11 +534,17 @@ class SqlRegistry(BaseRegistry):
     def list_entities(self, project: str, allow_cache: bool = False) -> List[Entity]:
         if allow_cache:
             self._check_if_registry_refreshed()
-            return proto_registry_utils.list_entities(self.cached_registry_proto, project)
-        return self._list_objects(entities, project, EntityProto, Entity, "entity_proto")
+            return proto_registry_utils.list_entities(
+                self.cached_registry_proto, project
+            )
+        return self._list_objects(
+            entities, project, EntityProto, Entity, "entity_proto"
+        )
 
     def delete_entity(self, name: str, project: str, commit: bool = True):
-        return self._delete_object(entities, name, project, "entity_name", EntityNotFoundException)
+        return self._delete_object(
+            entities, name, project, "entity_name", EntityNotFoundException
+        )
 
     def delete_feature_view(self, name: str, project: str, commit: bool = True):
         deleted_count = 0
@@ -528,7 +554,9 @@ class SqlRegistry(BaseRegistry):
             on_demand_feature_views,
             stream_feature_views,
         }:
-            deleted_count += self._delete_object(table, name, project, "feature_view_name", None)
+            deleted_count += self._delete_object(
+                table, name, project, "feature_view_name", None
+            )
         if deleted_count == 0:
             raise FeatureViewNotFoundException(name, project)
 
@@ -541,10 +569,14 @@ class SqlRegistry(BaseRegistry):
             FeatureServiceNotFoundException,
         )
 
-    def get_data_source(self, name: str, project: str, allow_cache: bool = False) -> DataSource:
+    def get_data_source(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> DataSource:
         if allow_cache:
             self._check_if_registry_refreshed()
-            return proto_registry_utils.get_data_source(self.cached_registry_proto, name, project)
+            return proto_registry_utils.get_data_source(
+                self.cached_registry_proto, name, project
+            )
         return self._get_object(
             table=data_sources,
             name=name,
@@ -556,20 +588,28 @@ class SqlRegistry(BaseRegistry):
             not_found_exception=DataSourceObjectNotFoundException,
         )
 
-    def list_data_sources(self, project: str, allow_cache: bool = False) -> List[DataSource]:
+    def list_data_sources(
+        self, project: str, allow_cache: bool = False
+    ) -> List[DataSource]:
         if allow_cache:
             self._check_if_registry_refreshed()
-            return proto_registry_utils.list_data_sources(self.cached_registry_proto, project)
+            return proto_registry_utils.list_data_sources(
+                self.cached_registry_proto, project
+            )
         return self._list_objects(
             data_sources, project, DataSourceProto, DataSource, "data_source_proto"
         )
 
-    def apply_data_source(self, data_source: DataSource, project: str, commit: bool = True):
+    def apply_data_source(
+        self, data_source: DataSource, project: str, commit: bool = True
+    ):
         return self._apply_object(
             data_sources, project, "data_source_name", data_source, "data_source_proto"
         )
 
-    def apply_feature_view(self, feature_view: BaseFeatureView, project: str, commit: bool = True):
+    def apply_feature_view(
+        self, feature_view: BaseFeatureView, project: str, commit: bool = True
+    ):
         fv_table = self._infer_fv_table(feature_view)
 
         return self._apply_object(
@@ -602,7 +642,9 @@ class SqlRegistry(BaseRegistry):
     ) -> List[FeatureService]:
         if allow_cache:
             self._check_if_registry_refreshed()
-            return proto_registry_utils.list_feature_services(self.cached_registry_proto, project)
+            return proto_registry_utils.list_feature_services(
+                self.cached_registry_proto, project
+            )
         return self._list_objects(
             feature_services,
             project,
@@ -611,18 +653,26 @@ class SqlRegistry(BaseRegistry):
             "feature_service_proto",
         )
 
-    def list_feature_views(self, project: str, allow_cache: bool = False) -> List[FeatureView]:
+    def list_feature_views(
+        self, project: str, allow_cache: bool = False
+    ) -> List[FeatureView]:
         if allow_cache:
             self._check_if_registry_refreshed()
-            return proto_registry_utils.list_feature_views(self.cached_registry_proto, project)
+            return proto_registry_utils.list_feature_views(
+                self.cached_registry_proto, project
+            )
         return self._list_objects(
             feature_views, project, FeatureViewProto, FeatureView, "feature_view_proto"
         )
 
-    def list_saved_datasets(self, project: str, allow_cache: bool = False) -> List[SavedDataset]:
+    def list_saved_datasets(
+        self, project: str, allow_cache: bool = False
+    ) -> List[SavedDataset]:
         if allow_cache:
             self._check_if_registry_refreshed()
-            return proto_registry_utils.list_saved_datasets(self.cached_registry_proto, project)
+            return proto_registry_utils.list_saved_datasets(
+                self.cached_registry_proto, project
+            )
         return self._list_objects(
             saved_datasets,
             project,
@@ -668,7 +718,9 @@ class SqlRegistry(BaseRegistry):
     ) -> List[ProjectMetadata]:
         if allow_cache:
             self._check_if_registry_refreshed()
-            return proto_registry_utils.list_project_metadata(self.cached_registry_proto, project)
+            return proto_registry_utils.list_project_metadata(
+                self.cached_registry_proto, project
+            )
         with self.engine.connect() as conn:
             stmt = select(feast_metadata).where(
                 feast_metadata.c.project_id == project,
@@ -680,9 +732,12 @@ class SqlRegistry(BaseRegistry):
                     if row["metadata_key"] == FeastMetadataKeys.PROJECT_UUID.value:
                         project_metadata.project_uuid = row["metadata_value"]
 
-                    if row["metadata_key"] == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value:
-                        project_metadata.last_updated_timestamp = datetime.utcfromtimestamp(
-                            int(row["metadata_value"])
+                    if (
+                        row["metadata_key"]
+                        == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value
+                    ):
+                        project_metadata.last_updated_timestamp = (
+                            datetime.utcfromtimestamp(int(row["metadata_value"]))
                         )
 
                     # TODO(adchia): Add other project metadata in a structured way
@@ -743,7 +798,9 @@ class SqlRegistry(BaseRegistry):
             FeatureViewNotFoundException,
         )
         fv.materialization_intervals.append((start_date, end_date))
-        self._apply_object(table, project, "feature_view_name", fv, "feature_view_proto")
+        self._apply_object(
+            table, project, "feature_view_name", fv, "feature_view_proto"
+        )
 
     def delete_validation_reference(self, name: str, project: str, commit: bool = True):
         self._delete_object(
@@ -841,7 +898,9 @@ class SqlRegistry(BaseRegistry):
             raise ValueError(f"Unexpected feature view type: {type(feature_view)}")
         return python_class, proto_class
 
-    def get_user_metadata(self, project: str, feature_view: BaseFeatureView) -> Optional[bytes]:
+    def get_user_metadata(
+        self, project: str, feature_view: BaseFeatureView
+    ) -> Optional[bytes]:
         table = self._infer_fv_table(feature_view)
 
         name = feature_view.name
@@ -940,7 +999,10 @@ class SqlRegistry(BaseRegistry):
                 }
                 update_stmt = (
                     update(table)
-                    .where(getattr(table.c, id_field_name) == name, table.c.project_id == project)
+                    .where(
+                        getattr(table.c, id_field_name) == name,
+                        table.c.project_id == project,
+                    )
                     .values(
                         values,
                     )
@@ -949,7 +1011,9 @@ class SqlRegistry(BaseRegistry):
             else:
                 obj_proto = obj.to_proto()
 
-                if hasattr(obj_proto, "meta") and hasattr(obj_proto.meta, "created_timestamp"):
+                if hasattr(obj_proto, "meta") and hasattr(
+                    obj_proto.meta, "created_timestamp"
+                ):
                     obj_proto.meta.created_timestamp.FromDatetime(update_datetime)
 
                 values = {
@@ -1050,7 +1114,9 @@ class SqlRegistry(BaseRegistry):
             rows = conn.execute(stmt).all()
             if rows:
                 return [
-                    python_class.from_proto(proto_class.FromString(row[proto_field_name]))
+                    python_class.from_proto(
+                        proto_class.FromString(row[proto_field_name])
+                    )
                     for row in rows
                 ]
         return []
@@ -1058,7 +1124,8 @@ class SqlRegistry(BaseRegistry):
     def _set_last_updated_metadata(self, last_updated: datetime, project: str):
         with self.engine.connect() as conn:
             stmt = select(feast_metadata).where(
-                feast_metadata.c.metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
+                feast_metadata.c.metadata_key
+                == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
                 feast_metadata.c.project_id == project,
             )
             row = conn.execute(stmt).first()
@@ -1091,7 +1158,8 @@ class SqlRegistry(BaseRegistry):
     def _get_last_updated_metadata(self, project: str):
         with self.engine.connect() as conn:
             stmt = select(feast_metadata).where(
-                feast_metadata.c.metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
+                feast_metadata.c.metadata_key
+                == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
                 feast_metadata.c.project_id == project,
             )
             row = conn.execute(stmt).first()
@@ -1138,15 +1206,15 @@ class SqlRegistry(BaseRegistry):
                             project_name=project_id
                         )
 
-                    project_metadata_model: ProjectMetadataModel = project_metadata_model_dict[
-                        project_id
-                    ]
+                    project_metadata_model: ProjectMetadataModel = (
+                        project_metadata_model_dict[project_id]
+                    )
                     if metadata_key == FeastMetadataKeys.PROJECT_UUID.value:
                         project_metadata_model.project_uuid = metadata_value
 
                     if metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value:
-                        project_metadata_model.last_updated_timestamp = datetime.utcfromtimestamp(
-                            int(metadata_value)
+                        project_metadata_model.last_updated_timestamp = (
+                            datetime.utcfromtimestamp(int(metadata_value))
                         )
         return list(project_metadata_model_dict.values())
 
@@ -1169,7 +1237,9 @@ class SqlRegistry(BaseRegistry):
                     ProjectMetadata.from_proto(project_metadata_proto)
                 )
 
-        project_metadata_model: ProjectMetadataModel = ProjectMetadataModel(project_name=project)
+        project_metadata_model: ProjectMetadataModel = ProjectMetadataModel(
+            project_name=project
+        )
         with self.engine.connect() as conn:
             stmt = select(feast_metadata).where(
                 feast_metadata.c.project_id == project,
@@ -1184,7 +1254,7 @@ class SqlRegistry(BaseRegistry):
                         project_metadata_model.project_uuid = metadata_value
 
                     if metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value:
-                        project_metadata_model.last_updated_timestamp = datetime.utcfromtimestamp(
-                            int(metadata_value)
+                        project_metadata_model.last_updated_timestamp = (
+                            datetime.utcfromtimestamp(int(metadata_value))
                         )
         return project_metadata_model
