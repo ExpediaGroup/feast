@@ -78,6 +78,7 @@ def embedded_elasticsearch():
 class TestElasticsearchOnlineStore:
     index_to_write = "index_write"
     index_to_delete = "index_delete"
+    index_to_read = "index_read"
     unavailable_index = "abc"
 
     @pytest.fixture(autouse=True)
@@ -89,6 +90,8 @@ class TestElasticsearchOnlineStore:
                 es.indices.delete(index=self.index_to_delete)
             if es.indices.exists(index=self.index_to_write):
                 es.indices.delete(index=self.index_to_write)
+            if es.indices.exists(index=self.index_to_read):
+                es.indices.delete(index=self.index_to_read)
             if es.indices.exists(index=self.unavailable_index):
                 es.indices.delete(index=self.unavailable_index)
 
@@ -291,7 +294,8 @@ class TestElasticsearchOnlineStore:
             feature_view,
             data,
         ) = self._create_n_customer_test_samples_elasticsearch_online_read(
-            n=total_rows_to_write
+            name=self.index_to_write,
+            n=total_rows_to_write,
         )
         ElasticsearchOnlineStore().online_write_batch(
             config=repo_config.online_store,
@@ -303,10 +307,88 @@ class TestElasticsearchOnlineStore:
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             es.indices.refresh(index=self.index_to_write)
             res = es.cat.count(index=self.index_to_write, params={"format": "json"})
-            assert res[0]["count"] == "100"
+            assert res[0]["count"] == f"{total_rows_to_write}"
             doc = es.get(index=self.index_to_write, id="0")["_source"]["doc"]
             for feature in feature_view.schema:
                 assert feature.name in doc
+
+    def test_elasticsearch_online_read(self, repo_config, caplog):
+        n = 10
+        (
+            feature_view,
+            data,
+        ) = self._create_n_customer_test_samples_elasticsearch_online_read(
+            name=self.index_to_read, n=n
+        )
+        ids = [
+            EntityKeyProto(
+                join_keys=["id"], entity_values=[ValueProto(string_val=str(i))]
+            )
+            for i in range(n)
+        ]
+        store = ElasticsearchOnlineStore()
+        store.online_write_batch(
+            config=repo_config.online_store,
+            table=feature_view,
+            data=data,
+            progress=None,
+        )
+        with ElasticsearchConnectionManager(repo_config.online_store) as es:
+            es.indices.refresh(index=self.index_to_read)
+        result = store.online_read(
+            config=repo_config.online_store,
+            table=feature_view,
+            entity_keys=ids,
+        )
+
+        assert result is not None
+        assert len(result) == n
+        for dt, doc in result:
+            assert doc is not None
+            assert len(doc) == len(feature_view.schema)
+            for field in feature_view.schema:
+                assert field.name in doc
+
+    def test_elasticsearch_online_read_with_requested_features(
+        self, repo_config, caplog
+    ):
+        n = 10
+        requested_features = ["int", "vector", "id"]
+        (
+            feature_view,
+            data,
+        ) = self._create_n_customer_test_samples_elasticsearch_online_read(
+            name=self.index_to_read, n=n
+        )
+        ids = [
+            EntityKeyProto(
+                join_keys=["id"], entity_values=[ValueProto(string_val=str(i))]
+            )
+            for i in range(n)
+        ]
+        store = ElasticsearchOnlineStore()
+        store.online_write_batch(
+            config=repo_config.online_store,
+            table=feature_view,
+            data=data,
+            progress=None,
+        )
+        with ElasticsearchConnectionManager(repo_config.online_store) as es:
+            es.indices.refresh(index=self.index_to_read)
+        result = store.online_read(
+            config=repo_config.online_store,
+            table=feature_view,
+            entity_keys=ids,
+            requested_features=requested_features,
+        )
+
+        assert result is not None
+        assert len(result) == n
+        for dt, doc in result:
+            assert doc is not None
+            assert len(doc) == 3
+            for field in requested_features:
+                assert field in doc
 
     def _create_index_in_es(self, index_name, repo_config):
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
@@ -323,9 +405,9 @@ class TestElasticsearchOnlineStore:
             }
             es.indices.create(index=index_name, mappings=mapping)
 
-    def _create_n_customer_test_samples_elasticsearch_online_read(self, n=10):
+    def _create_n_customer_test_samples_elasticsearch_online_read(self, name, n=10):
         fv = FeatureView(
-            name=self.index_to_write,
+            name=name,
             source=SOURCE,
             entities=[Entity(name="id")],
             schema=[
