@@ -16,7 +16,7 @@ from feast.field import Field
 from feast.infra.offline_stores.file import FileOfflineStoreConfig
 from feast.infra.offline_stores.file_source import FileSource
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
-from feast.protos.feast.types.Value_pb2 import FloatList
+from feast.protos.feast.types.Value_pb2 import BytesList, FloatList
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import RepoConfig
 from feast.types import (
@@ -171,7 +171,7 @@ class TestElasticsearchOnlineStore:
                 "type": index_params["index_type"].lower(),
                 **index_params["index_params"],
             }
-            
+
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             created_index = es.indices.get(index=self.index_to_write)
             assert created_index.body[self.index_to_write]["mappings"] == mapping
@@ -314,7 +314,7 @@ class TestElasticsearchOnlineStore:
             es.indices.refresh(index=self.index_to_write)
             res = es.cat.count(index=self.index_to_write, params={"format": "json"})
             assert res[0]["count"] == f"{total_rows_to_write}"
-            doc = es.get(index=self.index_to_write, id="0")["_source"]["doc"]
+            doc = es.get(index=self.index_to_write, id="0")["_source"]
             for feature in feature_view.schema:
                 assert feature.name in doc
 
@@ -466,6 +466,10 @@ class TestElasticsearchOnlineStore:
                     name="timestamp",
                     dtype=UnixTimestamp,
                 ),
+                Field(
+                    name="byte_list",
+                    dtype=Array(Bytes),
+                ),
             ],
         )
         return fv, [
@@ -489,6 +493,9 @@ class TestElasticsearchOnlineStore:
                     "bool": ValueProto(bool_val=True),
                     "timestamp": ValueProto(
                         unix_timestamp_val=int(datetime.utcnow().timestamp() * 1000)
+                    ),
+                    "byte_list": ValueProto(
+                        bytes_list_val=BytesList(val=[b"a", b"b", b"c"])
                     ),
                 },
                 datetime.utcnow(),
