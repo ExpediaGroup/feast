@@ -171,6 +171,7 @@ class TestElasticsearchOnlineStore:
                 "type": index_params["index_type"].lower(),
                 **index_params["index_params"],
             }
+            
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             created_index = es.indices.get(index=self.index_to_write)
             assert created_index.body[self.index_to_write]["mappings"] == mapping
@@ -208,6 +209,7 @@ class TestElasticsearchOnlineStore:
             entities_to_keep=[],
             partial=False,
         )
+
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             assert es.indices.exists(index=self.index_to_write).body is True
 
@@ -229,6 +231,7 @@ class TestElasticsearchOnlineStore:
             ),
         ]
         self._create_index_in_es(self.index_to_delete, repo_config)
+
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             assert es.indices.exists(index=self.index_to_delete).body is True
 
@@ -247,6 +250,7 @@ class TestElasticsearchOnlineStore:
             entities_to_keep=[],
             partial=False,
         )
+
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             assert es.indices.exists(index=self.index_to_delete).body is False
 
@@ -267,6 +271,7 @@ class TestElasticsearchOnlineStore:
                 dtype=String,
             ),
         ]
+
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             assert es.indices.exists(index=self.index_to_delete).body is False
 
@@ -285,6 +290,7 @@ class TestElasticsearchOnlineStore:
             entities_to_keep=[],
             partial=False,
         )
+
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             assert es.indices.exists(index=self.index_to_delete).body is False
 
@@ -333,8 +339,10 @@ class TestElasticsearchOnlineStore:
             data=data,
             progress=None,
         )
+
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             es.indices.refresh(index=self.index_to_read)
+
         result = store.online_read(
             config=repo_config.online_store,
             table=feature_view,
@@ -373,8 +381,10 @@ class TestElasticsearchOnlineStore:
             data=data,
             progress=None,
         )
+
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
             es.indices.refresh(index=self.index_to_read)
+
         result = store.online_read(
             config=repo_config.online_store,
             table=feature_view,
