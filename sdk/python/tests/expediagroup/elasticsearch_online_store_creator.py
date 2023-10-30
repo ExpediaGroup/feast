@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class ElasticsearchOnlineCreator(OnlineStoreCreator):
+class ElasticsearchOnlineStoreCreator(OnlineStoreCreator):
     def __init__(self, project_name: str, es_port: int):
         super().__init__(project_name)
         self.elasticsearch_container = ElasticSearchContainer(
