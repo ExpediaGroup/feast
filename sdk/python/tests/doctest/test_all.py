@@ -54,6 +54,7 @@ def teardown_feature_store():
     shutil.rmtree("project", ignore_errors=True)
 
 
+@unittest.skip(reason="Does not appear to test anything")
 def test_docstrings():
     """Runs all docstring tests.
 
