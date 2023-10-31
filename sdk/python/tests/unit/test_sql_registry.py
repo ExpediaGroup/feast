@@ -61,7 +61,7 @@ def pg_registry():
     waited = wait_for_logs(
         container=container,
         predicate=log_string_to_wait_for,
-        timeout=30,
+        timeout=120,
         interval=10,
     )
     logger.info("Waited for %s seconds until postgres container was up", waited)
@@ -96,7 +96,7 @@ def mysql_registry():
     waited = wait_for_logs(
         container=container,
         predicate=log_string_to_wait_for,
-        timeout=60,
+        timeout=120,
         interval=10,
     )
     logger.info("Waited for %s seconds until mysql container was up", waited)

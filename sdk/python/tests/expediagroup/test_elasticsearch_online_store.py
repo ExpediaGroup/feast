@@ -31,7 +31,7 @@ from feast.types import (
     UnixTimestamp,
 )
 from tests.expediagroup.elasticsearch_online_store_creator import (
-    ElasticsearchOnlineCreator,
+    ElasticsearchOnlineStoreCreator,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -67,7 +67,7 @@ def repo_config(embedded_elasticsearch):
 
 @pytest.fixture(scope="session")
 def embedded_elasticsearch():
-    online_store_creator = ElasticsearchOnlineCreator(PROJECT, 9200)
+    online_store_creator = ElasticsearchOnlineStoreCreator(PROJECT, 9200)
     online_store_config = online_store_creator.create_online_store()
 
     yield online_store_config
