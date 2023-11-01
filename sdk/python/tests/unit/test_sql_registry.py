@@ -45,7 +45,7 @@ POSTGRES_DB = "test"
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def pg_registry():
     container = (
         DockerContainer("postgres:latest")
@@ -78,7 +78,7 @@ def pg_registry():
     container.stop()
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def mysql_registry():
     container = (
         DockerContainer("mysql:8.1.0")
