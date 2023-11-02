@@ -103,6 +103,6 @@ def test_feature_list(proto_json_patch):
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="class")
 def proto_json_patch():
     proto_json.patch()

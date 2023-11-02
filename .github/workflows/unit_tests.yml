@@ -25,7 +25,7 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo swapoff -a
-          sudo fallocate -l 15G /swapfile
+          sudo fallocate -l 20G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
@@ -89,8 +89,6 @@ jobs:
             brew install pkg-config
       - name: Install dependencies
         run: make install-python-ci-dependencies
-      - name: Docker login
-        uses: actions/docker-login-action@v2
       - name: Test Python
         run: pytest -n 8 --cov=./ --cov-report=xml --color=yes sdk/python/tests -o log_cli=true
 

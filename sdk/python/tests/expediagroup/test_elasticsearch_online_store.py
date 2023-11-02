@@ -48,7 +48,7 @@ index_param_list = [
 ]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="class")
 def repo_config(embedded_elasticsearch):
     return RepoConfig(
         registry=REGISTRY,
@@ -65,7 +65,7 @@ def repo_config(embedded_elasticsearch):
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="class")
 def embedded_elasticsearch():
     online_store_creator = ElasticsearchOnlineStoreCreator(PROJECT, 9200)
     online_store_config = online_store_creator.create_online_store()
