@@ -89,6 +89,8 @@ jobs:
             brew install pkg-config
       - name: Install dependencies
         run: make install-python-ci-dependencies
+      - name: Docker login
+        uses: actions/docker-login-action@v2
       - name: Test Python
         run: pytest -n 8 --cov=./ --cov-report=xml --color=yes sdk/python/tests -o log_cli=true
 
