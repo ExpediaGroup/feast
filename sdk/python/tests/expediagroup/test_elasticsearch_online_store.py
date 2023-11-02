@@ -318,45 +318,45 @@ class TestElasticsearchOnlineStore:
             for feature in feature_view.schema:
                 assert feature.name in doc
 
-    # def test_elasticsearch_online_read(self, repo_config, caplog):
-    #     n = 10
-    #     (
-    #         feature_view,
-    #         data,
-    #     ) = self._create_n_customer_test_samples_elasticsearch_online_read(
-    #         name=self.index_to_read, n=n
-    #     )
-    #     ids = [
-    #         EntityKeyProto(
-    #             join_keys=["id"], entity_values=[ValueProto(string_val=str(i))]
-    #         )
-    #         for i in range(n)
-    #     ]
-    #     store = ElasticsearchOnlineStore()
-    #     store.online_write_batch(
-    #         config=repo_config.online_store,
-    #         table=feature_view,
-    #         data=data,
-    #         progress=None,
-    #     )
-    #
-    #     with ElasticsearchConnectionManager(repo_config.online_store) as es:
-    #         es.indices.refresh(index=self.index_to_read)
-    #
-    #     result = store.online_read(
-    #         config=repo_config.online_store,
-    #         table=feature_view,
-    #         entity_keys=ids,
-    #     )
-    #
-    #     assert result is not None
-    #     assert len(result) == n
-    #     for dt, doc in result:
-    #         assert doc is not None
-    #         assert len(doc) == len(feature_view.schema)
-    #         for field in feature_view.schema:
-    #             assert field.name in doc
-    #
+    def test_elasticsearch_online_read(self, repo_config, caplog):
+        n = 10
+        (
+            feature_view,
+            data,
+        ) = self._create_n_customer_test_samples_elasticsearch_online_read(
+            name=self.index_to_read, n=n
+        )
+        ids = [
+            EntityKeyProto(
+                join_keys=["id"], entity_values=[ValueProto(string_val=str(i))]
+            )
+            for i in range(n)
+        ]
+        store = ElasticsearchOnlineStore()
+        store.online_write_batch(
+            config=repo_config.online_store,
+            table=feature_view,
+            data=data,
+            progress=None,
+        )
+
+        with ElasticsearchConnectionManager(repo_config.online_store) as es:
+            es.indices.refresh(index=self.index_to_read)
+
+        result = store.online_read(
+            config=repo_config.online_store,
+            table=feature_view,
+            entity_keys=ids,
+        )
+
+        assert result is not None
+        assert len(result) == n
+        for dt, doc in result:
+            assert doc is not None
+            assert len(doc) == len(feature_view.schema)
+            for field in feature_view.schema:
+                assert field.name in doc
+
     # def test_elasticsearch_online_read_with_requested_features(
     #     self, repo_config, caplog
     # ):
