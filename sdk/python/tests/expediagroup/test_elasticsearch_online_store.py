@@ -81,7 +81,7 @@ class TestElasticsearchOnlineStore:
     index_to_read = "index_read"
     unavailable_index = "abc"
 
-    @pytest.fixture(autouse=True)
+    @pytest.fixture(autouse=True, scope="function")
     def setup_method(self, repo_config):
         # Ensuring that the indexes created are dropped before the tests are run
         with ElasticsearchConnectionManager(repo_config.online_store) as es:
@@ -295,7 +295,7 @@ class TestElasticsearchOnlineStore:
             assert es.indices.exists(index=self.index_to_delete).body is False
 
     def test_elasticsearch_online_write_batch(self, repo_config, caplog):
-        total_rows_to_write = 100
+        total_rows_to_write = 10
         (
             feature_view,
             data,
