@@ -24,7 +24,9 @@ class ElasticsearchOnlineStoreCreator(OnlineStoreCreator):
         # Start the container
         self.elasticsearch_container.start()
         elasticsearch_host = self.elasticsearch_container.get_container_host_ip()
-        elasticsearch_http_port = self.elasticsearch_container.get_exposed_port(self.es_port)
+        elasticsearch_http_port = self.elasticsearch_container.get_exposed_port(
+            self.es_port
+        )
         return {
             "host": elasticsearch_host,
             "port": elasticsearch_http_port,
