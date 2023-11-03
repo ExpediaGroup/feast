@@ -45,7 +45,7 @@ POSTGRES_DB = "test"
 logger = logging.getLogger(__name__)
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="session")
 def pg_registry():
     container = (
         DockerContainer("postgres:latest")
@@ -61,7 +61,7 @@ def pg_registry():
     waited = wait_for_logs(
         container=container,
         predicate=log_string_to_wait_for,
-        timeout=120,
+        timeout=30,
         interval=10,
     )
     logger.info("Waited for %s seconds until postgres container was up", waited)
@@ -78,7 +78,7 @@ def pg_registry():
     container.stop()
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="session")
 def mysql_registry():
     container = (
         DockerContainer("mysql:8.1.0")
@@ -96,7 +96,7 @@ def mysql_registry():
     waited = wait_for_logs(
         container=container,
         predicate=log_string_to_wait_for,
-        timeout=120,
+        timeout=60,
         interval=10,
     )
     logger.info("Waited for %s seconds until mysql container was up", waited)

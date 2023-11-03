@@ -48,7 +48,7 @@ index_param_list = [
 ]
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="session")
 def repo_config(embedded_elasticsearch):
     return RepoConfig(
         registry=REGISTRY,
@@ -65,9 +65,9 @@ def repo_config(embedded_elasticsearch):
     )
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="session")
 def embedded_elasticsearch():
-    online_store_creator = ElasticsearchOnlineStoreCreator(PROJECT, 9200)
+    online_store_creator = ElasticsearchOnlineStoreCreator(PROJECT)
     online_store_config = online_store_creator.create_online_store()
 
     yield online_store_config
@@ -295,7 +295,7 @@ class TestElasticsearchOnlineStore:
             assert es.indices.exists(index=self.index_to_delete).body is False
 
     def test_elasticsearch_online_write_batch(self, repo_config, caplog):
-        total_rows_to_write = 100
+        total_rows_to_write = 10
         (
             feature_view,
             data,

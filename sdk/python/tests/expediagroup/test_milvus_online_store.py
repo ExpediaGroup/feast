@@ -46,7 +46,7 @@ DIMENSIONS = 10
 INDEX_ALGO = "FLAT"
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="session")
 def repo_config(embedded_milvus):
     return RepoConfig(
         registry=REGISTRY,
@@ -64,7 +64,7 @@ def repo_config(embedded_milvus):
     )
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture(scope="session")
 def embedded_milvus():
     # Creating an online store through embedded Milvus for all tests in the class
     online_store_creator = MilvusOnlineStoreCreator("milvus")
