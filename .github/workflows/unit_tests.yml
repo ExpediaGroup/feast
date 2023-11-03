@@ -90,7 +90,7 @@ jobs:
       - name: Install dependencies
         run: make install-python-ci-dependencies
       - name: Test Python
-        run: pytest -n 8 --cov=./ --cov-report=xml --color=yes sdk/python/tests -o log_cli=true
+        run: pytest -n 4 --cov=./ --cov-report=xml --color=yes sdk/python/tests -o log_cli=true
 
   unit-test-go:
     runs-on: ubuntu-latest
