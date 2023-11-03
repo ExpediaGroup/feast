@@ -67,7 +67,7 @@ def repo_config(embedded_elasticsearch):
 
 @pytest.fixture(scope="session")
 def embedded_elasticsearch():
-    online_store_creator = ElasticsearchOnlineStoreCreator(PROJECT, 9200)
+    online_store_creator = ElasticsearchOnlineStoreCreator(PROJECT)
     online_store_config = online_store_creator.create_online_store()
 
     yield online_store_config
