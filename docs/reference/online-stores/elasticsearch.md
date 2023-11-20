@@ -38,7 +38,7 @@ The full set of configuration options is available in [ElasticsearchOnlineStoreC
 
 Elasticsearch is a document search engine with vector embedding indexing and knn support.
 
-Elasticsearch organizes data into _indexes_. An index contains a series of object documents. A document can contain one vector field one the top-level of a document. A vector can be either an array of floats or binary (bytes). The vector is indexed using Hierarchical Navigable Small World (HNSW) graph.
+Elasticsearch organizes data into _indexes_. An index contains a series of object documents. A document can contain one vector field on the top-level of a document. A vector can be either an array of floats or binary (bytes). The vector is indexed for searching using a Hierarchical Navigable Small World (HNSW) graph.
 
 ### Managing Elasticsearch Resources Through Feature View
 
