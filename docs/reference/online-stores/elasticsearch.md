@@ -46,7 +46,7 @@ An index will reflect the schema of a FeatureView. The name of the FeatureView w
 
 Vector indexing is defined through the _field_ level tags. The following tags are expected:
 
-* index_type: must be `hnsw`. This tag is used to identify which field should be indexed as a vector embedding.
+* index_type: must be `hnsw` or `flat`. This tag is used to identify which field should be indexed as a vector embedding.
 * index_params: optional parameters to override the default values (m=16, ef_construction=100)
   Example:
 ```python
