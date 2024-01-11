@@ -186,7 +186,8 @@ class TransformationServer(TransformationServiceServicer):
     def TransformFeatures(self, request, context):
         try:
             odfv = self.fs.get_on_demand_feature_view(
-                request.on_demand_feature_view_name
+                name=request.on_demand_feature_view_name,
+                allow_cache=True
             )
         except OnDemandFeatureViewNotFoundException:
             context.set_code(grpc.StatusCode.INVALID_ARGUMENT)
