@@ -4,12 +4,10 @@ import sys
 import threading
 from concurrent import futures
 
+from ddtrace import Pin, patch, Tracer
 import grpc
 import pyarrow as pa
 from grpc_reflection.v1alpha import reflection
-from grpc_opentracing import open_tracing_server_interceptor
-from grpc_opentracing.grpcext import intercept_server
-import opentracing
 
 from feast.errors import OnDemandFeatureViewNotFoundException
 from feast.feature_store import FeatureStore
@@ -215,11 +213,12 @@ class TransformationServer(TransformationServiceServicer):
 def start_server(store: FeatureStore, port: int):
     log.info("Starting server..")
 
-    tracer = opentracing.Tracer()
-    tracer_interceptor = open_tracing_server_interceptor(tracer)
+    # Start Datadog tracing
+    patch(grpc=True)
+    custom_tracer = Tracer()
+    Pin.override(grpc.Server, service='TransformationService', tracer=custom_tracer)
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    server = intercept_server(server, tracer_interceptor)
     add_TransformationServiceServicer_to_server(TransformationServer(store), server)
 
     # Add health check service to server

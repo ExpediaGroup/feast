@@ -52,7 +52,6 @@ REQUIRED = [
     "fastavro>=1.1.0,<2",
     "grpcio>=1.47.0,<2",
     "grpcio-reflection>=1.47.0,<2",
-    "grpcio-opentracing>=1.1.0",
     "Jinja2>=2,<4",
     "jsonschema",
     "mmh3",
