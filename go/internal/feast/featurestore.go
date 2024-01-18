@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/apache/arrow/go/v8/arrow/memory"
@@ -58,7 +59,11 @@ func NewFeatureStore(config *registry.RepoConfig, callback transformation.Transf
 		return nil, err
 	}
   sanitizedProjectName := strings.Replace(config.Project, "_", "-", -1)
-  endpoint := fmt.Sprintf("%s-transformations.unified-feature-store.svc.cluster.local:80", sanitizedProjectName)
+  productName := os.Getenv("PRODUCT")
+  fmt.Println("===========PRODUCT============")
+  fmt.Println(productName)
+  fmt.Println("===========PRODUCT============")
+  endpoint := fmt.Sprintf("%s-transformations.%s.cluster.local:80", sanitizedProjectName, productName)
   transformationService, _ := transformation.NewGrpcTransformationService(config, endpoint)
 
 	return &FeatureStore{
