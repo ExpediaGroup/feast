@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
+	// "os"
 	"strings"
 
 	"github.com/apache/arrow/go/v8/arrow/memory"
