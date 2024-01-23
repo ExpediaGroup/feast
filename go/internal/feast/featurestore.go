@@ -59,11 +59,11 @@ func NewFeatureStore(config *registry.RepoConfig, callback transformation.Transf
 		return nil, err
 	}
   sanitizedProjectName := strings.Replace(config.Project, "_", "-", -1)
-  productName := os.Getenv("PRODUCT")
-  fmt.Println("===========PRODUCT============")
-  fmt.Println(productName)
-  fmt.Println("===========PRODUCT============")
-  endpoint := fmt.Sprintf("%s-transformations.%s.cluster.local:80", sanitizedProjectName, productName)
+  // productName := os.Getenv("PRODUCT")
+  // fmt.Println("===========PRODUCT============")
+  // fmt.Println(productName)
+  // fmt.Println("===========PRODUCT============")
+  endpoint := fmt.Sprintf("%s-transformations.unified-feature-store.cluster.local:80", sanitizedProjectName)
   transformationService, _ := transformation.NewGrpcTransformationService(config, endpoint)
 
 	return &FeatureStore{
