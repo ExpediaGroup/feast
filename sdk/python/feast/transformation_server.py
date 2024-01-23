@@ -4,8 +4,7 @@ import sys
 import threading
 from concurrent import futures
 
-from ddtrace import Pin, patch, Tracer
-from ddtracer import tracer
+from ddtrace import Pin, patch, Tracer, tracer
 import grpc
 import pyarrow as pa
 from grpc_reflection.v1alpha import reflection
@@ -186,6 +185,10 @@ class TransformationServer(TransformationServiceServicer):
         return response
 
     def TransformFeatures(self, request, context):
+        current_span = tracer.current_span()
+        if current_span:
+            current_span.set_tag('odfv.name', request.on_demand_feature_view_name)
+
         try:
             odfv = self.fs.get_on_demand_feature_view(
                 name=request.on_demand_feature_view_name,
@@ -196,10 +199,6 @@ class TransformationServer(TransformationServiceServicer):
             raise
 
         df = pa.ipc.open_file(request.transformation_input.arrow_value).read_pandas()
-
-        current_span = tracer.current_span()
-        if current_span:
-            current_span.set_tag('odfv.name', request.on_demand_feature_view_name)
 
         result_df = odfv.get_transformed_features_df(df, True)
         result_arrow = pa.Table.from_pandas(result_df)
