@@ -211,11 +211,6 @@ class TransformationServer(TransformationServiceServicer):
 def start_server(store: FeatureStore, port: int):
     log.info("Starting server..")
 
-    # Start Datadog tracing
-    patch(grpc=True)
-    custom_tracer = Tracer()
-    Pin.override(grpc.Server, service='TransformationService', tracer=custom_tracer)
-
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
     add_TransformationServiceServicer_to_server(TransformationServer(store), server)
 
