@@ -4,7 +4,6 @@ import sys
 import threading
 from concurrent import futures
 
-from ddtrace import Pin, patch, Tracer
 import grpc
 import pyarrow as pa
 from grpc_reflection.v1alpha import reflection
@@ -195,12 +194,14 @@ class TransformationServer(TransformationServiceServicer):
             raise
 
         df = pa.ipc.open_file(request.transformation_input.arrow_value).read_pandas()
+
         result_df = odfv.get_transformed_features_df(df, True)
         result_arrow = pa.Table.from_pandas(result_df)
         sink = pa.BufferOutputStream()
         writer = pa.ipc.new_file(sink, result_arrow.schema)
         writer.write_table(result_arrow)
         writer.close()
+
         buf = sink.getvalue().to_pybytes()
 
         return TransformFeaturesResponse(
