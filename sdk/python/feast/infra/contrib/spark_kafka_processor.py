@@ -95,7 +95,9 @@ class SparkKafkaProcessor(StreamProcessor):
         self.spark_kafka_options = config.spark_kafka_options
         self.schema_registry_config = config.schema_registry_config
         self.checkpoint_location = (
-            config.checkpoint_location if not None else "/tmp/checkpoint/"
+            config.checkpoint_location
+            if config.checkpoint_location is not None
+            else "/tmp/checkpoint/"
         )
         self.join_keys = [fs.get_entity(entity).join_key for entity in sfv.entities]
         super().__init__(fs=fs, sfv=sfv, data_source=sfv.stream_source)
@@ -148,8 +150,8 @@ class SparkKafkaProcessor(StreamProcessor):
                         col("value"),
                         _to_abris_config(
                             self.schema_registry_config,
-                            self.data_source.message_format.record_name,
-                            self.data_source.message_format.record_namespace,
+                            self.data_source.kafka_options.message_format.record_name,
+                            self.data_source.kafka_options.message_format.record_namespace,
                         ),
                     ).alias("table")
                 )
@@ -194,22 +196,14 @@ class SparkKafkaProcessor(StreamProcessor):
             # Extract the latest feature values for each unique entity row (i.e. the join keys).
             # Also add a 'created' column.
             if isinstance(self.sfv, StreamFeatureView):
-                rows = (
-                    rows.sort_values(
-                        by=[*self.join_keys, self.sfv.timestamp_field], ascending=False
-                    )
-                    .groupby(self.join_keys)
-                    .nth(0)
-                )
+                ts_field = self.sfv.timestamp_field
             else:
-                rows = (
-                    rows.sort_values(
-                        by=[*self.join_keys, self.sfv.stream_source.timestamp_field],
-                        ascending=False,
-                    )
-                    .groupby(self.join_keys)
-                    .nth(0)
-                )
+                ts_field = self.sfv.stream_source.timestamp_field
+            rows = (
+                rows.sort_values(by=[*self.join_keys, ts_field], ascending=False)
+                .groupby(self.join_keys)
+                .nth(0)
+            )
             rows["created"] = pd.to_datetime("now", utc=True)
 
             # Reset indices to ensure the dataframe has all the required columns.
