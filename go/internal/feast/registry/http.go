@@ -13,8 +13,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-const BUFFER_SIZE = 8192 // Adjust buffer size as needed
-
 type HttpRegistryStore struct {
 	project  string
 	endpoint string
