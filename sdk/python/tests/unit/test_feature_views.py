@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from feast.aggregation import Aggregation
 from feast.batch_feature_view import BatchFeatureView
-from feast.data_format import AvroFormat
+from feast.data_format import AvroFormat, ConfluentAvroFormat
 from feast.data_source import KafkaSource, PushSource
 from feast.entity import Entity
 from feast.feature_view import FeatureView
@@ -48,7 +48,7 @@ def test_create_batch_feature_view():
         name="kafka",
         timestamp_field="event_timestamp",
         kafka_bootstrap_servers="",
-        message_format=AvroFormat(""),
+        message_format=ConfluentAvroFormat(""),
         topic="topic",
         batch_source=FileSource(path="some path"),
     )

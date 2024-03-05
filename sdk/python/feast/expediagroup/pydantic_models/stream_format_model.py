@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from pydantic import Field as PydanticField
 from typing_extensions import Annotated, Self
 
-from feast.data_format import AvroFormat, JsonFormat, ProtoFormat
+from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat, ProtoFormat
 
 
 class StreamFormatModel(BaseModel):
@@ -61,6 +61,37 @@ class AvroFormatModel(StreamFormatModel):
             An AvroFormatModel.
         """
         return cls(schoma=avro_format.schema_json)
+
+
+class ConfluentAvroFormatModel(StreamFormatModel):
+    """
+    Pydantic Model of a Feast ConfluentAvroFormat.
+    """
+
+    format: Literal["ConfluentAvroFormatModel"] = "ConfluentAvroFormatModel"
+    schoma: str
+
+    def to_stream_format(self) -> ConfluentAvroFormat:
+        """
+        Given a Pydantic ConfluentAvroFormatModel, create and return a ConfluentAvroFormat.
+
+        Returns:
+            A ConfluentAvroFormat.
+        """
+        return ConfluentAvroFormat(schema_json=self.schoma)
+
+    @classmethod
+    def from_stream_format(
+        cls,
+        confluent_avro_format,
+    ) -> Self:  # type: ignore
+        """
+        Converts a ConfluentAvroFormat object to its pydantic model representation.
+
+        Returns:
+            A ConfluentAvroFormatModel.
+        """
+        return cls(schoma=confluent_avro_format.schema_json)
 
 
 class JsonFormatModel(StreamFormatModel):
@@ -128,6 +159,6 @@ class ProtoFormatModel(StreamFormatModel):
 # https://blog.devgenius.io/deserialize-child-classes-with-pydantic-that-gonna-work-784230e1cf83
 # This lets us discriminate child classes of DataSourceModel with type hints.
 AnyStreamFormat = Annotated[
-    Union[AvroFormatModel, JsonFormatModel, ProtoFormatModel],
+    Union[ConfluentAvroFormatModel, AvroFormatModel, JsonFormatModel, ProtoFormatModel],
     PydanticField(discriminator="format"),
 ]

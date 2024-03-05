@@ -17,6 +17,7 @@ from feast.expediagroup.pydantic_models.field_model import FieldModel
 from feast.expediagroup.pydantic_models.stream_format_model import (
     AnyStreamFormat,
     AvroFormatModel,
+    ConfluentAvroFormatModel,
     JsonFormatModel,
     ProtoFormatModel,
 )
@@ -230,7 +231,7 @@ class PushSourceModel(DataSourceModel):
         )
 
 
-SUPPORTED_MESSAGE_FORMATS = [AvroFormatModel, JsonFormatModel, ProtoFormatModel]
+SUPPORTED_MESSAGE_FORMATS = [AvroFormatModel, ConfluentAvroFormatModel, JsonFormatModel, ProtoFormatModel]
 SUPPORTED_KAFKA_BATCH_SOURCES = [RequestSourceModel, SparkSourceModel]
 
 

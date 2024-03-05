@@ -48,6 +48,13 @@ message StreamFormat {
     string schema_json = 1;
   }
 
+  // Defines options for the avro data format
+  message ConfluentAvroFormat {
+    // Optional if used in a File DataSource as schema is embedded in avro file.
+    // Specifies the schema of the Avro message as JSON string.
+    string schema_json = 1;
+  }
+
   message JsonFormat {
     string schema_json = 1;
   }
@@ -57,5 +64,6 @@ message StreamFormat {
     AvroFormat avro_format = 1;
     ProtoFormat proto_format = 2;
     JsonFormat json_format = 3;
+    ConfluentAvroFormat confluent_avro_format = 4;
   }
 }

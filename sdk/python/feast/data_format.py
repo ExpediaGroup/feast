@@ -89,6 +89,8 @@ class StreamFormat(ABC):
         fmt = proto.WhichOneof("format")
         if fmt == "avro_format":
             return AvroFormat(schema_json=proto.avro_format.schema_json)
+        if fmt == "confluent_avro_format":
+            return ConfluentAvroFormat(schema_json=proto.confluent_avro_format.schema_json)
         if fmt == "json_format":
             return JsonFormat(schema_json=proto.json_format.schema_json)
         if fmt == "proto_format":
@@ -113,6 +115,25 @@ class AvroFormat(StreamFormat):
     def to_proto(self):
         proto = StreamFormatProto.AvroFormat(schema_json=self.schema_json)
         return StreamFormatProto(avro_format=proto)
+
+
+class ConfluentAvroFormat(StreamFormat):
+    """
+    Defines the ConfluentAvro streaming data format that encodes data in ConfluentAvro format
+    """
+
+    def __init__(self, schema_json: str):
+        """
+        Construct a new ConfluentAvro data format.
+
+        Args:
+            schema_json: ConfluentAvro schema definition in JSON
+        """
+        self.schema_json = schema_json
+
+    def to_proto(self):
+        proto = StreamFormatProto.ConfluentAvroFormat(schema_json=self.schema_json)
+        return StreamFormatProto(confluent_avro_format=proto)
 
 
 class JsonFormat(StreamFormat):

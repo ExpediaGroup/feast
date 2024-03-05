@@ -104,7 +104,7 @@ def mysql_registry():
 
     registry_config = RegistryConfig(
         registry_type="sql",
-        path=f"mysql+mysqldb://{POSTGRES_USER}:{POSTGRES_PASSWORD}@127.0.0.1:{container_port}/{POSTGRES_DB}",
+        path=f"mysql+pymysql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@127.0.0.1:{container_port}/{POSTGRES_DB}",
         cache_ttl_seconds=60,
     )
 

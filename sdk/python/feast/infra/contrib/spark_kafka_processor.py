@@ -2,13 +2,16 @@ from types import MethodType
 from typing import List, Optional
 
 import pandas as pd
+from confluent_kafka.schema_registry.avro import AvroDeserializer
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.functions import col, from_json
 
-from feast.data_format import AvroFormat, JsonFormat
+from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat
 from feast.data_source import KafkaSource, PushMode
+from feast.expediagroup.schema_registry.schema_registry import SchemaRegistry
 from feast.feature_store import FeatureStore
+from feast.feature_view import FeatureView
 from feast.infra.contrib.stream_processor import (
     ProcessorConfig,
     StreamProcessor,
@@ -21,6 +24,7 @@ class SparkProcessorConfig(ProcessorConfig):
     spark_session: SparkSession
     processing_time: str
     query_timeout: int
+    schema_registry_client: Optional[SchemaRegistry]
 
 
 class SparkKafkaProcessor(StreamProcessor):
@@ -33,26 +37,34 @@ class SparkKafkaProcessor(StreamProcessor):
         self,
         *,
         fs: FeatureStore,
-        sfv: StreamFeatureView,
+        sfv: FeatureView,
         config: ProcessorConfig,
         preprocess_fn: Optional[MethodType] = None,
     ):
+
+        # In general, FeatureView may or may not have stream_source, but it must
+        # have one to use spark kafka processor
+        if not sfv.stream_source:
+            raise ValueError("Feature View must have a stream source to use spark streaming.")
+
         if not isinstance(sfv.stream_source, KafkaSource):
             raise ValueError("data source is not kafka source")
         if not isinstance(
             sfv.stream_source.kafka_options.message_format, AvroFormat
         ) and not isinstance(
+            sfv.stream_source.kafka_options.message_format, ConfluentAvroFormat
+        ) and not isinstance(
             sfv.stream_source.kafka_options.message_format, JsonFormat
         ):
             raise ValueError(
-                "spark streaming currently only supports json or avro format for kafka source schema"
+                "spark streaming currently only supports json, avro and confluent avro formats for kafka source schema"
             )
 
-        self.format = (
-            "json"
-            if isinstance(sfv.stream_source.kafka_options.message_format, JsonFormat)
-            else "avro"
-        )
+        self.format = "avro"
+        if isinstance(sfv.stream_source.kafka_options.message_format, JsonFormat):
+            self.format = "json"
+        elif isinstance(sfv.stream_source.kafka_options.message_format, ConfluentAvroFormat):
+            self.format = "confluent_avro"
 
         if not isinstance(config, SparkProcessorConfig):
             raise ValueError("config is not spark processor config")
@@ -60,8 +72,17 @@ class SparkKafkaProcessor(StreamProcessor):
         self.preprocess_fn = preprocess_fn
         self.processing_time = config.processing_time
         self.query_timeout = config.query_timeout
+        self.schema_registry_client = config.schema_registry_client if config.schema_registry_client else None
         self.join_keys = [fs.get_entity(entity).join_key for entity in sfv.entities]
+
+        if isinstance(sfv.stream_source.kafka_options.message_format, ConfluentAvroFormat):
+            self.init_confluent_avro_processor()
+
         super().__init__(fs=fs, sfv=sfv, data_source=sfv.stream_source)
+
+    def init_confluent_avro_processor(self) -> None:
+        """Extra initialization for Confluent Avro processor."""
+        self.deserializer = AvroDeserializer(schema_registry_client=self.schema_registry_client.get_client())
 
     def ingest_stream_feature_view(self, to: PushMode = PushMode.ONLINE) -> None:
         ingested_stream_df = self._ingest_stream_data()
@@ -70,7 +91,8 @@ class SparkKafkaProcessor(StreamProcessor):
         return online_store_query
 
     def _ingest_stream_data(self) -> StreamTable:
-        """Only supports json and avro formats currently."""
+        """Only supports json, avro and confluent_avro formats currently."""
+        # Test that we reach this path, and stop.
         if self.format == "json":
             if not isinstance(
                 self.data_source.kafka_options.message_format, JsonFormat
@@ -91,6 +113,21 @@ class SparkKafkaProcessor(StreamProcessor):
                         col("value"),
                         self.data_source.kafka_options.message_format.schema_json,
                     ).alias("table")
+                )
+                .select("table.*")
+            )
+        elif self.format == "confluent_avro":
+            if not isinstance(
+                self.data_source.kafka_options.message_format, ConfluentAvroFormat
+            ):
+                raise ValueError("kafka source message format is not confluent_avro format")
+
+            stream_df = (
+                self.spark.readStream.format("kafka")
+                .options(**self.kafka_options_config)
+                .load()
+                .select(
+                    self.deserializer(col("value"))
                 )
                 .select("table.*")
             )
