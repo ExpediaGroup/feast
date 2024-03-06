@@ -87,7 +87,6 @@ func (r *Registry) RefreshRegistryOnInterval() {
 		err := r.refresh()
 		if err != nil {
 			log.Error().Stack().Err(err).Msg("Registry refresh Failed")
-			return
 		}
 	}
 }
