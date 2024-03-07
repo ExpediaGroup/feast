@@ -38,7 +38,7 @@ class AvroFormatModel(StreamFormatModel):
     """
 
     format: Literal["AvroFormatModel"] = "AvroFormatModel"
-    schoma: str
+    schema_str: str
 
     def to_stream_format(self) -> AvroFormat:
         """
@@ -47,7 +47,7 @@ class AvroFormatModel(StreamFormatModel):
         Returns:
             An AvroFormat.
         """
-        return AvroFormat(schema_json=self.schoma)
+        return AvroFormat(schema_json=self.schema_str)
 
     @classmethod
     def from_stream_format(
@@ -60,7 +60,7 @@ class AvroFormatModel(StreamFormatModel):
         Returns:
             An AvroFormatModel.
         """
-        return cls(schoma=avro_format.schema_json)
+        return cls(schema_str=avro_format.schema_json)
 
 
 class JsonFormatModel(StreamFormatModel):
@@ -69,7 +69,7 @@ class JsonFormatModel(StreamFormatModel):
     """
 
     format: Literal["JsonFormatModel"] = "JsonFormatModel"
-    schoma: str
+    schema_str: str
 
     def to_stream_format(self) -> JsonFormat:
         """
@@ -78,7 +78,7 @@ class JsonFormatModel(StreamFormatModel):
         Returns:
             A JsonFormat.
         """
-        return JsonFormat(schema_json=self.schoma)
+        return JsonFormat(schema_json=self.schema_str)
 
     @classmethod
     def from_stream_format(
@@ -91,7 +91,7 @@ class JsonFormatModel(StreamFormatModel):
         Returns:
             A JsonFormatModel.
         """
-        return cls(schoma=json_format.schema_json)
+        return cls(schema_str=json_format.schema_json)
 
 
 class ProtoFormatModel(StreamFormatModel):
