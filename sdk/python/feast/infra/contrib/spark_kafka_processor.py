@@ -1,5 +1,5 @@
 from types import MethodType
-from typing import Callable, List, Optional, Union
+from typing import List, Optional, Set, Union
 
 import pandas as pd
 from pyspark import SparkContext
@@ -8,7 +8,7 @@ from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.column import Column, _to_java_column
 from pyspark.sql.functions import col, from_json
 
-from feast import FeatureView, Field
+from feast import FeatureView
 from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat, StreamFormat
 from feast.data_source import KafkaSource, PushMode
 from feast.feature_store import FeatureStore
@@ -26,25 +26,27 @@ class SparkProcessorConfig(ProcessorConfig):
     spark_session: SparkSession
     processing_time: str
     query_timeout: Optional[int]
-    spark_kafka_options: Optional[dict] = None
-    schema_registry_config: Optional[dict] = None
-    checkpoint_location: Optional[str] = None
+    spark_kafka_options: Optional[dict]
+    schema_registry_config: Optional[dict]
+    checkpoint_location: Optional[str]
 
 
 def _from_confluent_avro(column: Column, abris_config) -> Column:
-    jvm_gateway = SparkContext._active_spark_context._gateway.jvm
+    jvm_gateway = SparkContext._active_spark_context._gateway.jvm  # type: ignore
     abris_avro = jvm_gateway.za.co.absa.abris.avro
 
     return Column(abris_avro.functions.from_avro(_to_java_column(column), abris_config))
 
 
 def _to_abris_config(
-    schema_registry_config: dict, record_name: str, record_namespace: str
+    schema_registry_config: dict,
+    record_name: str,
+    record_namespace: str,
 ):
     """:return: za.co.absa.abris.config.FromAvroConfig"""
     topic = schema_registry_config["schema.registry.topic"]
 
-    jvm_gateway = SparkContext._active_spark_context._gateway.jvm
+    jvm_gateway = SparkContext._active_spark_context._gateway.jvm  # type: ignore
     scala_map = jvm_gateway.PythonUtils.toScalaMap(schema_registry_config)
 
     return (
@@ -81,7 +83,7 @@ class SparkKafkaProcessor(StreamProcessor):
                 "Spark Streaming's Kafka source format must be one of {AvroFormat, JsonFormat, ConfluentAvroFormat}"
             )
 
-        self.format = type(sfv.stream_source.kafka_options.message_format)
+        self.format = sfv.stream_source.kafka_options.message_format
 
         if not isinstance(config, SparkProcessorConfig):
             raise ValueError("config is not spark processor config")
@@ -106,7 +108,7 @@ class SparkKafkaProcessor(StreamProcessor):
 
     def _ingest_stream_data(self) -> StreamTable:
         """Only supports json and avro formats currently."""
-        if self.format == JsonFormat:
+        if isinstance(self.format, JsonFormat):
             stream_df = (
                 self.spark.readStream.format("kafka")
                 .option(
@@ -125,11 +127,21 @@ class SparkKafkaProcessor(StreamProcessor):
                 )
                 .select("table.*")
             )
-        elif self.format == ConfluentAvroFormat:
+        elif isinstance(self.format, ConfluentAvroFormat):
             # Need Abris jar dependency to read Confluent Avro format along with schema registry integration
+            if self.schema_registry_config is None:
+                raise ValueError(
+                    "schema_registry_config is required for ConfluentAvroFormat"
+                )
+            spark_kafka_options = self.spark_kafka_options or {
+                "kafka.bootstrap.servers": self.data_source.kafka_options.kafka_bootstrap_servers,
+                "subscribe": self.data_source.kafka_options.topic,
+                "startingOffsets": "latest",
+            }
+
             stream_df = (
                 self.spark.readStream.format("kafka")
-                .options(**self.spark_kafka_options)
+                .options(**spark_kafka_options)
                 .load()
                 .select(
                     _from_confluent_avro(
@@ -166,8 +178,8 @@ class SparkKafkaProcessor(StreamProcessor):
 
     def _construct_transformation_plan(self, df: StreamTable) -> StreamTable:
         if isinstance(self.sfv, FeatureView):
-            drop_list: list[str] = []
-            fv_schema: set[str] = set(map(lambda field: field.name, self.sfv.schema))
+            drop_list: List[str] = []
+            fv_schema: Set[str] = set(map(lambda field: field.name, self.sfv.schema))
             for column in df.columns:
                 if column not in fv_schema:
                     drop_list.append(column)
