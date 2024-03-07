@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import List
 
 import pandas as pd
+import pytest
 from pydantic import BaseModel
 
 from feast.data_format import AvroFormat, ConfluentAvroFormat
@@ -270,19 +271,13 @@ def test_idempotent_kafkasource_avroformat_conversion():
         watermark_delay_threshold=timedelta(days=1),
     )
 
-    pydantic_obj = KafkaSourceModel.from_data_source(python_obj)
-    converted_python_obj = pydantic_obj.to_data_source()
-    assert python_obj == converted_python_obj
+    with pytest.raises(ValueError) as exceptionInfo:
+        KafkaSourceModel.from_data_source(python_obj)
 
-    feast_proto = converted_python_obj.to_proto()
-    python_obj_from_proto = KafkaSource.from_proto(feast_proto)
-    assert python_obj == python_obj_from_proto
-
-    pydantic_json = pydantic_obj.json()
-    assert pydantic_obj == KafkaSourceModel.parse_raw(pydantic_json)
-
-    pydantic_json = pydantic_obj.dict()
-    assert pydantic_obj == KafkaSourceModel.parse_obj(pydantic_json)
+    assert (
+        str(exceptionInfo.value)
+        == "Kafka Source's batch source type is not a supported data source type."
+    )
 
 
 def test_idempotent_kafkasource_confluentavroformat_conversion():
