@@ -238,7 +238,7 @@ SUPPORTED_MESSAGE_FORMATS = [
     ProtoFormatModel,
     ConfluentAvroFormatModel,
 ]
-SUPPORTED_KAFKA_BATCH_SOURCES = [RequestSourceModel, SparkSourceModel]
+SUPPORTED_KAFKA_BATCH_SOURCES = [ SparkSourceModel ]
 
 
 class KafkaSourceModel(DataSourceModel):
