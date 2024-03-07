@@ -103,7 +103,7 @@ func (r *Registry) getRegistryProto() (*core.Registry, error) {
 	}
 	registryProto, err := r.registryStore.GetRegistryProto()
 	if err != nil {
-		return registryProto, err
+		return nil, err
 	}
 	r.load(registryProto)
 	return registryProto, nil
