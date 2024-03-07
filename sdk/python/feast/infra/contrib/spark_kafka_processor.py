@@ -1,12 +1,15 @@
 from types import MethodType
-from typing import List, Optional
+from typing import Callable, List, Optional, Union
 
 import pandas as pd
+from pyspark import SparkContext
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.avro.functions import from_avro
+from pyspark.sql.column import Column, _to_java_column
 from pyspark.sql.functions import col, from_json
 
-from feast.data_format import AvroFormat, JsonFormat
+from feast import FeatureView, Field
+from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat, StreamFormat
 from feast.data_source import KafkaSource, PushMode
 from feast.feature_store import FeatureStore
 from feast.infra.contrib.stream_processor import (
@@ -18,14 +21,43 @@ from feast.stream_feature_view import StreamFeatureView
 
 
 class SparkProcessorConfig(ProcessorConfig):
+    """spark_kafka_options, schema_registry_config and checkpoint_location are only used for ConfluentAvroFormat"""
+
     spark_session: SparkSession
     processing_time: str
-    query_timeout: int
+    query_timeout: Optional[int]
+    spark_kafka_options: Optional[dict] = None
+    schema_registry_config: Optional[dict] = None
+    checkpoint_location: Optional[str] = None
+
+
+def _from_confluent_avro(column: Column, abris_config) -> Column:
+    jvm_gateway = SparkContext._active_spark_context._gateway.jvm
+    abris_avro = jvm_gateway.za.co.absa.abris.avro
+
+    return Column(abris_avro.functions.from_avro(_to_java_column(column), abris_config))
+
+
+def _to_abris_config(
+    schema_registry_config: dict, record_name: str, record_namespace: str
+):
+    """:return: za.co.absa.abris.config.FromAvroConfig"""
+    topic = schema_registry_config["schema.registry.topic"]
+
+    jvm_gateway = SparkContext._active_spark_context._gateway.jvm
+    scala_map = jvm_gateway.PythonUtils.toScalaMap(schema_registry_config)
+
+    return (
+        jvm_gateway.za.co.absa.abris.config.AbrisConfig.fromConfluentAvro()
+        .downloadReaderSchemaByLatestVersion()
+        .andTopicRecordNameStrategy(topic, record_name, record_namespace)
+        .usingSchemaRegistry(scala_map)
+    )
 
 
 class SparkKafkaProcessor(StreamProcessor):
     spark: SparkSession
-    format: str
+    format: StreamFormat
     preprocess_fn: Optional[MethodType]
     join_keys: List[str]
 
@@ -33,33 +65,36 @@ class SparkKafkaProcessor(StreamProcessor):
         self,
         *,
         fs: FeatureStore,
-        sfv: StreamFeatureView,
+        sfv: Union[StreamFeatureView, FeatureView],
         config: ProcessorConfig,
         preprocess_fn: Optional[MethodType] = None,
     ):
         if not isinstance(sfv.stream_source, KafkaSource):
             raise ValueError("data source is not kafka source")
-        if not isinstance(
-            sfv.stream_source.kafka_options.message_format, AvroFormat
-        ) and not isinstance(
-            sfv.stream_source.kafka_options.message_format, JsonFormat
-        ):
+
+        if type(sfv.stream_source.kafka_options.message_format) not in {
+            AvroFormat,
+            JsonFormat,
+            ConfluentAvroFormat,
+        }:
             raise ValueError(
-                "spark streaming currently only supports json or avro format for kafka source schema"
+                "Spark Streaming's Kafka source format must be one of {AvroFormat, JsonFormat, ConfluentAvroFormat}"
             )
 
-        self.format = (
-            "json"
-            if isinstance(sfv.stream_source.kafka_options.message_format, JsonFormat)
-            else "avro"
-        )
+        self.format = type(sfv.stream_source.kafka_options.message_format)
 
         if not isinstance(config, SparkProcessorConfig):
             raise ValueError("config is not spark processor config")
+
         self.spark = config.spark_session
         self.preprocess_fn = preprocess_fn
         self.processing_time = config.processing_time
         self.query_timeout = config.query_timeout
+        self.spark_kafka_options = config.spark_kafka_options
+        self.schema_registry_config = config.schema_registry_config
+        self.checkpoint_location = (
+            config.checkpoint_location if not None else "/tmp/checkpoint/"
+        )
         self.join_keys = [fs.get_entity(entity).join_key for entity in sfv.entities]
         super().__init__(fs=fs, sfv=sfv, data_source=sfv.stream_source)
 
@@ -71,11 +106,7 @@ class SparkKafkaProcessor(StreamProcessor):
 
     def _ingest_stream_data(self) -> StreamTable:
         """Only supports json and avro formats currently."""
-        if self.format == "json":
-            if not isinstance(
-                self.data_source.kafka_options.message_format, JsonFormat
-            ):
-                raise ValueError("kafka source message format is not jsonformat")
+        if self.format == JsonFormat:
             stream_df = (
                 self.spark.readStream.format("kafka")
                 .option(
@@ -94,11 +125,25 @@ class SparkKafkaProcessor(StreamProcessor):
                 )
                 .select("table.*")
             )
-        else:
-            if not isinstance(
-                self.data_source.kafka_options.message_format, AvroFormat
-            ):
-                raise ValueError("kafka source message format is not avro format")
+        elif self.format == ConfluentAvroFormat:
+            # Need Abris jar dependency to read Confluent Avro format along with schema registry integration
+            stream_df = (
+                self.spark.readStream.format("kafka")
+                .options(**self.spark_kafka_options)
+                .load()
+                .select(
+                    _from_confluent_avro(
+                        col("value"),
+                        _to_abris_config(
+                            self.schema_registry_config,
+                            self.data_source.message_format.record_name,
+                            self.data_source.message_format.record_namespace,
+                        ),
+                    ).alias("table")
+                )
+                .select("table.*")
+            )
+        else:  # AvroFormat
             stream_df = (
                 self.spark.readStream.format("kafka")
                 .option(
@@ -120,6 +165,13 @@ class SparkKafkaProcessor(StreamProcessor):
         return stream_df
 
     def _construct_transformation_plan(self, df: StreamTable) -> StreamTable:
+        if isinstance(self.sfv, FeatureView):
+            drop_list: list[str] = []
+            fv_schema: set[str] = set(map(lambda field: field.name, self.sfv.schema))
+            for column in df.columns:
+                if column not in fv_schema:
+                    drop_list.append(column)
+            return df.drop(*drop_list)
         return self.sfv.udf.__call__(df) if self.sfv.udf else df
 
     def _write_stream_data(self, df: StreamTable, to: PushMode):
@@ -129,13 +181,23 @@ class SparkKafkaProcessor(StreamProcessor):
 
             # Extract the latest feature values for each unique entity row (i.e. the join keys).
             # Also add a 'created' column.
-            rows = (
-                rows.sort_values(
-                    by=[*self.join_keys, self.sfv.timestamp_field], ascending=False
+            if isinstance(self.sfv, StreamFeatureView):
+                rows = (
+                    rows.sort_values(
+                        by=[*self.join_keys, self.sfv.timestamp_field], ascending=False
+                    )
+                    .groupby(self.join_keys)
+                    .nth(0)
                 )
-                .groupby(self.join_keys)
-                .nth(0)
-            )
+            else:
+                rows = (
+                    rows.sort_values(
+                        by=[*self.join_keys, self.sfv.stream_source.timestamp_field],
+                        ascending=False,
+                    )
+                    .groupby(self.join_keys)
+                    .nth(0)
+                )
             rows["created"] = pd.to_datetime("now", utc=True)
 
             # Reset indices to ensure the dataframe has all the required columns.
@@ -154,7 +216,7 @@ class SparkKafkaProcessor(StreamProcessor):
 
         query = (
             df.writeStream.outputMode("update")
-            .option("checkpointLocation", "/tmp/checkpoint/")
+            .option("checkpointLocation", self.checkpoint_location)
             .trigger(processingTime=self.processing_time)
             .foreachBatch(batch_write)
             .start()
