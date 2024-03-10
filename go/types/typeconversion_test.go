@@ -18,6 +18,7 @@ var (
 		{{Val: nil}},
 		{{Val: nil}, {Val: nil}},
 		{nil_or_null_val, nil_or_null_val},
+		{nil_or_null_val, {Val: nil}},
 		{{Val: &types.Value_Int32Val{10}}, {Val: nil}, nil_or_null_val, {Val: &types.Value_Int32Val{20}}},
 		{{Val: &types.Value_Int32Val{10}}, nil_or_null_val},
 		{nil_or_null_val, {Val: &types.Value_Int32Val{20}}},
