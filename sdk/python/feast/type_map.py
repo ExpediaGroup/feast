@@ -76,9 +76,11 @@ def feast_value_type_to_python_type(field_value_proto: ProtoValue) -> Any:
     # Convert UNIX_TIMESTAMP values to `datetime`
     if val_attr == "unix_timestamp_list_val":
         val = [
-            datetime.fromtimestamp(v, tz=timezone.utc)
-            if v != NULL_TIMESTAMP_INT_VALUE
-            else None
+            (
+                datetime.fromtimestamp(v, tz=timezone.utc)
+                if v != NULL_TIMESTAMP_INT_VALUE
+                else None
+            )
             for v in val
         ]
     elif val_attr == "unix_timestamp_val":
@@ -291,9 +293,11 @@ PYTHON_SCALAR_VALUE_TYPE_TO_PROTO_VALUE: Dict[
     ValueType.INT32: ("int32_val", lambda x: int(x), None),
     ValueType.INT64: (
         "int64_val",
-        lambda x: int(x.timestamp())
-        if isinstance(x, pd._libs.tslibs.timestamps.Timestamp)
-        else int(x),
+        lambda x: (
+            int(x.timestamp())
+            if isinstance(x, pd._libs.tslibs.timestamps.Timestamp)
+            else int(x)
+        ),
         None,
     ),
     ValueType.FLOAT: ("float_val", lambda x: float(x), None),
@@ -362,26 +366,33 @@ def _python_value_to_proto_value(
                 raise _type_err(first_invalid, valid_types[0])
 
             if feast_value_type == ValueType.UNIX_TIMESTAMP_LIST:
-                int_timestamps_lists = (
-                    _python_datetime_to_int_timestamp(value) for value in values
-                )
-                return [
-                    # ProtoValue does actually accept `np.int_` but the typing complains.
-                    ProtoValue(unix_timestamp_list_val=Int64List(val=ts))  # type: ignore
-                    for ts in int_timestamps_lists
-                ]
+                if values is not None:
+                    int_timestamps_lists = (
+                        _python_datetime_to_int_timestamp(value) for value in values
+                    )
+                    return [
+                        # ProtoValue does actually accept `np.int_` but the typing complains.
+                        ProtoValue(unix_timestamp_list_val=Int64List(val=ts))  # type: ignore
+                        for ts in int_timestamps_lists
+                    ]
+                else:
+                    return [ProtoValue()]
             if feast_value_type == ValueType.BOOL_LIST:
                 # ProtoValue does not support conversion of np.bool_ so we need to convert it to support np.bool_.
                 return [
-                    ProtoValue(**{field_name: proto_type(val=[bool(e) for e in value])})  # type: ignore
-                    if value is not None
-                    else ProtoValue()
+                    (
+                        ProtoValue(**{field_name: proto_type(val=[bool(e) for e in value])})  # type: ignore
+                        if value is not None
+                        else ProtoValue()
+                    )
                     for value in values
                 ]
             return [
-                ProtoValue(**{field_name: proto_type(val=value)})  # type: ignore
-                if value is not None
-                else ProtoValue()
+                (
+                    ProtoValue(**{field_name: proto_type(val=value)})  # type: ignore
+                    if value is not None
+                    else ProtoValue()
+                )
                 for value in values
             ]
 
@@ -416,22 +427,26 @@ def _python_value_to_proto_value(
         if feast_value_type == ValueType.BOOL:
             # ProtoValue does not support conversion of np.bool_ so we need to convert it to support np.bool_.
             return [
-                ProtoValue(
-                    **{
-                        field_name: func(
-                            bool(value) if type(value) is np.bool_ else value  # type: ignore
-                        )
-                    }
+                (
+                    ProtoValue(
+                        **{
+                            field_name: func(
+                                bool(value) if type(value) is np.bool_ else value  # type: ignore
+                            )
+                        }
+                    )
+                    if not pd.isnull(value)
+                    else ProtoValue()
                 )
-                if not pd.isnull(value)
-                else ProtoValue()
                 for value in values
             ]
         if feast_value_type in PYTHON_SCALAR_VALUE_TYPE_TO_PROTO_VALUE:
             return [
-                ProtoValue(**{field_name: func(value)})
-                if not pd.isnull(value)
-                else ProtoValue()
+                (
+                    ProtoValue(**{field_name: func(value)})
+                    if not pd.isnull(value)
+                    else ProtoValue()
+                )
                 for value in values
             ]
 
