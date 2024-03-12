@@ -1,6 +1,7 @@
 package types
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -27,7 +28,9 @@ var (
 		{{Val: &types.Value_Int64Val{10}}, {Val: &types.Value_Int64Val{20}}},
 		{nil_or_null_val, {Val: &types.Value_FloatVal{2.0}}},
 		{{Val: &types.Value_FloatVal{1.0}}, {Val: &types.Value_FloatVal{2.0}}},
+		{{Val: &types.Value_FloatVal{1.0}}, {Val: &types.Value_FloatVal{2.0}}, {Val: &types.Value_FloatVal{float32(math.NaN())}}},
 		{{Val: &types.Value_DoubleVal{1.0}}, {Val: &types.Value_DoubleVal{2.0}}},
+		{{Val: &types.Value_DoubleVal{1.0}}, {Val: &types.Value_DoubleVal{2.0}}, {Val: &types.Value_DoubleVal{math.NaN()}}},
 		{{Val: &types.Value_DoubleVal{1.0}}, nil_or_null_val},
 		{nil_or_null_val, {Val: &types.Value_StringVal{"bbb"}}},
 		{{Val: &types.Value_StringVal{"aaa"}}, {Val: &types.Value_StringVal{"bbb"}}},
@@ -36,8 +39,8 @@ var (
 		{nil_or_null_val, {Val: &types.Value_BoolVal{false}}},
 		{{Val: &types.Value_BoolVal{true}}, {Val: &types.Value_BoolVal{false}}},
 		{{Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}, nil_or_null_val},
-		{{Val: &types.Value_UnixTimestampVal{time.Now().Unix()}},
-			{Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}},
+		{{Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}, {Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}},
+		{{Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}, {Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}, {Val: &types.Value_UnixTimestampVal{-9223372036854775808}}},
 
 		{
 			{Val: &types.Value_Int32ListVal{&types.Int32List{Val: []int32{0, 1, 2}}}},
@@ -71,6 +74,11 @@ var (
 			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().Unix()}}}},
 			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().Unix()}}}},
 		},
+		{
+			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().Unix()}}}},
+			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().Unix()}}}},
+			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{-9223372036854775808}}}},
+		},
 	}
 )
 
@@ -82,7 +90,6 @@ func TestConversionBetweenProtoAndArrow(t *testing.T) {
 
 		protoValues, err := ArrowValuesToProtoValues(arrowArray)
 		assert.Nil(t, err)
-
 		protoValuesEquals(t, vector, protoValues)
 	}
 
