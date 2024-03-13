@@ -1,4 +1,3 @@
-import logging
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, List, Literal, Optional, Sequence, Union, cast
@@ -32,8 +31,6 @@ from feast.utils import (
     _get_column_names,
     _run_pyarrow_field_mapping,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class SparkMaterializationEngineConfig(FeastConfigBaseModel):
@@ -238,7 +235,7 @@ def _process_by_partition(rows, spark_serialized_artifacts: _SparkSerializedArti
 
     df = pd.DataFrame.from_records(dicts)
     if df.shape[0] == 0:
-        logger.info("Dataframe has 0 records to process")
+        print("Skipping")
         return
 
     table = pyarrow.Table.from_pandas(df)
