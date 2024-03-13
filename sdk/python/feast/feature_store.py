@@ -1878,9 +1878,9 @@ class FeatureStore:
                 )
                 entity_name_to_join_key_map[entity_name] = join_key
             for entity_column in feature_view.entity_columns:
-                entity_type_map[entity_column.name] = (
-                    entity_column.dtype.to_value_type()
-                )
+                entity_type_map[
+                    entity_column.name
+                ] = entity_column.dtype.to_value_type()
 
         return (
             entity_name_to_join_key_map,
