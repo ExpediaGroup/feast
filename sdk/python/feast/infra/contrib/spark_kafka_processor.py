@@ -253,7 +253,7 @@ class SparkKafkaProcessor(StreamProcessor):
                     lambda x: None,
                 )
 
-            yield pd.DataFrame([pd.Series(range(1, 2))])  # dummy result because
+            yield pd.DataFrame([pd.Series(range(1, 2))])  # dummy result
 
         def batch_write(
             sdf: DataFrame,
