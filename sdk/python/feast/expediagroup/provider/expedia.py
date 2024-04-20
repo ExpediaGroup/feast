@@ -75,7 +75,7 @@ class ExpediaProvider(PassthroughProvider):
         if self.online_store:
             if tables_to_delete:
                 logger.info(
-                    f"Data associated to {list(tables_to_delete)} feature views will be deleted from the online store based on ttl defined if the entities are not shared with other feature views"
+                    f"Data associated to {[feature_view.name for feature_view in tables_to_delete]} feature views will be deleted from the online store based on ttl defined if the entities are not shared with other feature views"
                 )
 
         if self.batch_engine:
