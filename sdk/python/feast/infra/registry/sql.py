@@ -919,6 +919,7 @@ class SqlRegistry(BaseRegistry):
 
     def proto(self) -> RegistryProto:
         r = RegistryProto()
+
         # last_updated_timestamps = []
 
         def process_project(project):
@@ -1062,6 +1063,95 @@ class SqlRegistry(BaseRegistry):
 
         if new_project:
             self._set_last_updated_metadata(update_datetime, project)
+
+    def search(
+        self,
+        online,
+        name="",
+        application="",
+        owning_team="",
+        created_at=datetime.min,
+        updated_at=datetime.min,
+    ) -> List[Union[FeatureView, ProjectMetadataModel]]:
+        """
+        Search for feature views or projects based on the provided search
+        parameters. Since the SQL database stores only metadata and protos, we
+        have to pull all potentially matching objects and filter in memory.
+        """
+        fv_list = []
+        with self.engine.connect() as conn:
+            if name:
+                stmt = select(feature_views).where(
+                    feature_views.c.feature_view_name == name
+                )
+            else:
+                stmt = select(feature_views)
+
+            rows = conn.execute(stmt).all()
+            print('Before if rows')
+            print(rows)
+            if rows:
+                fv_list = [
+                    FeatureView.from_proto(
+                        FeatureViewProto.FromString(row["feature_view_proto"])
+                    )
+                    for row in rows
+                ]
+                print('after converting from proto')
+                print(fv_list)
+
+                fv_list = [
+                    view
+                    for view in fv_list
+                    if view.created_timestamp is None
+                    or view.created_timestamp >= created_at
+                ]
+                print('1')
+                print(fv_list)
+                fv_list = [
+                    view
+                    for view in fv_list
+                    if view.last_updated_timestamp is None
+                    or view.last_updated_timestamp >= updated_at
+                ]
+                print('2')
+                print(fv_list)
+
+                if owning_team:
+                    fv_list = [
+                        view for view in fv_list if view.tags.get("team") == owning_team
+                    ]
+                print('3')
+                print(fv_list)
+                if application:
+                    fv_list = [
+                        view
+                        for view in fv_list
+                        if view.tags.get("application") == application
+                    ]
+                print('4')
+                print(fv_list)
+                if online:
+                    fv_list = [view for view in fv_list if view.online == online]
+                print('5')
+                print(fv_list)
+
+        project_list = self.get_all_project_metadata()
+
+        project_list = [
+            project for project in project_list if project.project_name == name
+        ]
+        project_list = [
+            project
+            for project in project_list
+            if project.last_updated_timestamp is None
+            or project.last_updated_timestamp >= updated_at
+        ]
+
+        final_list: List[FeatureView | ProjectMetadataModel] = []
+        final_list.extend(project_list)
+        final_list.extend(fv_list)
+        return final_list
 
     def _delete_object(
         self,
