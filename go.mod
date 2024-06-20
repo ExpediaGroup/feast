@@ -1,6 +1,6 @@
 module github.com/feast-dev/feast
 
-go 1.19
+go 1.21
 
 replace github.com/go-python/gopy v0.4.4 => github.com/feast-dev/gopy v0.4.1-0.20220714211711-252048177d85
 
