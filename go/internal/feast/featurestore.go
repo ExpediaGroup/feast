@@ -62,11 +62,15 @@ func NewFeatureStore(config *registry.RepoConfig, callback transformation.Transf
 	if err != nil {
 		return nil, err
 	}
-	sanitizedProjectName := strings.Replace(config.Project, "_", "-", -1)
-	productName := os.Getenv("PRODUCT")
-	endpoint := fmt.Sprintf("%s-transformations.%s.svc.cluster.local:80", sanitizedProjectName, productName)
-	transformationService, _ := transformation.NewGrpcTransformationService(config, endpoint)
 
+    var transformationService *transformation.GrpcTransformationService = nil
+
+    if config.GoTransformationsServer {
+		if config.GoTransformationsEndpoint == "" {
+			return nil, errors.New("Transformations server endpoint is missing. Update featue_store.yaml with go_transformations_endpint configuration")
+		}
+		transformationService, _ = transformation.NewGrpcTransformationService(config, config.GoTransformationsEndpoint)
+	}
 	return &FeatureStore{
 		config:                 config,
 		registry:               registry,

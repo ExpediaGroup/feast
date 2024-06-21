@@ -220,3 +220,30 @@ func TestGetRegistryConfig_CacheTtlSecondsTypes(t *testing.T) {
 		assert.Equal(t, int64(60), registryConfig.CacheTtlSeconds)
 	}
 }
+
+func TestGoTransformationsEndpoint(t *testing.T) {
+	dir, err := os.MkdirTemp("", "feature_repo_*")
+	assert.Nil(t, err)
+	defer func() {
+		assert.Nil(t, os.RemoveAll(dir))
+	}()
+	filePath := filepath.Join(dir, "feature_store.yaml")
+	data := []byte(`
+registry:
+ path: data/registry.db
+project: feature_repo
+provider: local
+online_store:
+ type: redis
+ connection_string: "localhost:6379"
+go_transformations_endpoint: https://go.dev:9999
+go_transformations_server: True
+`)
+	err = os.WriteFile(filePath, data, 0666)
+	assert.Nil(t, err)
+	config, err := NewRepoConfigFromFile(dir)
+	assert.Nil(t, err)
+	assert.Equal(t, dir, config.RepoPath)
+	assert.Equal(t, "https://go.dev:9999", config.GoTransformationsEndpoint)
+	assert.Equal(t, true, config.GoTransformationsServer)
+}
