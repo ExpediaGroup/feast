@@ -1,6 +1,7 @@
 package server
 
 import (
+	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
@@ -37,4 +38,12 @@ func TestUnmarshalJSON(t *testing.T) {
 	u = repeatedValue{}
 	assert.Nil(t, u.UnmarshalJSON([]byte("[[true, false, true], [false, true, false]]")))
 	assert.Equal(t, [][]bool{{true, false, true}, {false, true, false}}, u.boolListVal)
+}
+
+func testTypecastToCorrectTypeWithInt32Val(t *testing.T) {
+	val := repeatedValue{}
+	val.int64Val = append(val.int64Val, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9)
+	typecastToEntitySchemaType(&val, prototypes.ValueType_INT32)
+	assert.Equal(t, nil, val.int64Val)
+	assert.NotEqual(t, nil, val.int32Val)
 }

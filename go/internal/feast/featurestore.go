@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"os"
 	"strings"
 
@@ -85,7 +86,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 	joinKeyToEntityValues map[string]*prototypes.RepeatedValue,
 	requestData map[string]*prototypes.RepeatedValue,
 	fullFeatureNames bool) ([]*onlineserving.FeatureVector, error) {
-	fvs, odFvs, err := fs.listAllViews()
+	fvs, odFvs, err := fs.ListAllViews()
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +105,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 		requestedFeatureViews, requestedOnDemandFeatureViews, err =
 			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fvs, odFvs)
 	}
+	log.Info().Msgf("requestedOnDemandFeatureViews %v", requestedOnDemandFeatureViews)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +232,7 @@ func (fs *FeatureStore) GetFeatureService(name string) (*model.FeatureService, e
 	return fs.registry.GetFeatureService(fs.config.Project, name)
 }
 
-func (fs *FeatureStore) listAllViews() (map[string]*model.FeatureView, map[string]*model.OnDemandFeatureView, error) {
+func (fs *FeatureStore) ListAllViews() (map[string]*model.FeatureView, map[string]*model.OnDemandFeatureView, error) {
 	fvs := make(map[string]*model.FeatureView)
 	odFvs := make(map[string]*model.OnDemandFeatureView)
 
@@ -291,6 +293,38 @@ func (fs *FeatureStore) ListEntities(hideDummyEntity bool) ([]*model.Entity, err
 	return entities, nil
 }
 
+func (fs *FeatureStore) GetEntityKeyTypeMaps() (map[string]prototypes.ValueType_Enum, error) {
+
+	entityKeyTypeMap := make(map[string]prototypes.ValueType_Enum, 0)
+	allEntities, _ := fs.registry.ListEntities(fs.config.Project)
+	if allEntities == nil || len(allEntities) <= 0 {
+		return nil, fmt.Errorf("No entities found for project %s", fs.config.Project)
+	}
+	for _, entity := range allEntities {
+		entityKeyTypeMap[entity.JoinKey] = entity.ValueType
+	}
+	return entityKeyTypeMap, nil
+}
+func (fs *FeatureStore) GetRequestSources(fVList []string) (map[string]prototypes.ValueType_Enum, error) {
+
+	requestSources := make(map[string]prototypes.ValueType_Enum, 0)
+	if fVList != nil && len(fVList) > 0 {
+		for _, fvName := range fVList {
+			odfv, err := fs.GetOnDemandFeatureView(fvName)
+			if err == nil {
+				schema := odfv.GetRequestDataSchema()
+				for name, dtype := range schema {
+					requestSources[name] = dtype
+				}
+			}
+		}
+	}
+	if len(requestSources) > 0 {
+		return requestSources, nil
+	}
+	return nil, fmt.Errorf("Request sources for feature views %v not found", fVList)
+}
+
 func (fs *FeatureStore) ListOnDemandFeatureViews() ([]*model.OnDemandFeatureView, error) {
 	return fs.registry.ListOnDemandFeatureViews(fs.config.Project)
 }
@@ -307,6 +341,14 @@ func (fs *FeatureStore) GetFeatureView(featureViewName string, hideDummyEntity b
 	}
 	if fv.HasEntity(model.DUMMY_ENTITY_NAME) && hideDummyEntity {
 		fv.EntityNames = []string{}
+	}
+	return fv, nil
+}
+
+func (fs *FeatureStore) GetOnDemandFeatureView(featureViewName string) (*model.OnDemandFeatureView, error) {
+	fv, err := fs.registry.GetOnDemandFeatureView(fs.config.Project, featureViewName)
+	if err != nil {
+		return nil, err
 	}
 	return fv, nil
 }
