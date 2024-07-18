@@ -176,6 +176,18 @@ class RepoConfig(FeastBaseModel):
     go_feature_retrieval: Optional[bool] = False
     """ If True, use the embedded Go code to retrieve features instead of the Python SDK. """
 
+    go_transformations_server: Optional[bool] = False
+    """ If True, use the transformations server to perform ODVF transformations in Go feature server. """
+
+    go_transformations_endpoint: Optional[StrictStr] = ""
+    """ Specify the endpoint for Go feature server to find the transformations server.
+    NOTE: Unless go_transformations_server is False, the Go feature server will throw errors if this is
+    blank or null.
+    """
+
+    go_transformations_port: Optional[StrictInt] = 80
+    """ Specify the port for Go feature server to find the transformations server. """
+
     entity_key_serialization_version: StrictInt = 1
     """ Entity key serialization version: This version is used to control what serialization scheme is
     used when writing data to the online store.
@@ -222,6 +234,7 @@ class RepoConfig(FeastBaseModel):
                     },
                 }
                 self._offline_config = spark_offline_config
+                self._go_transformation_server = True
 
         self._online_store = None
         if "online_store" in data:
