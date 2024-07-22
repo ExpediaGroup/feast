@@ -121,14 +121,20 @@ class ElasticsearchOnlineStore(OnlineStore):
 
             successes = 0
             errors = []
+            error_count = 0
             for i in range(0, len(data), config.online_store.write_batch_size):
                 batch = data[i : i + config.online_store.write_batch_size]
                 count, errs = helpers.bulk(client=es, actions=self._get_bulk_documents(table.name, batch))
                 successes += count
-                errors.extend(errs)
+                if type(errs) is int:
+                    error_count += errs
+                else:
+                    errors.extend(errs)
             logger.info(f"bulk write completed with {successes} successes")
+            if error_count:
+                logger.error(f"bulk write encountered {errors} errors")
             if errors:
-                logger.error(f"bulk write return errors: {errors}")
+                logger.error(f"bulk write returned errors: {errors}")
 
     def online_read(
         self,
