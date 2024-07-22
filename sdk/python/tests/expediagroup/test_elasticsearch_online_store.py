@@ -58,6 +58,7 @@ def repo_config(embedded_elasticsearch):
             endpoint=f"http://{embedded_elasticsearch['host']}:{embedded_elasticsearch['port']}",
             username=embedded_elasticsearch["username"],
             password=embedded_elasticsearch["password"],
+            write_batch_size=5
         ),
         offline_store=DaskOfflineStoreConfig(),
         entity_key_serialization_version=2,

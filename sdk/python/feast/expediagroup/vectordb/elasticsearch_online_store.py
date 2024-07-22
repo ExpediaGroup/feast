@@ -71,6 +71,9 @@ class ElasticsearchOnlineStoreConfig(FeastConfigBaseModel):
     password: str
     """ password to connect to Elasticsearch """
 
+    write_batch_size: Optional[int] = 40
+    """ The number of rows to write in a single batch """
+
 
 class ElasticsearchConnectionManager:
     def __init__(self, online_config: RepoConfig):
@@ -94,6 +97,14 @@ class ElasticsearchConnectionManager:
 
 
 class ElasticsearchOnlineStore(OnlineStore):
+    def _get_bulk_documents(self, index_name, data):
+        for entity_key, values, timestamp, created_ts in data:
+            id_val = self._get_value_from_value_proto(entity_key.entity_values[0])
+            document = {entity_key.join_keys[0]: id_val}
+            for feature_name, val in values.items():
+                document[feature_name] = self._get_value_from_value_proto(val)
+            yield {"_index": index_name, "_id": id_val, "_source": document}
+
     def online_write_batch(
         self,
         config: RepoConfig,
@@ -107,17 +118,14 @@ class ElasticsearchOnlineStore(OnlineStore):
             resp = es.indices.exists(index=table.name)
             if not resp.body:
                 self._create_index(es, table)
-            bulk_documents = []
-            for entity_key, values, timestamp, created_ts in data:
-                id_val = self._get_value_from_value_proto(entity_key.entity_values[0])
-                document = {entity_key.join_keys[0]: id_val}
-                for feature_name, val in values.items():
-                    document[feature_name] = self._get_value_from_value_proto(val)
-                bulk_documents.append(
-                    {"_index": table.name, "_id": id_val, "_source": document}
-                )
 
-            successes, errors = helpers.bulk(client=es, actions=bulk_documents)
+            successes = 0
+            errors = []
+            for i in range(0, len(data), config.online_store.write_batch_size):
+                batch = data[i : i + config.online_store.write_batch_size]
+                count, errs = helpers.bulk(client=es, actions=self._get_bulk_documents(table.name, batch))
+                successes += count
+                errors.extend(errs)
             logger.info(f"bulk write completed with {successes} successes")
             if errors:
                 logger.error(f"bulk write return errors: {errors}")
