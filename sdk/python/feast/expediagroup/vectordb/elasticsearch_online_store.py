@@ -120,7 +120,7 @@ class ElasticsearchOnlineStore(OnlineStore):
                 self._create_index(es, table)
 
             successes = 0
-            errors = []
+            errors: List[Any] = []
             error_count = 0
             for i in range(0, len(data), config.online_store.write_batch_size):
                 batch = data[i : i + config.online_store.write_batch_size]
@@ -128,7 +128,7 @@ class ElasticsearchOnlineStore(OnlineStore):
                 successes += count
                 if type(errs) is int:
                     error_count += errs
-                else:
+                elif type(errs) is list:
                     errors.extend(errs)
             logger.info(f"bulk write completed with {successes} successes")
             if error_count:
