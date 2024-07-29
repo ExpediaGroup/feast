@@ -5,10 +5,10 @@ from datetime import datetime
 
 import pytest
 
+from elasticsearch import Elasticsearch
 from feast import FeatureView
 from feast.entity import Entity
 from feast.expediagroup.vectordb.elasticsearch_online_store import (
-    ElasticsearchConnectionManager,
     ElasticsearchOnlineStore,
     ElasticsearchOnlineStoreConfig,
 )
@@ -46,6 +46,21 @@ index_param_list = [
     {"index_type": "HNSW", "index_params": {"m": 16, "ef_construction": 100}},
     {"index_type": "HNSW"},
 ]
+
+
+class ElasticsearchConnectionManager:
+    def __init__(self, online_config: RepoConfig):
+        self.online_config = online_config
+    def __enter__(self):
+        # Connecting to Elasticsearch
+        self.client = Elasticsearch(
+            self.online_config.endpoint,
+            basic_auth=(self.online_config.username, self.online_config.password),
+        )
+        return self.client
+    def __exit__(self, exc_type, exc_value, traceback):
+        # Disconnecting from Elasticsearch
+        self.client.transport.close()
 
 
 @pytest.fixture(scope="session")
