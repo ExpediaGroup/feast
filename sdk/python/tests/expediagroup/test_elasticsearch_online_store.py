@@ -5,10 +5,10 @@ from datetime import datetime
 
 import pytest
 
+from elasticsearch import Elasticsearch
 from feast import FeatureView
 from feast.entity import Entity
 from feast.expediagroup.vectordb.elasticsearch_online_store import (
-    ElasticsearchConnectionManager,
     ElasticsearchOnlineStore,
     ElasticsearchOnlineStoreConfig,
 )
@@ -48,6 +48,21 @@ index_param_list = [
 ]
 
 
+class ElasticsearchConnectionManager:
+    def __init__(self, online_config: RepoConfig):
+        self.online_config = online_config
+    def __enter__(self):
+        # Connecting to Elasticsearch
+        self.client = Elasticsearch(
+            self.online_config.endpoint,
+            basic_auth=(self.online_config.username, self.online_config.password),
+        )
+        return self.client
+    def __exit__(self, exc_type, exc_value, traceback):
+        # Disconnecting from Elasticsearch
+        self.client.transport.close()
+
+
 @pytest.fixture(scope="session")
 def repo_config(embedded_elasticsearch):
     return RepoConfig(
@@ -58,6 +73,7 @@ def repo_config(embedded_elasticsearch):
             endpoint=f"http://{embedded_elasticsearch['host']}:{embedded_elasticsearch['port']}",
             username=embedded_elasticsearch["username"],
             password=embedded_elasticsearch["password"],
+            write_batch_size=5
         ),
         offline_store=DaskOfflineStoreConfig(),
         entity_key_serialization_version=2,
