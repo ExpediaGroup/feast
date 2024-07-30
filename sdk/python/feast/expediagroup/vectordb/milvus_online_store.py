@@ -1,5 +1,6 @@
 import json
 import logging
+import sys
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple
 
@@ -35,6 +36,13 @@ from feast.types import (
 )
 
 logger = logging.getLogger(__name__)
+# todo this might be better placed on module or project level
+logging.basicConfig(level=logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 TYPE_MAPPING = bidict(
     {
