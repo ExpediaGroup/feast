@@ -61,12 +61,15 @@ REQUIRED = [
     "uvicorn[standard]>=0.14.0,<1",
     "gunicorn; platform_system != 'Windows'",
     "dask[dataframe]>=2024.2.1",
-    # For HTTP Registry
-    "httpx>=0.23.3",
 ]
 
 GO_REQUIRED = [
     "cffi~=1.15.0",
+]
+
+HTTP_REGISTRY_REQUIRED = [
+    # For HTTP Registry
+    "httpx>=0.23.3",
 ]
 
 GCP_REQUIRED = [
@@ -231,6 +234,7 @@ CI_REQUIRED = (
     + ELASTICSEARCH_REQUIRED
     + SQLITE_VEC_REQUIRED
     + SINGLESTORE_REQUIRED
+    + HTTP_REGISTRY_REQUIRED
 )
 
 DOCS_REQUIRED = CI_REQUIRED
@@ -488,6 +492,7 @@ setup(
         "elasticsearch": ELASTICSEARCH_REQUIRED,
         "sqlite_vec": SQLITE_VEC_REQUIRED,
         "singlestore": SINGLESTORE_REQUIRED,
+        "http_registry": HTTP_REGISTRY_REQUIRED,
     },
     include_package_data=True,
     license="Apache",
@@ -503,8 +508,8 @@ setup(
     use_scm_version=use_scm_version,
     setup_requires=[
         "setuptools_scm",
-        "grpcio>=1.56.2,<2",
-        "grpcio-tools>=1.56.2,<2",
+        "grpcio>=1.56.2,<1.63.0",
+        "grpcio-tools>=1.56.2,<1.63.0",
         "mypy-protobuf>=3.1",
         "pybindgen==0.22.0",
     ],
