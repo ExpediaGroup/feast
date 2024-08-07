@@ -7,7 +7,6 @@ from textwrap import dedent
 from typing import Optional
 
 import assertpy
-from tests.utils.cli_repo_creator import CliRunner
 
 from feast.repo_operations import (
     get_ignore_files,
@@ -15,6 +14,7 @@ from feast.repo_operations import (
     parse_repo,
     read_feastignore,
 )
+from tests.utils.cli_repo_creator import CliRunner
 
 
 @contextmanager
@@ -171,7 +171,7 @@ def test_parse_repo():
 
 
 def test_parse_repo_with_future_annotations():
-    "Test to ensure that the repo is parsed correctly"
+    "Test to ensure that the repo is parsed correctly when using future annotations"
     runner = CliRunner()
     with tempfile.TemporaryDirectory(dir=os.getcwd()) as temp_dir:
         # Make sure the path is absolute by resolving any symlinks
