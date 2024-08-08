@@ -233,7 +233,16 @@ class SparkKafkaProcessor(StreamProcessor):
                 if isinstance(feature_view, StreamFeatureView):
                     ts_field = feature_view.timestamp_field
                 else:
-                    ts_field = feature_view.stream_source.timestamp_field
+                    # If the timestamp field is set using the EventHeader, we need to extract it from the nested column.
+                    if feature_view.stream_source.timestamp_field == "EventHeader.event_published_datetime_utc":
+                        ts_field = "event_published_datetime_utc"
+                        if ts_field not in pdf.columns:
+                            pdf[ts_field] = pdf["EventHeader"].apply(
+                                lambda x: x["event_published_datetime_utc"]
+                            )
+                        pdf.drop(columns=["EventHeader"], inplace=True)
+                    else:
+                        ts_field = feature_view.stream_source.timestamp_field
 
                 # Extract the latest feature values for each unique entity row (i.e. the join keys).
                 pdf = (
