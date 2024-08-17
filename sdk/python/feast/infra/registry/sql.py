@@ -1,4 +1,5 @@
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
@@ -693,6 +694,7 @@ class SqlRegistry(CachingRegistry):
                 raise FeatureViewNotFoundException(feature_view.name, project=project)
 
     def proto(self) -> RegistryProto:
+        start_time = time.time()
         r = RegistryProto()
         last_updated_timestamps = []
         projects = self._get_all_projects()
@@ -725,7 +727,7 @@ class SqlRegistry(CachingRegistry):
 
         if last_updated_timestamps:
             r.last_updated.FromDatetime(max(last_updated_timestamps))
-
+        logger.info(f"Time taken to execute self.proto(): {time.time() - start_time}")
         return r
 
     def commit(self):
