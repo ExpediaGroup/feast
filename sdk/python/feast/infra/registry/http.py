@@ -724,15 +724,6 @@ class HttpRegistry(BaseRegistry):
         pass
 
     def refresh(self, project: Optional[str] = None):
-        if project:
-            project_metadata = proto_registry_utils.get_project_metadata(
-                registry_proto=self.cached_registry_proto, project=project
-            )
-            if project_metadata is None:
-                proto_registry_utils.init_project_metadata(
-                    self.cached_registry_proto, project
-                )
-
         refreshed_cache_registry_proto = self.proto()
         with self._refresh_lock:
             self.cached_registry_proto = refreshed_cache_registry_proto

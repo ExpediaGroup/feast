@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 import pandas as pd
@@ -825,7 +825,7 @@ def test_idempotent_project_metadata_conversion():
     python_obj = ProjectMetadata(
         project_name="test_project",
         project_uuid=f"{uuid.uuid4()}",
-        last_updated_timestamp=datetime.utcnow(),
+        last_updated_timestamp=datetime.now(tz=timezone.utc),
     )
     pydantic_obj = ProjectMetadataModel.from_project_metadata(python_obj)
     converted_python_obj = pydantic_obj.to_project_metadata()

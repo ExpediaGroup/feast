@@ -61,6 +61,8 @@ class SparkSource(DataSource):
             owner=owner,
         )
 
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+
         if not flags_helper.is_test():
             warnings.warn(
                 "The spark data source API is an experimental feature in alpha development. "
