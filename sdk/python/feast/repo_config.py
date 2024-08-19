@@ -134,6 +134,9 @@ class RegistryConfig(FeastBaseModel):
     cache_mode: StrictStr = "sync"
     """ str: Cache mode type, Possible options are sync and thread(asynchronous caching using threading library)"""
 
+    build_cache_immediately: bool = True
+    """ bool: If True, the cache will be built immediately upon Registry initialization. """
+
     @field_validator("path")
     def validate_path(cls, path: str, values: ValidationInfo) -> str:
         if values.data.get("registry_type") == "sql":

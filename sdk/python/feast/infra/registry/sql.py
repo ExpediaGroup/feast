@@ -207,6 +207,7 @@ class SqlRegistry(CachingRegistry):
             project=project,
             cache_ttl_seconds=registry_config.cache_ttl_seconds,
             cache_mode=registry_config.cache_mode,
+            build_cache_immediately=registry_config.build_cache_immediately,
         )
 
     def teardown(self):
@@ -654,7 +655,8 @@ class SqlRegistry(CachingRegistry):
                 )
                 conn.execute(update_stmt)
             else:
-                raise FeatureViewNotFoundException(feature_view.name, project=project)
+                raise FeatureViewNotFoundException(
+                    feature_view.name, project=project)
 
     def _infer_fv_table(self, feature_view):
         if isinstance(feature_view, StreamFeatureView):
@@ -664,7 +666,8 @@ class SqlRegistry(CachingRegistry):
         elif isinstance(feature_view, OnDemandFeatureView):
             table = on_demand_feature_views
         else:
-            raise ValueError(f"Unexpected feature view type: {type(feature_view)}")
+            raise ValueError(
+                f"Unexpected feature view type: {type(feature_view)}")
         return table
 
     def _infer_fv_classes(self, feature_view):
@@ -675,7 +678,8 @@ class SqlRegistry(CachingRegistry):
         elif isinstance(feature_view, OnDemandFeatureView):
             python_class, proto_class = OnDemandFeatureView, OnDemandFeatureViewProto
         else:
-            raise ValueError(f"Unexpected feature view type: {type(feature_view)}")
+            raise ValueError(
+                f"Unexpected feature view type: {type(feature_view)}")
         return python_class, proto_class
 
     def get_user_metadata(
@@ -685,12 +689,14 @@ class SqlRegistry(CachingRegistry):
 
         name = feature_view.name
         with self.engine.begin() as conn:
-            stmt = select(table).where(getattr(table.c, "feature_view_name") == name)
+            stmt = select(table).where(
+                getattr(table.c, "feature_view_name") == name)
             row = conn.execute(stmt).first()
             if row:
                 return row._mapping["user_metadata"]
             else:
-                raise FeatureViewNotFoundException(feature_view.name, project=project)
+                raise FeatureViewNotFoundException(
+                    feature_view.name, project=project)
 
     def proto(self) -> RegistryProto:
         r = RegistryProto()
@@ -721,7 +727,8 @@ class SqlRegistry(CachingRegistry):
             # This is suuuper jank. Because of https://github.com/feast-dev/feast/issues/2783,
             # the registry proto only has a single infra field, which we're currently setting as the "last" project.
             r.infra.CopyFrom(self.get_infra(project).to_proto())
-            last_updated_timestamps.append(self._get_last_updated_metadata(project))
+            last_updated_timestamps.append(
+                self._get_last_updated_metadata(project))
 
         if last_updated_timestamps:
             r.last_updated.FromDatetime(max(last_updated_timestamps))
@@ -750,7 +757,8 @@ class SqlRegistry(CachingRegistry):
             update_datetime = _utc_now()
             update_time = int(update_datetime.timestamp())
             stmt = select(table).where(
-                getattr(table.c, id_field_name) == name, table.c.project_id == project
+                getattr(
+                    table.c, id_field_name) == name, table.c.project_id == project
             )
             row = conn.execute(stmt).first()
             if hasattr(obj, "last_updated_timestamp"):
@@ -796,7 +804,8 @@ class SqlRegistry(CachingRegistry):
                 if hasattr(obj_proto, "meta") and hasattr(
                     obj_proto.meta, "created_timestamp"
                 ):
-                    obj_proto.meta.created_timestamp.FromDatetime(update_datetime)
+                    obj_proto.meta.created_timestamp.FromDatetime(
+                        update_datetime)
 
                 values = {
                     id_field_name: name,
@@ -842,7 +851,8 @@ class SqlRegistry(CachingRegistry):
     ):
         with self.engine.begin() as conn:
             stmt = delete(table).where(
-                getattr(table.c, id_field_name) == name, table.c.project_id == project
+                getattr(
+                    table.c, id_field_name) == name, table.c.project_id == project
             )
             rows = conn.execute(stmt)
             if rows.rowcount < 1 and not_found_exception:
@@ -866,7 +876,8 @@ class SqlRegistry(CachingRegistry):
 
         with self.engine.begin() as conn:
             stmt = select(table).where(
-                getattr(table.c, id_field_name) == name, table.c.project_id == project
+                getattr(
+                    table.c, id_field_name) == name, table.c.project_id == project
             )
             row = conn.execute(stmt).first()
             if row:

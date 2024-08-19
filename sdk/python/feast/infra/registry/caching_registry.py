@@ -23,8 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 class CachingRegistry(BaseRegistry):
-    def __init__(self, project: str, cache_ttl_seconds: int, cache_mode: str):
-        self.cached_registry_proto = self.proto()
+    def __init__(self, project: str, cache_ttl_seconds: int, cache_mode: str, build_cache_immediately: bool = True):
+        self.cached_registry_proto = None
+        if build_cache_immediately:
+            self.cached_registry_proto = self.proto()
         proto_registry_utils.init_project_metadata(self.cached_registry_proto, project)
         self.cached_registry_proto_created = _utc_now()
         self._refresh_lock = Lock()
@@ -35,6 +37,9 @@ class CachingRegistry(BaseRegistry):
         if cache_mode == "thread":
             self._start_thread_async_refresh(cache_ttl_seconds)
             atexit.register(self._exit_handler)
+
+    def build_cache(self):
+        self.cached_registry_proto = self.proto()
 
     @abstractmethod
     def _get_data_source(self, name: str, project: str) -> DataSource:
