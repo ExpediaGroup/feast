@@ -229,16 +229,16 @@ func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	} else if len(request.Features) > 0 {
 		log.Info().Msgf("request.Features %v", request.Features)
 		for _, featureName := range request.Features {
-			_, _, err := onlineserving.ParseFeatureReference(featureName)
+			fVName, _, err := onlineserving.ParseFeatureReference(featureName)
 			if err != nil {
 				logSpanContext.Error().Err(err)
 				writeJSONError(w, fmt.Errorf("Error parsing feature reference %s", featureName), http.StatusBadRequest)
 				return
 			}
 			fv, odfv, _ := s.fs.ListAllViews()
-			if _, ok1 := odfv[featureName]; ok1 {
-				odfVList = append(odfVList, odfv[featureName])
-			} else if _, ok1 := fv[featureName]; !ok1 {
+			if _, ok1 := odfv[fVName]; ok1 {
+				odfVList = append(odfVList, odfv[fVName])
+			} else if _, ok1 := fv[fVName]; !ok1 {
 				logSpanContext.Error().Msg("Feature View not found")
 				writeJSONError(w, fmt.Errorf("Feature View %s not found", featureName), http.StatusInternalServerError)
 				return
@@ -255,17 +255,17 @@ func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	if len(request.Entities) > 0 {
 		var entityType prototypes.ValueType_Enum
 		for key, value := range request.Entities {
-			entity, err := s.fs.GetEntity(key, false)
+			entity, err := s.fs.GetEntityByKey(key)
 			if err != nil {
-				if requestSources == nil {
-					logSpanContext.Error().Msgf("Entity %s not found ", key)
-					writeJSONError(w, fmt.Errorf("Entity %s not found ", key), http.StatusNotFound)
+				if len(requestSources) == 0 {
+					logSpanContext.Error().Err(err)
+					writeJSONError(w, err, http.StatusNotFound)
 					return
 				}
 				requestSourceType, ok := requestSources[key]
 				if !ok {
-					logSpanContext.Error().Msgf("Entity nor Request Source of name %s not found ", key)
-					writeJSONError(w, fmt.Errorf("Entity nor Request Source of name %s not found ", key), http.StatusNotFound)
+					logSpanContext.Error().Msgf("Entity with key or Request Source with name %s not found ", key)
+					writeJSONError(w, fmt.Errorf("Entity with key or Request Source with name %s not found ", key), http.StatusNotFound)
 					return
 				}
 				entityType = requestSourceType

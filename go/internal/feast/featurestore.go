@@ -300,13 +300,18 @@ func (fs *FeatureStore) ListEntities(hideDummyEntity bool) ([]*model.Entity, err
 	return entities, nil
 }
 
-func (fs *FeatureStore) GetEntity(entityName string, hideDummyEntity bool) (*model.Entity, error) {
+func (fs *FeatureStore) GetEntityByKey(entityKey string) (*model.Entity, error) {
 
-	entity, err := fs.registry.GetEntity(fs.config.Project, entityName)
+	entities, err := fs.ListEntities(false)
 	if err != nil {
 		return nil, err
 	}
-	return entity, nil
+	for _, entity := range entities {
+		if entity.JoinKey == entityKey {
+			return entity, nil
+		}
+	}
+	return nil, fmt.Errorf("Entity with key %s not found", entityKey)
 }
 func (fs *FeatureStore) GetRequestSources(odfvList []*model.OnDemandFeatureView) (map[string]prototypes.ValueType_Enum, error) {
 
