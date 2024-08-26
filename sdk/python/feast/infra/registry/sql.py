@@ -1051,7 +1051,7 @@ class SqlRegistry(CachingRegistry):
         search_text: str = "",
         updated_at: Optional[datetime] = None,
         page_size: int = 10,
-        page_index: int = 0
+        page_index: int = 0,
     ) -> Tuple[List[ProjectMetadata], int]:
         """
         Search for projects based on the provided search parameters with pagination,
@@ -1068,20 +1068,20 @@ class SqlRegistry(CachingRegistry):
 
         with self.engine.begin() as conn:
             # Base SQL query to count total number of matching projects
-            count_stmt = select(func.count().label(
-                'total')).select_from(feast_metadata)
+            count_stmt = select(func.count().label("total")).select_from(feast_metadata)
 
             if search_text:
                 count_stmt = count_stmt.where(
-                    feast_metadata.c.project_id.like(f"%{search_text}%"))
+                    feast_metadata.c.project_id.like(f"%{search_text}%")
+                )
 
             if updated_at is not None:
                 updated_at_timestamp = int(updated_at.timestamp())
                 count_stmt = count_stmt.where(
                     and_(
-                        feast_metadata.c.metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
-                        feast_metadata.c.metadata_value >= str(
-                            updated_at_timestamp)
+                        feast_metadata.c.metadata_key
+                        == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
+                        feast_metadata.c.metadata_value >= str(updated_at_timestamp),
                     )
                 )
 
@@ -1091,28 +1091,29 @@ class SqlRegistry(CachingRegistry):
             # gRPC defaults empty page_size to 0, which overrides the default value of 10. Have to explicitly set it to 10 here.
             page_size = page_size if page_size > 0 else 10
             # Calculate total pages
-            total_page_indices = (
-                total_projects + page_size - 1) // page_size
+            total_page_indices = (total_projects + page_size - 1) // page_size
 
             # Base SQL query for retrieving projects
             stmt = select(feast_metadata)
 
             if search_text:
-                stmt = stmt.where(
-                    feast_metadata.c.project_id.like(f"%{search_text}%"))
+                stmt = stmt.where(feast_metadata.c.project_id.like(f"%{search_text}%"))
 
             if updated_at is not None:
                 stmt = stmt.where(
                     and_(
-                        feast_metadata.c.metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
-                        feast_metadata.c.metadata_value >= str(
-                            updated_at_timestamp)
+                        feast_metadata.c.metadata_key
+                        == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
+                        feast_metadata.c.metadata_value >= str(updated_at_timestamp),
                     )
                 )
 
             # Apply ordering and pagination
-            stmt = stmt.order_by(feast_metadata.c.project_id).limit(
-                page_size).offset(page_index * page_size)
+            stmt = (
+                stmt.order_by(feast_metadata.c.project_id)
+                .limit(page_size)
+                .offset(page_index * page_size)
+            )
 
             rows = conn.execute(stmt).all()
 
@@ -1128,14 +1129,16 @@ class SqlRegistry(CachingRegistry):
                         )
 
                     project_metadata: ProjectMetadata = project_metadata_dict[
-                        project_id]
+                        project_id
+                    ]
 
                     if metadata_key == FeastMetadataKeys.PROJECT_UUID.value:
                         project_metadata.project_uuid = metadata_value
 
                     if metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value:
-                        project_metadata.last_updated_timestamp = datetime.utcfromtimestamp(
-                            int(metadata_value))
+                        project_metadata.last_updated_timestamp = (
+                            datetime.utcfromtimestamp(int(metadata_value))
+                        )
 
             project_list = list(project_metadata_dict.values())
 
