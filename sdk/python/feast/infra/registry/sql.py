@@ -16,13 +16,13 @@ from sqlalchemy import (  # type: ignore
     MetaData,
     String,
     Table,
+    and_,
     create_engine,
     delete,
+    func,
     insert,
     select,
     update,
-    and_,
-    func
 )
 from sqlalchemy.engine import Engine
 
