@@ -1048,10 +1048,10 @@ class SqlRegistry(CachingRegistry):
 
     def search_projects(
         self,
-        search_text="",
-        updated_at: datetime = None,
-        page_size=10,
-        page_index=0
+        search_text: str = "",
+        updated_at: Optional[datetime] = None,
+        page_size: int = 10,
+        page_index: int = 0
     ) -> Tuple[List[ProjectMetadata], int]:
         """
         Search for projects based on the provided search parameters with pagination,
