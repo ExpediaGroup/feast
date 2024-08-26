@@ -1086,7 +1086,7 @@ class SqlRegistry(CachingRegistry):
                 )
 
             # Execute the count query to get the total number of matching projects
-            total_projects = conn.execute(count_stmt).scalar()
+            total_projects = conn.execute(count_stmt).scalar() or 0
 
             # gRPC defaults empty page_size to 0, which overrides the default value of 10. Have to explicitly set it to 10 here.
             page_size = page_size if page_size > 0 else 10
