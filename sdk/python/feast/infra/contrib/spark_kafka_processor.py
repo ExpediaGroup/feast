@@ -237,6 +237,7 @@ class SparkKafkaProcessor(StreamProcessor):
                     if feature_view.stream_source.timestamp_field == "EventHeader.event_published_datetime_utc":
                         ts_field = "event_published_datetime_utc"
                         if ts_field not in pdf.columns:
+                            print(pdf.columns)
                             pdf[ts_field] = pdf["EventHeader"].apply(
                                 lambda x: x["event_published_datetime_utc"]
                             )
