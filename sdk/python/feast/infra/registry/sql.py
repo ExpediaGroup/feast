@@ -1171,6 +1171,7 @@ class SqlRegistry(CachingRegistry):
                 stmt = (
                     select(feature_views)
                     .where(feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                    .order_by(feature_views.c.feature_view_name)
                     .limit(page_size)
                     .offset(offset)
                 )
@@ -1200,7 +1201,7 @@ class SqlRegistry(CachingRegistry):
             if search_text:
                 stmt = stmt.where(
                     feature_views.c.feature_view_name.like(f"%{search_text}%")
-                )
+                ).order_by(feature_views.c.feature_view_name)
 
             rows = conn.execute(stmt).all()
 
