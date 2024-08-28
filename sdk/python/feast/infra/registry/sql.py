@@ -22,7 +22,6 @@ from sqlalchemy import (  # type: ignore
     func,
     insert,
     select,
-    text,
     update,
 )
 from sqlalchemy.engine import Engine
