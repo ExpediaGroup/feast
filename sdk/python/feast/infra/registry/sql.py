@@ -1011,8 +1011,7 @@ class SqlRegistry(CachingRegistry):
 
                     if metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value:
                         project_metadata.last_updated_timestamp = (
-                            datetime.fromtimestamp(
-                                int(metadata_value), tz=timezone.utc)
+                            datetime.fromtimestamp(int(metadata_value), tz=timezone.utc)
                         )
         return list(project_metadata_dict.values())
 
@@ -1069,8 +1068,7 @@ class SqlRegistry(CachingRegistry):
 
         with self.engine.begin() as conn:
             # Base SQL query to count total number of matching projects
-            count_stmt = select(func.count(
-                feast_metadata.c.project_id.distinct()))
+            count_stmt = select(func.count(feast_metadata.c.project_id.distinct()))
 
             if search_text:
                 count_stmt = count_stmt.where(
@@ -1095,10 +1093,8 @@ class SqlRegistry(CachingRegistry):
             stmt = (
                 select(
                     feast_metadata.c.project_id,
-                    func.array_agg(
-                        feast_metadata.c.metadata_key).label("keys"),
-                    func.array_agg(
-                        feast_metadata.c.metadata_value).label("values"),
+                    func.array_agg(feast_metadata.c.metadata_key).label("keys"),
+                    func.array_agg(feast_metadata.c.metadata_value).label("values"),
                     func.max(feast_metadata.c.last_updated_timestamp).label(
                         "last_updated_timestamp"
                     ),
@@ -1167,24 +1163,32 @@ class SqlRegistry(CachingRegistry):
 
         # These filters require im-memory filtering, as the data is inside the proto and cannot be queried directly
         in_memory_filtering_required = any(
-            [online, application, team, created_at, updated_at])
+            [online, application, team, created_at, updated_at]
+        )
 
         with self.engine.begin() as conn:
             if not in_memory_filtering_required:
-                stmt = select(feature_views).where(
-                    feature_views.c.feature_view_name.like(f"%{search_text}%")
-                ).limit(page_size).offset(offset)
+                stmt = (
+                    select(feature_views)
+                    .where(feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                    .limit(page_size)
+                    .offset(offset)
+                )
 
                 rows = conn.execute(stmt).all()
 
                 results = [
-                    FeatureView.from_proto(FeatureViewProto.FromString(
-                        row._mapping["feature_view_proto"]))
+                    FeatureView.from_proto(
+                        FeatureViewProto.FromString(row._mapping["feature_view_proto"])
+                    )
                     for row in rows
                 ]
 
-                total_stmt = select(func.count()).select_from(feature_views).where(
-                    feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                total_stmt = (
+                    select(func.count())
+                    .select_from(feature_views)
+                    .where(feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                )
                 total_count = conn.execute(total_stmt).scalar() or 0
                 total_page_indices = (total_count + page_size - 1) // page_size
 
@@ -1202,40 +1206,46 @@ class SqlRegistry(CachingRegistry):
 
             for row in rows:
                 feature_view_proto = FeatureViewProto.FromString(
-                    row._mapping["feature_view_proto"])
+                    row._mapping["feature_view_proto"]
+                )
                 add_to_results = True
 
                 if online is not None and feature_view_proto.spec.online != online:
                     add_to_results = False
 
-                if application and feature_view_proto.spec.tags.get("application") != application:
+                if (
+                    application
+                    and feature_view_proto.spec.tags.get("application") != application
+                ):
                     add_to_results = False
 
                 if team and feature_view_proto.spec.tags.get("team") != team:
                     add_to_results = False
 
                 if created_at:
-                    created_timestamp = feature_view_proto.meta.created_timestamp.ToDatetime()
+                    created_timestamp = (
+                        feature_view_proto.meta.created_timestamp.ToDatetime()
+                    )
                     if created_timestamp < created_at:
                         add_to_results = False
 
                 if updated_at:
-                    updated_timestamp = feature_view_proto.meta.last_updated_timestamp.ToDatetime()
+                    updated_timestamp = (
+                        feature_view_proto.meta.last_updated_timestamp.ToDatetime()
+                    )
                     if updated_timestamp < updated_at:
                         add_to_results = False
 
                 if add_to_results:
-                    filtered_results.append(
-                        FeatureView.from_proto(feature_view_proto))
+                    filtered_results.append(FeatureView.from_proto(feature_view_proto))
 
             # Calculate total filtered results
             total_filtered_count = len(filtered_results)
 
             # Calculate total page indices based on filtered results
-            total_page_indices = (total_filtered_count +
-                                  page_size - 1) // page_size
+            total_page_indices = (total_filtered_count + page_size - 1) // page_size
 
             # Apply pagination to the filtered results
-            paginated_results = filtered_results[offset:offset + page_size]
+            paginated_results = filtered_results[offset : offset + page_size]
 
         return paginated_results, total_page_indices
