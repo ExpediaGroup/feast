@@ -70,6 +70,23 @@ service RegistryServer{
 
   // Search RPCs
   rpc SearchProjects (SearchProjectsRequest) returns (SearchProjectsResponse) {}
+  rpc SearchFeatureViews (SearchFeatureViewsRequest) returns (SearchFeatureViewsResponse) {}
+}
+
+message SearchFeatureViewsRequest {
+  string search_text = 1;
+  bool online = 2;
+  string application = 3;
+  string team = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  int32 page_size = 7;
+  int32 page_index = 8;
+}
+
+message SearchFeatureViewsResponse {
+  repeated feast.core.FeatureView feature_views = 1;
+  int32 total_page_indices = 2;
 }
 
 message SearchProjectsRequest {

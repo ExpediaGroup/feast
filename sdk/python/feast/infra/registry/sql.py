@@ -22,6 +22,7 @@ from sqlalchemy import (  # type: ignore
     func,
     insert,
     select,
+    text,
     update,
 )
 from sqlalchemy.engine import Engine
@@ -1011,7 +1012,8 @@ class SqlRegistry(CachingRegistry):
 
                     if metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value:
                         project_metadata.last_updated_timestamp = (
-                            datetime.fromtimestamp(int(metadata_value), tz=timezone.utc)
+                            datetime.fromtimestamp(
+                                int(metadata_value), tz=timezone.utc)
                         )
         return list(project_metadata_dict.values())
 
@@ -1068,7 +1070,8 @@ class SqlRegistry(CachingRegistry):
 
         with self.engine.begin() as conn:
             # Base SQL query to count total number of matching projects
-            count_stmt = select(func.count().label("total")).select_from(feast_metadata)
+            count_stmt = select(func.count(
+                feast_metadata.c.project_id.distinct()))
 
             if search_text:
                 count_stmt = count_stmt.where(
@@ -1085,16 +1088,27 @@ class SqlRegistry(CachingRegistry):
                     )
                 )
 
-            # Execute the count query to get the total number of matching projects
             total_projects = conn.execute(count_stmt).scalar() or 0
 
-            # gRPC defaults empty page_size to 0, which overrides the default value of 10. Have to explicitly set it to 10 here.
-            page_size = page_size if page_size > 0 else 10
-            # Calculate total pages
             total_page_indices = (total_projects + page_size - 1) // page_size
 
-            # Base SQL query for retrieving projects
-            stmt = select(feast_metadata)
+            # Base SQL query for retrieving projects, grouped by project_id
+            stmt = (
+                select(
+                    feast_metadata.c.project_id,
+                    func.array_agg(
+                        feast_metadata.c.metadata_key).label("keys"),
+                    func.array_agg(
+                        feast_metadata.c.metadata_value).label("values"),
+                    func.max(feast_metadata.c.last_updated_timestamp).label(
+                        "last_updated_timestamp"
+                    ),
+                )
+                .group_by(feast_metadata.c.project_id)
+                .order_by(feast_metadata.c.project_id)
+                .limit(page_size)
+                .offset(page_index * page_size)
+            )
 
             if search_text:
                 stmt = stmt.where(feast_metadata.c.project_id.like(f"%{search_text}%"))
@@ -1108,38 +1122,121 @@ class SqlRegistry(CachingRegistry):
                     )
                 )
 
-            # Apply ordering and pagination
-            stmt = (
-                stmt.order_by(feast_metadata.c.project_id)
-                .limit(page_size)
-                .offset(page_index * page_size)
-            )
-
             rows = conn.execute(stmt).all()
 
-            if rows:
-                for row in rows:
-                    project_id = row._mapping["project_id"]
-                    metadata_key = row._mapping["metadata_key"]
-                    metadata_value = row._mapping["metadata_value"]
+            for row in rows:
+                project_id = row._mapping["project_id"]
+                keys = row._mapping["keys"]
+                values = row._mapping["values"]
+                last_updated_timestamp = row._mapping["last_updated_timestamp"]
 
-                    if project_id not in project_metadata_dict:
-                        project_metadata_dict[project_id] = ProjectMetadata(
-                            project_name=project_id
-                        )
+                if project_id not in project_metadata_dict:
+                    project_metadata_dict[project_id] = ProjectMetadata(
+                        project_name=project_id,
+                        last_updated_timestamp=datetime.utcfromtimestamp(
+                            last_updated_timestamp
+                        ),
+                    )
 
-                    project_metadata: ProjectMetadata = project_metadata_dict[
-                        project_id
-                    ]
+                project_metadata: ProjectMetadata = project_metadata_dict[project_id]
 
-                    if metadata_key == FeastMetadataKeys.PROJECT_UUID.value:
-                        project_metadata.project_uuid = metadata_value
-
-                    if metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value:
-                        project_metadata.last_updated_timestamp = (
-                            datetime.utcfromtimestamp(int(metadata_value))
-                        )
+                for key, value in zip(keys, values):
+                    if key == FeastMetadataKeys.PROJECT_UUID.value:
+                        project_metadata.project_uuid = value
 
             project_list = list(project_metadata_dict.values())
 
             return project_list, total_page_indices
+
+    def search_feature_views(
+        self,
+        search_text: Optional[str] = None,
+        online: Optional[bool] = None,
+        application: Optional[str] = None,
+        team: Optional[str] = None,
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
+        page_size: int = 10,
+        page_index: int = 0,
+    ) -> Tuple[List[FeatureView], int]:
+        """
+        Search for feature views based on the provided search parameters with pagination.
+        """
+        offset = page_index * page_size
+        results = []
+        filtered_results = []
+
+        # These filters require im-memory filtering, as the data is inside the proto and cannot be queried directly
+        in_memory_filtering_required = any(
+            [online, application, team, created_at, updated_at])
+
+        with self.engine.begin() as conn:
+            if not in_memory_filtering_required:
+                stmt = select(feature_views).where(
+                    feature_views.c.feature_view_name.like(f"%{search_text}%")
+                ).limit(page_size).offset(offset)
+
+                rows = conn.execute(stmt).all()
+
+                results = [
+                    FeatureView.from_proto(FeatureViewProto.FromString(
+                        row._mapping["feature_view_proto"]))
+                    for row in rows
+                ]
+
+                total_stmt = select(func.count()).select_from(feature_views).where(
+                    feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                total_count = conn.execute(total_stmt).scalar() or 0
+                total_page_indices = (total_count + page_size - 1) // page_size
+
+                # early return to avoid fetching data again
+                return results, total_page_indices
+
+            # Doing in-memory filtering below
+            stmt = select(feature_views)
+            if search_text:
+                stmt = stmt.where(
+                    feature_views.c.feature_view_name.like(f"%{search_text}%")
+                )
+
+            rows = conn.execute(stmt).all()
+
+            for row in rows:
+                feature_view_proto = FeatureViewProto.FromString(
+                    row._mapping["feature_view_proto"])
+                add_to_results = True
+
+                if online is not None and feature_view_proto.spec.online != online:
+                    add_to_results = False
+
+                if application and feature_view_proto.spec.tags.get("application") != application:
+                    add_to_results = False
+
+                if team and feature_view_proto.spec.tags.get("team") != team:
+                    add_to_results = False
+
+                if created_at:
+                    created_timestamp = feature_view_proto.meta.created_timestamp.ToDatetime()
+                    if created_timestamp < created_at:
+                        add_to_results = False
+
+                if updated_at:
+                    updated_timestamp = feature_view_proto.meta.last_updated_timestamp.ToDatetime()
+                    if updated_timestamp < updated_at:
+                        add_to_results = False
+
+                if add_to_results:
+                    filtered_results.append(
+                        FeatureView.from_proto(feature_view_proto))
+
+            # Calculate total filtered results
+            total_filtered_count = len(filtered_results)
+
+            # Calculate total page indices based on filtered results
+            total_page_indices = (total_filtered_count +
+                                  page_size - 1) // page_size
+
+            # Apply pagination to the filtered results
+            paginated_results = filtered_results[offset:offset + page_size]
+
+        return paginated_results, total_page_indices
