@@ -1046,7 +1046,7 @@ class SqlRegistry(CachingRegistry):
             else:
                 return None
 
-    def search_projects(
+    def expedia_search_projects(
         self,
         search_text: str = "",
         updated_at: Optional[datetime] = None,
@@ -1143,7 +1143,7 @@ class SqlRegistry(CachingRegistry):
 
             return project_list, total_count, total_page_indices
 
-    def search_feature_views(
+    def expedia_search_feature_views(
         self,
         search_text: Optional[str] = None,
         online: Optional[bool] = None,
