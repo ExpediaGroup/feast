@@ -86,7 +86,8 @@ message SearchFeatureViewsRequest {
 
 message SearchFeatureViewsResponse {
   repeated feast.core.FeatureView feature_views = 1;
-  int32 total_page_indices = 2;
+  int32 total_feature_views = 2;
+  int32 total_page_indices = 3;
 }
 
 message SearchProjectsRequest {
@@ -98,7 +99,8 @@ message SearchProjectsRequest {
 
 message SearchProjectsResponse {
   repeated feast.core.ProjectMetadata projects = 1;
-  int32 total_page_indices = 2;
+  int32 total_projects = 2;
+  int32 total_page_indices = 3;
 }
 
 message RefreshRequest {

@@ -1052,7 +1052,7 @@ class SqlRegistry(CachingRegistry):
         updated_at: Optional[datetime] = None,
         page_size: int = 10,
         page_index: int = 0,
-    ) -> Tuple[List[ProjectMetadata], int]:
+    ) -> Tuple[List[ProjectMetadata], int, int]:
         """
         Search for projects based on the provided search parameters with pagination,
         using SQL queries to handle filtering efficiently, including a LIKE statement for matching search_text.
@@ -1085,9 +1085,9 @@ class SqlRegistry(CachingRegistry):
                     )
                 )
 
-            total_projects = conn.execute(count_stmt).scalar() or 0
+            total_count = conn.execute(count_stmt).scalar() or 0
 
-            total_page_indices = (total_projects + page_size - 1) // page_size
+            total_page_indices = (total_count + page_size - 1) // page_size
 
             # Base SQL query for retrieving projects, grouped by project_id
             stmt = (
@@ -1141,7 +1141,7 @@ class SqlRegistry(CachingRegistry):
 
             project_list = list(project_metadata_dict.values())
 
-            return project_list, total_page_indices
+            return project_list, total_count, total_page_indices
 
     def search_feature_views(
         self,
@@ -1153,7 +1153,7 @@ class SqlRegistry(CachingRegistry):
         updated_at: Optional[datetime] = None,
         page_size: int = 10,
         page_index: int = 0,
-    ) -> Tuple[List[FeatureView], int]:
+    ) -> Tuple[List[FeatureView], int, int]:
         """
         Search for feature views based on the provided search parameters with pagination.
         """
@@ -1194,7 +1194,7 @@ class SqlRegistry(CachingRegistry):
                 total_page_indices = (total_count + page_size - 1) // page_size
 
                 # early return to avoid fetching data again
-                return results, total_page_indices
+                return results, total_count, total_page_indices
 
             # Doing in-memory filtering below
             stmt = select(feature_views)
@@ -1241,12 +1241,12 @@ class SqlRegistry(CachingRegistry):
                     filtered_results.append(FeatureView.from_proto(feature_view_proto))
 
             # Calculate total filtered results
-            total_filtered_count = len(filtered_results)
+            total_count = len(filtered_results)
 
             # Calculate total page indices based on filtered results
-            total_page_indices = (total_filtered_count + page_size - 1) // page_size
+            total_page_indices = (total_count + page_size - 1) // page_size
 
             # Apply pagination to the filtered results
             paginated_results = filtered_results[offset : offset + page_size]
 
-        return paginated_results, total_page_indices
+        return paginated_results, total_count, total_page_indices
