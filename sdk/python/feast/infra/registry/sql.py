@@ -16,7 +16,6 @@ from sqlalchemy import (  # type: ignore
     MetaData,
     String,
     Table,
-    and_,
     create_engine,
     delete,
     func,
