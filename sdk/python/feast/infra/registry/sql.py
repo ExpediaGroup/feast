@@ -1076,13 +1076,9 @@ class SqlRegistry(CachingRegistry):
                 )
 
             if updated_at is not None:
-                updated_at_timestamp = int(updated_at.timestamp())
+                updated_at_timestamp = updated_at.timestamp()
                 count_stmt = count_stmt.where(
-                    and_(
-                        feast_metadata.c.metadata_key
-                        == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
-                        feast_metadata.c.metadata_value >= str(updated_at_timestamp),
-                    )
+                    feast_metadata.c.last_updated_timestamp >= updated_at_timestamp
                 )
 
             total_count = conn.execute(count_stmt).scalar() or 0
@@ -1109,12 +1105,9 @@ class SqlRegistry(CachingRegistry):
                 stmt = stmt.where(feast_metadata.c.project_id.like(f"%{search_text}%"))
 
             if updated_at is not None:
+                updated_at_timestamp = updated_at.timestamp()
                 stmt = stmt.where(
-                    and_(
-                        feast_metadata.c.metadata_key
-                        == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
-                        feast_metadata.c.metadata_value >= str(updated_at_timestamp),
-                    )
+                    feast_metadata.c.last_updated_timestamp >= updated_at_timestamp
                 )
 
             rows = conn.execute(stmt).all()
@@ -1224,17 +1217,19 @@ class SqlRegistry(CachingRegistry):
                     add_to_results = False
 
                 if created_at:
-                    created_timestamp = (
+                    created_at_timestamp = created_at
+                    if (
                         feature_view_proto.meta.created_timestamp.ToDatetime()
-                    )
-                    if created_timestamp < created_at:
+                        < created_at_timestamp
+                    ):
                         add_to_results = False
 
-                if updated_at:
-                    updated_timestamp = (
+                if updated_at is not None:
+                    updated_at_timestamp = updated_at
+                    if (
                         feature_view_proto.meta.last_updated_timestamp.ToDatetime()
-                    )
-                    if updated_timestamp < updated_at:
+                        < updated_at_timestamp
+                    ):
                         add_to_results = False
 
                 if add_to_results:
