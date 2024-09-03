@@ -307,6 +307,10 @@ class SparkKafkaProcessor(StreamProcessor):
 
             for column in df.columns:
                 if column not in fv_schema:
+                    # Avoid dropping EventHeader column if the timestamp field is set using EventHeader
+                    if column == "EventHeader" and feature_view.stream_source.timestamp_field == "EventHeader.event_published_datetime_utc":
+                        if "event_published_datetime_utc" in df.select("EventHeader.*").columns:
+                            continue
                     drop_list.append(column)
 
             if len(drop_list) > 0:
