@@ -4,6 +4,7 @@ package feast.registry;
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 import "feast/core/Registry.proto";
 import "feast/core/Entity.proto";
 import "feast/core/DataSource.proto";
@@ -75,7 +76,7 @@ service RegistryServer{
 
 message ExpediaSearchFeatureViewsRequest {
   string search_text = 1;
-  bool online = 2;
+  google.protobuf.BoolValue online = 2;
   string application = 3;
   string team = 4;
   google.protobuf.Timestamp created_at = 5;
