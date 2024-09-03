@@ -1216,18 +1216,16 @@ class SqlRegistry(CachingRegistry):
                     add_to_results = False
 
                 if created_at:
-                    created_at_timestamp = created_at
                     if (
                         feature_view_proto.meta.created_timestamp.ToDatetime()
-                        < created_at_timestamp
+                        < created_at
                     ):
                         add_to_results = False
 
                 if updated_at is not None:
-                    updated_at_timestamp = updated_at
                     if (
                         feature_view_proto.meta.last_updated_timestamp.ToDatetime()
-                        < updated_at_timestamp
+                        < updated_at
                     ):
                         add_to_results = False
 
