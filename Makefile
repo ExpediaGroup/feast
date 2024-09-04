@@ -395,10 +395,10 @@ install-go-ci-dependencies:
 	go install github.com/go-python/gopy
 	python -m pip install "pybindgen==0.22.1" "protobuf>=4.24.0,<5"
 
-install-protoc-dependencies:
-	pip install --ignore-installed "protobuf>=4.24.0,<5" "grpcio-tools>=1.56.2,<2" mypy-protobuf==3.1.0
+# install-protoc-dependencies:
+# 	pip install --ignore-installed "protobuf>=4.24.0,<5" "grpcio-tools>=1.56.2,<2" mypy-protobuf==3.1.0
 
-compile-protos-go: install-go-proto-dependencies install-protoc-dependencies
+compile-protos-go: install-go-proto-dependencies
 	python setup.py build_go_protos
 
 install-feast-ci-locally:
