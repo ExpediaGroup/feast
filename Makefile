@@ -396,7 +396,7 @@ install-go-ci-dependencies:
 	python -m pip install "pybindgen==0.22.1" "protobuf>=4.24.0,<5"
 
 install-protoc-dependencies:
-	pip install --ignore-installed "protobuf==4.24.0" "grpcio-tools>=1.56.2,<2" mypy-protobuf==3.1
+	pip install --ignore-installed "protobuf==4.25.4" "grpcio-tools>=1.56.2,<2" mypy-protobuf==3.1
 
 compile-protos-go: install-go-proto-dependencies install-protoc-dependencies
 	python setup.py build_go_protos
