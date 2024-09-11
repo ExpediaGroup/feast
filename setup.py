@@ -112,6 +112,10 @@ CASSANDRA_REQUIRED = [
     "cassandra-driver>=3.24.0,<4",
 ]
 
+SCYLLADB_REQUIRED = [
+    "scylla-driver>=3.24.0,<4",
+]
+
 GE_REQUIRED = ["great_expectations>=0.15.41"]
 
 AZURE_REQUIRED = [
@@ -472,6 +476,7 @@ setup(
         "hbase": HBASE_REQUIRED,
         "docs": DOCS_REQUIRED,
         "cassandra": CASSANDRA_REQUIRED,
+        "scylladb": SCYLLADB_REQUIRED,
         "hazelcast": HAZELCAST_REQUIRED,
         "grpcio": GRPCIO_REQUIRED,
         "rockset": ROCKSET_REQUIRED,
