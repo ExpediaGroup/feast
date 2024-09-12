@@ -1222,7 +1222,7 @@ class SqlRegistry(CachingRegistry):
             feature_view_rows = conn.execute(feature_views_stmt).all()
 
         # Group feature views by project
-        feature_views_by_project: Dict[str, List[FeatureView]] = {}
+        feature_views_by_project: Dict[str, List[FeatureViewProto]] = {}
         for row in feature_view_rows:
             project_id = row._mapping["project_id"]
             feature_view_proto = FeatureViewProto.FromString(
