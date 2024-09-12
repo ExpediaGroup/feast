@@ -237,7 +237,6 @@ class SparkKafkaProcessor(StreamProcessor):
                     if feature_view.stream_source.timestamp_field == "EventHeader.event_published_datetime_utc":
                         ts_field = "event_published_datetime_utc"
                         if ts_field not in pdf.columns:
-                            print(pdf.columns)
                             pdf[ts_field] = pdf["EventHeader"].apply(
                                 lambda x: x["event_published_datetime_utc"]
                             )
@@ -307,9 +306,14 @@ class SparkKafkaProcessor(StreamProcessor):
 
             for column in df.columns:
                 if column not in fv_schema:
-                    # Avoid dropping EventHeader column if the timestamp field is set using EventHeader
-                    if column == "EventHeader" and feature_view.stream_source.timestamp_field == "EventHeader.event_published_datetime_utc":
-                        if "event_published_datetime_utc" in df.select("EventHeader.*").columns:
+                    column_dtype = df.select(col(column)).schema[0].dataType.simpleString()
+                    # Avoid dropping column if it is a EventHeader column.
+                    if (
+                            column_dtype in {"struct<com.expediagroup.event.common.EventHeader>",
+                                             "struct<com.expediagroup.event.EventHeader>"}
+                            and feature_view.stream_source.timestamp_field == "EventHeader.event_published_datetime_utc"
+                    ):
+                        if "event_published_datetime_utc" in df.select(f"{column}.*").columns:
                             continue
                     drop_list.append(column)
 
