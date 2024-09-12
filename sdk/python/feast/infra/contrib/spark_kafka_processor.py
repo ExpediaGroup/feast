@@ -9,6 +9,7 @@ from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.column import Column, _to_java_column
 from pyspark.sql.functions import col, from_json
 from pyspark.sql.streaming import StreamingQuery
+from pyspark.sql.types import StructType
 
 from feast import FeatureView
 from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat, StreamFormat
@@ -306,15 +307,14 @@ class SparkKafkaProcessor(StreamProcessor):
 
             for column in df.columns:
                 if column not in fv_schema:
-                    column_dtype = df.select(col(column)).schema[0].dataType.simpleString()
-                    # Avoid dropping column if it is a EventHeader column.
+                    field_data_type = df.schema[column].dataType
+                    # Avoid dropping column if it is the EventHeader column.
                     if (
-                            column_dtype in {"struct<com.expediagroup.event.common.EventHeader>",
-                                             "struct<com.expediagroup.event.EventHeader>"}
+                            isinstance(field_data_type, StructType)
+                            and "event_published_datetime_utc" in field_data_type.fieldNames()
                             and feature_view.stream_source.timestamp_field == "EventHeader.event_published_datetime_utc"
                     ):
-                        if "event_published_datetime_utc" in df.select(f"{column}.*").columns:
-                            continue
+                        continue
                     drop_list.append(column)
 
             if len(drop_list) > 0:
