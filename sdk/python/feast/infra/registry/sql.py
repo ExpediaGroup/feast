@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -61,6 +61,7 @@ from feast.protos.feast.core.StreamFeatureView_pb2 import (
 from feast.protos.feast.core.ValidationProfile_pb2 import (
     ValidationReference as ValidationReferenceProto,
 )
+from feast.protos.feast.registry import RegistryServer_pb2
 from feast.repo_config import RegistryConfig
 from feast.saved_dataset import SavedDataset, ValidationReference
 from feast.stream_feature_view import StreamFeatureView
@@ -1134,6 +1135,141 @@ class SqlRegistry(CachingRegistry):
             project_list = list(project_metadata_dict.values())
 
             return project_list, total_count, total_page_indices
+
+    def expedia_search_aiwb_table_by_project(
+        self,
+        search_text: str = "",
+        updated_at: Optional[datetime] = None,
+        page_size: int = 10,
+        page_index: int = 0,
+    ) -> RegistryServer_pb2.ExpediaSearchAIWBTableResponse:
+        project_metadata_dict: Dict[str, ProjectMetadata] = {}
+
+        with self.engine.begin() as conn:
+            # Base SQL query to count total number of matching projects
+            count_stmt = select(func.count(feast_metadata.c.project_id.distinct()))
+
+            if search_text:
+                count_stmt = count_stmt.where(
+                    feast_metadata.c.project_id.like(f"%{search_text}%")
+                )
+
+            if updated_at is not None:
+                updated_at_timestamp = updated_at.timestamp()
+                count_stmt = count_stmt.where(
+                    feast_metadata.c.last_updated_timestamp >= updated_at_timestamp
+                )
+
+            total_count = conn.execute(count_stmt).scalar() or 0
+            total_page_indices = (total_count + page_size - 1) // page_size
+
+            # Base SQL query for retrieving projects, grouped by project_id
+            stmt = (
+                select(
+                    feast_metadata.c.project_id,
+                    func.array_agg(feast_metadata.c.metadata_key).label("keys"),
+                    func.array_agg(feast_metadata.c.metadata_value).label("values"),
+                    func.max(feast_metadata.c.last_updated_timestamp).label(
+                        "last_updated_timestamp"
+                    ),
+                )
+                .group_by(feast_metadata.c.project_id)
+                .order_by(feast_metadata.c.project_id)
+                .limit(page_size)
+                .offset(page_index * page_size)
+            )
+
+            if search_text:
+                stmt = stmt.where(feast_metadata.c.project_id.like(f"%{search_text}%"))
+
+            if updated_at is not None:
+                updated_at_timestamp = updated_at.timestamp()
+                stmt = stmt.where(
+                    feast_metadata.c.last_updated_timestamp >= updated_at_timestamp
+                )
+
+            rows = conn.execute(stmt).all()
+
+            for row in rows:
+                project_id = row._mapping["project_id"]
+                keys = row._mapping["keys"]
+                values = row._mapping["values"]
+                last_updated_timestamp = row._mapping["last_updated_timestamp"]
+
+                if project_id not in project_metadata_dict:
+                    project_metadata_dict[project_id] = ProjectMetadata(
+                        project_name=project_id,
+                        last_updated_timestamp=datetime.utcfromtimestamp(
+                            last_updated_timestamp
+                        ),
+                    )
+
+                project_metadata: ProjectMetadata = project_metadata_dict[project_id]
+
+                for key, value in zip(keys, values):
+                    if key == FeastMetadataKeys.PROJECT_UUID.value:
+                        project_metadata.project_uuid = value
+
+            project_list = list(project_metadata_dict.values())
+            project_ids = [project.project_name for project in project_list]
+
+        # Fetch all feature views in one query for the relevant projects
+        with self.engine.begin() as conn:
+            feature_views_stmt = select(
+                feature_views.c.project_id, feature_views.c.feature_view_proto
+            ).where(feature_views.c.project_id.in_(project_ids))
+
+            feature_view_rows = conn.execute(feature_views_stmt).all()
+
+        # Group feature views by project
+        feature_views_by_project = {}
+        for row in feature_view_rows:
+            project_id = row._mapping["project_id"]
+            feature_view_proto = FeatureViewProto.FromString(
+                row._mapping["feature_view_proto"]
+            )
+
+            if project_id not in feature_views_by_project:
+                feature_views_by_project[project_id] = []
+            feature_views_by_project[project_id].append(feature_view_proto)
+
+        # Use a thread pool to parallelize fetching feature views
+        def process_project(project):
+            project_metadata_proto = project.to_proto()
+            feature_views_proto = feature_views_by_project.get(project.project_name, [])
+            return RegistryServer_pb2.ExpediaProjectAndRelatedFeatureViews(
+                project=project_metadata_proto,
+                feature_views=feature_views_proto,
+            )
+
+        project_and_related_feature_views: List[
+            RegistryServer_pb2.ExpediaProjectAndRelatedFeatureViews
+        ] = []
+
+        # Parallel processing using ThreadPoolExecutor
+        with ThreadPoolExecutor() as executor:
+            future_to_project = {
+                executor.submit(process_project, project): project
+                for project in project_list
+            }
+
+            for future in as_completed(future_to_project):
+                try:
+                    result = future.result()
+                    project_and_related_feature_views.append(result)
+                except Exception as e:
+                    logger.error(f"Error processing project: {e}")
+
+        # Sort the results by project name, which was lost during parallel processing
+        project_and_related_feature_views.sort(
+            key=lambda x: x.project_metadata.project.lower()
+        )
+
+        return RegistryServer_pb2.ExpediaSearchAIWBTableResponse(
+            project_and_related_feature_views=project_and_related_feature_views,
+            total_projects=total_count,
+            total_page_indices=total_page_indices,
+        )
 
     def expedia_search_feature_views(
         self,
