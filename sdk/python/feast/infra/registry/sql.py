@@ -1238,7 +1238,7 @@ class SqlRegistry(CachingRegistry):
             project_metadata_proto = project.to_proto()
             feature_views_proto = feature_views_by_project.get(project.project_name, [])
             return RegistryServer_pb2.ExpediaProjectAndRelatedFeatureViews(
-                project=project_metadata_proto,
+                project_metadata=project_metadata_proto,
                 feature_views=feature_views_proto,
             )
 
