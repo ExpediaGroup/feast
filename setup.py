@@ -147,10 +147,10 @@ IBIS_REQUIRED = [
 ]
 
 GRPCIO_REQUIRED = [
-    "grpcio>=1.56.2,<2",
-    "grpcio-tools>=1.56.2,<2",
-    "grpcio-reflection>=1.56.2,<2",
-    "grpcio-health-checking>=1.56.2,<2",
+    "grpcio<=1.56.0",
+    "grpcio-tools<=1.56.0",
+    "grpcio-reflection<=1.56.0",
+    "grpcio-health-checking<=1.56.0",
 ]
 
 DUCKDB_REQUIRED = ["ibis-framework[duckdb]>=9.0.0,<10"]
@@ -167,7 +167,7 @@ CI_REQUIRED = (
         "virtualenv==20.23.0",
         "cryptography>=35.0,<43",
         "ruff>=0.3.3",
-        "grpcio-testing>=1.56.2,<2",
+        "grpcio-testing<=1.56.0",
         # FastAPI does not correctly pull starlette dependency on httpx see thread(https://github.com/tiangolo/fastapi/issues/5656).
         "httpx>=0.23.3",
         "minio==7.1.0",
@@ -248,7 +248,8 @@ TAG_REGEX = re.compile(
 
 # Only set use_scm_version if git executable exists (setting this variable causes pip to use git under the hood)
 if shutil.which("git"):
-    use_scm_version = {"root": ".", "relative_to": __file__, "tag_regex": TAG_REGEX}
+    use_scm_version = {"root": ".",
+                       "relative_to": __file__, "tag_regex": TAG_REGEX}
 else:
     use_scm_version = None
 
@@ -280,7 +281,8 @@ class BuildPythonProtosCommand(Command):
     def python_folder(self):
         if self.inplace:
             return os.path.join(
-                os.path.dirname(__file__) or os.getcwd(), "sdk/python/feast/protos"
+                os.path.dirname(__file__) or os.getcwd(
+                ), "sdk/python/feast/protos"
             )
 
         return os.path.join(self.build_lib, "feast/protos")
@@ -352,17 +354,20 @@ def _ensure_go_and_proto_toolchain():
     semver_string = re.search(r"go[\S]+", str(version)).group().lstrip("go")
     parts = semver_string.split(".")
     if not (int(parts[0]) >= 1 and int(parts[1]) >= 16):
-        raise RuntimeError(f"Go compiler too old; expected 1.16+ found {semver_string}")
+        raise RuntimeError(
+            f"Go compiler too old; expected 1.16+ found {semver_string}")
 
     path_val = _generate_path_with_gopath()
 
     try:
-        subprocess.check_call(["protoc-gen-go", "--version"], env={"PATH": path_val})
+        subprocess.check_call(
+            ["protoc-gen-go", "--version"], env={"PATH": path_val})
         subprocess.check_call(
             ["protoc-gen-go-grpc", "--version"], env={"PATH": path_val}
         )
     except Exception as e:
-        raise RuntimeError("Unable to find go/grpc extensions for protoc") from e
+        raise RuntimeError(
+            "Unable to find go/grpc extensions for protoc") from e
 
 
 class BuildGoProtosCommand(Command):
@@ -448,7 +453,8 @@ setup(
     python_requires=REQUIRES_PYTHON,
     url=URL,
     packages=find_packages(
-        where=PYTHON_CODE_PREFIX, exclude=("java", "infra", "sdk/python/tests", "ui")
+        where=PYTHON_CODE_PREFIX, exclude=(
+            "java", "infra", "sdk/python/tests", "ui")
     ),
     package_dir={"": PYTHON_CODE_PREFIX},
     install_requires=REQUIRED,
@@ -497,8 +503,8 @@ setup(
     entry_points={"console_scripts": ["feast=feast.cli:cli"]},
     use_scm_version=use_scm_version,
     setup_requires=[
-        "grpcio-tools>=1.56.2,<2",
-        "grpcio>=1.56.2,<2",
+        "grpcio-tools<=1.56.0",
+        "grpcio<=1.56.0",
         "mypy-protobuf==3.1",
         "protobuf==4.25.4",
         "pybindgen==0.22.0",
