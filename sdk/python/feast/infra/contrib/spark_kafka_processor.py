@@ -311,8 +311,14 @@ class SparkKafkaProcessor(StreamProcessor):
                     # Avoid dropping column if it is the EventHeader column.
                     if (
                             isinstance(field_data_type, StructType)
-                            and "event_published_datetime_utc" in field_data_type.fieldNames()
-                            and feature_view.stream_source.timestamp_field == "EventHeader.event_published_datetime_utc"
+                            and (
+                                "event_published_datetime_utc" in field_data_type.fieldNames()
+                                or "published_timestamp" in field_data_type.fieldNames()
+                            )
+                            and feature_view.stream_source.timestamp_field in [
+                                "EventHeader.event_published_datetime_utc",
+                                "EventHeader.published_timestamp",
+                            ]
                     ):
                         continue
                     drop_list.append(column)
