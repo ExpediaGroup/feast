@@ -70,6 +70,7 @@ service RegistryServer{
 
 }
 
+
 message RefreshRequest {
   string project = 1;
 }
