@@ -1,5 +1,7 @@
 FROM golang:1.22.5
 
+ARG SCYLLADB_SHARD_AWARE_ENABLED=False
+ENV SCYLLADB_SHARD_AWARE_ENABLED=$SCYLLADB_SHARD_AWARE_ENABLED
 # Update the package list and install the ca-certificates package
 RUN apt-get update && apt-get install -y ca-certificates
 RUN apt install -y protobuf-compiler
@@ -22,6 +24,10 @@ RUN find ./protos -name "*.proto" \
 
 # Build the Go application
 RUN go build -o feast ./go/main.go
+
+RUN if ["$SCYLLADB_SHARD_AWARE_ENABLED"== True]; then  \
+    go mod edit -replace=github.com/gocql/gocql=github.com/scylladb/gocql@latest; \
+    go mod tidy; fi
 
 # Expose ports
 EXPOSE 8080
