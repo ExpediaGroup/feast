@@ -598,7 +598,7 @@ class CassandraOnlineStore(OnlineStore):
         session: Session = self._get_session(config)
         template, prepare = CQL_TEMPLATE_MAP[op_name]
         if op_name == "create" and config.online_config.ttl:
-            ttl_clause = " USING TTL ?"
+            ttl_clause = " WITH default_time_to_live = ?"
         else:
             ttl_clause = None
 
