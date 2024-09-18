@@ -73,6 +73,7 @@ service RegistryServer{
   rpc ExpediaSearchProjects (ExpediaSearchProjectsRequest) returns (ExpediaSearchProjectsResponse) {}
   rpc ExpediaSearchFeatureViews (ExpediaSearchFeatureViewsRequest) returns (ExpediaSearchFeatureViewsResponse) {}
   rpc ExpediaSearchAIWBTableByProject (ExpediaSearchProjectsRequest) returns (ExpediaSearchAIWBTableResponse) {}
+  rpc ExpediaSearchAIWBTableByFeatureView (ExpediaSearchFeatureViewsRequest) returns (ExpediaSearchAIWBTableResponse) {}
 }
 
 message ExpediaProjectAndRelatedFeatureViews {
