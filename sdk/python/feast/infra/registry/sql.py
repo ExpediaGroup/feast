@@ -1450,9 +1450,9 @@ class SqlRegistry(CachingRegistry):
 
             # Group feature views by project
             for row in fv_rows:
-                project_id = row["project_id"]
+                project_id = row._mapping["project_id"]
                 feature_view_proto = FeatureViewProto.FromString(
-                    row["feature_view_proto"]
+                    row._mapping["feature_view_proto"]
                 )
 
                 if project_id not in feature_views_by_project:
