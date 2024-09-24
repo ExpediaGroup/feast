@@ -196,6 +196,7 @@ class SparkKafkaProcessor(StreamProcessor):
                 )
                 .select("table.*")
             )
+        stream_df.printSchema()
         return stream_df
 
     def _construct_transformation_plan(self, df: StreamTable) -> StreamTable:
@@ -242,12 +243,16 @@ class SparkKafkaProcessor(StreamProcessor):
                              isinstance(pdf[field].iloc[0], dict) and ts_field.split(".")[-1] in pdf[field].iloc[0]),
                             None
                         )
-                        if event_header_field and ts_field not in pdf.columns:
-                            timestamp_key = ts_field.split(".")[-1]
-                            pdf[ts_field] = pdf[event_header_field].apply(
-                                lambda x: x[timestamp_key]
-                            )
-                            pdf.drop(columns=[event_header_field], inplace=True)
+                        if event_header_field:
+                            timestamp_key = ts_field.split(".")[
+                                -1]
+                            if timestamp_key in pdf[event_header_field].iloc[0]:
+                                pdf[ts_field] = pdf[event_header_field].apply(lambda x: x[timestamp_key])
+                                pdf.drop(columns=[event_header_field], inplace=True)
+                            else:
+                                raise KeyError(f'Field "{timestamp_key}" does not exist in the EventHeader schema')
+                        else:
+                            raise KeyError(f'EventHeader field not found in the incoming schema. Schema: {pdf.columns}')
                     else:
                         ts_field = feature_view.stream_source.timestamp_field
 
