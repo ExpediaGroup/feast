@@ -235,13 +235,19 @@ class SparkKafkaProcessor(StreamProcessor):
                     ts_field = feature_view.timestamp_field
                 else:
                     # If the timestamp field is set using the EventHeader, we need to extract it from the nested column.
-                    if feature_view.stream_source.timestamp_field == "EventHeader.event_published_datetime_utc":
-                        ts_field = "event_published_datetime_utc"
-                        if ts_field not in pdf.columns:
-                            pdf[ts_field] = pdf["EventHeader"].apply(
-                                lambda x: x["event_published_datetime_utc"]
+                    ts_field = feature_view.stream_source.timestamp_field
+                    if ts_field in ["EventHeader.event_published_datetime_utc", "EventHeader.published_timestamp"]:
+                        event_header_field = next(
+                            (field for field in pdf.columns if
+                             isinstance(pdf[field].iloc[0], dict) and ts_field.split(".")[-1] in pdf[field].iloc[0]),
+                            None
+                        )
+                        if event_header_field and ts_field not in pdf.columns:
+                            timestamp_key = ts_field.split(".")[-1]
+                            pdf[ts_field] = pdf[event_header_field].apply(
+                                lambda x: x[timestamp_key]
                             )
-                        pdf.drop(columns=["EventHeader"], inplace=True)
+                            pdf.drop(columns=[event_header_field], inplace=True)
                     else:
                         ts_field = feature_view.stream_source.timestamp_field
 
