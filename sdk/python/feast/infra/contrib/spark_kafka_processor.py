@@ -249,9 +249,9 @@ class SparkKafkaProcessor(StreamProcessor):
                                 -1]
                             print(f"EventHeader column content before extraction:\n{pdf[event_header_field].head()}")
                             if timestamp_key in pdf[event_header_field].iloc[0]:
-                                pdf[ts_field] = pdf[event_header_field].apply(lambda x: x[timestamp_key])
-                                print(f"pdf columns after extracting timestamp: {pdf.columns}")
-                                print(f"Extracted {timestamp_key} values:\n{pdf[ts_field].head()}")
+                                pdf[timestamp_key] = pdf[event_header_field].apply(
+                                    lambda x: x[timestamp_key] if x else None)
+                                print(f"pdf columns after adding timestamp key: {pdf.columns}")
                                 pdf.drop(columns=[event_header_field], inplace=True)
                                 print(f"pdf columns after dropping event header: {pdf.columns}")
                             else:
