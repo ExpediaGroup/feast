@@ -254,6 +254,7 @@ class SparkKafkaProcessor(StreamProcessor):
                                 print(f"pdf columns after adding timestamp key: {pdf.columns}")
                                 pdf.drop(columns=[event_header_field], inplace=True)
                                 print(f"pdf columns after dropping event header: {pdf.columns}")
+                                ts_field = timestamp_key
                             else:
                                 raise KeyError(f'Field "{timestamp_key}" does not exist in the EventHeader schema')
                         else:
