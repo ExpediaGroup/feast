@@ -72,19 +72,11 @@ service RegistryServer{
   // Search RPCs
   rpc ExpediaSearchProjects (ExpediaSearchProjectsRequest) returns (ExpediaSearchProjectsResponse) {}
   rpc ExpediaSearchFeatureViews (ExpediaSearchFeatureViewsRequest) returns (ExpediaSearchFeatureViewsResponse) {}
-  rpc ExpediaSearchAIWBTableByProject (ExpediaSearchProjectsRequest) returns (ExpediaSearchAIWBTableResponse) {}
-  rpc ExpediaSearchAIWBTableByFeatureView (ExpediaSearchFeatureViewsRequest) returns (ExpediaSearchAIWBTableResponse) {}
 }
 
 message ExpediaProjectAndRelatedFeatureViews {
   feast.core.ProjectMetadata project_metadata = 1;
   repeated feast.core.FeatureView feature_views = 2;
-}
-
-message ExpediaSearchAIWBTableResponse {
-  repeated ExpediaProjectAndRelatedFeatureViews project_and_related_feature_views = 1;
-  int32 total_projects = 3;
-  int32 total_page_indices = 4;
 }
 
 message ExpediaSearchFeatureViewsRequest {
@@ -112,9 +104,9 @@ message ExpediaSearchProjectsRequest {
 }
 
 message ExpediaSearchProjectsResponse {
-  repeated feast.core.ProjectMetadata projects = 1;
-  int32 total_projects = 2;
-  int32 total_page_indices = 3;
+  repeated ExpediaProjectAndRelatedFeatureViews projects_and_related_feature_views = 1;
+  int32 total_projects = 3;
+  int32 total_page_indices = 4;
 }
 
 message RefreshRequest {
