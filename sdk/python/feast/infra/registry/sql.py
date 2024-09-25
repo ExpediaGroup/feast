@@ -1139,6 +1139,8 @@ class SqlRegistry(CachingRegistry):
             feature_view_proto = FeatureViewProto.FromString(
                 row._mapping["feature_view_proto"]
             )
+            # for some reason, project is not set in the proto, so we set it here
+            feature_view_proto.spec.project = project_id
 
             if project_id not in feature_views_by_project:
                 feature_views_by_project[project_id] = []
