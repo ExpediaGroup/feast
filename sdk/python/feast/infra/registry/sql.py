@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -18,6 +18,7 @@ from sqlalchemy import (  # type: ignore
     Table,
     create_engine,
     delete,
+    func,
     insert,
     select,
     update,
@@ -60,6 +61,7 @@ from feast.protos.feast.core.StreamFeatureView_pb2 import (
 from feast.protos.feast.core.ValidationProfile_pb2 import (
     ValidationReference as ValidationReferenceProto,
 )
+from feast.protos.feast.registry import RegistryServer_pb2
 from feast.repo_config import RegistryConfig
 from feast.saved_dataset import SavedDataset, ValidationReference
 from feast.stream_feature_view import StreamFeatureView
@@ -1001,14 +1003,14 @@ class SqlRegistry(CachingRegistry):
                             project_name=project_id
                         )
 
-                    project_metadata_model: ProjectMetadata = project_metadata_dict[
+                    project_metadata: ProjectMetadata = project_metadata_dict[
                         project_id
                     ]
                     if metadata_key == FeastMetadataKeys.PROJECT_UUID.value:
-                        project_metadata_model.project_uuid = metadata_value
+                        project_metadata.project_uuid = metadata_value
 
                     if metadata_key == FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value:
-                        project_metadata_model.last_updated_timestamp = (
+                        project_metadata.last_updated_timestamp = (
                             datetime.fromtimestamp(int(metadata_value), tz=timezone.utc)
                         )
         return list(project_metadata_dict.values())
@@ -1043,3 +1045,260 @@ class SqlRegistry(CachingRegistry):
                 return project_metadata
             else:
                 return None
+
+    def expedia_search_projects(
+        self,
+        search_text: str = "",
+        updated_at: Optional[datetime] = None,
+        page_size: int = 10,
+        page_index: int = 0,
+    ) -> RegistryServer_pb2.ExpediaSearchProjectsResponse:
+        project_metadata_dict: Dict[str, ProjectMetadata] = {}
+
+        with self.engine.begin() as conn:
+            # Base SQL query to count total number of matching projects
+            count_stmt = select(func.count(feast_metadata.c.project_id.distinct()))
+
+            if search_text:
+                count_stmt = count_stmt.where(
+                    feast_metadata.c.project_id.like(f"%{search_text}%")
+                )
+
+            if updated_at is not None:
+                updated_at_timestamp = updated_at.timestamp()
+                count_stmt = count_stmt.where(
+                    feast_metadata.c.last_updated_timestamp >= updated_at_timestamp
+                )
+
+            total_count = conn.execute(count_stmt).scalar() or 0
+
+            total_page_indices = (total_count + page_size - 1) // page_size
+
+            # Base SQL query for retrieving projects, grouped by project_id
+            stmt = (
+                select(
+                    feast_metadata.c.project_id,
+                    func.array_agg(feast_metadata.c.metadata_key).label("keys"),
+                    func.array_agg(feast_metadata.c.metadata_value).label("values"),
+                    func.max(feast_metadata.c.last_updated_timestamp).label(
+                        "last_updated_timestamp"
+                    ),
+                )
+                .group_by(feast_metadata.c.project_id)
+                .order_by(feast_metadata.c.project_id)
+                .limit(page_size)
+                .offset(page_index * page_size)
+            )
+
+            if search_text:
+                stmt = stmt.where(feast_metadata.c.project_id.like(f"%{search_text}%"))
+
+            if updated_at is not None:
+                updated_at_timestamp = updated_at.timestamp()
+                stmt = stmt.where(
+                    feast_metadata.c.last_updated_timestamp >= updated_at_timestamp
+                )
+
+            rows = conn.execute(stmt).all()
+
+            for row in rows:
+                project_id = row._mapping["project_id"]
+                keys = row._mapping["keys"]
+                values = row._mapping["values"]
+                last_updated_timestamp = row._mapping["last_updated_timestamp"]
+
+                if project_id not in project_metadata_dict:
+                    project_metadata_dict[project_id] = ProjectMetadata(
+                        project_name=project_id,
+                        last_updated_timestamp=datetime.utcfromtimestamp(
+                            last_updated_timestamp
+                        ),
+                    )
+
+                project_metadata: ProjectMetadata = project_metadata_dict[project_id]
+
+                for key, value in zip(keys, values):
+                    if key == FeastMetadataKeys.PROJECT_UUID.value:
+                        project_metadata.project_uuid = value
+
+            project_list = list(project_metadata_dict.values())
+            project_ids = [project.project_name for project in project_list]
+
+        # Fetch all feature views in one query for the relevant projects
+        with self.engine.begin() as conn:
+            feature_views_stmt = select(
+                feature_views.c.project_id, feature_views.c.feature_view_proto
+            ).where(feature_views.c.project_id.in_(project_ids))
+
+            feature_view_rows = conn.execute(feature_views_stmt).all()
+
+        # Group feature views by project
+        feature_views_by_project: Dict[str, List[FeatureViewProto]] = {}
+        for row in feature_view_rows:
+            project_id = row._mapping["project_id"]
+            feature_view_proto = FeatureViewProto.FromString(
+                row._mapping["feature_view_proto"]
+            )
+            # for some reason, project is not set in the proto, so we set it here
+            feature_view_proto.spec.project = project_id
+
+            if project_id not in feature_views_by_project:
+                feature_views_by_project[project_id] = []
+            feature_views_by_project[project_id].append(feature_view_proto)
+
+        # Use a thread pool to parallelize fetching feature views
+        def process_project(project):
+            project_metadata_proto = project.to_proto()
+            feature_views_proto = feature_views_by_project.get(project.project_name, [])
+            return RegistryServer_pb2.ExpediaProjectAndRelatedFeatureViews(
+                project_metadata=project_metadata_proto,
+                feature_views=feature_views_proto,
+            )
+
+        projects_and_related_feature_views: List[
+            RegistryServer_pb2.ExpediaProjectAndRelatedFeatureViews
+        ] = []
+
+        # Parallel processing using ThreadPoolExecutor
+        with ThreadPoolExecutor() as executor:
+            future_to_project = {
+                executor.submit(process_project, project): project
+                for project in project_list
+            }
+
+            for future in as_completed(future_to_project):
+                try:
+                    result = future.result()
+                    projects_and_related_feature_views.append(result)
+                except Exception as e:
+                    logger.error(f"Error processing project: {e}")
+
+        # Sort the results by project name, which was lost during parallel processing
+        projects_and_related_feature_views.sort(
+            key=lambda x: x.project_metadata.project.lower()
+        )
+
+        return RegistryServer_pb2.ExpediaSearchProjectsResponse(
+            projects_and_related_feature_views=projects_and_related_feature_views,
+            total_projects=total_count,
+            total_page_indices=total_page_indices,
+        )
+
+    def expedia_search_feature_views(
+        self,
+        search_text: Optional[str] = None,
+        online: Optional[bool] = None,
+        application: Optional[str] = None,
+        team: Optional[str] = None,
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
+        page_size: int = 10,
+        page_index: int = 0,
+    ) -> RegistryServer_pb2.ExpediaSearchFeatureViewsResponse:
+        """
+        Search for feature views based on the provided search parameters with pagination.
+        """
+        offset = page_index * page_size
+        results = []
+        filtered_results = []
+
+        # These filters require im-memory filtering, as the data is inside the proto and cannot be queried directly
+        in_memory_filtering_required = any(
+            [online is not None, application, team, created_at, updated_at]
+        )
+
+        with self.engine.begin() as conn:
+            if not in_memory_filtering_required:
+                stmt = (
+                    select(feature_views)
+                    .where(feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                    .order_by(feature_views.c.feature_view_name)
+                    .limit(page_size)
+                    .offset(offset)
+                )
+
+                rows = conn.execute(stmt).all()
+
+                for row in rows:
+                    feature_view_proto = FeatureViewProto.FromString(
+                        row._mapping["feature_view_proto"]
+                    )
+                    # for some reason, project is not set in the proto, so we set it here
+                    feature_view_proto.spec.project = row._mapping["project_id"]
+                    results.append(feature_view_proto)
+
+                total_stmt = (
+                    select(func.count())
+                    .select_from(feature_views)
+                    .where(feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                )
+                total_count = conn.execute(total_stmt).scalar() or 0
+                total_page_indices = (total_count + page_size - 1) // page_size
+
+                # early return to avoid fetching data again
+                return RegistryServer_pb2.ExpediaSearchFeatureViewsResponse(
+                    feature_views=results,
+                    total_feature_views=total_count,
+                    total_page_indices=total_page_indices,
+                )
+
+            # Doing in-memory filtering below
+            stmt = select(feature_views)
+            if search_text:
+                stmt = stmt.where(
+                    feature_views.c.feature_view_name.like(f"%{search_text}%")
+                ).order_by(feature_views.c.feature_view_name)
+
+            rows = conn.execute(stmt).all()
+
+            for row in rows:
+                feature_view_proto = FeatureViewProto.FromString(
+                    row._mapping["feature_view_proto"]
+                )
+                # for some reason, project is not set in the proto, so we set it here
+                feature_view_proto.spec.project = row._mapping["project_id"]
+                add_to_results = True
+
+                if online is not None and feature_view_proto.spec.online != online:
+                    add_to_results = False
+
+                if (
+                    application
+                    and feature_view_proto.spec.tags.get("application") != application
+                ):
+                    add_to_results = False
+
+                if team and feature_view_proto.spec.tags.get("team") != team:
+                    add_to_results = False
+
+                if created_at:
+                    if (
+                        feature_view_proto.meta.created_timestamp.ToDatetime()
+                        < created_at
+                    ):
+                        add_to_results = False
+
+                if updated_at is not None:
+                    if (
+                        feature_view_proto.meta.last_updated_timestamp.ToDatetime()
+                        < updated_at
+                    ):
+                        add_to_results = False
+
+                if add_to_results:
+                    filtered_results.append(feature_view_proto)
+
+            # Calculate total filtered results
+            total_count = len(filtered_results)
+
+            # Calculate total page indices based on filtered results
+            total_page_indices = (total_count + page_size - 1) // page_size
+
+            # Apply pagination to the filtered results
+            paginated_results = filtered_results[offset : offset + page_size]
+
+        return RegistryServer_pb2.ExpediaSearchFeatureViewsResponse(
+            feature_views=paginated_results,
+            total_feature_views=total_count,
+            total_page_indices=total_page_indices,
+        )
