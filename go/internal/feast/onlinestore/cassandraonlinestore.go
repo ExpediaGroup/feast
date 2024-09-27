@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
-	"github.com/feast-dev/feast/go/internal/feast/utils"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/gocql/gocql"
@@ -34,7 +33,7 @@ type CassandraOnlineStore struct {
 	keyspace string
 
 	// Host IP addresses of the cluster
-	hostIps []string
+	hosts []string
 
 	config *registry.RepoConfig
 }
@@ -45,35 +44,37 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 		config:  config,
 	}
 
-	var username string
-	var password string
 	// Parse host_name and Ips
-	cassandraHostNames, ok1 := onlineStoreConfig["host_names"]
-	cassandraHostIps, ok2 := onlineStoreConfig["hosts"]
-	if !ok1 && !ok2 {
-		cassandraHostIps = "127.0.0.1"
+	cassandraHosts, ok := onlineStoreConfig["hosts"]
+	if !ok {
+		cassandraHosts = "127.0.0.1"
+		log.Warn().Msg("Host not provided: Using localhost instead")
 
 	}
-	var cassandraHostNameStr string
-	if cassandraHostNameStr, ok1 = cassandraHostNames.(string); !ok1 {
-		return nil, fmt.Errorf("failed to convert host_names to string: %+v", cassandraHostNameStr)
+	var cassandraHostStr string
+	if cassandraHostStr, ok = cassandraHosts.(string); !ok {
+		return nil, fmt.Errorf("failed to convert hosts to string: %+v", cassandraHostStr)
 	}
 
-	var cassandraHostIpsStr string
-	if cassandraHostIpsStr, ok2 = cassandraHostIps.(string); !ok2 {
-		return nil, fmt.Errorf("failed to convert hosts(ip addresses) to string: %+v", cassandraHostIpsStr)
-	}
-
-	username = onlineStoreConfig["username"].(string)
-	password = onlineStoreConfig["password"].(string)
-
-	if len(username) == 0 {
+	username, ok := onlineStoreConfig["username"]
+	if !ok {
 		username = "scylla"
 		log.Warn().Msg("Username not defined: Using default username instead")
 	}
-	if len(username) == 0 {
+	password, ok := onlineStoreConfig["password"]
+	if !ok {
 		password = "scylla"
 		log.Warn().Msg("Password not defined: Using default password instead")
+	}
+
+	var usernameStr string
+	if usernameStr, ok = username.(string); !ok {
+		return nil, fmt.Errorf("failed to convert username to string: %+v", usernameStr)
+	}
+
+	var passwordStr string
+	if passwordStr, ok = password.(string); !ok {
+		return nil, fmt.Errorf("failed to convert password to string: %+v", passwordStr)
 	}
 
 	keyspace, ok := onlineStoreConfig["keyspace"]
@@ -86,19 +87,7 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 		return nil, fmt.Errorf("failed to convert keyspace to string: %+v", keyspaceStr)
 	}
 
-	// If you're using host_names, it means that you will need a host resolver to get the IP of the cluster the DB is in
-	if len(cassandraHostNameStr) > 0 {
-		ec2Instance := utils.NewEC2Instance(cassandraHostNameStr, "us-west-2")
-		hostIps, err := ec2Instance.ResolveHostNameToIp()
-		if err != nil {
-			return nil, fmt.Errorf("Unable to resolve host name %+v to ip address: ", cassandraHostNameStr)
-		}
-		store.hostIps = hostIps
-	} else {
-		store.hostIps = []string{cassandraHostNameStr}
-	}
-
-	store.clusterConfigs = gocql.NewCluster(store.hostIps...)
+	store.clusterConfigs = gocql.NewCluster(store.hosts...)
 	// TODO: Figure out if we need to offer users the ability to tune the timeouts
 	//store.clusterConfigs.ConnectTimeout = 1
 	//store.clusterConfigs.Timeout = 1
@@ -107,7 +96,8 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	store.clusterConfigs.Keyspace = keyspaceStr
 	loadBalancingPolicy, ok := onlineStoreConfig["load_balancing"]
 	if !ok {
-		return nil, nil
+		loadBalancingPolicy = gocql.RoundRobinHostPolicy()
+		log.Warn().Msg("No load balancing policy selected; setting Round Robin Host Policy")
 	}
 	loadBalancingPolicyStr, _ := loadBalancingPolicy.(string)
 	if loadBalancingPolicyStr == "DCAwareRoundRobinPolicy" {
@@ -122,14 +112,12 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 		} else {
 			store.clusterConfigs.Port = 9042
 		}
-	} else {
-		return nil, fmt.Errorf("No load balancing policy specified")
 	}
 
-	store.clusterConfigs.Authenticator = gocql.PasswordAuthenticator{Username: username, Password: password}
+	store.clusterConfigs.Authenticator = gocql.PasswordAuthenticator{Username: usernameStr, Password: passwordStr}
 	createdSession, err1 := gocql.NewSession(*store.clusterConfigs)
 	if err1 != nil {
-		return nil, fmt.Errorf("Unable to connect to ScyllaDB")
+		return nil, fmt.Errorf("Unable to connect to the ScyllaDB database")
 	}
 	store.session = createdSession
 	return &store, nil

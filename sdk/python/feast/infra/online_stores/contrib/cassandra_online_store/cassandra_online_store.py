@@ -51,7 +51,6 @@ from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import FeastConfigBaseModel
-from feast.infra.online_stores.aws_utils_online_store import HostResolver
 
 # Error messages
 E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS = (
@@ -132,9 +131,6 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
 
     hosts: Optional[List[StrictStr]] = None
     """List of host addresses to reach the cluster."""
-
-    host_names: Optional[List[StrictStr]] = None
-    """List of host names to reach the clusters"""
 
     secure_bundle_path: Optional[StrictStr] = None
     """Path to the secure connect bundle (for Astra DB; replaces hosts)."""
@@ -244,8 +240,6 @@ class CassandraOnlineStore(OnlineStore):
                     online_store_config.load_balancing = "TokenAwarePolicy(DCAwareRoundRobinPolicy)"
                 if online_store_config.protocol_version is None:
                     protocol_version = 4
-            if not online_store_config.hosts and online_store_config.host_names:
-                online_store_config.hosts = HostResolver.resolve_host_to_ip_address(host_names=online_store_config.host_names)
 
             hosts = online_store_config.hosts
             db_directions = hosts or secure_bundle_path
