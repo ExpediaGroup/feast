@@ -113,7 +113,7 @@ func NewRedisOnlineStore(project string, config *registry.RepoConfig, onlineStor
 	}
 
 	if redisStoreType == redisNode {
-		log.Info().Msgf("Connecting to Redis at %s", address[0])
+		log.Info().Msgf("Using Redis: %s", address[0])
 		store.client = redis.NewClient(&redis.Options{
 			Addr:      address[0],
 			Password:  password,
@@ -124,7 +124,7 @@ func NewRedisOnlineStore(project string, config *registry.RepoConfig, onlineStor
 			redistrace.WrapClient(store.client, redistrace.WithServiceName(redisTraceServiceName))
 		}
 	} else if redisStoreType == redisCluster {
-		log.Info().Msgf("Connecting to Redis Cluster at %s", address)
+		log.Info().Msgf("Using Redis Cluster: %s", address)
 		store.clusterClient = redis.NewClusterClient(&redis.ClusterOptions{
 			Addrs:     address,
 			Password:  password,
