@@ -1,10 +1,8 @@
 import logging
 import traceback
-import warnings
 from enum import Enum
 from typing import Any, Callable, Dict, Iterable, Optional, Tuple
 
-from feast import flags_helper
 from feast.data_source import DataSource
 from feast.errors import DataSourceNoNameException, DataSourceNotFoundException
 from feast.infra.offline_stores.offline_utils import get_temp_entity_table_name
