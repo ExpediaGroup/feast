@@ -88,7 +88,7 @@ CREATE_TABLE_CQL_TEMPLATE = """
         event_ts        TIMESTAMP,
         created_ts      TIMESTAMP,
         PRIMARY KEY ((entity_key), feature_name)
-    ) WITH CLUSTERING ORDER BY (feature_name ASC);
+    ) WITH CLUSTERING ORDER BY (feature_name ASC) {optional_ttl_clause};
 """
 
 DROP_TABLE_CQL_TEMPLATE = "DROP TABLE IF EXISTS {fqtable};"
@@ -231,14 +231,21 @@ class CassandraOnlineStore(OnlineStore):
             return self._session
         if not self._session:
             # configuration consistency checks
-            hosts = online_store_config.hosts
             secure_bundle_path = online_store_config.secure_bundle_path
-            port = online_store_config.port or 9042
+            port = 19042 if online_store_config.type == "scylladb" else (
+                online_store_config.port or 9042)
             keyspace = online_store_config.keyspace
             username = online_store_config.username
             password = online_store_config.password
             protocol_version = online_store_config.protocol_version
+            if online_store_config.type == "scylladb":
+                # Using the shard aware functionality
+                if online_store_config.load_balancing is None:
+                    online_store_config.load_balancing = "TokenAwarePolicy(DCAwareRoundRobinPolicy)"
+                if online_store_config.protocol_version is None:
+                    protocol_version = 4
 
+            hosts = online_store_config.hosts
             db_directions = hosts or secure_bundle_path
             if not db_directions or not keyspace:
                 raise CassandraInvalidConfig(E_CASSANDRA_NOT_CONFIGURED)
@@ -456,6 +463,10 @@ class CassandraOnlineStore(OnlineStore):
         """
         project = config.project
 
+        if config.online_config.lazy_table_creation:
+            # create tables during materialization
+            return
+
         for table in tables_to_keep:
             self._create_table(config, project, table)
         for table in tables_to_delete:
@@ -568,7 +579,10 @@ class CassandraOnlineStore(OnlineStore):
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
         create_cql = self._get_cql_statement(config, "create", fqtable)
         logger.info(f"Creating table {fqtable}.")
-        session.execute(create_cql)
+        if config.online_config.ttl:
+            session.execute(create_cql, parameters=config.online_config.ttl)
+        else:
+            session.execute(create_cql)
 
     def _get_cql_statement(
         self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
@@ -585,9 +599,15 @@ class CassandraOnlineStore(OnlineStore):
         """
         session: Session = self._get_session(config)
         template, prepare = CQL_TEMPLATE_MAP[op_name]
+        if op_name == "create" and config.online_config.ttl:
+            ttl_clause = " WITH default_time_to_live = ?"
+        else:
+            ttl_clause = None
+
         statement = template.format(
             fqtable=fqtable,
-            **kwargs,
+            optional_ttl_clause=ttl_clause,
+            **kwargs
         )
         if prepare:
             # using the statement itself as key (no problem with that)
