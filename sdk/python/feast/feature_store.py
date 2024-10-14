@@ -1255,6 +1255,20 @@ class FeatureStore:
         feature_views_to_materialize = self._get_feature_views_to_materialize(
             feature_views
         )
+
+        if getattr(self.config.online_store, "lazy_table_creation", False):
+            # feature_views_to_delete = self._get_feature_views_to_delete()
+            # don't delete any tables for now
+
+            self._get_provider().update_infra(
+                project=self.project,
+                tables_to_delete=[],
+                tables_to_keep=feature_views_to_materialize,
+                entities_to_delete=[],
+                entities_to_keep=[],
+                partial=True,
+            )
+
         _print_materialization_log(
             None,
             end_date,
@@ -1350,6 +1364,20 @@ class FeatureStore:
         feature_views_to_materialize = self._get_feature_views_to_materialize(
             feature_views
         )
+
+        if getattr(self.config.online_store, "lazy_table_creation", False):
+            # feature_views_to_delete = self._get_feature_views_to_delete()
+            # don't delete any tables for now
+
+            self._get_provider().update_infra(
+                project=self.project,
+                tables_to_delete=[],
+                tables_to_keep=feature_views_to_materialize,
+                entities_to_delete=[],
+                entities_to_keep=[],
+                partial=True,
+            )
+
         _print_materialization_log(
             start_date,
             end_date,
