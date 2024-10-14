@@ -156,6 +156,9 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     ttl: Optional[StrictInt] = None
     '''Time to live option'''
 
+    lazy_table_creation: Optional[bool] = False
+    """If True, tables will be created on during materialization, rather than registration."""
+
     class CassandraLoadBalancingPolicy(FeastConfigBaseModel):
         """
         Configuration block related to the Cluster's load-balancing policy.
@@ -458,6 +461,10 @@ class CassandraOnlineStore(OnlineStore):
             tables_to_keep: Tables to keep in the Online Store.
         """
         project = config.project
+
+        if config.online_config.lazy_table_creation:
+            # create tables during materialization
+            return
 
         for table in tables_to_keep:
             self._create_table(config, project, table)

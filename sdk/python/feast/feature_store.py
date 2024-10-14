@@ -694,6 +694,40 @@ class FeatureStore:
                 feature_views_to_materialize.append(feature_view)
 
         return feature_views_to_materialize
+    
+    def _get_feature_views_to_delete(
+        self,
+    ) -> List[str]:
+        """
+        Returns the list of feature views that should be deleted from the online store.
+
+        This function compares the feature views that exist in the online store with the feature views
+        that are currently registered. If a feature view exists in the online store but not in the registry,
+        it will be returned for deletion.
+
+        Returns:
+            List of feature view table names that should be deleted.
+        """
+        feature_views_in_registry = utils._list_feature_views(
+            self._registry, self.project, hide_dummy_entity=False
+        )
+        stream_feature_views_in_registry = self._list_stream_feature_views(
+            hide_dummy_entity=False
+        )
+
+        feature_view_table_names_in_registry = [
+            self._get_provider()._fq_table_name(self.project, self.project, fv)
+            for fv in feature_views_in_registry + stream_feature_views_in_registry
+        ]
+
+        existing_tables_in_online_store = self._get_provider().list_tables(self.project)
+
+        tables_to_delete = [
+            table for table in existing_tables_in_online_store
+            if table not in feature_view_table_names_in_registry
+        ]
+
+        return tables_to_delete
 
     def plan(
         self, desired_repo_contents: RepoContents
@@ -1256,6 +1290,19 @@ class FeatureStore:
         feature_views_to_materialize = self._get_feature_views_to_materialize(
             feature_views
         )
+
+        if getattr(self.config.online_store, "lazy_table_creation", False):
+            feature_views_to_delete = self._get_feature_views_to_delete()
+
+            self._get_provider().update_infra(
+                project=self.project,
+                tables_to_delete=feature_views_to_delete,
+                tables_to_keep=feature_views_to_materialize,
+                entities_to_delete=[],
+                entities_to_keep=[],
+                partial=True,
+            )
+
         _print_materialization_log(
             None,
             end_date,
@@ -1351,6 +1398,19 @@ class FeatureStore:
         feature_views_to_materialize = self._get_feature_views_to_materialize(
             feature_views
         )
+
+        if getattr(self.config.online_store, "lazy_table_creation", False):
+            feature_views_to_delete = self._get_feature_views_to_delete()
+
+            self._get_provider().update_infra(
+                project=self.project,
+                tables_to_delete=feature_views_to_delete,
+                tables_to_keep=feature_views_to_materialize,
+                entities_to_delete=[],
+                entities_to_keep=[],
+                partial=True,
+            )
+
         _print_materialization_log(
             start_date,
             end_date,
