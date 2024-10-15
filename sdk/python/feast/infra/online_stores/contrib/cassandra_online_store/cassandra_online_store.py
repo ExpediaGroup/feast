@@ -154,7 +154,7 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     """Request timeout in seconds."""
 
     ttl: Optional[StrictInt] = None
-    '''Time to live option'''
+    """Time to live option"""
 
     lazy_table_creation: Optional[bool] = False
     """If True, tables will be created on during materialization, rather than registration."""
@@ -232,8 +232,11 @@ class CassandraOnlineStore(OnlineStore):
         if not self._session:
             # configuration consistency checks
             secure_bundle_path = online_store_config.secure_bundle_path
-            port = 19042 if online_store_config.type == "scylladb" else (
-                online_store_config.port or 9042)
+            port = (
+                19042
+                if online_store_config.type == "scylladb"
+                else (online_store_config.port or 9042)
+            )
             keyspace = online_store_config.keyspace
             username = online_store_config.username
             password = online_store_config.password
@@ -465,7 +468,9 @@ class CassandraOnlineStore(OnlineStore):
         project = config.project
 
         if getattr(config.online_store, "lazy_table_creation", False):
-            logger.info(f"Lazy table creation enabled. Skipping table creation for {project} online store.")
+            logger.info(
+                f"Lazy table creation enabled. Skipping table creation for {project} online store."
+            )
             # create tables during materialization
             return
 
@@ -607,9 +612,7 @@ class CassandraOnlineStore(OnlineStore):
             ttl_clause = None
 
         statement = template.format(
-            fqtable=fqtable,
-            optional_ttl_clause=ttl_clause,
-            **kwargs
+            fqtable=fqtable, optional_ttl_clause=ttl_clause, **kwargs
         )
         if prepare:
             # using the statement itself as key (no problem with that)
