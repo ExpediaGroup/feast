@@ -239,9 +239,10 @@ class CassandraOnlineStore(OnlineStore):
             password = online_store_config.password
             protocol_version = online_store_config.protocol_version
             if online_store_config.type == "scylladb":
-                # Using the shard aware functionality
                 if online_store_config.load_balancing is None:
-                    online_store_config.load_balancing = "TokenAwarePolicy(DCAwareRoundRobinPolicy)"
+                    online_store_config.load_balancing = CassandraOnlineStoreConfig.CassandraLoadBalancingPolicy(
+                        load_balancing_policy="TokenAwarePolicy(DCAwareRoundRobinPolicy)"
+                    )
                 if online_store_config.protocol_version is None:
                     protocol_version = 4
 
