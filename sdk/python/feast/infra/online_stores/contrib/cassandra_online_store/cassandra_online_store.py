@@ -463,7 +463,8 @@ class CassandraOnlineStore(OnlineStore):
         """
         project = config.project
 
-        if config.online_config.lazy_table_creation:
+        if getattr(config.online_store, "lazy_table_creation", False):
+            logger.info(f"Lazy table creation enabled. Skipping table creation for {project} online store.")
             # create tables during materialization
             return
 
