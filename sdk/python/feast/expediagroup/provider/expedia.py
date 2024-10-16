@@ -70,10 +70,12 @@ class ExpediaProvider(PassthroughProvider):
         partial: bool,
         materialization_update: bool = False,
     ):
+        scylla_no_lazy_table_creation = self.repo_config.online_store.type == "scylladb" and not getattr(
+            self.repo_config.online_store, "lazy_table_creation", False
+        )
+
         if self.online_store:
-            if materialization_update or not getattr(
-                self.repo_config.online_store, "lazy_table_creation", False
-            ):
+            if materialization_update or scylla_no_lazy_table_creation:
                 self.online_store.update(
                     config=self.repo_config,
                     tables_to_delete=tables_to_delete,
