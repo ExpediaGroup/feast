@@ -68,10 +68,8 @@ class ExpediaProvider(PassthroughProvider):
         entities_to_delete: Sequence[Entity],
         entities_to_keep: Sequence[Entity],
         partial: bool,
-        **kwargs
+        materialization_update: bool = False,
     ):
-        materialization_update = kwargs.get("materialization_update", False)
-
         if self.online_store:
             if self.online_store.type == "scylladb" and materialization_update:
                 self.online_store.update(

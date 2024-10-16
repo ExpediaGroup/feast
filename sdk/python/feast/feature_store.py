@@ -1267,7 +1267,7 @@ class FeatureStore:
                 entities_to_delete=[],
                 entities_to_keep=[],
                 partial=True,
-                materialization_update=True,
+                materialization_update=True, # type: ignore
             )
 
         _print_materialization_log(
@@ -1377,7 +1377,7 @@ class FeatureStore:
                 entities_to_delete=[],
                 entities_to_keep=[],
                 partial=True,
-                materialization_update=True,
+                materialization_update=True, # type: ignore
             )
 
         _print_materialization_log(
