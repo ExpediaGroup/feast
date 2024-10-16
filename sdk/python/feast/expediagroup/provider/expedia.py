@@ -71,7 +71,7 @@ class ExpediaProvider(PassthroughProvider):
         materialization_update: bool = False,
     ):
         if self.online_store:
-            if self.online_store.type == "scylladb" and materialization_update:
+            if materialization_update or not getattr(self.repo_config.online_store, "lazy_table_creation", False):
                 self.online_store.update(
                     config=self.repo_config,
                     tables_to_delete=tables_to_delete,
