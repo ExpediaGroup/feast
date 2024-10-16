@@ -1256,7 +1256,7 @@ class FeatureStore:
             feature_views
         )
 
-        if getattr(self.config.online_store, "lazy_table_creation", False):
+        if getattr(self.config.online_store, "lazy_table_creation", False) and self.config.provider == "expedia":
             # feature_views_to_delete = self._get_feature_views_to_delete()
             # don't delete any tables for now
 
@@ -1267,6 +1267,7 @@ class FeatureStore:
                 entities_to_delete=[],
                 entities_to_keep=[],
                 partial=True,
+                materialization_update=True,
             )
 
         _print_materialization_log(
@@ -1365,7 +1366,7 @@ class FeatureStore:
             feature_views
         )
 
-        if getattr(self.config.online_store, "lazy_table_creation", False):
+        if getattr(self.config.online_store, "lazy_table_creation", False) and self.config.provider == "expedia":
             # feature_views_to_delete = self._get_feature_views_to_delete()
             # don't delete any tables for now
 
@@ -1376,6 +1377,7 @@ class FeatureStore:
                 entities_to_delete=[],
                 entities_to_keep=[],
                 partial=True,
+                materialization_update=True,
             )
 
         _print_materialization_log(
