@@ -70,8 +70,9 @@ class ExpediaProvider(PassthroughProvider):
         partial: bool,
         materialization_update: bool = False,
     ):
-        scylla_no_lazy_table_creation = self.repo_config.online_store.type == "scylladb" and not getattr(
-            self.repo_config.online_store, "lazy_table_creation", False
+        scylla_no_lazy_table_creation = (
+            self.repo_config.online_store.type == "scylladb"
+            and not getattr(self.repo_config.online_store, "lazy_table_creation", False)
         )
 
         if self.online_store:
