@@ -68,24 +68,8 @@ class ExpediaProvider(PassthroughProvider):
         entities_to_delete: Sequence[Entity],
         entities_to_keep: Sequence[Entity],
         partial: bool,
-        materialization_update: bool = False,
     ):
-        scylla_no_lazy_table_creation = (
-            self.repo_config.online_store.type == "scylladb"
-            and not getattr(self.repo_config.online_store, "lazy_table_creation", False)
-        )
-
         if self.online_store:
-            if materialization_update or scylla_no_lazy_table_creation:
-                self.online_store.update(
-                    config=self.repo_config,
-                    tables_to_delete=tables_to_delete,
-                    tables_to_keep=tables_to_keep,
-                    entities_to_keep=entities_to_keep,
-                    entities_to_delete=entities_to_delete,
-                    partial=partial,
-                )
-
             if tables_to_delete:
                 logger.info(
                     f"Data associated to {[feature_view.name for feature_view in tables_to_delete]} feature views will be deleted from the online store based on ttl defined if the entities are not shared with other feature views"

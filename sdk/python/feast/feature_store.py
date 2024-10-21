@@ -991,14 +991,15 @@ class FeatureStore:
         )
         tables_to_keep: List[FeatureView] = views_to_update + sfvs_to_update  # type: ignore
 
-        self._get_provider().update_infra(
-            project=self.project,
-            tables_to_delete=tables_to_delete,
-            tables_to_keep=tables_to_keep,
-            entities_to_delete=entities_to_delete if not partial else [],
-            entities_to_keep=entities_to_update,
-            partial=partial,
-        )
+        if not getattr(self.config.online_store, "lazy_table_creation", False):
+            self._get_provider().update_infra(
+                project=self.project,
+                tables_to_delete=tables_to_delete,
+                tables_to_keep=tables_to_keep,
+                entities_to_delete=entities_to_delete if not partial else [],
+                entities_to_keep=entities_to_update,
+                partial=partial,
+            )
 
         self._registry.commit()
 
