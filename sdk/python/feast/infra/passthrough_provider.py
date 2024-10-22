@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import pandas as pd
@@ -333,10 +333,6 @@ class PassthroughProvider(Provider):
                 entities_to_delete=[],
                 entities_to_keep=registry.list_entities(project=project),
                 partial=True,
-            )
-        else:
-            logger.info(
-                f"Online store {config.online_store.__class__.__name__} does not support lazy table creation or it is disabled"
             )
 
         task = MaterializationTask(
