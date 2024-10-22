@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import logging
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import pandas as pd
@@ -36,6 +37,8 @@ from feast.utils import (
     _run_pyarrow_field_mapping,
     make_tzaware,
 )
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_BATCH_SIZE = 10_000
 
@@ -319,7 +322,7 @@ class PassthroughProvider(Provider):
         ), f"Unexpected type for {feature_view.name}: {type(feature_view)}"
 
         if getattr(config.online_store, "lazy_table_creation", False):
-            print(
+            logger.info(
                 f"Online store {config.online_store.__class__.__name__} supports lazy table creation and it is enabled"
             )
 
@@ -332,7 +335,7 @@ class PassthroughProvider(Provider):
                 partial=True,
             )
         else:
-            print(
+            logger.info(
                 f"Online store {config.online_store.__class__.__name__} does not support lazy table creation or it is disabled"
             )
 
