@@ -154,7 +154,10 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     """Request timeout in seconds."""
 
     lazy_table_creation: Optional[bool] = False
-    """If True, tables will be created on during materialization, rather than registration."""
+    """
+    If True, tables will be created on during materialization, rather than registration.
+    Table deletion is not currently supported in this mode.
+    """
 
     class CassandraLoadBalancingPolicy(FeastConfigBaseModel):
         """
