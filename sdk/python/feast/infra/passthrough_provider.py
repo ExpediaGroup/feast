@@ -317,6 +317,25 @@ class PassthroughProvider(Provider):
             or isinstance(feature_view, StreamFeatureView)
             or isinstance(feature_view, FeatureView)
         ), f"Unexpected type for {feature_view.name}: {type(feature_view)}"
+
+        if getattr(config.online_store, "lazy_table_creation", False):
+            print(
+                f"Online store {config.online_store.__class__.__name__} supports lazy table creation and it is enabled"
+            )
+
+            self.update_infra(
+                project=project,
+                tables_to_delete=[],
+                tables_to_keep=[feature_view],
+                entities_to_delete=[],
+                entities_to_keep=registry.list_entities(project=project),
+                partial=True,
+            )
+        else:
+            print(
+                f"Online store {config.online_store.__class__.__name__} does not support lazy table creation or it is disabled"
+            )
+
         task = MaterializationTask(
             project=project,
             feature_view=feature_view,
