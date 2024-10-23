@@ -1338,7 +1338,9 @@ class SqlRegistry(CachingRegistry):
                         )
         return project_metadata_model
 
-    def get_objects_list(self, proto_class: Type) -> Union[
+    def get_objects_list(
+        self, proto_class: Type
+    ) -> Union[
         FeatureViewProtoList,
         OnDemandFeatureViewProtoList,
         EntityProtoList,
