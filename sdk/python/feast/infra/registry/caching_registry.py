@@ -484,7 +484,7 @@ class CachingRegistry(BaseRegistry):
     @abstractmethod
     def _list_feature_views_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[FeatureViewProtoList]:
+    ) -> FeatureViewProtoList:
         pass
 
     def list_feature_views_proto(
@@ -492,7 +492,7 @@ class CachingRegistry(BaseRegistry):
         project: str,
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
-    ) -> List[FeatureViewProtoList]:
+    ) -> FeatureViewProtoList:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
             return proto_registry_utils.list_feature_views_proto(
@@ -503,7 +503,7 @@ class CachingRegistry(BaseRegistry):
     @abstractmethod
     def _list_entities_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[EntityProtoList]:
+    ) -> EntityProtoList:
         pass
 
     def list_entities_proto(
@@ -511,7 +511,7 @@ class CachingRegistry(BaseRegistry):
         project: str,
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
-    ) -> List[EntityProtoList]:
+    ) -> EntityProtoList:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
             return proto_registry_utils.list_entities_proto(
@@ -522,7 +522,7 @@ class CachingRegistry(BaseRegistry):
     @abstractmethod
     def _list_data_sources_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[DataSourceProtoList]:
+    ) -> DataSourceProtoList:
         pass
 
     def list_data_sources_proto(
@@ -530,7 +530,7 @@ class CachingRegistry(BaseRegistry):
         project: str,
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
-    ) -> List[DataSourceProtoList]:
+    ) -> DataSourceProtoList:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
             return proto_registry_utils.list_data_sources_proto(
@@ -541,7 +541,7 @@ class CachingRegistry(BaseRegistry):
     @abstractmethod
     def _list_on_demand_feature_views_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[OnDemandFeatureViewProtoList]:
+    ) -> OnDemandFeatureViewProtoList:
         pass
 
     def list_on_demand_feature_views_proto(
@@ -549,7 +549,7 @@ class CachingRegistry(BaseRegistry):
         project: str,
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
-    ) -> List[OnDemandFeatureViewProtoList]:
+    ) -> OnDemandFeatureViewProtoList:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
             return proto_registry_utils.list_on_demand_feature_views_proto(
@@ -560,7 +560,7 @@ class CachingRegistry(BaseRegistry):
     @abstractmethod
     def _list_feature_services_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[FeatureServiceProtoList]:
+    ) -> FeatureServiceProtoList:
         pass
 
     def list_feature_services_proto(
@@ -568,7 +568,7 @@ class CachingRegistry(BaseRegistry):
         project: str,
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
-    ) -> List[FeatureServiceProtoList]:
+    ) -> FeatureServiceProtoList:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
             return proto_registry_utils.list_feature_services_proto(

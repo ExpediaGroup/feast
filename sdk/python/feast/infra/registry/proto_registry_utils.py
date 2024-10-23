@@ -383,63 +383,63 @@ def get_project(registry_proto: RegistryProto, name: str) -> Project:
 @registry_proto_cache_with_tags
 def list_feature_views_proto(
     registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
-) -> List[FeatureViewProtoList]:
-    feature_views: List[FeatureViewProtoList] = []
+) -> FeatureViewProtoList:
+    feature_views: FeatureViewProtoList = FeatureViewProtoList()
     for feature_view_proto in registry_proto.feature_views:
         if feature_view_proto.spec.project == project and utils.has_all_tags(
             feature_view_proto.spec.tags, tags
         ):
-            feature_views.append(feature_view_proto)
+            feature_views.featureviews.append(feature_view_proto)
     return feature_views
 
 
 @registry_proto_cache_with_tags
 def list_feature_services_proto(
     registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
-) -> List[FeatureServiceProtoList]:
-    feature_services = []
+) -> FeatureServiceProtoList:
+    feature_services = FeatureServiceProtoList()
     for feature_service_proto in registry_proto.feature_services:
         if feature_service_proto.spec.project == project and utils.has_all_tags(
             feature_service_proto.spec.tags, tags
         ):
-            feature_services.append(feature_service_proto)
+            feature_services.featureservices.append(feature_service_proto)
     return feature_services
 
 
 @registry_proto_cache_with_tags
 def list_on_demand_feature_views_proto(
     registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
-) -> List[OnDemandFeatureViewProtoList]:
-    on_demand_feature_views = []
+) -> OnDemandFeatureViewProtoList:
+    on_demand_feature_views = OnDemandFeatureViewProtoList()
     for on_demand_feature_view in registry_proto.on_demand_feature_views:
         if on_demand_feature_view.spec.project == project and utils.has_all_tags(
             on_demand_feature_view.spec.tags, tags
         ):
-            on_demand_feature_views.append(on_demand_feature_view)
+            on_demand_feature_views.ondemandfeatureviews.append(on_demand_feature_view)
     return on_demand_feature_views
 
 
 @registry_proto_cache_with_tags
 def list_entities_proto(
     registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
-) -> List[EntityProtoList]:
-    entities = []
+) -> EntityProtoList:
+    entities = EntityProtoList()
     for entity_proto in registry_proto.entities:
         if entity_proto.spec.project == project and utils.has_all_tags(
             entity_proto.spec.tags, tags
         ):
-            entities.append(entity_proto)
+            entities.entities.append(entity_proto)
     return entities
 
 
 @registry_proto_cache_with_tags
 def list_data_sources_proto(
     registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
-) -> List[DataSourceProtoList]:
-    data_sources = []
+) -> DataSourceProtoList:
+    data_sources = DataSourceProtoList()
     for data_source_proto in registry_proto.data_sources:
         if data_source_proto.project == project and utils.has_all_tags(
             data_source_proto.tags, tags
         ):
-            data_sources.append(data_source_proto)
+            data_sources.datasources.append(data_source_proto)
     return data_sources

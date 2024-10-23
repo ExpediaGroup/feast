@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
 
 from pydantic import StrictInt, StrictStr
 from sqlalchemy import (  # type: ignore
@@ -1338,6 +1338,26 @@ class SqlRegistry(CachingRegistry):
                         )
         return project_metadata_model
 
+    def get_objects_list(self, proto_class: Type) -> Union[
+        FeatureViewProtoList,
+        OnDemandFeatureViewProtoList,
+        EntityProtoList,
+        DataSourceProtoList,
+        FeatureServiceProtoList,
+    ]:
+        # Define the mapping from proto_class to list type
+        proto_class_to_list = {
+            FeatureViewProto: FeatureViewProtoList,
+            OnDemandFeatureViewProto: OnDemandFeatureViewProtoList,
+            EntityProto: EntityProtoList,
+            DataSourceProto: DataSourceProtoList,
+            FeatureServiceProto: FeatureServiceProtoList,
+        }
+        proto_list = proto_class_to_list.get(proto_class, None)
+        if proto_list is None:
+            raise ValueError(f"Unsupported proto class: {proto_class}")
+        return proto_list()
+
     def _list_objects_proto(
         self,
         table: Table,
@@ -1350,17 +1370,33 @@ class SqlRegistry(CachingRegistry):
             stmt = select(table).where(table.c.project_id == project)
             rows = conn.execute(stmt).all()
             if rows:
-                objects = []
+                objects = self.get_objects_list(proto_class)
                 for row in rows:
                     obj = proto_class.FromString(row._mapping[proto_field_name])
-                    if utils.has_all_tags(dict(obj.spec.tags), tags):
-                        objects.append(obj)
+                    if utils.has_all_tags(
+                        dict(
+                            obj.tags
+                            if isinstance(objects, DataSourceProtoList)
+                            else obj.spec.tags
+                        ),
+                        tags,
+                    ):
+                        if isinstance(objects, DataSourceProtoList):
+                            objects.datasources.append(obj)
+                        elif isinstance(objects, FeatureViewProtoList):
+                            objects.featureviews.append(obj)
+                        elif isinstance(objects, OnDemandFeatureViewProtoList):
+                            objects.ondemandfeatureviews.append(obj)
+                        elif isinstance(objects, EntityProtoList):
+                            objects.entities.append(obj)
+                        elif isinstance(objects, FeatureServiceProtoList):
+                            objects.featureservices.append(obj)
                 return objects
         return []
 
     def _list_feature_services_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[FeatureServiceProtoList]:
+    ) -> FeatureServiceProtoList:
         return self._list_objects_proto(
             feature_services,
             project,
@@ -1371,7 +1407,7 @@ class SqlRegistry(CachingRegistry):
 
     def _list_feature_views_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[FeatureViewProtoList]:
+    ) -> FeatureViewProtoList:
         return self._list_objects_proto(
             feature_views,
             project,
@@ -1382,7 +1418,7 @@ class SqlRegistry(CachingRegistry):
 
     def _list_on_demand_feature_views_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[OnDemandFeatureViewProtoList]:
+    ) -> OnDemandFeatureViewProtoList:
         return self._list_objects_proto(
             on_demand_feature_views,
             project,
@@ -1393,7 +1429,7 @@ class SqlRegistry(CachingRegistry):
 
     def _list_entities_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[EntityProtoList]:
+    ) -> EntityProtoList:
         return self._list_objects_proto(
             entities,
             project,
@@ -1404,7 +1440,7 @@ class SqlRegistry(CachingRegistry):
 
     def _list_data_sources_proto(
         self, project: str, tags: Optional[dict[str, str]]
-    ) -> List[DataSourceProtoList]:
+    ) -> DataSourceProtoList:
         return self._list_objects_proto(
             data_sources,
             project,
