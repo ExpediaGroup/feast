@@ -1005,7 +1005,7 @@ class SqlRegistry(CachingRegistry):
                 if hasattr(obj_proto, "meta") and hasattr(
                     obj_proto.meta, "created_timestamp"
                 ):
-                    if obj_proto.meta.created_timestamp is None:
+                    if not obj_proto.meta.HasField("created_timestamp"):
                         obj_proto.meta.created_timestamp.FromDatetime(update_datetime)
 
                 values = {
