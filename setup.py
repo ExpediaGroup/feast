@@ -140,7 +140,7 @@ HAZELCAST_REQUIRED = [
 ]
 
 
-MILVUS_REQUIRED = ["pymilvus>=2.3.0", "bidict==0.22.1"]
+MILVUS_REQUIRED = ["pymilvus>=2.4.4", "bidict==0.22.1"]
 
 # TODO: EG Implemented. Make decision on EG vs OpenSource
 # ELASTICSEARCH_REQUIRED = [
