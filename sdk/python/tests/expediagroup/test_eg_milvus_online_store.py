@@ -100,7 +100,7 @@ class TestMilvusConnectionManager:
 
         # Create a mock logger to capture log calls
         mock_logger = mocker.patch(
-            "feast.expediagroup.vectordb.milvus_online_store.logger", autospec=True
+            "feast.expediagroup.vectordb.eg_milvus_online_store.logger", autospec=True
         )
 
         with EGMilvusConnectionManager(repo_config.online_store):
