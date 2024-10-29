@@ -1,7 +1,7 @@
 from typing import Dict
 
-from testcontainers.milvus import MilvusContainer
 from testcontainers.core.waiting_utils import wait_for_logs
+from testcontainers.milvus import MilvusContainer
 
 from tests.integration.feature_repos.universal.online_store_creator import (
     OnlineStoreCreator,
