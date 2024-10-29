@@ -23,7 +23,10 @@ class EGMilvusOnlineStoreCreator(OnlineStoreCreator):
             container=self.container, predicate=log_string_to_wait_for, timeout=60
         )
         host = self.container.get_container_host_ip()
-        exposed_port = self.container.get_exposed_port(self.container.port) in self.container.get_connection_url()
+        exposed_port = int(
+            self.container.get_exposed_port(self.container.port)
+            in self.container.get_connection_url()
+        )
 
         return {
             "alias": "default",
