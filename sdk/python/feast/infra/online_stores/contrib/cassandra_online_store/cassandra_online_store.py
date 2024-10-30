@@ -215,6 +215,20 @@ class CassandraOnlineStore(OnlineStore):
     _keyspace: str = "feast_keyspace"
     _prepared_statements: Dict[str, PreparedStatement] = {}
 
+    def _log_all_tables(self, config: RepoConfig):
+        session = self._get_session(config)
+        keyspace = self._keyspace
+
+        logger.debug(f"Listing all tables in keyspace '{keyspace}'")
+        
+        query = f"SELECT table_name FROM system_schema.tables WHERE keyspace_name = '{keyspace}';"
+        result = session.execute(query)
+
+        logger.debug(f"Rows in keyspace '{keyspace}': {result}")
+
+        tables = [row.table_name for row in result]
+        logger.debug(f"Tables in keyspace '{keyspace}': {tables}")
+
     def _get_session(self, config: RepoConfig):
         """
         Establish the database connection, if not yet created,
@@ -294,10 +308,10 @@ class CassandraOnlineStore(OnlineStore):
 
             # creation of Cluster (Cassandra vs. Astra)
             if hosts:
-                logger.info(f"Connecting to Cassandra cluster at {hosts}.")
-                logger.info(f"Username: {username}.")
-                logger.info(f"Keyspace: {keyspace}.")
-                logger.info(f"Port: {port}.")
+                logger.debug(f"Connecting to Cassandra cluster at {hosts}.")
+                logger.debug(f"Username: {username}.")
+                logger.debug(f"Keyspace: {keyspace}.")
+                logger.debug(f"Port: {port}.")
                 self._cluster = Cluster(
                     hosts, port=port, auth_provider=auth_provider, **cluster_kwargs
                 )
@@ -459,6 +473,8 @@ class CassandraOnlineStore(OnlineStore):
             tables_to_keep: Tables to keep in the Online Store.
         """
         project = config.project
+
+        self._log_all_tables(config)
 
         for table in tables_to_keep:
             self._create_table(config, project, table)
