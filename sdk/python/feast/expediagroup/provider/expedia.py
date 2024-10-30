@@ -1,5 +1,5 @@
 import logging
-from typing import List, Sequence, Set
+from typing import List, Set
 
 import pandas as pd
 
