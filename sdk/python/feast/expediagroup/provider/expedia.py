@@ -59,27 +59,3 @@ class ExpediaProvider(PassthroughProvider):
             )
 
         super().ingest_df(feature_view, df.drop(drop_list, axis=1))
-
-    def update_infra(
-        self,
-        project: str,
-        tables_to_delete: Sequence[FeatureView],
-        tables_to_keep: Sequence[FeatureView],
-        entities_to_delete: Sequence[Entity],
-        entities_to_keep: Sequence[Entity],
-        partial: bool,
-    ):
-        if self.online_store:
-            if tables_to_delete:
-                logger.info(
-                    f"Data associated to {[feature_view.name for feature_view in tables_to_delete]} feature views will be deleted from the online store based on ttl defined if the entities are not shared with other feature views"
-                )
-
-        if self.batch_engine:
-            self.batch_engine.update(
-                project,
-                tables_to_delete,
-                tables_to_keep,
-                entities_to_delete,
-                entities_to_keep,
-            )
