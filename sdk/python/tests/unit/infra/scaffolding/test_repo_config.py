@@ -358,7 +358,7 @@ def test_repo_config_init_expedia_provider():
     )
     assert c.registry_config == "registry.db"
     assert c.offline_config["type"] == "spark"
-    assert c.online_config == "redis"
+    assert c.online_config["type"] == "redis"
     assert c.batch_engine_config == "spark.engine"
     assert isinstance(c.online_store, RedisOnlineStoreConfig)
     assert isinstance(c.batch_engine, SparkMaterializationEngineConfig)
