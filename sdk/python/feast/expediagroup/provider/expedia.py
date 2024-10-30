@@ -3,7 +3,6 @@ from typing import List, Set
 
 import pandas as pd
 
-from feast.entity import Entity
 from feast.feature_view import FeatureView
 from feast.infra.passthrough_provider import PassthroughProvider
 from feast.repo_config import RepoConfig
