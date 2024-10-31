@@ -1251,7 +1251,6 @@ class FeatureStore:
             >>> fs.materialize_incremental(end_date=_utc_now() - timedelta(minutes=5))
             Materializing...
             <BLANKLINE>
-            ...
         """
         feature_views_to_materialize = self._get_feature_views_to_materialize(
             feature_views
