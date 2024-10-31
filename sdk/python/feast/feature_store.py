@@ -1283,7 +1283,9 @@ class FeatureStore:
                     )
                     start_date = _utc_now() - timedelta(weeks=52)
             provider = self._get_provider()
-            logger.info(f"{feature_view.name} from {start_date.replace(microsecond=0).astimezone()} to {end_date.replace(microsecond=0).astimezone()}:")
+            logger.info(
+                f"{feature_view.name} from {start_date.replace(microsecond=0).astimezone()} to {end_date.replace(microsecond=0).astimezone()}:"
+            )
 
             def tqdm_builder(length):
                 return tqdm(total=length, ncols=100)
