@@ -242,17 +242,12 @@ class RepoConfig(FeastBaseModel):
 
         self._online_store = None
         if provider == "expedia":
-            self.online_config = data.get(
-                "online_store",
-                {
-                    "type": "redis",
-                    "connection_string": "${REDIS_CONNECTION_STRING}",
-                    "redis_type": "redis_cluster",
-                    "key_ttl_seconds": 604800,
-                },
-            )
-            if self.online_config["type"] == "redis":
-                self.online_config["full_scan_for_deletion"] = True
+            self.online_config = data.get("online_store", "redis")
+            if (
+                isinstance(self.online_config, Dict)
+                and self.online_config["type"] == "redis"
+            ):
+                self.online_config["full_scan_for_deletion"] = False
         else:
             self.online_config = data.get("online_store", "sqlite")
 
