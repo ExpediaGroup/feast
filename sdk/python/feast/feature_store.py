@@ -1339,7 +1339,6 @@ class FeatureStore:
             ... )
             Materializing...
             <BLANKLINE>
-            ...
         """
         if utils.make_tzaware(start_date) > utils.make_tzaware(end_date):
             raise ValueError(
@@ -1359,7 +1358,9 @@ class FeatureStore:
         # TODO paging large loads
         for feature_view in feature_views_to_materialize:
             provider = self._get_provider()
-            print(f"{Style.BRIGHT + Fore.GREEN}{feature_view.name}{Style.RESET_ALL}:")
+            logger.info(
+                f"{feature_view.name} from {start_date.replace(microsecond=0).astimezone()} to {end_date.replace(microsecond=0).astimezone()}:"
+            )
 
             def tqdm_builder(length):
                 return tqdm(total=length, ncols=100)
