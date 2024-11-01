@@ -1251,6 +1251,7 @@ class FeatureStore:
             >>> fs.materialize_incremental(end_date=_utc_now() - timedelta(minutes=5))
             Materializing...
             <BLANKLINE>
+            ...
         """
         feature_views_to_materialize = self._get_feature_views_to_materialize(
             feature_views
@@ -1282,6 +1283,11 @@ class FeatureStore:
                     )
                     start_date = _utc_now() - timedelta(weeks=52)
             provider = self._get_provider()
+            print(
+                f"{Style.BRIGHT + Fore.GREEN}{feature_view.name}{Style.RESET_ALL}"
+                f" from {Style.BRIGHT + Fore.GREEN}{start_date.replace(microsecond=0).astimezone()}{Style.RESET_ALL}"
+                f" to {Style.BRIGHT + Fore.GREEN}{end_date.replace(microsecond=0).astimezone()}{Style.RESET_ALL}:"
+            )
             logger.info(
                 f"{feature_view.name} from {start_date.replace(microsecond=0).astimezone()} to {end_date.replace(microsecond=0).astimezone()}:"
             )
@@ -1339,6 +1345,7 @@ class FeatureStore:
             ... )
             Materializing...
             <BLANKLINE>
+            ...
         """
         if utils.make_tzaware(start_date) > utils.make_tzaware(end_date):
             raise ValueError(
@@ -1358,6 +1365,7 @@ class FeatureStore:
         # TODO paging large loads
         for feature_view in feature_views_to_materialize:
             provider = self._get_provider()
+            print(f"{Style.BRIGHT + Fore.GREEN}{feature_view.name}{Style.RESET_ALL}:")
             logger.info(
                 f"{feature_view.name} from {start_date.replace(microsecond=0).astimezone()} to {end_date.replace(microsecond=0).astimezone()}:"
             )
