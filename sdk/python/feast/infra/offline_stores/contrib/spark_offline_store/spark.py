@@ -288,14 +288,19 @@ class SparkOfflineStore(OfflineStore):
         spark_session = get_spark_session_or_start_new_with_repoconfig(
             store_config=config.offline_store
         )
-
-        fields = ", ".join(join_key_columns + feature_name_columns + [timestamp_field])
         from_expression = data_source.get_table_query_string()
         start_date = start_date.astimezone(tz=timezone.utc)
         end_date = end_date.astimezone(tz=timezone.utc)
 
+        (fields_with_aliases, aliases) = _get_fields_with_aliases(
+            fields=join_key_columns + feature_name_columns + [timestamp_field],
+            field_mappings=data_source.field_mapping,
+        )
+
+        fields_with_alias_string = ", ".join(fields_with_aliases)
+
         query = f"""
-            SELECT {fields}
+            SELECT {fields_with_alias_string}
             FROM {from_expression}
             WHERE {timestamp_field} BETWEEN TIMESTAMP '{start_date}' AND TIMESTAMP '{end_date}'
         """
