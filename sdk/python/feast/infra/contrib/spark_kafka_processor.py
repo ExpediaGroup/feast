@@ -1,3 +1,4 @@
+import time
 from types import MethodType
 from typing import List, Optional, Set, Union, no_type_check
 
@@ -209,6 +210,7 @@ class SparkKafkaProcessor(StreamProcessor):
                         df = df.withColumn(field_mapping_value, df[field_mapping_key])
 
                 # Drop unused columns
+                ## Note: This may need reconsideration when we support writing to offline store for Feature Views
                 drop_list: List[str] = []
                 fv_schema: Set[str] = set(
                     map(lambda field: field.name, self.sfv.schema)
@@ -300,12 +302,16 @@ class SparkKafkaProcessor(StreamProcessor):
             join_keys,
             feature_view,
         ):
+            start_time = time.time()
             sdf.mapInPandas(
                 lambda x: batch_write_pandas_df(
                     x, spark_serialized_artifacts, join_keys
                 ),
                 "status int",
             ).count()  # dummy action to force evaluation
+            print(
+                f"Time taken to write {batch_id} is: {(time.time() - start_time) * 1000:.2f} ms"
+            )
 
         query = (
             df.writeStream.outputMode("update")
