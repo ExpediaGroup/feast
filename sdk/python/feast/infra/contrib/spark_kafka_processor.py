@@ -310,7 +310,7 @@ class SparkKafkaProcessor(StreamProcessor):
                 "status int",
             ).count()  # dummy action to force evaluation
             print(
-                f"Time taken to write {batch_id} is: {(time.time() - start_time) * 1000:.2f} ms"
+                f"Time taken to write batch {batch_id} is: {(time.time() - start_time) * 1000:.2f} ms"
             )
 
         query = (
