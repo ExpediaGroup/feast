@@ -29,7 +29,7 @@ def test_pull_latest_from_table_with_nested_timestamp_or_query(mock_get_spark_se
     test_data_source = SparkSource(
         name="test_nested_batch_source",
         description="test_nested_batch_source",
-        table=f"offline_store_database_name.offline_store_table_name",
+        table="offline_store_database_name.offline_store_table_name",
         timestamp_field="nested_timestamp",
         field_mapping={
             "event_header.event_published_datetime_utc": "nested_timestamp",
@@ -65,10 +65,8 @@ def test_pull_latest_from_table_with_nested_timestamp_or_query(mock_get_spark_se
                     FROM `offline_store_database_name`.`offline_store_table_name` t1
                     WHERE event_header.event_published_datetime_utc BETWEEN TIMESTAMP('2021-01-01 00:00:00.000000') AND TIMESTAMP('2021-01-02 00:00:00.000000')
                 ) t2
-                WHERE feast_row_ = 1"""
+                WHERE feast_row_ = 1"""  # noqa: W293
 
-    print(retrieval_job)
-    print(retrieval_job.query)
     assert isinstance(retrieval_job, RetrievalJob)
     assert retrieval_job.query.strip() == expected_query.strip()
 
@@ -92,7 +90,7 @@ def test_pull_latest_from_table_without_nested_timestamp_or_query(
     test_data_source = SparkSource(
         name="test_batch_source",
         description="test_nested_batch_source",
-        table=f"offline_store_database_name.offline_store_table_name",
+        table="offline_store_database_name.offline_store_table_name",
         timestamp_field="event_published_datetime_utc",
     )
 
@@ -125,7 +123,7 @@ def test_pull_latest_from_table_without_nested_timestamp_or_query(
                     FROM `offline_store_database_name`.`offline_store_table_name` t1
                     WHERE event_published_datetime_utc BETWEEN TIMESTAMP('2021-01-01 00:00:00.000000') AND TIMESTAMP('2021-01-02 00:00:00.000000')
                 ) t2
-                WHERE feast_row_ = 1"""
+                WHERE feast_row_ = 1"""  # noqa: W293
 
     assert isinstance(retrieval_job, RetrievalJob)
     assert retrieval_job.query.strip() == expected_query.strip()
