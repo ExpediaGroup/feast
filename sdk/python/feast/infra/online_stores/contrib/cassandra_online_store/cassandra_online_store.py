@@ -572,8 +572,8 @@ class CassandraOnlineStore(OnlineStore):
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
 
         ttl = (
-            int(table.online_store_ttl.total_seconds())
-            if table.online_store_ttl
+            table.online_store_ttl
+            if table.online_store_ttl is not None
             else config.online_store.ttl
         )
         table_options = f" AND default_time_to_live = {ttl}" if ttl is not None else ""
