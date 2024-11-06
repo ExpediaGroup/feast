@@ -501,7 +501,7 @@ class CassandraOnlineStore(OnlineStore):
         project: str,
         table: FeatureView,
         rows: Iterable[Tuple[str, bytes, str, datetime]],
-        ttl_clause: str="",
+        ttl_clause: str = "",
     ):
         if ttl_clause:
             logger.info(f"Executing insert with TTL {ttl_clause}.")
@@ -509,7 +509,9 @@ class CassandraOnlineStore(OnlineStore):
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
-        insert_cql = self._get_cql_statement(config, "insert4", fqtable=fqtable, ttl_clause=ttl_clause)
+        insert_cql = self._get_cql_statement(
+            config, "insert4", fqtable=fqtable, ttl_clause=ttl_clause
+        )
         #
         execute_concurrent_with_args(
             session,
@@ -582,7 +584,9 @@ class CassandraOnlineStore(OnlineStore):
         ttl = int(table.ttl.total_seconds()) if table.ttl else config.online_store.ttl
         table_options = f" AND default_time_to_live = {ttl}" if ttl is not None else ""
 
-        create_cql = self._get_cql_statement(config, "create", fqtable, table_options=table_options)
+        create_cql = self._get_cql_statement(
+            config, "create", fqtable, table_options=table_options
+        )
         logger.info(f"Creating table {fqtable} with TTL {ttl}.")
         session.execute(create_cql)
 
