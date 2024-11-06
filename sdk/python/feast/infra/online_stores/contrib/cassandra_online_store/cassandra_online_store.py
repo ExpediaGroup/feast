@@ -380,7 +380,6 @@ class CassandraOnlineStore(OnlineStore):
             project,
             table,
             unroll_insertion_tuples(),
-            ttl_clause=ttl_clause,
         )
         # correction for the last missing call to `progress`:
         if progress:
