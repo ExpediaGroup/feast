@@ -75,7 +75,7 @@ E_CASSANDRA_UNKNOWN_LB_POLICY = (
 INSERT_CQL_4_TEMPLATE = (
     "INSERT INTO {fqtable} (feature_name,"
     " value, entity_key, event_ts) VALUES"
-    " (?, ?, ?, ?){ttl_clause};"
+    " (?, ?, ?, ?);"
 )
 
 SELECT_CQL_TEMPLATE = "SELECT {columns} FROM {fqtable} WHERE entity_key = ?;"
@@ -353,9 +353,6 @@ class CassandraOnlineStore(OnlineStore):
         """
         project = config.project
 
-        ttl = int(table.ttl.total_seconds()) if table.ttl else config.online_store.ttl
-        ttl_clause = f" USING TTL {ttl}" if ttl is not None else ""
-
         def unroll_insertion_tuples() -> Iterable[Tuple[str, bytes, str, datetime]]:
             """
             We craft an iterable over all rows to be inserted (entities->features),
@@ -501,17 +498,11 @@ class CassandraOnlineStore(OnlineStore):
         project: str,
         table: FeatureView,
         rows: Iterable[Tuple[str, bytes, str, datetime]],
-        ttl_clause: str = "",
     ):
-        if ttl_clause:
-            logger.info(f"Executing insert with TTL {ttl_clause}.")
-
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
-        insert_cql = self._get_cql_statement(
-            config, "insert4", fqtable=fqtable, ttl_clause=ttl_clause
-        )
+        insert_cql = self._get_cql_statement(config, "insert4", fqtable=fqtable)
         #
         execute_concurrent_with_args(
             session,
@@ -581,7 +572,11 @@ class CassandraOnlineStore(OnlineStore):
         keyspace: str = self._keyspace
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
 
-        ttl = int(table.ttl.total_seconds()) if table.ttl else config.online_store.ttl
+        ttl = (
+            int(table.online_store_ttl.total_seconds())
+            if table.online_store_ttl
+            else config.online_store.ttl
+        )
         table_options = f" AND default_time_to_live = {ttl}" if ttl is not None else ""
 
         create_cql = self._get_cql_statement(
@@ -609,10 +604,6 @@ class CassandraOnlineStore(OnlineStore):
             fqtable=fqtable,
             **kwargs,
         )
-        # Cassandra does not support binding TTL values in prepared statements.
-        # If a dynamic TTL is used (i.e., ttl_clause is present), we cannot prepare the statement.
-        if op_name == "insert4" and "ttl_clause" in kwargs and kwargs["ttl_clause"]:
-            prepare = False
         if prepare:
             # using the statement itself as key (no problem with that)
             cache_key = statement
