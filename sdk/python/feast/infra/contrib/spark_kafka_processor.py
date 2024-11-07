@@ -23,6 +23,7 @@ from feast.infra.contrib.stream_processor import (
 from feast.infra.materialization.contrib.spark.spark_materialization_engine import (
     _SparkSerializedArtifacts,
 )
+from feast.infra.provider import get_provider
 from feast.stream_feature_view import StreamFeatureView
 from feast.utils import _convert_arrow_to_proto, _run_pyarrow_field_mapping
 
@@ -123,10 +124,7 @@ class SparkKafkaProcessor(StreamProcessor):
             print(
                 f"Online store {self.fs.config.online_store.__class__.__name__} supports lazy table creation and it is enabled"
             )
-            from provider import get_provider
-
             provider = get_provider(self.fs.config)
-
             provider.update_infra(
                 project=self.fs.project,
                 tables_to_delete=[],
