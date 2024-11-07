@@ -116,9 +116,30 @@ class SparkKafkaProcessor(StreamProcessor):
         # data_source type has been checked to be an instance of KafkaSource.
         self.data_source: KafkaSource = self.data_source  # type: ignore
 
+    def _create_infra_if_necessary(self):
+        if self.fs.config.online_config is not None and getattr(
+            self.fs.config.online_config, "lazy_table_creation", False
+        ):
+            print(
+                f"Online store {self.fs.config.online_store.__class__.__name__} supports lazy table creation and it is enabled"
+            )
+            from provider import get_provider
+
+            provider = get_provider(self.fs.config)
+
+            provider.update_infra(
+                project=self.fs.project,
+                tables_to_delete=[],
+                tables_to_keep=[self.sfv],
+                entities_to_delete=[],
+                entities_to_keep=[],
+                partial=True,
+            )
+
     def ingest_stream_feature_view(
         self, to: PushMode = PushMode.ONLINE
     ) -> StreamingQuery:
+        self._create_infra_if_necessary()
         ingested_stream_df = self._ingest_stream_data()
         transformed_df = self._construct_transformation_plan(ingested_stream_df)
         if self.fs.config.provider == "expedia":
