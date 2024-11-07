@@ -117,8 +117,8 @@ class SparkKafkaProcessor(StreamProcessor):
         self.data_source: KafkaSource = self.data_source  # type: ignore
 
     def _create_infra_if_necessary(self):
-        if self.fs.config.online_config is not None and getattr(
-            self.fs.config.online_config, "lazy_table_creation", False
+        if self.fs.config.online_store is not None and getattr(
+            self.fs.config.online_store, "lazy_table_creation", False
         ):
             print(
                 f"Online store {self.fs.config.online_store.__class__.__name__} supports lazy table creation and it is enabled"
