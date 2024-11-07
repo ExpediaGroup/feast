@@ -88,8 +88,7 @@ CREATE_TABLE_CQL_TEMPLATE = """
         event_ts        TIMESTAMP,
         created_ts      TIMESTAMP,
         PRIMARY KEY ((entity_key), feature_name)
-    ) WITH CLUSTERING ORDER BY (feature_name ASC)
-    {table_options};
+    ) WITH CLUSTERING ORDER BY (feature_name ASC) AND default_time_to_live={ttl};
 """
 
 DROP_TABLE_CQL_TEMPLATE = "DROP TABLE IF EXISTS {fqtable};"
@@ -160,7 +159,7 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     Table deletion is not currently supported in this mode.
     """
 
-    ttl: Optional[StrictInt] = None
+    key_ttl_seconds: Optional[StrictInt] = None
     """Default TTL (in seconds) to apply to all tables if not specified in FeatureView."""
 
     class CassandraLoadBalancingPolicy(FeastConfigBaseModel):
@@ -570,17 +569,8 @@ class CassandraOnlineStore(OnlineStore):
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
-
-        ttl = (
-            table.online_store_ttl
-            if table.online_store_ttl is not None
-            else config.online_store.ttl
-        )
-        table_options = f" AND default_time_to_live = {ttl}" if ttl is not None else ""
-
-        create_cql = self._get_cql_statement(
-            config, "create", fqtable, table_options=table_options
-        )
+        ttl = table.online_store_ttl or config.online_store.key_ttl_seconds or 0
+        create_cql = self._get_cql_statement(config, "create", fqtable, ttl=ttl)
         logger.info(f"Creating table {fqtable} with TTL {ttl}.")
         session.execute(create_cql)
 

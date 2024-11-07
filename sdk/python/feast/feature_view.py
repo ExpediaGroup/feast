@@ -506,8 +506,7 @@ class FeatureView(BaseFeatureView):
         ttl_str = self.tags.get("online_store_ttl")
         if ttl_str:
             try:
-                ttl_seconds = int(ttl_str)
-                return ttl_seconds
+                return int(ttl_str)
             except ValueError:
                 raise ValueError(
                     f"Invalid online_store_ttl value '{ttl_str}' in tags. It must be an integer representing seconds."
