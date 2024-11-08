@@ -74,7 +74,7 @@ class RedisOnlineStoreConfig(FeastConfigBaseModel):
      format: host:port,parameter1,parameter2 eg. redis:6379,db=0 """
 
     key_ttl_seconds: Optional[int] = None
-    """(Optional) redis key bin ttl (in seconds) for expiring entities"""
+    """(Optional) redis key bin ttl (in seconds) for expiring entities. Value None means No TTL. Value 0 means expire in 0 seconds."""
 
     full_scan_for_deletion: Optional[bool] = True
     """(Optional) whether to scan for deletion of features"""
