@@ -218,8 +218,10 @@ class CassandraOnlineStore(OnlineStore):
             raise CassandraInvalidConfig(E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS)
 
         if self._session:
+            print("Returning existing session")
             return self._session
         if not self._session:
+            print("Creating new session")
             # configuration consistency checks
             hosts = online_store_config.hosts
             secure_bundle_path = online_store_config.secure_bundle_path
