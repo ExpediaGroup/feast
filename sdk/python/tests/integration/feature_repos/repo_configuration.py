@@ -71,9 +71,6 @@ from tests.integration.feature_repos.universal.feature_views import (
 from tests.integration.feature_repos.universal.online_store.bigtable import (
     BigtableOnlineStoreCreator,
 )
-from tests.integration.feature_repos.universal.online_store.cassandra import (
-    CassandraOnlineStoreCreator,
-)
 from tests.integration.feature_repos.universal.online_store.datastore import (
     DatastoreOnlineStoreCreator,
 )
@@ -111,21 +108,6 @@ BIGTABLE_CONFIG = {
     "type": "bigtable",
     "project_id": os.getenv("GCLOUD_PROJECT", "kf-feast"),
     "instance": os.getenv("BIGTABLE_INSTANCE_ID", "feast-integration-tests"),
-}
-
-SCYLLADB_CONFIG = {
-    "type": "scylladb",
-    "hosts": [os.getenv("SCYLLADB_HOSTNAME", "")],
-    "username": os.getenv("SCYLLADB_USERNAME", ""),
-    "password": os.getenv("SCYLLADB_PASSWORD", ""),
-    "keyspace": os.getenv("SCYLLADB_KEYSPACE", ""),
-    "protocol_version": 4,
-    "load_balancing": {
-        "load_balancing_policy": "TokenAwarePolicy(DCAwareRoundRobinPolicy)",
-        "local_dc": "aws-us-west-2",
-    },
-    "lazy_table_creation": True,
-    "key_ttl_seconds": 86400,
 }
 
 IKV_CONFIG = {
@@ -182,7 +164,6 @@ if os.getenv("FEAST_IS_LOCAL_TEST", "False") != "True":
     AVAILABLE_ONLINE_STORES["datastore"] = ("datastore", None)
     AVAILABLE_ONLINE_STORES["snowflake"] = (SNOWFLAKE_CONFIG, None)
     AVAILABLE_ONLINE_STORES["bigtable"] = (BIGTABLE_CONFIG, None)
-    AVAILABLE_ONLINE_STORES["scylladb"] = (SCYLLADB_CONFIG, None)
 
     # Uncomment to test using private IKV account. Currently not enabled as
     # there is no dedicated IKV instance for CI testing and there is no
@@ -233,7 +214,6 @@ if os.getenv("FEAST_LOCAL_ONLINE_CONTAINER", "False").lower() == "true":
         "dynamodb": (DYNAMO_CONFIG, DynamoDBOnlineStoreCreator),
         "datastore": ("datastore", DatastoreOnlineStoreCreator),
         "bigtable": ("bigtable", BigtableOnlineStoreCreator),
-        "scylladb": (SCYLLADB_CONFIG, CassandraOnlineStoreCreator),
     }
 
     for key, replacement in replacements.items():
