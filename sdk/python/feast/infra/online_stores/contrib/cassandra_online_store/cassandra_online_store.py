@@ -20,7 +20,17 @@ Cassandra/Astra DB online store for Feast.
 
 import logging
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import (
@@ -218,10 +228,8 @@ class CassandraOnlineStore(OnlineStore):
             raise CassandraInvalidConfig(E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS)
 
         if self._session:
-            print("Returning existing session")
             return self._session
         if not self._session:
-            print("Creating new session")
             # configuration consistency checks
             hosts = online_store_config.hosts
             secure_bundle_path = online_store_config.secure_bundle_path
@@ -341,12 +349,11 @@ class CassandraOnlineStore(OnlineStore):
         """
         project = config.project
 
-        def unroll_insertion_tuples() -> List[Tuple[str, bytes, str, datetime]]:
+        def unroll_insertion_tuples() -> Iterable[Tuple[str, bytes, str, datetime]]:
             """
             We craft an iterable over all rows to be inserted (entities->features),
             but this way we can call `progress` after each entity is done.
             """
-            insertion_items = []
             for entity_key, values, timestamp, created_ts in data:
                 entity_key_bin = serialize_entity_key(
                     entity_key,
@@ -359,11 +366,10 @@ class CassandraOnlineStore(OnlineStore):
                         entity_key_bin,
                         timestamp,
                     )
-                    insertion_items.append(params)
+                    yield params
                 # this happens N-1 times, will be corrected outside:
                 if progress:
                     progress(1)
-            return insertion_items
 
         self._write_rows_concurrently(
             config,
@@ -486,12 +492,13 @@ class CassandraOnlineStore(OnlineStore):
         config: RepoConfig,
         project: str,
         table: FeatureView,
-        rows: List[Tuple[str, bytes, str, datetime]],
+        rows: Iterable[Tuple[str, bytes, str, datetime]],
     ):
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
         insert_cql = self._get_cql_statement(config, "insert4", fqtable=fqtable)
+        #
         execute_concurrent_with_args(
             session,
             insert_cql,
