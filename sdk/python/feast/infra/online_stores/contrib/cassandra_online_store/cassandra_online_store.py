@@ -160,7 +160,7 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     """
 
     key_ttl_seconds: Optional[StrictInt] = None
-    """Default TTL (in seconds) to apply to all tables if not specified in FeatureView."""
+    """Default TTL (in seconds) to apply to all tables if not specified in FeatureView. Value 0 or None means No TTL."""
 
     class CassandraLoadBalancingPolicy(FeastConfigBaseModel):
         """
