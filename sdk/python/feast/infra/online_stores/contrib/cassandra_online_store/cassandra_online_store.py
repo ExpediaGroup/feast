@@ -569,7 +569,11 @@ class CassandraOnlineStore(OnlineStore):
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
-        ttl = table.online_store_ttl or config.online_store.key_ttl_seconds or 0
+        ttl = (
+            table.online_store_key_ttl_seconds
+            or config.online_store.key_ttl_seconds
+            or 0
+        )
         create_cql = self._get_cql_statement(config, "create", fqtable, ttl=ttl)
         logger.info(f"Creating table {fqtable} with TTL {ttl}.")
         session.execute(create_cql)

@@ -331,7 +331,7 @@ class RedisOnlineStore(OnlineStore):
                 pipe.hset(redis_key_bin, mapping=entity_hset)
 
                 ttl = (
-                    table.online_store_ttl
+                    table.online_store_key_ttl_seconds
                     or online_store_config.key_ttl_seconds
                     or None
                 )
