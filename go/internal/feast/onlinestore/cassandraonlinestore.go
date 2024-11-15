@@ -266,6 +266,7 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 		return nil, errors.New("failed to scan features: " + err.Error())
 	}
 
+	// Will fill feature slots that were left empty with null values
 	for i := 0; i < len(entityKeys); i++ {
 		for j := 0; j < len(featureNames); j++ {
 			if results[i][j].Timestamp.GetSeconds() == 0 {
