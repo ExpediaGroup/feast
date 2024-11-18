@@ -14,7 +14,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	_ "google.golang.org/protobuf/types/known/timestamppb"
+	gocqltrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gocql/gocql"
 	_ "net"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -25,10 +27,10 @@ type CassandraOnlineStore struct {
 	project string
 
 	// Cluster configurations for Cassandra/ScyllaDB
-	clusterConfigs *gocql.ClusterConfig
+	clusterConfigs *gocqltrace.ClusterConfig
 
 	// Session object that holds information about the connection to the cluster
-	session *gocql.Session
+	session *gocqltrace.Session
 
 	// keyspace of the table. Defaulted to using the project name
 	keyspace string
@@ -107,7 +109,11 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	}
 	protocolVersionInt := int(protocolVersion.(float64))
 
-	store.clusterConfigs = gocql.NewCluster(cassandraHostsStr...)
+	redisTraceServiceName := os.Getenv("DD_SERVICE") + "-cassandra"
+	if redisTraceServiceName == "" {
+		redisTraceServiceName = "cassandra.client" // default service name if DD_SERVICE is not set
+	}
+	store.clusterConfigs = gocqltrace.NewCluster(cassandraHostsStr, gocqltrace.WithServiceName(redisTraceServiceName))
 	// TODO: Figure out if we need to offer users the ability to tune the timeouts
 	//store.clusterConfigs.ConnectTimeout = 1
 	//store.clusterConfigs.Timeout = 1
@@ -135,7 +141,7 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	}
 
 	store.clusterConfigs.Authenticator = gocql.PasswordAuthenticator{Username: usernameStr, Password: passwordStr}
-	createdSession, err := gocql.NewSession(*store.clusterConfigs)
+	createdSession, err := store.clusterConfigs.CreateSession()
 	if err != nil {
 		return nil, fmt.Errorf("Unable to connect to the ScyllaDB database")
 	}
