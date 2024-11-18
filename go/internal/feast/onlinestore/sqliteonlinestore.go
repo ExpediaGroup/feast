@@ -70,7 +70,7 @@ func (s *SqliteOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 	in_query := make([]string, len(entityKeys))
 	serialized_entities := make([]interface{}, len(entityKeys))
 	for i := 0; i < len(entityKeys); i++ {
-		serKey, err := serializeEntityKey(entityKeys[i], s.repoConfig.EntityKeySerializationVersion)
+		serKey, err := utils.SerializeEntityKey(entityKeys[i], s.repoConfig.EntityKeySerializationVersion)
 		if err != nil {
 			return nil, err
 		}
