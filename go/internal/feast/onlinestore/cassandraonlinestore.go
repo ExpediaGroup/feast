@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/feast-dev/feast/go/internal/feast/registry"
@@ -215,13 +216,7 @@ func (c *CassandraOnlineStore) getFqTableName(tableName string) string {
 	return fmt.Sprintf(`"%s"."%s_%s"`, c.clusterConfigs.Keyspace, c.project, tableName)
 }
 
-func (c *CassandraOnlineStore) getCQLStatement(tableName string, featureNames []string, nKeys int) string {
-	// TODO: Compare with multiple single-key concurrent queries like in the Python feature server
-	keyPlaceholders := make([]string, nKeys)
-	for i := 0; i < nKeys; i++ {
-		keyPlaceholders[i] = "?"
-	}
-
+func (c *CassandraOnlineStore) getCQLStatement(tableName string, featureNames []string) string {
 	// this prevents fetching unnecessary features
 	quotedFeatureNames := make([]string, len(featureNames))
 	for i, featureName := range featureNames {
@@ -229,9 +224,8 @@ func (c *CassandraOnlineStore) getCQLStatement(tableName string, featureNames []
 	}
 
 	return fmt.Sprintf(
-		`SELECT "entity_key", "feature_name", "event_ts", "value" FROM %s WHERE "entity_key" IN (%s) AND "feature_name" IN (%s)`,
+		`SELECT "entity_key", "feature_name", "event_ts", "value" FROM %s WHERE "entity_key" = ? AND "feature_name" IN (%s)`,
 		tableName,
-		strings.Join(keyPlaceholders, ","),
 		strings.Join(quotedFeatureNames, ","),
 	)
 }
@@ -278,60 +272,77 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 
 	// Prepare the query
 	tableName := c.getFqTableName(featureViewName)
-	cqlStatement := c.getCQLStatement(tableName, featureNames, len(serializedEntityKeys))
-	// Bundle the entity keys in one statement (gocql handles this as concurrent queries)
-	scanner := c.session.Query(cqlStatement, serializedEntityKeys...).Iter().Scanner()
+	cqlStatement := c.getCQLStatement(tableName, featureNames)
 
-	// Process the results
-	var entityKey string
-	var featureName string
-	var eventTs time.Time
-	var valueStr []byte
-	var deserializedValue types.Value
-	for scanner.Next() {
-		err := scanner.Scan(&entityKey, &featureName, &eventTs, &valueStr)
-		if err != nil {
-			return nil, errors.New("could not read row in query for (entity key, feature name, value, event ts)")
-		}
-		if err := proto.Unmarshal(valueStr, &deserializedValue); err != nil {
-			return nil, errors.New("error converting parsed Cassandra Value to types.Value")
-		}
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(len(serializedEntityKeys))
 
-		var featureValues FeatureData
-		if deserializedValue.Val != nil {
-			// Convert the value to a FeatureData struct
-			featureValues = FeatureData{
-				Reference: serving.FeatureReferenceV2{
-					FeatureViewName: featureViewName,
-					FeatureName:     featureName,
-				},
-				Timestamp: timestamppb.Timestamp{Seconds: eventTs.Unix(), Nanos: int32(eventTs.Nanosecond())},
-				Value: types.Value{
-					Val: deserializedValue.Val,
-				},
+	errorsChannel := make(chan error, len(serializedEntityKeys))
+	for _, serializedEntityKey := range serializedEntityKeys {
+		go func(serEntityKey any) {
+			defer waitGroup.Done()
+
+			scanner := c.session.Query(cqlStatement, serEntityKey).Iter().Scanner()
+			var entityKey string
+			var featureName string
+			var eventTs time.Time
+			var valueStr []byte
+			var deserializedValue types.Value
+			for scanner.Next() {
+				err := scanner.Scan(&entityKey, &featureName, &eventTs, &valueStr)
+				if err != nil {
+					errorsChannel <- errors.New("could not read row in query for (entity key, feature name, value, event ts)")
+					return
+				}
+				if err := proto.Unmarshal(valueStr, &deserializedValue); err != nil {
+					errorsChannel <- errors.New("error converting parsed Cassandra Value to types.Value")
+					return
+				}
+
+				rowIdx := serializedEntityKeyToIndex[entityKey]
+				if deserializedValue.Val != nil {
+					// Convert the value to a FeatureData struct
+					results[rowIdx][featureNamesToIdx[featureName]] = FeatureData{
+						Reference: serving.FeatureReferenceV2{
+							FeatureViewName: featureViewName,
+							FeatureName:     featureName,
+						},
+						Timestamp: timestamppb.Timestamp{Seconds: eventTs.Unix(), Nanos: int32(eventTs.Nanosecond())},
+						Value: types.Value{
+							Val: deserializedValue.Val,
+						},
+					}
+				} else {
+					// Return FeatureData with a null value
+					results[rowIdx][featureNamesToIdx[featureName]] = FeatureData{
+						Reference: serving.FeatureReferenceV2{
+							FeatureViewName: featureViewName,
+							FeatureName:     featureName,
+						},
+						Value: types.Value{
+							Val: &types.Value_NullVal{
+								NullVal: types.Null_NULL,
+							},
+						},
+					}
+				}
 			}
-		} else {
-			// Return FeatureData with a null value
-			featureValues = FeatureData{
-				Reference: serving.FeatureReferenceV2{
-					FeatureViewName: featureViewName,
-					FeatureName:     featureName,
-				},
-				Value: types.Value{
-					Val: &types.Value_NullVal{
-						NullVal: types.Null_NULL,
-					},
-				},
-			}
-		}
 
-		// Add the FeatureData to the results
-		rowIndx := serializedEntityKeyToIndex[entityKey]
-		results[rowIndx][featureNamesToIdx[featureName]] = featureValues
+			if err := scanner.Err(); err != nil {
+				errorsChannel <- errors.New("failed to scan features: " + err.Error())
+				return
+			}
+		}(serializedEntityKey)
 	}
-	// Check for errors from the Scanner
-	if err := scanner.Err(); err != nil {
-		return nil, errors.New("failed to scan features: " + err.Error())
+
+	// wait until all concurrent single-key queries are done
+	waitGroup.Wait()
+	close(errorsChannel)
+
+	for err := range errorsChannel {
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Will fill feature slots that were left empty with null values
@@ -354,7 +365,6 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 	}
 
 	return results, nil
-
 }
 
 func (c *CassandraOnlineStore) Destruct() {
