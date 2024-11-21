@@ -117,10 +117,6 @@ CASSANDRA_REQUIRED = [
     "cassandra-driver>=3.24.0,<4",
 ]
 
-SCYLLADB_REQUIRED = [
-    "scylla-driver>=3.24.0,<4",
-]
-
 GE_REQUIRED = ["great_expectations>=0.15.41"]
 
 SCYLLADB_REQUIRED = [
