@@ -31,11 +31,11 @@ var REGISTRY_STORE_CLASS_FOR_SCHEME map[string]string = map[string]string{
 type Registry struct {
 	project                        string
 	registryStore                  RegistryStore
-	cachedFeatureServices          map[string]map[string]*core.FeatureService
-	cachedEntities                 map[string]map[string]*core.Entity
-	cachedFeatureViews             map[string]map[string]*core.FeatureView
+	CachedFeatureServices          map[string]map[string]*core.FeatureService
+	CachedEntities                 map[string]map[string]*core.Entity
+	CachedFeatureViews             map[string]map[string]*core.FeatureView
 	cachedStreamFeatureViews       map[string]map[string]*core.StreamFeatureView
-	cachedOnDemandFeatureViews     map[string]map[string]*core.OnDemandFeatureView
+	CachedOnDemandFeatureViews     map[string]map[string]*core.OnDemandFeatureView
 	cachedRegistry                 *core.Registry
 	cachedRegistryProtoLastUpdated time.Time
 	cachedRegistryProtoTtl         time.Duration
@@ -113,11 +113,11 @@ func (r *Registry) load(registry *core.Registry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.cachedRegistry = registry
-	r.cachedFeatureServices = make(map[string]map[string]*core.FeatureService)
-	r.cachedEntities = make(map[string]map[string]*core.Entity)
-	r.cachedFeatureViews = make(map[string]map[string]*core.FeatureView)
+	r.CachedFeatureServices = make(map[string]map[string]*core.FeatureService)
+	r.CachedEntities = make(map[string]map[string]*core.Entity)
+	r.CachedFeatureViews = make(map[string]map[string]*core.FeatureView)
 	r.cachedStreamFeatureViews = make(map[string]map[string]*core.StreamFeatureView)
-	r.cachedOnDemandFeatureViews = make(map[string]map[string]*core.OnDemandFeatureView)
+	r.CachedOnDemandFeatureViews = make(map[string]map[string]*core.OnDemandFeatureView)
 	r.loadEntities(registry)
 	r.loadFeatureServices(registry)
 	r.loadFeatureViews(registry)
@@ -129,30 +129,30 @@ func (r *Registry) load(registry *core.Registry) {
 func (r *Registry) loadEntities(registry *core.Registry) {
 	entities := registry.Entities
 	for _, entity := range entities {
-		if _, ok := r.cachedEntities[r.project]; !ok {
-			r.cachedEntities[r.project] = make(map[string]*core.Entity)
+		if _, ok := r.CachedEntities[r.project]; !ok {
+			r.CachedEntities[r.project] = make(map[string]*core.Entity)
 		}
-		r.cachedEntities[r.project][entity.Spec.Name] = entity
+		r.CachedEntities[r.project][entity.Spec.Name] = entity
 	}
 }
 
 func (r *Registry) loadFeatureServices(registry *core.Registry) {
 	featureServices := registry.FeatureServices
 	for _, featureService := range featureServices {
-		if _, ok := r.cachedFeatureServices[r.project]; !ok {
-			r.cachedFeatureServices[r.project] = make(map[string]*core.FeatureService)
+		if _, ok := r.CachedFeatureServices[r.project]; !ok {
+			r.CachedFeatureServices[r.project] = make(map[string]*core.FeatureService)
 		}
-		r.cachedFeatureServices[r.project][featureService.Spec.Name] = featureService
+		r.CachedFeatureServices[r.project][featureService.Spec.Name] = featureService
 	}
 }
 
 func (r *Registry) loadFeatureViews(registry *core.Registry) {
 	featureViews := registry.FeatureViews
 	for _, featureView := range featureViews {
-		if _, ok := r.cachedFeatureViews[r.project]; !ok {
-			r.cachedFeatureViews[r.project] = make(map[string]*core.FeatureView)
+		if _, ok := r.CachedFeatureViews[r.project]; !ok {
+			r.CachedFeatureViews[r.project] = make(map[string]*core.FeatureView)
 		}
-		r.cachedFeatureViews[r.project][featureView.Spec.Name] = featureView
+		r.CachedFeatureViews[r.project][featureView.Spec.Name] = featureView
 	}
 }
 
@@ -169,10 +169,10 @@ func (r *Registry) loadStreamFeatureViews(registry *core.Registry) {
 func (r *Registry) loadOnDemandFeatureViews(registry *core.Registry) {
 	onDemandFeatureViews := registry.OnDemandFeatureViews
 	for _, onDemandFeatureView := range onDemandFeatureViews {
-		if _, ok := r.cachedOnDemandFeatureViews[r.project]; !ok {
-			r.cachedOnDemandFeatureViews[r.project] = make(map[string]*core.OnDemandFeatureView)
+		if _, ok := r.CachedOnDemandFeatureViews[r.project]; !ok {
+			r.CachedOnDemandFeatureViews[r.project] = make(map[string]*core.OnDemandFeatureView)
 		}
-		r.cachedOnDemandFeatureViews[r.project][onDemandFeatureView.Spec.Name] = onDemandFeatureView
+		r.CachedOnDemandFeatureViews[r.project][onDemandFeatureView.Spec.Name] = onDemandFeatureView
 	}
 }
 
@@ -184,7 +184,7 @@ func (r *Registry) loadOnDemandFeatureViews(registry *core.Registry) {
 func (r *Registry) ListEntities(project string) ([]*model.Entity, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if cachedEntities, ok := r.cachedEntities[project]; !ok {
+	if cachedEntities, ok := r.CachedEntities[project]; !ok {
 		return []*model.Entity{}, nil
 	} else {
 		entities := make([]*model.Entity, len(cachedEntities))
@@ -205,7 +205,7 @@ func (r *Registry) ListEntities(project string) ([]*model.Entity, error) {
 func (r *Registry) ListFeatureViews(project string) ([]*model.FeatureView, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if cachedFeatureViews, ok := r.cachedFeatureViews[project]; !ok {
+	if cachedFeatureViews, ok := r.CachedFeatureViews[project]; !ok {
 		return []*model.FeatureView{}, nil
 	} else {
 		featureViews := make([]*model.FeatureView, len(cachedFeatureViews))
@@ -247,7 +247,7 @@ func (r *Registry) ListStreamFeatureViews(project string) ([]*model.FeatureView,
 func (r *Registry) ListFeatureServices(project string) ([]*model.FeatureService, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if cachedFeatureServices, ok := r.cachedFeatureServices[project]; !ok {
+	if cachedFeatureServices, ok := r.CachedFeatureServices[project]; !ok {
 		return []*model.FeatureService{}, nil
 	} else {
 		featureServices := make([]*model.FeatureService, len(cachedFeatureServices))
@@ -268,7 +268,7 @@ func (r *Registry) ListFeatureServices(project string) ([]*model.FeatureService,
 func (r *Registry) ListOnDemandFeatureViews(project string) ([]*model.OnDemandFeatureView, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if cachedOnDemandFeatureViews, ok := r.cachedOnDemandFeatureViews[project]; !ok {
+	if cachedOnDemandFeatureViews, ok := r.CachedOnDemandFeatureViews[project]; !ok {
 		return []*model.OnDemandFeatureView{}, nil
 	} else {
 		onDemandFeatureViews := make([]*model.OnDemandFeatureView, len(cachedOnDemandFeatureViews))
@@ -284,7 +284,7 @@ func (r *Registry) ListOnDemandFeatureViews(project string) ([]*model.OnDemandFe
 func (r *Registry) GetEntity(project, entityName string) (*model.Entity, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if cachedEntities, ok := r.cachedEntities[project]; !ok {
+	if cachedEntities, ok := r.CachedEntities[project]; !ok {
 		return nil, fmt.Errorf("no cached entities found for project %s", project)
 	} else {
 		if entity, ok := cachedEntities[entityName]; !ok {
@@ -298,7 +298,7 @@ func (r *Registry) GetEntity(project, entityName string) (*model.Entity, error) 
 func (r *Registry) GetFeatureView(project, featureViewName string) (*model.FeatureView, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if cachedFeatureViews, ok := r.cachedFeatureViews[project]; !ok {
+	if cachedFeatureViews, ok := r.CachedFeatureViews[project]; !ok {
 		return nil, fmt.Errorf("no cached feature views found for project %s", project)
 	} else {
 		if featureViewProto, ok := cachedFeatureViews[featureViewName]; !ok {
@@ -326,7 +326,7 @@ func (r *Registry) GetStreamFeatureView(project, streamFeatureViewName string) (
 func (r *Registry) GetFeatureService(project, featureServiceName string) (*model.FeatureService, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if cachedFeatureServices, ok := r.cachedFeatureServices[project]; !ok {
+	if cachedFeatureServices, ok := r.CachedFeatureServices[project]; !ok {
 		return nil, fmt.Errorf("no cached feature services found for project %s", project)
 	} else {
 		if featureServiceProto, ok := cachedFeatureServices[featureServiceName]; !ok {
@@ -340,7 +340,7 @@ func (r *Registry) GetFeatureService(project, featureServiceName string) (*model
 func (r *Registry) GetOnDemandFeatureView(project, onDemandFeatureViewName string) (*model.OnDemandFeatureView, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if cachedOnDemandFeatureViews, ok := r.cachedOnDemandFeatureViews[project]; !ok {
+	if cachedOnDemandFeatureViews, ok := r.CachedOnDemandFeatureViews[project]; !ok {
 		return nil, fmt.Errorf("no cached on demand feature views found for project %s", project)
 	} else {
 		if onDemandFeatureViewProto, ok := cachedOnDemandFeatureViews[onDemandFeatureViewName]; !ok {

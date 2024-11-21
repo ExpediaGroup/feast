@@ -19,6 +19,15 @@ import (
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 )
 
+type FeatureStoreInterface interface {
+	GetOnlineFeatures(
+		ctx context.Context,
+		featureRefs []string,
+		featureService *model.FeatureService,
+		joinKeyToEntityValues map[string]*prototypes.RepeatedValue,
+		requestData map[string]*prototypes.RepeatedValue,
+		fullFeatureNames bool) ([]*onlineserving.FeatureVector, error)
+}
 type FeatureStore struct {
 	config                 *registry.RepoConfig
 	registry               *registry.Registry
@@ -85,7 +94,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 	joinKeyToEntityValues map[string]*prototypes.RepeatedValue,
 	requestData map[string]*prototypes.RepeatedValue,
 	fullFeatureNames bool) ([]*onlineserving.FeatureVector, error) {
-	fvs, odFvs, err := fs.listAllViews()
+	fvs, odFvs, err := fs.ListAllViews()
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +239,7 @@ func (fs *FeatureStore) GetFeatureService(name string) (*model.FeatureService, e
 	return fs.registry.GetFeatureService(fs.config.Project, name)
 }
 
-func (fs *FeatureStore) listAllViews() (map[string]*model.FeatureView, map[string]*model.OnDemandFeatureView, error) {
+func (fs *FeatureStore) ListAllViews() (map[string]*model.FeatureView, map[string]*model.OnDemandFeatureView, error) {
 	fvs := make(map[string]*model.FeatureView)
 	odFvs := make(map[string]*model.OnDemandFeatureView)
 
@@ -291,6 +300,33 @@ func (fs *FeatureStore) ListEntities(hideDummyEntity bool) ([]*model.Entity, err
 	return entities, nil
 }
 
+func (fs *FeatureStore) GetEntityByKey(entityKey string) (*model.Entity, error) {
+
+	entities, err := fs.ListEntities(false)
+	if err != nil {
+		return nil, err
+	}
+	for _, entity := range entities {
+		if entity.JoinKey == entityKey {
+			return entity, nil
+		}
+	}
+	return nil, fmt.Errorf("Entity with key %s not found", entityKey)
+}
+func (fs *FeatureStore) GetRequestSources(odfvList []*model.OnDemandFeatureView) (map[string]prototypes.ValueType_Enum, error) {
+
+	requestSources := make(map[string]prototypes.ValueType_Enum, 0)
+	if len(odfvList) > 0 {
+		for _, odfv := range odfvList {
+			schema := odfv.GetRequestDataSchema()
+			for name, dtype := range schema {
+				requestSources[name] = dtype
+			}
+		}
+	}
+	return requestSources, nil
+}
+
 func (fs *FeatureStore) ListOnDemandFeatureViews() ([]*model.OnDemandFeatureView, error) {
 	return fs.registry.ListOnDemandFeatureViews(fs.config.Project)
 }
@@ -307,6 +343,14 @@ func (fs *FeatureStore) GetFeatureView(featureViewName string, hideDummyEntity b
 	}
 	if fv.HasEntity(model.DUMMY_ENTITY_NAME) && hideDummyEntity {
 		fv.EntityNames = []string{}
+	}
+	return fv, nil
+}
+
+func (fs *FeatureStore) GetOnDemandFeatureView(featureViewName string) (*model.OnDemandFeatureView, error) {
+	fv, err := fs.registry.GetOnDemandFeatureView(fs.config.Project, featureViewName)
+	if err != nil {
+		return nil, err
 	}
 	return fv, nil
 }

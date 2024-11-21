@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -33,10 +34,12 @@ type httpServer struct {
 // Some Feast types aren't supported during JSON conversion
 type repeatedValue struct {
 	stringVal     []string
+	int32Val      []int32
 	int64Val      []int64
 	doubleVal     []float64
 	boolVal       []bool
 	stringListVal [][]string
+	int32ListVal  [][]int32
 	int64ListVal  [][]int64
 	doubleListVal [][]float64
 	boolListVal   [][]bool
@@ -102,6 +105,11 @@ func (u *repeatedValue) ToProto() *prototypes.RepeatedValue {
 			proto.Val = append(proto.Val, &prototypes.Value{Val: &prototypes.Value_Int64Val{Int64Val: val}})
 		}
 	}
+	if u.int32Val != nil {
+		for _, val := range u.int32Val {
+			proto.Val = append(proto.Val, &prototypes.Value{Val: &prototypes.Value_Int32Val{Int32Val: val}})
+		}
+	}
 	if u.doubleVal != nil {
 		for _, val := range u.doubleVal {
 			proto.Val = append(proto.Val, &prototypes.Value{Val: &prototypes.Value_DoubleVal{DoubleVal: val}})
@@ -115,6 +123,11 @@ func (u *repeatedValue) ToProto() *prototypes.RepeatedValue {
 	if u.stringListVal != nil {
 		for _, val := range u.stringListVal {
 			proto.Val = append(proto.Val, &prototypes.Value{Val: &prototypes.Value_StringListVal{StringListVal: &prototypes.StringList{Val: val}}})
+		}
+	}
+	if u.int32ListVal != nil {
+		for _, val := range u.int32ListVal {
+			proto.Val = append(proto.Val, &prototypes.Value{Val: &prototypes.Value_Int32ListVal{Int32ListVal: &prototypes.Int32List{Val: val}}})
 		}
 	}
 	if u.int64ListVal != nil {
@@ -145,6 +158,21 @@ type getOnlineFeaturesRequest struct {
 
 func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingService) *httpServer {
 	return &httpServer{fs: fs, loggingService: loggingService}
+}
+
+/*
+*
+Used to align a field specified in the request with its defined schema type.
+*/
+func typecastToFieldSchemaType(val *repeatedValue, fieldType prototypes.ValueType_Enum) {
+	if val.int64Val != nil {
+		if fieldType == prototypes.ValueType_INT32 {
+			for _, v := range val.int64Val {
+				val.int32Val = append(val.int32Val, int32(v))
+			}
+			val.int64Val = nil
+		}
+	}
 }
 
 func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
@@ -181,21 +209,85 @@ func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var featureService *model.FeatureService
-	if request.FeatureService != nil {
+	var entitiesProto = make(map[string]*prototypes.RepeatedValue)
+	var requestContextProto = make(map[string]*prototypes.RepeatedValue)
+	var odfVList = make([]*model.OnDemandFeatureView, 0)
+	var requestSources = make(map[string]prototypes.ValueType_Enum)
+
+	if request.FeatureService != nil && *request.FeatureService != "" {
 		featureService, err = s.fs.GetFeatureService(*request.FeatureService)
 		if err != nil {
 			logSpanContext.Error().Err(err).Msg("Error getting feature service from registry")
 			writeJSONError(w, fmt.Errorf("Error getting feature service from registry: %+v", err), http.StatusInternalServerError)
 			return
 		}
+		for _, fv := range featureService.Projections {
+			odfv, _ := s.fs.GetOnDemandFeatureView(fv.Name)
+			if odfv != nil {
+				odfVList = append(odfVList, odfv)
+			}
+		}
+	} else if len(request.Features) > 0 {
+		log.Info().Msgf("request.Features %v", request.Features)
+		for _, featureName := range request.Features {
+			fVName, _, err := onlineserving.ParseFeatureReference(featureName)
+			if err != nil {
+				logSpanContext.Error().Err(err)
+				writeJSONError(w, fmt.Errorf("Error parsing feature reference %s", featureName), http.StatusBadRequest)
+				return
+			}
+			fv, odfv, _ := s.fs.ListAllViews()
+			if _, ok1 := odfv[fVName]; ok1 {
+				odfVList = append(odfVList, odfv[fVName])
+			} else if _, ok1 := fv[fVName]; !ok1 {
+				logSpanContext.Error().Msg("Feature View not found")
+				writeJSONError(w, fmt.Errorf("Feature View %s not found", featureName), http.StatusInternalServerError)
+				return
+			}
+		}
+	} else {
+		logSpanContext.Error().Msg("No Feature Views or Feature Services specified in the request")
+		writeJSONError(w, errors.New("No Feature Views or Feature Services specified in the request"), http.StatusBadRequest)
+		return
 	}
-	entitiesProto := make(map[string]*prototypes.RepeatedValue)
-	for key, value := range request.Entities {
-		entitiesProto[key] = value.ToProto()
+	if odfVList != nil {
+		requestSources, _ = s.fs.GetRequestSources(odfVList)
 	}
-	requestContextProto := make(map[string]*prototypes.RepeatedValue)
-	for key, value := range request.RequestContext {
-		requestContextProto[key] = value.ToProto()
+	if len(request.Entities) > 0 {
+		var entityType prototypes.ValueType_Enum
+		for key, value := range request.Entities {
+			entity, err := s.fs.GetEntityByKey(key)
+			if err != nil {
+				if len(requestSources) == 0 {
+					logSpanContext.Error().Err(err)
+					writeJSONError(w, err, http.StatusNotFound)
+					return
+				}
+				requestSourceType, ok := requestSources[key]
+				if !ok {
+					logSpanContext.Error().Msgf("Entity with key or Request Source with name %s not found ", key)
+					writeJSONError(w, fmt.Errorf("Entity with key or Request Source with name %s not found ", key), http.StatusNotFound)
+					return
+				}
+				entityType = requestSourceType
+			} else {
+				entityType = entity.ValueType
+			}
+			typecastToFieldSchemaType(&value, entityType)
+			entitiesProto[key] = value.ToProto()
+		}
+	}
+	if request.RequestContext != nil && len(request.RequestContext) > 0 {
+		for key, value := range request.RequestContext {
+			requestSourceType, ok := requestSources[key]
+			if !ok {
+				logSpanContext.Error().Msgf("Request Source %s not found ", key)
+				writeJSONError(w, fmt.Errorf("Request Source %s not found ", key), http.StatusNotFound)
+				return
+			}
+			typecastToFieldSchemaType(&value, requestSourceType)
+			requestContextProto[key] = value.ToProto()
+		}
 	}
 
 	featureVectors, err := s.fs.GetOnlineFeatures(

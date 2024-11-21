@@ -2,29 +2,16 @@ package feast
 
 import (
 	"context"
-	"path/filepath"
-	"runtime"
+	"github.com/feast-dev/feast/go/internal/feast/model"
+	"github.com/feast-dev/feast/go/protos/feast/core"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/feast-dev/feast/go/internal/feast/onlinestore"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
-	"github.com/feast-dev/feast/go/protos/feast/types"
+	types "github.com/feast-dev/feast/go/protos/feast/types"
 )
-
-// Return absolute path to the test_repo registry regardless of the working directory
-func getRegistryPath() map[string]interface{} {
-	// Get the file path of this source file, regardless of the working directory
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		panic("couldn't find file path of the test file")
-	}
-	registry := map[string]interface{}{
-		"path": filepath.Join(filename, "..", "..", "..", "feature_repo/data/registry.db"),
-	}
-	return registry
-}
 
 func TestNewFeatureStore(t *testing.T) {
 	t.Skip("@todo(achals): feature_repo isn't checked in yet")
@@ -69,4 +56,69 @@ func TestGetOnlineFeaturesRedis(t *testing.T) {
 		ctx, featureNames, nil, entities, map[string]*types.RepeatedValue{}, true)
 	assert.Nil(t, err)
 	assert.Len(t, response, 4) // 3 Features + 1 entity = 4 columns (feature vectors) in response
+}
+func TestGetRequestSources(t *testing.T) {
+	config := GetRepoConfig()
+	fs, _ := NewFeatureStore(&config, nil)
+
+	odfv := &core.OnDemandFeatureView{
+		Spec: &core.OnDemandFeatureViewSpec{
+			Name:    "odfv1",
+			Project: "feature_repo",
+			Sources: map[string]*core.OnDemandSource{
+				"odfv1": {
+					Source: &core.OnDemandSource_RequestDataSource{
+						RequestDataSource: &core.DataSource{
+							Name: "request_source_1",
+							Type: core.DataSource_REQUEST_SOURCE,
+							Options: &core.DataSource_RequestDataOptions_{
+								RequestDataOptions: &core.DataSource_RequestDataOptions{
+									DeprecatedSchema: map[string]types.ValueType_Enum{
+										"feature1": types.ValueType_INT64,
+									},
+									Schema: []*core.FeatureSpecV2{
+										{
+											Name:      "feat1",
+											ValueType: types.ValueType_INT64,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	cached_odfv := &model.OnDemandFeatureView{
+		Base: model.NewBaseFeatureView("odfv1", []*core.FeatureSpecV2{
+			{
+				Name:      "feat1",
+				ValueType: types.ValueType_INT64,
+			},
+		}),
+		SourceFeatureViewProjections: make(map[string]*model.FeatureViewProjection),
+		SourceRequestDataSources: map[string]*core.DataSource_RequestDataOptions{
+			"request_source_1": {
+				Schema: []*core.FeatureSpecV2{
+					{
+						Name:      "feat1",
+						ValueType: types.ValueType_INT64,
+					},
+				},
+			},
+		},
+	}
+	fVList := make([]*model.OnDemandFeatureView, 0)
+	fVList = append(fVList, cached_odfv)
+	cachedOnDemandFVs := make(map[string]map[string]*core.OnDemandFeatureView)
+	cachedOnDemandFVs["feature_repo"] = make(map[string]*core.OnDemandFeatureView)
+	cachedOnDemandFVs["feature_repo"]["odfv1"] = odfv
+	fs.registry.CachedOnDemandFeatureViews = cachedOnDemandFVs
+	requestSources, err := fs.GetRequestSources(fVList)
+
+	assert.Nil(t, err)
+	assert.Equal(t, 1, len(requestSources))
+	assert.Equal(t, types.ValueType_INT64.Enum(), requestSources["feat1"].Enum())
 }
