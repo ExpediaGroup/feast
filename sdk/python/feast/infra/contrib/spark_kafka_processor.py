@@ -1,3 +1,4 @@
+import time
 from types import MethodType
 from typing import List, Optional, Set, Union, no_type_check
 
@@ -22,6 +23,7 @@ from feast.infra.contrib.stream_processor import (
 from feast.infra.materialization.contrib.spark.spark_materialization_engine import (
     _SparkSerializedArtifacts,
 )
+from feast.infra.provider import get_provider
 from feast.stream_feature_view import StreamFeatureView
 from feast.utils import _convert_arrow_to_proto, _run_pyarrow_field_mapping
 
@@ -115,9 +117,27 @@ class SparkKafkaProcessor(StreamProcessor):
         # data_source type has been checked to be an instance of KafkaSource.
         self.data_source: KafkaSource = self.data_source  # type: ignore
 
+    def _create_infra_if_necessary(self):
+        if self.fs.config.online_store is not None and getattr(
+            self.fs.config.online_store, "lazy_table_creation", False
+        ):
+            print(
+                f"Online store {self.fs.config.online_store.__class__.__name__} supports lazy table creation and it is enabled"
+            )
+            provider = get_provider(self.fs.config)
+            provider.update_infra(
+                project=self.fs.project,
+                tables_to_delete=[],
+                tables_to_keep=[self.sfv],
+                entities_to_delete=[],
+                entities_to_keep=[],
+                partial=True,
+            )
+
     def ingest_stream_feature_view(
         self, to: PushMode = PushMode.ONLINE
     ) -> StreamingQuery:
+        self._create_infra_if_necessary()
         ingested_stream_df = self._ingest_stream_data()
         transformed_df = self._construct_transformation_plan(ingested_stream_df)
         if self.fs.config.provider == "expedia":
@@ -199,7 +219,37 @@ class SparkKafkaProcessor(StreamProcessor):
 
     def _construct_transformation_plan(self, df: StreamTable) -> StreamTable:
         if isinstance(self.sfv, FeatureView):
-            return df
+            # Apply field mapping if it exists.
+            if self.sfv.stream_source is not None:
+                if self.sfv.stream_source.field_mapping is not None:
+                    for (
+                        field_mapping_key,
+                        field_mapping_value,
+                    ) in self.sfv.stream_source.field_mapping.items():
+                        df = df.withColumn(field_mapping_value, df[field_mapping_key])
+
+                # Drop unused columns
+                ## Note: This may need reconsideration when we support writing to offline store for Feature Views
+                drop_list: List[str] = []
+                fv_schema: Set[str] = set(
+                    map(lambda field: field.name, self.sfv.schema)
+                )
+
+                fv_schema.add(self.sfv.stream_source.timestamp_field)
+                if self.sfv.stream_source.created_timestamp_column:
+                    fv_schema.add(self.sfv.stream_source.created_timestamp_column)
+
+                for column in df.columns:
+                    if column not in fv_schema:
+                        drop_list.append(column)
+
+                if len(drop_list) > 0:
+                    print(
+                        f"INFO!!! Dropping extra columns in the DataFrame: {drop_list}. Avoid unnecessary columns in the dataframe."
+                    )
+                return df.drop(*drop_list)
+            else:
+                raise Exception(f"Stream source is not defined for {self.sfv.name}")
         elif isinstance(self.sfv, StreamFeatureView):
             return self.sfv.udf.__call__(df) if self.sfv.udf else df
 
@@ -271,45 +321,16 @@ class SparkKafkaProcessor(StreamProcessor):
             join_keys,
             feature_view,
         ):
-            drop_list: List[str] = []
-            fv_schema: Set[str] = set(
-                map(lambda field: field.name, feature_view.schema)
-            )
-            # Add timestamp field to the schema so we don't delete from dataframe
-            if isinstance(feature_view, StreamFeatureView):
-                fv_schema.add(feature_view.timestamp_field)
-                if feature_view.source.created_timestamp_column:
-                    fv_schema.add(feature_view.source.created_timestamp_column)
-
-            if isinstance(feature_view, FeatureView):
-                if feature_view.stream_source is not None:
-                    fv_schema.add(feature_view.stream_source.timestamp_field)
-                    if feature_view.stream_source.created_timestamp_column:
-                        fv_schema.add(
-                            feature_view.stream_source.created_timestamp_column
-                        )
-                else:
-                    fv_schema.add(feature_view.batch_source.timestamp_field)
-                    if feature_view.batch_source.created_timestamp_column:
-                        fv_schema.add(
-                            feature_view.batch_source.created_timestamp_column
-                        )
-
-            for column in df.columns:
-                if column not in fv_schema:
-                    drop_list.append(column)
-
-            if len(drop_list) > 0:
-                print(
-                    f"INFO!!! Dropping extra columns in the dataframe: {drop_list}. Avoid unnecessary columns in the dataframe."
-                )
-
-            sdf.drop(*drop_list).mapInPandas(
+            start_time = time.time()
+            sdf.mapInPandas(
                 lambda x: batch_write_pandas_df(
                     x, spark_serialized_artifacts, join_keys
                 ),
                 "status int",
             ).count()  # dummy action to force evaluation
+            print(
+                f"Time taken to write batch {batch_id} is: {(time.time() - start_time) * 1000:.2f} ms"
+            )
 
         query = (
             df.writeStream.outputMode("update")

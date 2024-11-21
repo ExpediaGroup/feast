@@ -1,6 +1,5 @@
 import copy
 import itertools
-import logging
 import os
 import typing
 import warnings
@@ -25,7 +24,6 @@ import pandas as pd
 import pyarrow
 from dateutil.tz import tzlocal
 from google.protobuf.timestamp_pb2 import Timestamp
-from pytz import utc
 
 from feast.constants import FEAST_FS_YAML_FILE_PATH_ENV_NAME
 from feast.entity import Entity
@@ -63,7 +61,7 @@ def get_user_agent():
 def make_tzaware(t: datetime) -> datetime:
     """We assume tz-naive datetimes are UTC"""
     if t.tzinfo is None:
-        return t.replace(tzinfo=utc)
+        return t.replace(tzinfo=timezone.utc)
     else:
         return t
 
@@ -81,7 +79,7 @@ def to_naive_utc(ts: datetime) -> datetime:
     if ts.tzinfo is None:
         return ts
     else:
-        return ts.astimezone(utc).replace(tzinfo=None)
+        return ts.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def maybe_local_tz(t: datetime) -> datetime:
@@ -105,7 +103,8 @@ def _get_requested_feature_views_to_features_dict(
     on_demand_feature_views: List["OnDemandFeatureView"],
 ) -> Tuple[Dict["FeatureView", List[str]], Dict["OnDemandFeatureView", List[str]]]:
     """Create a dict of FeatureView -> List[Feature] for all requested features.
-    Set full_feature_names to True to have feature names prefixed by their feature view name."""
+    Set full_feature_names to True to have feature names prefixed by their feature view name.
+    """
 
     feature_views_to_feature_map: Dict["FeatureView", List[str]] = defaultdict(list)
     on_demand_feature_views_to_feature_map: Dict["OnDemandFeatureView", List[str]] = (
@@ -209,6 +208,28 @@ def _run_pyarrow_field_mapping(
     ]
     table = table.rename_columns(mapped_cols)
     return table
+
+
+def _get_fields_with_aliases(
+    fields: List[str],
+    field_mappings: Dict[str, str],
+) -> Tuple[List[str], List[str]]:
+    """
+    Get a list of fields with aliases based on the field mappings.
+    """
+    for field in fields:
+        if "." in field and field not in field_mappings:
+            raise ValueError(
+                f"Feature {field} contains a '.' character, which is not allowed in field names. Use field mappings to rename fields."
+            )
+    fields_with_aliases = [
+        f"{field} AS {field_mappings[field]}" if field in field_mappings else field
+        for field in fields
+    ]
+    aliases = [
+        field_mappings[field] if field in field_mappings else field for field in fields
+    ]
+    return (fields_with_aliases, aliases)
 
 
 def _coerce_datetime(ts):
@@ -680,9 +701,11 @@ def _populate_response_from_feature_data(
     """
     # Add the feature names to the response.
     requested_feature_refs = [
-        f"{table.projection.name_to_use()}__{feature_name}"
-        if full_feature_names
-        else feature_name
+        (
+            f"{table.projection.name_to_use()}__{feature_name}"
+            if full_feature_names
+            else feature_name
+        )
         for feature_name in requested_features
     ]
     online_features_response.metadata.feature_names.val.extend(requested_feature_refs)
@@ -747,10 +770,6 @@ def _list_feature_views(
 ) -> List["FeatureView"]:
     from feast.feature_view import DUMMY_ENTITY_NAME
 
-    logging.warning(
-        "_list_feature_views will make breaking changes. Please use _list_batch_feature_views instead. "
-        "_list_feature_views will behave like _list_all_feature_views in the future."
-    )
     feature_views = []
     for fv in registry.list_feature_views(project, allow_cache=allow_cache, tags=tags):
         if hide_dummy_entity and fv.entities and fv.entities[0] == DUMMY_ENTITY_NAME:
