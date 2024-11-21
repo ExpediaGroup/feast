@@ -486,7 +486,7 @@ build-java-docker-dev:
 build-go-docker-dev:
 	docker buildx build --build-arg VERSION=dev \
 		-t feastdev/feature-server-go:dev \
-		-f SCYLLADB_SHARD_AWARE_ENABLED=$(SCYLLADB_SHARD_AWARE_ENABLED) go/infra/docker/feature-server/Dockerfile --load .
+		-f go/infra/docker/feature-server/Dockerfile --load .
 
 # Documentation
 

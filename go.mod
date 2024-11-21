@@ -41,6 +41,7 @@ require (
 
 require (
 	github.com/apache/arrow/go/v17 v17.0.0
+	github.com/gocql/gocql v0.0.0-20220224095938-0eacd3183625
 	github.com/rs/zerolog v1.21.0
 )
 
@@ -55,7 +56,6 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/flatbuffers v24.3.25+incompatible // indirect
 	github.com/hailocab/go-hostpool v0.0.0-20160125115350-e80d13ce29ed // indirect
-	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/asmfmt v1.3.2 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.8 // indirect
@@ -80,6 +80,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-require github.com/aws/aws-sdk-go v1.34.28
-
-require github.com/gocql/gocql v1.6.0
+replace github.com/gocql/gocql => github.com/scylladb/gocql v1.14.4

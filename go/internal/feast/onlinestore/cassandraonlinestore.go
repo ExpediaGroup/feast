@@ -30,115 +30,179 @@ type CassandraOnlineStore struct {
 	// Session object that holds information about the connection to the cluster
 	session *gocqltrace.Session
 
-	// keyspace of the table. Defaulted to using the project name
-	keyspace string
-
-	// Host IP addresses of the cluster
-	hosts []string
-
 	config *registry.RepoConfig
 }
 
-func NewCassandraOnlineStore(project string, config *registry.RepoConfig, onlineStoreConfig map[string]interface{}) (*CassandraOnlineStore, error) {
-	store := CassandraOnlineStore{
-		project: project,
-		config:  config,
-	}
+type CassandraConfig struct {
+	hosts                   []string
+	username                string
+	password                string
+	keyspace                string
+	protocolVersion         int
+	loadBalancingPolicy     gocql.HostSelectionPolicy
+	connectionTimeoutMillis int64
+	requestTimeoutMillis    int64
+	numConnections          int
+}
 
-	// Parse host_name and Ips
+func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig, error) {
+	cassandraConfig := CassandraConfig{}
+
+	// parse hosts
 	cassandraHosts, ok := onlineStoreConfig["hosts"]
 	if !ok {
-		cassandraHosts = []interface{}{"127.0.0.1"}
+		cassandraConfig.hosts = []string{"127.0.0.1"}
 		log.Warn().Msg("host not provided: Using 127.0.0.1 instead")
-	}
-
-	var rawCassandraHosts []interface{}
-	if rawCassandraHosts, ok = cassandraHosts.([]interface{}); !ok {
-		return nil, fmt.Errorf("didn't pass a list of hosts in the 'hosts' field")
-	}
-
-	var cassandraHostsStr = make([]string, len(rawCassandraHosts))
-	for i, rawHost := range rawCassandraHosts {
-		hostStr, ok := rawHost.(string)
-		if !ok {
-			return nil, fmt.Errorf("failed to convert a host to a string: %+v", rawHost)
+	} else {
+		var rawCassandraHosts []any
+		if rawCassandraHosts, ok = cassandraHosts.([]any); !ok {
+			return nil, fmt.Errorf("didn't pass a list of hosts in the 'hosts' field")
 		}
-		cassandraHostsStr[i] = hostStr
+		var cassandraHostsStr = make([]string, len(rawCassandraHosts))
+		for i, rawHost := range rawCassandraHosts {
+			hostStr, ok := rawHost.(string)
+			if !ok {
+				return nil, fmt.Errorf("failed to convert a host to a string: %+v", rawHost)
+			}
+			cassandraHostsStr[i] = hostStr
+		}
+		cassandraConfig.hosts = cassandraHostsStr
 	}
 
-	username, ok := onlineStoreConfig["username"]
+	// parse username
+	rawUsername, ok := onlineStoreConfig["username"]
 	if !ok {
-		username = "cassandra"
+		cassandraConfig.username = "cassandra"
 		log.Warn().Msg("username not defined: Using default username instead")
+	} else {
+		cassandraConfig.username, ok = rawUsername.(string)
+		if !ok {
+			return nil, fmt.Errorf("failed to convert username to string: %v", rawUsername)
+		}
 	}
 
-	password, ok := onlineStoreConfig["password"]
+	// parse password
+	rawPassword, ok := onlineStoreConfig["password"]
 	if !ok {
-		password = "cassandra"
+		cassandraConfig.password = "cassandra"
 		log.Warn().Msg("password not defined: Using default password instead")
+	} else {
+		cassandraConfig.password, ok = rawPassword.(string)
+		if !ok {
+			return nil, fmt.Errorf("failed to convert password to string: %v", rawPassword)
+		}
 	}
 
-	var usernameStr string
-	if usernameStr, ok = username.(string); !ok {
-		return nil, fmt.Errorf("failed to convert username to string: %+v", usernameStr)
-	}
-
-	var passwordStr string
-	if passwordStr, ok = password.(string); !ok {
-		return nil, fmt.Errorf("failed to convert password to string: %+v", passwordStr)
-	}
-
-	keyspace, ok := onlineStoreConfig["keyspace"]
+	// parse keyspace
+	rawKeyspace, ok := onlineStoreConfig["keyspace"]
 	if !ok {
-		keyspace = "scylladb"
-		log.Warn().Msg("Keyspace not defined: Using 'scylladb' as keyspace instead")
+		cassandraConfig.keyspace = "feast_keyspace"
+		log.Warn().Msg("keyspace not defined: Using 'feast_keyspace' as keyspace instead")
+	} else {
+		cassandraConfig.keyspace, ok = rawKeyspace.(string)
+		if !ok {
+			return nil, fmt.Errorf("failed to convert keyspace to string: %v", rawKeyspace)
+		}
 	}
-	store.keyspace = keyspace.(string)
 
-	var keyspaceStr string
-	if keyspaceStr, ok = keyspace.(string); !ok {
-		return nil, fmt.Errorf("failed to convert keyspace to string: %+v", keyspaceStr)
-	}
-
+	// parse protocolVersion
 	protocolVersion, ok := onlineStoreConfig["protocol_version"]
 	if !ok {
 		protocolVersion = 4.0
 		log.Warn().Msg("protocol_version not specified: Using 4 instead")
 	}
-	protocolVersionInt := int(protocolVersion.(float64))
+	cassandraConfig.protocolVersion = int(protocolVersion.(float64))
 
-	redisTraceServiceName := os.Getenv("DD_SERVICE") + "-cassandra"
-	if redisTraceServiceName == "" {
-		redisTraceServiceName = "cassandra.client" // default service name if DD_SERVICE is not set
-	}
-	store.clusterConfigs = gocqltrace.NewCluster(cassandraHostsStr, gocqltrace.WithServiceName(redisTraceServiceName))
-	// TODO: Figure out if we need to offer users the ability to tune the timeouts
-	//store.clusterConfigs.ConnectTimeout = 1
-	//store.clusterConfigs.Timeout = 1
-	store.clusterConfigs.ProtoVersion = protocolVersionInt
-	//store.clusterConfigs.Consistency = gocql.Quorum
-	store.clusterConfigs.Keyspace = keyspaceStr
-	loadBalancingPolicy, ok := onlineStoreConfig["load_balancing"]
+	// parse loadBalancing
+	loadBalancingDict, ok := onlineStoreConfig["load_balancing"]
 	if !ok {
-		loadBalancingPolicy = gocql.RoundRobinHostPolicy()
-		log.Warn().Msg("No load balancing policy selected; setting Round Robin Host Policy")
-	}
-	loadBalancingPolicyStr, _ := loadBalancingPolicy.(string)
-	if loadBalancingPolicyStr == "DCAwareRoundRobinPolicy" {
-		store.clusterConfigs.PoolConfig.HostSelectionPolicy = gocql.RoundRobinHostPolicy()
-	} else if loadBalancingPolicyStr == "TokenAwarePolicy(DCAwareRoundRobinPolicy)" {
-		// Configure fallback policy if unable to reach the shard
-		fallback := gocql.RoundRobinHostPolicy()
-		// If using ScyllaDB and setting this policy, this makes the driver shard aware to improve performance
-		store.clusterConfigs.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(fallback)
-		if config.OnlineStore["type"] == "scylladb" {
-			store.clusterConfigs.Port = 19042
-		} else {
-			store.clusterConfigs.Port = 9042
+		loadBalancingDict = gocql.RoundRobinHostPolicy()
+		log.Warn().Msg("no load balancing policy selected, defaulted to RoundRobinHostPolicy")
+	} else {
+		loadBalancingProps := loadBalancingDict.(map[string]any)
+		policy := loadBalancingProps["load_balancing_policy"].(string)
+		switch policy {
+		case "TokenAwarePolicy(DCAwareRoundRobinPolicy)":
+			rawLocalDC, ok := loadBalancingProps["local_dc"]
+			if !ok {
+				return nil, fmt.Errorf("a local_dc is needed for policy DCAwareRoundRobinPolicy")
+			}
+			localDc := rawLocalDC.(string)
+			cassandraConfig.loadBalancingPolicy = gocql.TokenAwareHostPolicy(gocql.DCAwareRoundRobinPolicy(localDc))
+		case "DCAwareRoundRobinPolicy":
+			rawLocalDC, ok := loadBalancingProps["local_dc"]
+			if !ok {
+				return nil, fmt.Errorf("a local_dc is needed for policy DCAwareRoundRobinPolicy")
+			}
+			localDc := rawLocalDC.(string)
+			cassandraConfig.loadBalancingPolicy = gocql.DCAwareRoundRobinPolicy(localDc)
+		default:
+			log.Warn().Msg("defaulted to using RoundRobinHostPolicy")
+			cassandraConfig.loadBalancingPolicy = gocql.RoundRobinHostPolicy()
 		}
 	}
 
-	store.clusterConfigs.Authenticator = gocql.PasswordAuthenticator{Username: usernameStr, Password: passwordStr}
+	// parse connectionTimeoutMillis
+	connectionTimeoutMillis, ok := onlineStoreConfig["connection_timeout_millis"]
+	if !ok {
+		connectionTimeoutMillis = 8000.0
+		log.Warn().Msg("connection_timeout_millis not specified: Defaulted to 8000ms")
+	}
+	cassandraConfig.connectionTimeoutMillis = int64(connectionTimeoutMillis.(float64))
+
+	// parse requestTimeoutMillis
+	requestTimeoutMillis, ok := onlineStoreConfig["request_timeout_millis"]
+	if !ok {
+		requestTimeoutMillis = 1000.0
+		log.Warn().Msg("request_timeout_millis not specified: Defaulted to 1000ms")
+	}
+	cassandraConfig.requestTimeoutMillis = int64(requestTimeoutMillis.(float64))
+
+	// parse numConnections
+	numConnections, ok := onlineStoreConfig["num_connections"]
+	if !ok {
+		numConnections = 2.0
+		log.Warn().Msg("num_connections not specified: Defaulted to 2")
+	}
+	cassandraConfig.numConnections = int(numConnections.(float64))
+
+	return &cassandraConfig, nil
+}
+
+func NewCassandraOnlineStore(project string, config *registry.RepoConfig, onlineStoreConfig map[string]any) (*CassandraOnlineStore, error) {
+	store := CassandraOnlineStore{
+		project: project,
+		config:  config,
+	}
+
+	cassandraConfig, configError := extractCassandraConfig(onlineStoreConfig)
+	if configError != nil {
+		return nil, configError
+	}
+
+	cassandraTraceServiceName := os.Getenv("DD_SERVICE") + "-cassandra"
+	if cassandraTraceServiceName == "" {
+		cassandraTraceServiceName = "cassandra.client" // default service name if DD_SERVICE is not set
+	}
+	store.clusterConfigs = gocqltrace.NewCluster(cassandraConfig.hosts, gocqltrace.WithServiceName(cassandraTraceServiceName))
+	store.clusterConfigs.ProtoVersion = cassandraConfig.protocolVersion
+	store.clusterConfigs.Keyspace = cassandraConfig.keyspace
+
+	store.clusterConfigs.PoolConfig.HostSelectionPolicy = cassandraConfig.loadBalancingPolicy
+
+	store.clusterConfigs.Authenticator = gocql.PasswordAuthenticator{
+		Username: cassandraConfig.username,
+		Password: cassandraConfig.password,
+	}
+	store.clusterConfigs.ConnectTimeout = time.Millisecond * time.Duration(cassandraConfig.connectionTimeoutMillis)
+	store.clusterConfigs.Timeout = time.Millisecond * time.Duration(cassandraConfig.requestTimeoutMillis)
+	store.clusterConfigs.NumConns = cassandraConfig.numConnections
+	store.clusterConfigs.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
+	store.clusterConfigs.Consistency = gocql.LocalOne
+
+	//store.clusterConfigs.SslOpts = &gocql.SslOptions{
+	//	EnableHostVerification: true,
+	//}
 	createdSession, err := store.clusterConfigs.CreateSession()
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to the ScyllaDB database")
@@ -148,7 +212,7 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 }
 
 func (c *CassandraOnlineStore) getFqTableName(tableName string) string {
-	return fmt.Sprintf(`"%s"."%s_%s"`, c.keyspace, c.project, tableName)
+	return fmt.Sprintf(`"%s"."%s_%s"`, c.clusterConfigs.Keyspace, c.project, tableName)
 }
 
 func (c *CassandraOnlineStore) getCQLStatement(tableName string, featureNames []string, nKeys int) string {
@@ -172,15 +236,14 @@ func (c *CassandraOnlineStore) getCQLStatement(tableName string, featureNames []
 	)
 }
 
-func (c *CassandraOnlineStore) buildCassandraEntityKeys(entityKeys []*types.EntityKey) ([]interface{}, map[string]int, error) {
-	cassandraKeys := make([]interface{}, len(entityKeys))
+func (c *CassandraOnlineStore) buildCassandraEntityKeys(entityKeys []*types.EntityKey) ([]any, map[string]int, error) {
+	cassandraKeys := make([]any, len(entityKeys))
 	cassandraKeyToEntityIndex := make(map[string]int)
 	for i := 0; i < len(entityKeys); i++ {
 		var key, err = utils.SerializeEntityKey(entityKeys[i], c.config.EntityKeySerializationVersion)
 		if err != nil {
 			return nil, nil, err
 		}
-		// encoding to hex
 		encodedKey := hex.EncodeToString(*key)
 		cassandraKeys[i] = encodedKey
 		cassandraKeyToEntityIndex[encodedKey] = i
