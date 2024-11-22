@@ -26,10 +26,10 @@ type CassandraOnlineStore struct {
 	project string
 
 	// Cluster configurations for Cassandra/ScyllaDB
-	clusterConfigs *gocqltrace.ClusterConfig
+	clusterConfigs *gocql.ClusterConfig
 
 	// Session object that holds information about the connection to the cluster
-	session *gocqltrace.Session
+	session *gocql.Session
 
 	config *registry.RepoConfig
 }
@@ -73,8 +73,8 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 	// parse username
 	rawUsername, ok := onlineStoreConfig["username"]
 	if !ok {
-		cassandraConfig.username = "cassandra"
-		log.Warn().Msg("username not defined: Using default username instead")
+		cassandraConfig.username = ""
+		log.Warn().Msg("username not defined, will not be using authentication")
 	} else {
 		cassandraConfig.username, ok = rawUsername.(string)
 		if !ok {
@@ -85,8 +85,8 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 	// parse password
 	rawPassword, ok := onlineStoreConfig["password"]
 	if !ok {
-		cassandraConfig.password = "cassandra"
-		log.Warn().Msg("password not defined: Using default password instead")
+		cassandraConfig.password = ""
+		log.Warn().Msg("password not defined, will not be using authentication")
 	} else {
 		cassandraConfig.password, ok = rawPassword.(string)
 		if !ok {
@@ -146,24 +146,24 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 	// parse connectionTimeoutMillis
 	connectionTimeoutMillis, ok := onlineStoreConfig["connection_timeout_millis"]
 	if !ok {
-		connectionTimeoutMillis = 8000.0
-		log.Warn().Msg("connection_timeout_millis not specified: Defaulted to 8000ms")
+		connectionTimeoutMillis = 0.0
+		log.Warn().Msg("connection_timeout_millis not specified, using gocql default")
 	}
 	cassandraConfig.connectionTimeoutMillis = int64(connectionTimeoutMillis.(float64))
 
 	// parse requestTimeoutMillis
 	requestTimeoutMillis, ok := onlineStoreConfig["request_timeout_millis"]
 	if !ok {
-		requestTimeoutMillis = 1000.0
-		log.Warn().Msg("request_timeout_millis not specified: Defaulted to 1000ms")
+		requestTimeoutMillis = 0.0
+		log.Warn().Msg("request_timeout_millis not specified, using gocql default")
 	}
 	cassandraConfig.requestTimeoutMillis = int64(requestTimeoutMillis.(float64))
 
 	// parse numConnections
 	numConnections, ok := onlineStoreConfig["num_connections"]
 	if !ok {
-		numConnections = 2.0
-		log.Warn().Msg("num_connections not specified: Defaulted to 2")
+		numConnections = 0.0
+		log.Warn().Msg("num_connections not specified, using gocql default")
 	}
 	cassandraConfig.numConnections = int(numConnections.(float64))
 
@@ -181,30 +181,37 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 		return nil, configError
 	}
 
-	cassandraTraceServiceName := os.Getenv("DD_SERVICE") + "-cassandra"
-	if cassandraTraceServiceName == "" {
-		cassandraTraceServiceName = "cassandra.client" // default service name if DD_SERVICE is not set
-	}
-	store.clusterConfigs = gocqltrace.NewCluster(cassandraConfig.hosts, gocqltrace.WithServiceName(cassandraTraceServiceName))
+	store.clusterConfigs = gocql.NewCluster(cassandraConfig.hosts...)
 	store.clusterConfigs.ProtoVersion = cassandraConfig.protocolVersion
 	store.clusterConfigs.Keyspace = cassandraConfig.keyspace
 
 	store.clusterConfigs.PoolConfig.HostSelectionPolicy = cassandraConfig.loadBalancingPolicy
 
-	store.clusterConfigs.Authenticator = gocql.PasswordAuthenticator{
-		Username: cassandraConfig.username,
-		Password: cassandraConfig.password,
+	if cassandraConfig.username != "" && cassandraConfig.password != "" {
+		store.clusterConfigs.Authenticator = gocql.PasswordAuthenticator{
+			Username: cassandraConfig.username,
+			Password: cassandraConfig.password,
+		}
 	}
-	store.clusterConfigs.ConnectTimeout = time.Millisecond * time.Duration(cassandraConfig.connectionTimeoutMillis)
-	store.clusterConfigs.Timeout = time.Millisecond * time.Duration(cassandraConfig.requestTimeoutMillis)
-	store.clusterConfigs.NumConns = cassandraConfig.numConnections
+
+	if cassandraConfig.connectionTimeoutMillis != 0 {
+		store.clusterConfigs.ConnectTimeout = time.Millisecond * time.Duration(cassandraConfig.connectionTimeoutMillis)
+	}
+	if cassandraConfig.requestTimeoutMillis != 0 {
+		store.clusterConfigs.Timeout = time.Millisecond * time.Duration(cassandraConfig.requestTimeoutMillis)
+	}
+	if cassandraConfig.numConnections != 0 {
+		store.clusterConfigs.NumConns = cassandraConfig.numConnections
+	}
+
 	store.clusterConfigs.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
 	store.clusterConfigs.Consistency = gocql.LocalOne
 
-	//store.clusterConfigs.SslOpts = &gocql.SslOptions{
-	//	EnableHostVerification: true,
-	//}
-	createdSession, err := store.clusterConfigs.CreateSession()
+	cassandraTraceServiceName := os.Getenv("DD_SERVICE") + "-cassandra"
+	if cassandraTraceServiceName == "" {
+		cassandraTraceServiceName = "cassandra.client" // default service name if DD_SERVICE is not set
+	}
+	createdSession, err := gocqltrace.CreateTracedSession(store.clusterConfigs, gocqltrace.WithServiceName(cassandraTraceServiceName))
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to the ScyllaDB database")
 	}
@@ -282,12 +289,35 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 		go func(serEntityKey any) {
 			defer waitGroup.Done()
 
-			scanner := c.session.Query(cqlStatement, serEntityKey).Iter().Scanner()
+			iter := c.session.Query(cqlStatement, serEntityKey).WithContext(ctx).Iter()
+
+			rowIdx := serializedEntityKeyToIndex[serializedEntityKey.(string)]
+
+			// fill the row with nulls if not found
+			if iter.NumRows() == 0 {
+				for _, featName := range featureNames {
+					results[rowIdx][featureNamesToIdx[featName]] = FeatureData{
+						Reference: serving.FeatureReferenceV2{
+							FeatureViewName: featureViewName,
+							FeatureName:     featName,
+						},
+						Value: types.Value{
+							Val: &types.Value_NullVal{
+								NullVal: types.Null_NULL,
+							},
+						},
+					}
+				}
+				return
+			}
+
+			scanner := iter.Scanner()
 			var entityKey string
 			var featureName string
 			var eventTs time.Time
 			var valueStr []byte
 			var deserializedValue types.Value
+			rowFeatures := make(map[string]FeatureData)
 			for scanner.Next() {
 				err := scanner.Scan(&entityKey, &featureName, &eventTs, &valueStr)
 				if err != nil {
@@ -299,10 +329,9 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 					return
 				}
 
-				rowIdx := serializedEntityKeyToIndex[entityKey]
 				if deserializedValue.Val != nil {
 					// Convert the value to a FeatureData struct
-					results[rowIdx][featureNamesToIdx[featureName]] = FeatureData{
+					rowFeatures[featureName] = FeatureData{
 						Reference: serving.FeatureReferenceV2{
 							FeatureViewName: featureViewName,
 							FeatureName:     featureName,
@@ -314,7 +343,7 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 					}
 				} else {
 					// Return FeatureData with a null value
-					results[rowIdx][featureNamesToIdx[featureName]] = FeatureData{
+					rowFeatures[featureName] = FeatureData{
 						Reference: serving.FeatureReferenceV2{
 							FeatureViewName: featureViewName,
 							FeatureName:     featureName,
@@ -332,6 +361,24 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 				errorsChannel <- errors.New("failed to scan features: " + err.Error())
 				return
 			}
+
+			for _, featName := range featureNames {
+				featureData, ok := rowFeatures[featName]
+				if !ok {
+					featureData = FeatureData{
+						Reference: serving.FeatureReferenceV2{
+							FeatureViewName: featureViewName,
+							FeatureName:     featName,
+						},
+						Value: types.Value{
+							Val: &types.Value_NullVal{
+								NullVal: types.Null_NULL,
+							},
+						},
+					}
+				}
+				results[rowIdx][featureNamesToIdx[featName]] = featureData
+			}
 		}(serializedEntityKey)
 	}
 
@@ -339,29 +386,14 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 	waitGroup.Wait()
 	close(errorsChannel)
 
+	var collectedErrors []error
 	for err := range errorsChannel {
 		if err != nil {
-			return nil, err
+			collectedErrors = append(collectedErrors, err)
 		}
 	}
-
-	// Will fill feature slots that were left empty with null values
-	for i := 0; i < len(entityKeys); i++ {
-		for j := 0; j < len(featureNames); j++ {
-			if results[i][j].Timestamp.GetSeconds() == 0 {
-				results[i][j] = FeatureData{
-					Reference: serving.FeatureReferenceV2{
-						FeatureViewName: featureViewName,
-						FeatureName:     featureViewNames[j],
-					},
-					Value: types.Value{
-						Val: &types.Value_NullVal{
-							NullVal: types.Null_NULL,
-						},
-					},
-				}
-			}
-		}
+	if len(collectedErrors) > 0 {
+		return nil, errors.Join(collectedErrors...)
 	}
 
 	return results, nil
