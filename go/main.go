@@ -45,21 +45,22 @@ func (s *RealServerStarter) StartGrpcServer(fs *feast.FeatureStore, host string,
 
 func main() {
 	// Default values
-	serverType := "http"
 	host := ""
 	port := 8080
-	server := RealServerStarter{}
+	grpcPort := 6565
+	rServer := RealServerStarter{}
+	gServer := RealServerStarter{}
 	// Current Directory
 	repoPath, err := os.Getwd()
 	if err != nil {
 		log.Error().Stack().Err(err).Msg("Failed to get current directory")
 	}
 
-	flag.StringVar(&serverType, "type", serverType, "Specify the server type (http or grpc)")
 	flag.StringVar(&repoPath, "chdir", repoPath, "Repository path where feature store yaml file is stored")
 
 	flag.StringVar(&host, "host", host, "Specify a host for the server")
-	flag.IntVar(&port, "port", port, "Specify a port for the server")
+	flag.IntVar(&port, "port", port, "Specify a rest port for the server")
+	flag.IntVar(&grpcPort, "grpcPort", grpcPort, "Specify a grpc port for the server")
 	flag.Parse()
 
 	repoConfig, err := registry.NewRepoConfigFromFile(repoPath)
@@ -77,19 +78,18 @@ func main() {
 		log.Fatal().Stack().Err(err).Msg("Failed to get LoggingOptions")
 	}
 
-	// TODO: writeLoggedFeaturesCallback is defaulted to nil. write_logged_features functionality needs to be
-	// implemented in Golang specific to OfflineStoreSink. Python Feature Server doesn't support this.
-	if serverType == "http" {
-		err = server.StartHttpServer(fs, host, port, nil, loggingOptions)
-	} else if serverType == "grpc" {
-		err = server.StartGrpcServer(fs, host, port, nil, loggingOptions)
-	} else {
-		fmt.Println("Unknown server type. Please specify 'http' or 'grpc'.")
-	}
-
-	if err != nil {
-		log.Fatal().Stack().Err(err).Msg("Failed to start server")
-	}
+	go func() {
+		err := rServer.StartHttpServer(fs, host, port, nil, loggingOptions)
+		if err != nil {
+			log.Fatal().Stack().Err(err).Msg("Failed to start server")
+		}
+	}()
+	go func() {
+		err := gServer.StartGrpcServer(fs, host, grpcPort, nil, loggingOptions)
+		if err != nil {
+			log.Fatal().Stack().Err(err).Msg("Failed to start server")
+		}
+	}()
 
 }
 
