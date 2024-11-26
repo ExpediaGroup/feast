@@ -1,143 +1,81 @@
 package onlinestore
 
 import (
+	"context"
 	"github.com/gocql/gocql"
-	"testing"
-
-	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/stretchr/testify/assert"
+	"reflect"
+	"testing"
 )
 
-func TestNewCassandraOnlineStoreDefaults(t *testing.T) {
+func TestExtractCassandraConfig_CorrectDefaults(t *testing.T) {
 	var config = map[string]interface{}{}
-	rc := &registry.RepoConfig{
-		OnlineStore:                   config,
-		EntityKeySerializationVersion: 4,
-	}
-	store, err := NewCassandraOnlineStore("test", rc, config)
-	assert.Nil(t, err)
-	assert.Equal(t, store.hosts, "127.0.0.1")
-	assert.Equal(t, store.keyspace, "scylladb")
-	assert.Equal(t, store.clusterConfigs.Authenticator, gocql.PasswordAuthenticator{
-		Username: "cassandra",
-		Password: "cassandra",
-	})
-	assert.Equal(t, store.clusterConfigs.ProtoVersion, 4)
-	assert.Nil(t, store.session)
+	cassandraConfig, _ := extractCassandraConfig(config)
+
+	assert.Equal(t, []string{"127.0.0.1"}, cassandraConfig.hosts)
+	assert.Equal(t, "", cassandraConfig.username)
+	assert.Equal(t, "", cassandraConfig.password)
+	assert.Equal(t, "feast_keyspace", cassandraConfig.keyspace)
+	assert.Equal(t, 4, cassandraConfig.protocolVersion)
+	assert.True(t, reflect.TypeOf(gocql.RoundRobinHostPolicy()) == reflect.TypeOf(cassandraConfig.loadBalancingPolicy))
+	assert.Equal(t, int64(0), cassandraConfig.connectionTimeoutMillis)
+	assert.Equal(t, int64(0), cassandraConfig.requestTimeoutMillis)
+	assert.Equal(t, 0, cassandraConfig.numConnections)
 }
 
-//func TestCassandraOnlineStore_SerializeCassandraEntityKey(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	entityKey := &types.EntityKey{
-//		JoinKeys:     []string{"key1", "key2"},
-//		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "value1"}}, {Val: &types.Value_StringVal{StringVal: "value2"}}},
-//	}
-//	_, err := store.serializeCassandraEntityKey(entityKey, 2)
-//	assert.Nil(t, err)
-//}
-//
-//func TestCassandraOnlineStore_SerializeCassandraEntityKey_InvalidEntityKey(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	entityKey := &types.EntityKey{
-//		JoinKeys:     []string{"key1"},
-//		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "value1"}}, {Val: &types.Value_StringVal{StringVal: "value2"}}},
-//	}
-//	_, err := store.serializeCassandraEntityKey(entityKey, 2)
-//	assert.NotNil(t, err)
-//}
-//
-//func TestCassandraOnlineStore_SerializeValue(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	_, _, err := store.serializeValue(&types.Value_StringVal{StringVal: "value1"}, 2)
-//	assert.Nil(t, err)
-//}
-//
-//func TestCassandraOnlineStore_SerializeValue_InvalidValue(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	_, _, err := store.serializeValue(nil, 2)
-//	assert.NotNil(t, err)
-//}
-//
-//func TestCassandraOnlineStore_BuildCassandraKeys(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	entityKeys := []*types.EntityKey{
-//		{
-//			JoinKeys:     []string{"key1", "key2"},
-//			EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "value1"}}, {Val: &types.Value_StringVal{StringVal: "value2"}}},
-//		},
-//	}
-//	_, _, err := store.buildCassandraKeys(entityKeys)
-//	assert.Nil(t, err)
-//}
-//
-//func TestCassandraOnlineStore_BuildCassandraKeys_InvalidEntityKeys(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	entityKeys := []*types.EntityKey{
-//		{
-//			JoinKeys:     []string{"key1"},
-//			EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "value1"}}, {Val: &types.Value_StringVal{StringVal: "value2"}}},
-//		},
-//	}
-//	_, _, err := store.buildCassandraKeys(entityKeys)
-//	assert.NotNil(t, err)
-//}
-//
-//func TestCassandraOnlineStore_OnlineRead_HappyPath(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	entityKeys := []*types.EntityKey{
-//		{
-//			JoinKeys:     []string{"key1", "key2"},
-//			EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "value1"}}, {Val: &types.Value_StringVal{StringVal: "value2"}}},
-//		},
-//	}
-//	featureViewNames := []string{"featureView1"}
-//	featureNames := []string{"feature1"}
-//
-//	_, err := store.OnlineRead(context.Background(), entityKeys, featureViewNames, featureNames)
-//	assert.Nil(t, err)
-//}
-//
-//func TestCassandraOnlineStore_OnlineRead_InvalidEntityKey(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	entityKeys := []*types.EntityKey{
-//		{
-//			JoinKeys:     []string{"key1"},
-//			EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "value1"}}, {Val: &types.Value_StringVal{StringVal: "value2"}}},
-//		},
-//	}
-//	featureViewNames := []string{"featureView1"}
-//	featureNames := []string{"feature1"}
-//
-//	_, err := store.OnlineRead(context.Background(), entityKeys, featureViewNames, featureNames)
-//	assert.NotNil(t, err)
-//}
-//
-//func TestCassandraOnlineStore_OnlineRead_NoFeatureViewNames(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	entityKeys := []*types.EntityKey{
-//		{
-//			JoinKeys:     []string{"key1", "key2"},
-//			EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "value1"}}, {Val: &types.Value_StringVal{StringVal: "value2"}}},
-//		},
-//	}
-//	featureViewNames := []string{}
-//	featureNames := []string{"feature1"}
-//
-//	_, err := store.OnlineRead(context.Background(), entityKeys, featureViewNames, featureNames)
-//	assert.NotNil(t, err)
-//}
-//
-//func TestCassandraOnlineStore_OnlineRead_NoFeatureNames(t *testing.T) {
-//	store := CassandraOnlineStore{}
-//	entityKeys := []*types.EntityKey{
-//		{
-//			JoinKeys:     []string{"key1", "key2"},
-//			EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "value1"}}, {Val: &types.Value_StringVal{StringVal: "value2"}}},
-//		},
-//	}
-//	featureViewNames := []string{"featureView1"}
-//	featureNames := []string{}
-//
-//	_, err := store.OnlineRead(context.Background(), entityKeys, featureViewNames, featureNames)
-//	assert.NotNil(t, err)
-//}
+func TestExtractCassandraConfig_CorrectSettings(t *testing.T) {
+	var config = map[string]any{
+		"hosts":            []any{"0.0.0.0", "255.255.255.255"},
+		"username":         "scylladb",
+		"password":         "scylladb",
+		"keyspace":         "scylladb",
+		"protocol_version": 271.0,
+		"load_balancing": map[string]any{
+			"load_balancing_policy": "DCAwareRoundRobinPolicy",
+			"local_dc":              "aws-us-west-2",
+		},
+		"connection_timeout_millis": 271.0,
+		"request_timeout_millis":    271.0,
+		"num_connections":           2.0,
+	}
+	cassandraConfig, _ := extractCassandraConfig(config)
+
+	assert.Equal(t, []string{"0.0.0.0", "255.255.255.255"}, cassandraConfig.hosts)
+	assert.Equal(t, "scylladb", cassandraConfig.username)
+	assert.Equal(t, "scylladb", cassandraConfig.password)
+	assert.Equal(t, "scylladb", cassandraConfig.keyspace)
+	assert.Equal(t, 271, cassandraConfig.protocolVersion)
+	assert.True(t, reflect.TypeOf(gocql.DCAwareRoundRobinPolicy("aws-us-west-2")) == reflect.TypeOf(cassandraConfig.loadBalancingPolicy))
+	assert.Equal(t, int64(271), cassandraConfig.connectionTimeoutMillis)
+	assert.Equal(t, int64(271), cassandraConfig.requestTimeoutMillis)
+	assert.Equal(t, 2, cassandraConfig.numConnections)
+}
+
+func TestGetFqTableName(t *testing.T) {
+	store := CassandraOnlineStore{
+		project: "dummy_project",
+		clusterConfigs: &gocql.ClusterConfig{
+			Keyspace: "scylladb",
+		},
+	}
+
+	fqTableName := store.getFqTableName("dummy_fv")
+	assert.Equal(t, `"scylladb"."dummy_project_dummy_fv"`, fqTableName)
+}
+
+func TestGetCQLStatement(t *testing.T) {
+	store := CassandraOnlineStore{}
+	fqTableName := `"scylladb"."dummy_project_dummy_fv"`
+
+	cqlStatement := store.getCQLStatement(fqTableName, []string{"feat1", "feat2"})
+	assert.Equal(t,
+		`SELECT "entity_key", "feature_name", "event_ts", "value" FROM "scylladb"."dummy_project_dummy_fv" WHERE "entity_key" = ? AND "feature_name" IN ('feat1','feat2')`,
+		cqlStatement,
+	)
+}
+
+func TestOnlineRead_RejectsDifferentFeatureViewsInSameRead(t *testing.T) {
+	store := CassandraOnlineStore{}
+	_, err := store.OnlineRead(context.TODO(), nil, []string{"fv1", "fv2"}, []string{"feat1", "feat2"})
+	assert.Error(t, err)
+}

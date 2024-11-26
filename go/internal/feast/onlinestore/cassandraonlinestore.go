@@ -117,7 +117,7 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 	// parse loadBalancing
 	loadBalancingDict, ok := onlineStoreConfig["load_balancing"]
 	if !ok {
-		loadBalancingDict = gocql.RoundRobinHostPolicy()
+		cassandraConfig.loadBalancingPolicy = gocql.RoundRobinHostPolicy()
 		log.Warn().Msg("no load balancing policy selected, defaulted to RoundRobinHostPolicy")
 	} else {
 		loadBalancingProps := loadBalancingDict.(map[string]any)
