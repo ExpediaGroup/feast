@@ -20,7 +20,6 @@ func TestExtractCassandraConfig_CorrectDefaults(t *testing.T) {
 	assert.True(t, reflect.TypeOf(gocql.RoundRobinHostPolicy()) == reflect.TypeOf(cassandraConfig.loadBalancingPolicy))
 	assert.Equal(t, int64(0), cassandraConfig.connectionTimeoutMillis)
 	assert.Equal(t, int64(0), cassandraConfig.requestTimeoutMillis)
-	assert.Equal(t, 0, cassandraConfig.numConnections)
 }
 
 func TestExtractCassandraConfig_CorrectSettings(t *testing.T) {
@@ -36,7 +35,6 @@ func TestExtractCassandraConfig_CorrectSettings(t *testing.T) {
 		},
 		"connection_timeout_millis": 271.0,
 		"request_timeout_millis":    271.0,
-		"num_connections":           2.0,
 	}
 	cassandraConfig, _ := extractCassandraConfig(config)
 
@@ -48,7 +46,6 @@ func TestExtractCassandraConfig_CorrectSettings(t *testing.T) {
 	assert.True(t, reflect.TypeOf(gocql.DCAwareRoundRobinPolicy("aws-us-west-2")) == reflect.TypeOf(cassandraConfig.loadBalancingPolicy))
 	assert.Equal(t, int64(271), cassandraConfig.connectionTimeoutMillis)
 	assert.Equal(t, int64(271), cassandraConfig.requestTimeoutMillis)
-	assert.Equal(t, 2, cassandraConfig.numConnections)
 }
 
 func TestGetFqTableName(t *testing.T) {

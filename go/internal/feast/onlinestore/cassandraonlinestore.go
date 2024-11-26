@@ -43,7 +43,6 @@ type CassandraConfig struct {
 	loadBalancingPolicy     gocql.HostSelectionPolicy
 	connectionTimeoutMillis int64
 	requestTimeoutMillis    int64
-	numConnections          int
 }
 
 func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig, error) {
@@ -159,14 +158,6 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 	}
 	cassandraConfig.requestTimeoutMillis = int64(requestTimeoutMillis.(float64))
 
-	// parse numConnections
-	numConnections, ok := onlineStoreConfig["num_connections"]
-	if !ok {
-		numConnections = 0.0
-		log.Warn().Msg("num_connections not specified, using gocql default")
-	}
-	cassandraConfig.numConnections = int(numConnections.(float64))
-
 	return &cassandraConfig, nil
 }
 
@@ -199,9 +190,6 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	}
 	if cassandraConfig.requestTimeoutMillis != 0 {
 		store.clusterConfigs.Timeout = time.Millisecond * time.Duration(cassandraConfig.requestTimeoutMillis)
-	}
-	if cassandraConfig.numConnections != 0 {
-		store.clusterConfigs.NumConns = cassandraConfig.numConnections
 	}
 
 	store.clusterConfigs.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
