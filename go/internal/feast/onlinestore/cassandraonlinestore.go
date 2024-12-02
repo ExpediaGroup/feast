@@ -329,19 +329,6 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 							Val: deserializedValue.Val,
 						},
 					}
-				} else {
-					// Return FeatureData with a null value
-					rowFeatures[featureName] = FeatureData{
-						Reference: serving.FeatureReferenceV2{
-							FeatureViewName: featureViewName,
-							FeatureName:     featureName,
-						},
-						Value: types.Value{
-							Val: &types.Value_NullVal{
-								NullVal: types.Null_NULL,
-							},
-						},
-					}
 				}
 			}
 
