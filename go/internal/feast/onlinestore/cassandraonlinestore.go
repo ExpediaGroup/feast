@@ -45,6 +45,18 @@ type CassandraConfig struct {
 	requestTimeoutMillis    int64
 }
 
+func parseStringField(config map[string]any, fieldName string, defaultValue string) (string, error) {
+	rawValue, ok := config[fieldName]
+	if !ok {
+		return defaultValue, nil
+	}
+	stringValue, ok := rawValue.(string)
+	if !ok {
+		return "", fmt.Errorf("failed to convert %s to string: %v", fieldName, rawValue)
+	}
+	return stringValue, nil
+}
+
 func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig, error) {
 	cassandraConfig := CassandraConfig{}
 
@@ -70,40 +82,25 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 	}
 
 	// parse username
-	rawUsername, ok := onlineStoreConfig["username"]
-	if !ok {
-		cassandraConfig.username = ""
-		log.Warn().Msg("username not defined, will not be using authentication")
-	} else {
-		cassandraConfig.username, ok = rawUsername.(string)
-		if !ok {
-			return nil, fmt.Errorf("failed to convert username to string: %v", rawUsername)
-		}
+	username, err := parseStringField(onlineStoreConfig, "username", "")
+	if err != nil {
+		return nil, err
 	}
+	cassandraConfig.username = username
 
 	// parse password
-	rawPassword, ok := onlineStoreConfig["password"]
-	if !ok {
-		cassandraConfig.password = ""
-		log.Warn().Msg("password not defined, will not be using authentication")
-	} else {
-		cassandraConfig.password, ok = rawPassword.(string)
-		if !ok {
-			return nil, fmt.Errorf("failed to convert password to string: %v", rawPassword)
-		}
+	password, err := parseStringField(onlineStoreConfig, "password", "")
+	if err != nil {
+		return nil, err
 	}
+	cassandraConfig.password = password
 
 	// parse keyspace
-	rawKeyspace, ok := onlineStoreConfig["keyspace"]
-	if !ok {
-		cassandraConfig.keyspace = "feast_keyspace"
-		log.Warn().Msg("keyspace not defined: Using 'feast_keyspace' as keyspace instead")
-	} else {
-		cassandraConfig.keyspace, ok = rawKeyspace.(string)
-		if !ok {
-			return nil, fmt.Errorf("failed to convert keyspace to string: %v", rawKeyspace)
-		}
+	keyspace, err := parseStringField(onlineStoreConfig, "keyspace", "feast_keyspace")
+	if err != nil {
+		return nil, err
 	}
+	cassandraConfig.keyspace = keyspace
 
 	// parse protocolVersion
 	protocolVersion, ok := onlineStoreConfig["protocol_version"]
@@ -179,6 +176,7 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	store.clusterConfigs.PoolConfig.HostSelectionPolicy = cassandraConfig.loadBalancingPolicy
 
 	if cassandraConfig.username != "" && cassandraConfig.password != "" {
+		log.Warn().Msg("username/password not defined, will not be using authentication")
 		store.clusterConfigs.Authenticator = gocql.PasswordAuthenticator{
 			Username: cassandraConfig.username,
 			Password: cassandraConfig.password,
