@@ -375,5 +375,5 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 }
 
 func (c *CassandraOnlineStore) Destruct() {
-
+	c.session.Close()
 }
