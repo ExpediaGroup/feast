@@ -168,6 +168,10 @@ func StartGrpcServer(fs *feast.FeatureStore, host string, port int, writeLoggedF
 // Go does not allow direct assignment to package-level functions as a way to
 // mock them for tests
 func StartHttpServer(fs *feast.FeatureStore, host string, port int, writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback, loggingOpts *logging.LoggingOptions) error {
+	if strings.ToLower(os.Getenv("ENABLE_DATADOG_TRACING")) == "true" {
+		tracer.Start(tracer.WithRuntimeMetrics())
+		defer tracer.Stop()
+	}
 	loggingService, err := constructLoggingService(fs, writeLoggedFeaturesCallback, loggingOpts)
 	if err != nil {
 		return err
