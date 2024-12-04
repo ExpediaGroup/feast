@@ -266,12 +266,16 @@ def _map_by_partition(
         rows_to_write = _convert_arrow_to_proto(
             table, feature_view, join_key_to_value_type
         )
+        write_start_time = time.time()
         online_store.online_write_batch(
             repo_config,
             feature_view,
             rows_to_write,
             lambda x: None,
         )
+        write_end_time = time.time()
+        print(
+            f"INFO!!! Write operation took {int((write_end_time - write_start_time) * 1000)} milliseconds")
         end_time = time.time()
         print(
             f"INFO!!! Processed batch with size {pdf_row_count} in {int((end_time - start_time) * 1000)} milliseconds"

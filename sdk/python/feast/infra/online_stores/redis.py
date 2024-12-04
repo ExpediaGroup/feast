@@ -13,6 +13,7 @@
 # limitations under the License.
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from enum import Enum
 from typing import (
@@ -281,12 +282,19 @@ class RedisOnlineStore(OnlineStore):
         online_store_config = config.online_store
         assert isinstance(online_store_config, RedisOnlineStoreConfig)
 
+        connection_start_time = time.time()
         client = self._get_client(online_store_config)
+        connection_end_time = time.time()
+        logger.info(
+            f"INFO!!! Connection establishment took {int((connection_end_time - connection_start_time) * 1000)} milliseconds")
+
         project = config.project
 
         feature_view = table.name
         ts_key = f"_ts:{feature_view}"
         keys = []
+
+        write_start_time = time.time()
         # redis pipelining optimization: send multiple commands to redis server without waiting for every reply
         with client.pipeline(transaction=False) as pipe:
             # check if a previous record under the key bin exists
@@ -340,6 +348,9 @@ class RedisOnlineStore(OnlineStore):
             results = pipe.execute()
             if progress:
                 progress(len(results))
+        write_end_time = time.time()
+        logger.info(
+            f"INFO!!! Writing to Redis took {int((write_end_time - write_start_time) * 1000)} milliseconds")
 
     def _generate_redis_keys_for_entities(
         self, config: RepoConfig, entity_keys: List[EntityKeyProto]
