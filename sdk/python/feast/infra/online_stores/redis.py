@@ -285,7 +285,7 @@ class RedisOnlineStore(OnlineStore):
         connection_start_time = time.time()
         client = self._get_client(online_store_config)
         connection_end_time = time.time()
-        logger.info(
+        print(
             f"INFO!!! Connection establishment took {int((connection_end_time - connection_start_time) * 1000)} milliseconds")
 
         project = config.project
@@ -349,7 +349,7 @@ class RedisOnlineStore(OnlineStore):
             if progress:
                 progress(len(results))
         write_end_time = time.time()
-        logger.info(
+        print(
             f"INFO!!! Writing to Redis took {int((write_end_time - write_start_time) * 1000)} milliseconds")
 
     def _generate_redis_keys_for_entities(
