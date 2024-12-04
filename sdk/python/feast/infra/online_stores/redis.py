@@ -300,6 +300,7 @@ class RedisOnlineStore(OnlineStore):
             # check if a previous record under the key bin exists
             # TODO: investigate if check and set is a better approach rather than pulling all entity ts and then setting
             # it may be significantly slower but avoids potential (rare) race conditions
+            hmget_start_time = time.time()
             for entity_key, _, _, _ in data:
                 redis_key_bin = _redis_key(
                     project,
@@ -309,9 +310,13 @@ class RedisOnlineStore(OnlineStore):
                 keys.append(redis_key_bin)
                 pipe.hmget(redis_key_bin, ts_key)
             prev_event_timestamps = pipe.execute()
+            hmget_end_time = time.time()
+            print(
+                f"INFO!!! hmget took {int((hmget_end_time - hmget_start_time) * 1000)} milliseconds")
             # flattening the list of lists. `hmget` does the lookup assuming a list of keys in the key bin
             prev_event_timestamps = [i[0] for i in prev_event_timestamps]
 
+            hset_start_time = time.time()
             for redis_key_bin, prev_event_time, (_, values, timestamp, _) in zip(
                 keys, prev_event_timestamps, data
             ):
@@ -346,6 +351,10 @@ class RedisOnlineStore(OnlineStore):
                 if ttl:
                     pipe.expire(name=redis_key_bin, time=ttl)
             results = pipe.execute()
+            hset_end_time = time.time()
+            print(
+                f"INFO!!! hset took {int((hset_end_time - hset_start_time) * 1000)} milliseconds")
+
             if progress:
                 progress(len(results))
         write_end_time = time.time()
