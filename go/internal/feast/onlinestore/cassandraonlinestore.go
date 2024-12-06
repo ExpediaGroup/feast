@@ -275,7 +275,7 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 
 	// do batching
 	nKeys := len(serializedEntityKeys)
-	batchSize := 2
+	batchSize := 10
 	nBatches := int(math.Ceil(float64(nKeys) / float64(batchSize)))
 
 	batches := make([][]any, nBatches)
@@ -294,11 +294,17 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 
 	errorsChannel := make(chan error, nBatches)
 
+	var prevBatchLength int
+	var cqlStatement string
 	for _, batch := range batches {
 		go func(keyBatch []any) {
 			defer waitGroup.Done()
 
-			cqlStatement := c.getCQLStatement(tableName, featureNames, len(keyBatch))
+			// this caches the previous batch query if it had the same number of keys
+			if len(keyBatch) != prevBatchLength {
+				cqlStatement = c.getCQLStatement(tableName, featureNames, len(keyBatch))
+			}
+
 			iter := c.session.Query(cqlStatement, keyBatch...).WithContext(ctx).Iter()
 
 			scanner := iter.Scanner()
