@@ -275,7 +275,7 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 
 	// do batching
 	nKeys := len(serializedEntityKeys)
-	batchSize := 10
+	batchSize := 20
 	nBatches := int(math.Ceil(float64(nKeys) / float64(batchSize)))
 
 	batches := make([][]any, nBatches)
