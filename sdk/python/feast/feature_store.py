@@ -1223,6 +1223,7 @@ class FeatureStore:
     def materialize_incremental(
         self,
         end_date: datetime,
+        force_overwrite: bool = False,
         feature_views: Optional[List[str]] = None,
     ) -> None:
         """
@@ -1236,6 +1237,8 @@ class FeatureStore:
 
         Args:
             end_date (datetime): End date for time range of data to materialize into the online store
+            force_overwrite(bool): If True, data will be overwritten in the online store without checking to ensure the
+            overwriting data is more recent than the existing data. This can optimize performance in certain use cases.
             feature_views (List[str]): Optional list of feature view names. If selected, will only run
                 materialization for the specified feature views.
 
@@ -1303,6 +1306,7 @@ class FeatureStore:
                 feature_view=feature_view,
                 start_date=start_date,
                 end_date=end_date,
+                force_overwrite=force_overwrite,
                 registry=self._registry,
                 project=self.project,
                 tqdm_builder=tqdm_builder,
@@ -1319,6 +1323,7 @@ class FeatureStore:
         self,
         start_date: datetime,
         end_date: datetime,
+        force_overwrite: bool = False,
         feature_views: Optional[List[str]] = None,
     ) -> None:
         """
@@ -1331,6 +1336,8 @@ class FeatureStore:
         Args:
             start_date (datetime): Start date for time range of data to materialize into the online store
             end_date (datetime): End date for time range of data to materialize into the online store
+            force_overwrite (bool): If True, data will be overwritten in the online store without checking to ensure the
+            overwriting data is more recent than the existing data. This can optimize performance in certain use cases.
             feature_views (List[str]): Optional list of feature view names. If selected, will only run
                 materialization for the specified feature views.
 
@@ -1381,6 +1388,7 @@ class FeatureStore:
                 feature_view=feature_view,
                 start_date=start_date,
                 end_date=end_date,
+                force_overwrite=force_overwrite,
                 registry=self._registry,
                 project=self.project,
                 tqdm_builder=tqdm_builder,

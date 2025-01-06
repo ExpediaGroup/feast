@@ -126,6 +126,7 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
                 task.feature_view,
                 task.start_time,
                 task.end_time,
+                task.force_overwrite,
                 task.project,
                 task.tqdm_builder,
             )
@@ -138,6 +139,7 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
         feature_view: Union[BatchFeatureView, StreamFeatureView, FeatureView],
         start_date: datetime,
         end_date: datetime,
+        force_overwrite: bool,
         project: str,
         tqdm_builder: Callable[[int], tqdm],
     ):
@@ -184,7 +186,7 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
             )
 
             spark_df.mapInPandas(
-                lambda x: _map_by_partition(x, spark_serialized_artifacts), "status int"
+                lambda x: _map_by_partition(x, spark_serialized_artifacts, force_overwrite), "status int"
             ).count()  # dummy action to force evaluation
 
             return SparkMaterializationJob(
@@ -232,8 +234,9 @@ class _SparkSerializedArtifacts:
 def _map_by_partition(
     iterator,
     spark_serialized_artifacts: _SparkSerializedArtifacts,
+    force_overwrite: bool,
 ):
-    """Load pandas df to online store"""
+    """Load pandas df to online store, optionally forcing overwrite."""
     for pdf in iterator:
         pdf_row_count = pdf.shape[0]
         start_time = time.time()
@@ -271,6 +274,7 @@ def _map_by_partition(
             feature_view,
             rows_to_write,
             lambda x: None,
+            force_overwrite=force_overwrite,
         )
         end_time = time.time()
         print(

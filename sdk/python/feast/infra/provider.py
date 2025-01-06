@@ -159,6 +159,7 @@ class Provider(ABC):
         feature_view: FeatureView,
         start_date: datetime,
         end_date: datetime,
+        force_overwrite: bool,
         registry: BaseRegistry,
         project: str,
         tqdm_builder: Callable[[int], tqdm],
@@ -171,6 +172,8 @@ class Provider(ABC):
             feature_view: The feature view to materialize.
             start_date: The start of the time range.
             end_date: The end of the time range.
+            force_overwrite: If True, data will be overwritten in the online store without checking to ensure the
+            overwriting data is more recent than the existing data. This can optimize performance in certain use cases.
             registry: The registry for the current feature store.
             project: Feast project to which the objects belong.
             tqdm_builder: A function to monitor the progress of materialization.

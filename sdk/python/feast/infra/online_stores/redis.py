@@ -270,13 +270,14 @@ class RedisOnlineStore(OnlineStore):
         return self._client_async
 
     def online_write_batch(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        data: List[
-            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-        ],
-        progress: Optional[Callable[[int], Any]],
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            data: List[
+                Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+            ],
+            progress: Optional[Callable[[int], Any]],
+            force_overwrite: bool = False,
     ) -> None:
         online_store_config = config.online_store
         assert isinstance(online_store_config, RedisOnlineStoreConfig)
@@ -286,60 +287,99 @@ class RedisOnlineStore(OnlineStore):
 
         feature_view = table.name
         ts_key = f"_ts:{feature_view}"
-        keys = []
-        # redis pipelining optimization: send multiple commands to redis server without waiting for every reply
-        with client.pipeline(transaction=False) as pipe:
-            # check if a previous record under the key bin exists
-            # TODO: investigate if check and set is a better approach rather than pulling all entity ts and then setting
-            # it may be significantly slower but avoids potential (rare) race conditions
-            for entity_key, _, _, _ in data:
-                redis_key_bin = _redis_key(
-                    project,
-                    entity_key,
-                    entity_key_serialization_version=config.entity_key_serialization_version,
-                )
-                keys.append(redis_key_bin)
-                pipe.hmget(redis_key_bin, ts_key)
-            prev_event_timestamps = pipe.execute()
-            # flattening the list of lists. `hmget` does the lookup assuming a list of keys in the key bin
-            prev_event_timestamps = [i[0] for i in prev_event_timestamps]
 
-            for redis_key_bin, prev_event_time, (_, values, timestamp, _) in zip(
-                keys, prev_event_timestamps, data
-            ):
-                event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
+        # If force_overwrite is True, skip retrieving timestamps
+        if force_overwrite:
+            with client.pipeline(transaction=False) as pipe:
+                for entity_key, values_dict, timestamp, _ in data:
+                    redis_key_bin = _redis_key(
+                        project,
+                        entity_key,
+                        entity_key_serialization_version=config.entity_key_serialization_version,
+                    )
+                    event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
 
-                # ignore if event_timestamp is before the event features that are currently in the feature store
-                if prev_event_time:
-                    prev_ts = Timestamp()
-                    prev_ts.ParseFromString(prev_event_time)
-                    if prev_ts.seconds and event_time_seconds <= prev_ts.seconds:
-                        # TODO: somehow signal that it's not overwriting the current record?
-                        if progress:
-                            progress(1)
-                        continue
+                    ts = Timestamp()
+                    ts.seconds = event_time_seconds
 
-                ts = Timestamp()
-                ts.seconds = event_time_seconds
-                entity_hset = dict()
-                entity_hset[ts_key] = ts.SerializeToString()
+                    entity_hset = dict()
+                    entity_hset[ts_key] = ts.SerializeToString()
 
-                for feature_name, val in values.items():
-                    f_key = _mmh3(f"{feature_view}:{feature_name}")
-                    entity_hset[f_key] = val.SerializeToString()
+                    for feature_name, val in values_dict.items():
+                        f_key = _mmh3(f"{feature_view}:{feature_name}")
+                        entity_hset[f_key] = val.SerializeToString()
 
-                pipe.hset(redis_key_bin, mapping=entity_hset)
+                    pipe.hset(redis_key_bin, mapping=entity_hset)
 
-                ttl = (
-                    table.online_store_key_ttl_seconds
-                    or online_store_config.key_ttl_seconds
-                    or None
-                )
-                if ttl:
-                    pipe.expire(name=redis_key_bin, time=ttl)
-            results = pipe.execute()
-            if progress:
-                progress(len(results))
+                    ttl = (
+                            table.online_store_key_ttl_seconds
+                            or online_store_config.key_ttl_seconds
+                            or None
+                    )
+                    if ttl:
+                        pipe.expire(name=redis_key_bin, time=ttl)
+
+                results = pipe.execute()
+                if progress:
+                    progress(len(results))
+
+        else:
+            keys = []
+            # redis pipelining optimization: send multiple commands to redis server without waiting for every reply
+            with client.pipeline(transaction=False) as pipe:
+                # check if a previous record under the key bin exists
+                # TODO: investigate if check and set is a better approach rather than pulling all entity ts and then setting
+                # it may be significantly slower but avoids potential (rare) race conditions
+                for entity_key, _, _, _ in data:
+                    redis_key_bin = _redis_key(
+                        project,
+                        entity_key,
+                        entity_key_serialization_version=config.entity_key_serialization_version,
+                    )
+                    keys.append(redis_key_bin)
+                    pipe.hmget(redis_key_bin, ts_key)
+                prev_event_timestamps = pipe.execute()
+                # flattening the list of lists. `hmget` does the lookup assuming a list of keys in the key bin
+                prev_event_timestamps = [i[0] for i in prev_event_timestamps]
+
+            # Next pipeline for updates
+            with client.pipeline(transaction=False) as pipe:
+                for redis_key_bin, prev_event_time, (entity_key, values_dict, timestamp, _) in zip(
+                        keys, prev_event_timestamps, data
+                ):
+                    event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
+
+                    # ignore if event_timestamp is before the event features that are currently in the feature store
+                    if prev_event_time:
+                        prev_ts = Timestamp()
+                        prev_ts.ParseFromString(prev_event_time)
+                        if prev_ts.seconds and event_time_seconds <= prev_ts.seconds:
+                            # TODO: somehow signal that it's not overwriting the current record?
+                            if progress:
+                                progress(1)
+                            continue
+
+                    ts = Timestamp()
+                    ts.seconds = event_time_seconds
+                    entity_hset = dict()
+                    entity_hset[ts_key] = ts.SerializeToString()
+
+                    for feature_name, val in values_dict.items():
+                        f_key = _mmh3(f"{feature_view}:{feature_name}")
+                        entity_hset[f_key] = val.SerializeToString()
+
+                    pipe.hset(redis_key_bin, mapping=entity_hset)
+
+                    ttl = (
+                            table.online_store_key_ttl_seconds
+                            or online_store_config.key_ttl_seconds
+                            or None
+                    )
+                    if ttl:
+                        pipe.expire(name=redis_key_bin, time=ttl)
+                results = pipe.execute()
+                if progress:
+                    progress(len(results))
 
     def _generate_redis_keys_for_entities(
         self, config: RepoConfig, entity_keys: List[EntityKeyProto]

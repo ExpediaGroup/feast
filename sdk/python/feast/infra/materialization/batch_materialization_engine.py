@@ -27,6 +27,7 @@ class MaterializationTask:
     feature_view: Union[BatchFeatureView, StreamFeatureView, FeatureView]
     start_time: datetime
     end_time: datetime
+    force_overwrite: bool
     tqdm_builder: Callable[[int], tqdm]
 
 

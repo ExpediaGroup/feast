@@ -311,6 +311,7 @@ class PassthroughProvider(Provider):
         feature_view: FeatureView,
         start_date: datetime,
         end_date: datetime,
+        force_overwrite: bool,
         registry: BaseRegistry,
         project: str,
         tqdm_builder: Callable[[int], tqdm],
@@ -340,6 +341,7 @@ class PassthroughProvider(Provider):
             feature_view=feature_view,
             start_time=start_date,
             end_time=end_date,
+            force_overwrite=force_overwrite,
             tqdm_builder=tqdm_builder,
         )
         jobs = self.batch_engine.materialize(registry, [task])
