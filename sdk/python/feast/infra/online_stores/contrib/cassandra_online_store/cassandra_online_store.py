@@ -352,11 +352,12 @@ class CassandraOnlineStore(OnlineStore):
         """
         project = config.project
 
-        def unroll_insertion_tuples() -> Iterable[Tuple[str, bytes, str, datetime]]:
+        def unroll_insertion_tuples() -> List[Tuple[str, bytes, str, datetime]]:
             """
             We craft an iterable over all rows to be inserted (entities->features),
             but this way we can call `progress` after each entity is done.
             """
+            params_list = []
             for entity_key, values, timestamp, created_ts in data:
                 entity_key_bin = serialize_entity_key(
                     entity_key,
@@ -369,10 +370,11 @@ class CassandraOnlineStore(OnlineStore):
                         entity_key_bin,
                         timestamp,
                     )
-                    yield params
+                    params_list.append(params)
                 # this happens N-1 times, will be corrected outside:
                 if progress:
                     progress(1)
+            return params_list
 
         self._write_rows_concurrently(
             config,
