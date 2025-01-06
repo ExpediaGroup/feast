@@ -365,7 +365,7 @@ def test_repo_config_init_expedia_provider():
     assert isinstance(c.offline_store, SparkOfflineStoreConfig)
 
 
-def test_repo_config_init_expedia_provider_with_onlne_store_config():
+def test_repo_config_init_expedia_provider_with_online_store_config():
     c = _test_config(
         dedent(
             """
@@ -390,7 +390,7 @@ def test_repo_config_init_expedia_provider_with_onlne_store_config():
     assert isinstance(c.offline_store, SparkOfflineStoreConfig)
 
 
-def test_repo_config_init_expedia_provider_with_online_store_config():
+def test_override_online_store_config():
     c = _test_config(
         dedent(
             """
@@ -407,13 +407,14 @@ def test_repo_config_init_expedia_provider_with_online_store_config():
         ),
         expect_error=None,
     )
-    assert c.registry_config == "registry.db"
-    assert c.offline_config["type"] == "spark"
-    assert c.online_config["type"] == "redis"
-    assert c.online_config["connection_string"] == "localhost:6380"
-    assert c.online_config["redis_type"] == "redis_cluster"
-    assert c.online_config["key_ttl_seconds"] == 123456
-    assert c.batch_engine_config == "spark.engine"
-    assert isinstance(c.online_store, RedisOnlineStoreConfig)
-    assert isinstance(c.batch_engine, SparkMaterializationEngineConfig)
-    assert isinstance(c.offline_store, SparkOfflineStoreConfig)
+    assert c.online_store.get_override_config("key_ttl_seconds") == 123456
+    assert (
+        c.online_store.get_override_config(
+            "key_ttl_seconds", {"key_ttl_seconds": "654321"}
+        )
+        == 654321
+    )
+    assert (
+        c.online_store.get_override_config("key_ttl_seconds", {"batch_size": "10"})
+        == 123456
+    )
