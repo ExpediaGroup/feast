@@ -68,7 +68,7 @@ class SnowflakeOnlineStoreConfig(FeastConfigBaseModel):
 
 
 class SnowflakeOnlineStore(OnlineStore):
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -76,6 +76,7 @@ class SnowflakeOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         assert isinstance(config.online_store, SnowflakeOnlineStoreConfig)
 

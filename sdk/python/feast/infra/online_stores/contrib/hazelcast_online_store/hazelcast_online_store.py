@@ -141,7 +141,7 @@ class HazelcastOnlineStore(OnlineStore):
                         )
         return self._client
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -149,6 +149,7 @@ class HazelcastOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         online_store_config = config.online_store
         if not isinstance(online_store_config, HazelcastOnlineStoreConfig):

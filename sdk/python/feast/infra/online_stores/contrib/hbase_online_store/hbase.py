@@ -70,7 +70,7 @@ class HbaseOnlineStore(OnlineStore):
             )
         return self._conn
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -78,19 +78,8 @@ class HbaseOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
-        """
-        Write a batch of feature rows to Hbase online store.
-
-        Args:
-            config: The RepoConfig for the current FeatureStore.
-            table: Feast FeatureView.
-            data: a list of quadruplets containing Feature data. Each quadruplet contains an Entity Key,
-            a dict containing feature values, an event timestamp for the row, and
-            the created timestamp for the row if it exists.
-            progress: Optional function to be called once every mini-batch of rows is written to
-            the online store. Can be used to display progress.
-        """
 
         hbase = HBaseConnector(self._get_conn(config))
         project = config.project

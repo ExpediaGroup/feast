@@ -92,7 +92,7 @@ class SqliteOnlineStore(OnlineStore):
 
         return self._conn
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -105,6 +105,7 @@ class SqliteOnlineStore(OnlineStore):
             ]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         conn = self._get_conn(config)
 

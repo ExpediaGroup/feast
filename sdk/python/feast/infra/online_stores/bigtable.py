@@ -114,7 +114,7 @@ class BigtableOnlineStore(OnlineStore):
 
         return (event_ts, res)
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -122,6 +122,7 @@ class BigtableOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         feature_view = table
         bt_table_name = self._get_table_name(config=config, feature_view=feature_view)

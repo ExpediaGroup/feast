@@ -165,15 +165,15 @@ class Provider(ABC):
         tqdm_builder: Callable[[int], tqdm],
     ) -> None:
         """
-        Writes latest feature values in the specified time range to the online store.
+        Writes the latest feature values in the specified time range to the online store.
 
         Args:
             config: The config for the current feature store.
             feature_view: The feature view to materialize.
             start_date: The start of the time range.
             end_date: The end of the time range.
-            force_overwrite: If True, data will be overwritten in the online store without checking to ensure the
-            overwriting data is more recent than the existing data. This can optimize performance in certain use cases.
+            force_overwrite: If True, materialization will overwrite existing data in the online store without checking
+                to ensure the overwriting data is more recent than the existing data.
             registry: The registry for the current feature store.
             project: Feast project to which the objects belong.
             tqdm_builder: A function to monitor the progress of materialization.

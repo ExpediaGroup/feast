@@ -34,18 +34,18 @@ class OnlineStore(ABC):
     The interface that Feast uses to interact with the storage system that handles online features.
     """
 
-    @abstractmethod
-    def online_write_batch(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        data: List[
-            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-        ],
-        progress: Optional[Callable[[int], Any]],
-    ) -> None:
+    @property
+    def supports_force_overwrite(self) -> bool:
         """
-        Writes a batch of feature rows to the online store.
+        Defaults to False. Derived classes that support force_overwrite should override this property and return True.
+        """
+        return False
+
+    def online_write_batch(self, config: RepoConfig, table: FeatureView, data: List[
+        Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+    ], progress: Optional[Callable[[int], Any]], force_overwrite=False) -> None:
+        """
+        Common entry point for writing a batch of feature rows to the online store.
 
         If a tz-naive timestamp is passed to this method, it is assumed to be UTC.
 
@@ -57,6 +57,48 @@ class OnlineStore(ABC):
                 timestamp for the row if it exists.
             progress: Function to be called once a batch of rows is written to the online store, used
                 to show progress.
+            force_overwrite: If True, materialization will overwrite existing data in the online store without checking
+             to ensure the overwriting data is more recent than the existing data.
+        """
+        if force_overwrite and not self.supports_force_overwrite:
+            raise NotImplementedError(
+                f"Online store {self.__class__.__name__} does not support force_overwrite=True"
+            )
+
+        self._do_online_write_batch(
+            config=config,
+            table=table,
+            data=data,
+            progress=progress,
+            force_overwrite=force_overwrite,
+        )
+
+    @abstractmethod
+    def _do_online_write_batch(
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            data: List[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]],
+            progress: Optional[Callable[[int], Any]],
+            force_overwrite: bool,
+    ) -> None:
+        """
+        Subclass-specific logic for writing a batch of feature rows. If force_overwrite=True is passed but not
+        supported, the base class will raise an error before calling this method.
+
+        If a tz-naive timestamp is passed to this method, it is assumed to be UTC.
+
+        Args:
+            config: The config for the current feature store.
+            table: Feature view to which these feature rows correspond.
+            data: A list of quadruplets containing feature data. Each quadruplet contains an entity
+                key, a dict containing feature values, an event timestamp for the row, and the created
+                timestamp for the row if it exists.
+            progress: Function to be called once a batch of rows is written to the online store, used
+                to show progress.
+            force_overwrite (bool): If True, materialization will overwrite existing data in the online store without
+                checking to ensure the overwriting data is more recent than the existing data.
+
         """
         pass
 

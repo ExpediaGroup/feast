@@ -47,7 +47,7 @@ class RemoteOnlineStore(OnlineStore):
     remote online store implementation wrapper to communicate with feast online server.
     """
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -55,6 +55,7 @@ class RemoteOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         raise NotImplementedError
 

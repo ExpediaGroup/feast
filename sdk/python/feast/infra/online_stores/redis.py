@@ -96,6 +96,10 @@ class RedisOnlineStore(OnlineStore):
         None
     )
 
+    @property
+    def supports_force_overwrite(self) -> bool:
+        return True
+
     def delete_entity_values(self, config: RepoConfig, join_keys: List[str]):
         client = self._get_client(config.online_store)
         deleted_count = 0
@@ -269,7 +273,7 @@ class RedisOnlineStore(OnlineStore):
                 self._client_async = redis_asyncio.Redis(**kwargs)
         return self._client_async
 
-    def online_write_batch(
+    def _do_online_write_batch(
             self,
             config: RepoConfig,
             table: FeatureView,
@@ -277,7 +281,7 @@ class RedisOnlineStore(OnlineStore):
                 Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
             ],
             progress: Optional[Callable[[int], Any]],
-            force_overwrite: bool = False,
+            force_overwrite: bool,
     ) -> None:
         online_store_config = config.online_store
         assert isinstance(online_store_config, RedisOnlineStoreConfig)

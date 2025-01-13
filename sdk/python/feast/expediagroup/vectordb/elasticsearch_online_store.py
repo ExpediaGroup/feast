@@ -94,7 +94,7 @@ class ElasticsearchConnectionManager:
 
 
 class ElasticsearchOnlineStore(OnlineStore):
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -102,6 +102,7 @@ class ElasticsearchOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         with ElasticsearchConnectionManager(config.online_store) as es:
             resp = es.indices.exists(index=table.name)

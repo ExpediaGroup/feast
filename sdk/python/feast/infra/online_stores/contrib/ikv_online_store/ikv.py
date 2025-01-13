@@ -58,7 +58,7 @@ class IKVOnlineStore(OnlineStore):
     _reader: Optional[IKVReader] = None
     _writer: Optional[IKVWriter] = None
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -66,21 +66,8 @@ class IKVOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
-        """
-        Writes a batch of feature rows to the online store.
-
-        If a tz-naive timestamp is passed to this method, it is assumed to be UTC.
-
-        Args:
-            config: The config for the current feature store.
-            table: Feature view to which these feature rows correspond.
-            data: A list of quadruplets containing feature data. Each quadruplet contains an entity
-                key, a dict containing feature values, an event timestamp for the row, and the created
-                timestamp for the row if it exists.
-            progress: Function to be called once a batch of rows is written to the online store, used
-                to show progress.
-        """
         self._init_writer(config=config)
         assert self._writer is not None
 

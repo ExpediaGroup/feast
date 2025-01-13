@@ -163,7 +163,7 @@ class DatastoreOnlineStore(OnlineStore):
             )
         return self._client
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -171,6 +171,7 @@ class DatastoreOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         online_config = config.online_store
         assert isinstance(online_config, DatastoreOnlineStoreConfig)

@@ -63,7 +63,7 @@ class SingleStoreOnlineStore(OnlineStore):
             self._conn = self._init_conn(config)
         return self._conn.cursor()
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -71,6 +71,7 @@ class SingleStoreOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         project = config.project
         with self._get_cursor(config) as cur:

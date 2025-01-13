@@ -1237,8 +1237,8 @@ class FeatureStore:
 
         Args:
             end_date (datetime): End date for time range of data to materialize into the online store
-            force_overwrite(bool): If True, data will be overwritten in the online store without checking to ensure the
-            overwriting data is more recent than the existing data. This can optimize performance in certain use cases.
+            force_overwrite (bool): If True, materialization will overwrite existing data in the online store without
+                checking to ensure the overwriting data is more recent than the existing data.
             feature_views (List[str]): Optional list of feature view names. If selected, will only run
                 materialization for the specified feature views.
 
@@ -1336,8 +1336,8 @@ class FeatureStore:
         Args:
             start_date (datetime): Start date for time range of data to materialize into the online store
             end_date (datetime): End date for time range of data to materialize into the online store
-            force_overwrite (bool): If True, data will be overwritten in the online store without checking to ensure the
-            overwriting data is more recent than the existing data. This can optimize performance in certain use cases.
+            force_overwrite (bool): If True, materialization will overwrite existing data in the online store without
+                checking to ensure the overwriting data is more recent than the existing data.
             feature_views (List[str]): Optional list of feature view names. If selected, will only run
                 materialization for the specified feature views.
 

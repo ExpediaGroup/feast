@@ -327,7 +327,7 @@ class CassandraOnlineStore(OnlineStore):
         """
         pass
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -335,21 +335,9 @@ class CassandraOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
-        """
-        Write a batch of features of several entities to the database.
 
-        Args:
-            config: The RepoConfig for the current FeatureStore.
-            table: Feast FeatureView.
-            data: a list of quadruplets containing Feature data. Each
-                  quadruplet contains an Entity Key, a dict containing feature
-                  values, an event timestamp for the row, and
-                  the created timestamp for the row if it exists.
-            progress: Optional function to be called once every mini-batch of
-                      rows is written to the online store. Can be used to
-                      display progress.
-        """
         project = config.project
 
         def unroll_insertion_tuples() -> Iterable[Tuple[str, bytes, str, datetime]]:

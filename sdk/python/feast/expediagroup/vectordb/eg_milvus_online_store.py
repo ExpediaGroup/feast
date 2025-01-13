@@ -108,7 +108,7 @@ class EGMilvusConnectionManager:
 
 
 class EGMilvusOnlineStore(OnlineStore):
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -116,6 +116,7 @@ class EGMilvusOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         with EGMilvusConnectionManager(config.online_store):
             self._create_collection_if_not_exists(table)

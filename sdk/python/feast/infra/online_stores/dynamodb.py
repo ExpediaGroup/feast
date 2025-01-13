@@ -174,7 +174,7 @@ class DynamoDBOnlineStore(OnlineStore):
                 dynamodb_resource, _get_table_name(online_config, config, table)
             )
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -182,22 +182,8 @@ class DynamoDBOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
-        """
-        Write a batch of feature rows to online DynamoDB store.
-
-        Note: This method applies a ``batch_writer`` to automatically handle any unprocessed items
-        and resend them as needed, this is useful if you're loading a lot of data at a time.
-
-        Args:
-            config: The RepoConfig for the current FeatureStore.
-            table: Feast FeatureView.
-            data: a list of quadruplets containing Feature data. Each quadruplet contains an Entity Key,
-            a dict containing feature values, an event timestamp for the row, and
-            the created timestamp for the row if it exists.
-            progress: Optional function to be called once every mini-batch of rows is written to
-            the online store. Can be used to display progress.
-        """
         online_config = config.online_store
         assert isinstance(online_config, DynamoDBOnlineStoreConfig)
         dynamodb_resource = self._get_dynamodb_resource(

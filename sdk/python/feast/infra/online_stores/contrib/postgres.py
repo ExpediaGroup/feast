@@ -97,7 +97,7 @@ class PostgreSQLOnlineStore(OnlineStore):
                 self._conn_async = await _get_conn_async(config.online_store)
             yield self._conn_async
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -105,6 +105,7 @@ class PostgreSQLOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         # Format insert values
         insert_values = []

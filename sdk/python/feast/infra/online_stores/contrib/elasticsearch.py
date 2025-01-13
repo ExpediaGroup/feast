@@ -80,7 +80,7 @@ class ElasticSearchOnlineStore(OnlineStore):
                 "_source": row,
             }
 
-    def online_write_batch(
+    def _do_online_write_batch(
         self,
         config: RepoConfig,
         table: FeatureView,
@@ -88,6 +88,7 @@ class ElasticSearchOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        force_overwrite: bool,
     ) -> None:
         insert_values = []
         for entity_key, values, timestamp, created_ts in data:
