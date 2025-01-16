@@ -13,6 +13,7 @@
 # limitations under the License.
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from enum import Enum
 from typing import (
@@ -286,7 +287,10 @@ class RedisOnlineStore(OnlineStore):
         online_store_config = config.online_store
         assert isinstance(online_store_config, RedisOnlineStoreConfig)
 
+        start_time = time.time()
         client = self._get_client(online_store_config)
+        client_time = time.time() - start_time
+        print(f"Client initialization time: {client_time:.4f} seconds")
         project = config.project
 
         feature_view = table.name
@@ -294,6 +298,8 @@ class RedisOnlineStore(OnlineStore):
 
         # If force_overwrite is True, skip retrieving timestamps
         if force_overwrite:
+            print("forcing online data to be overwritten")
+            start_time = time.time()
             with client.pipeline(transaction=False) as pipe:
                 for entity_key, values_dict, timestamp, _ in data:
                     redis_key_bin = _redis_key(
@@ -326,6 +332,8 @@ class RedisOnlineStore(OnlineStore):
                 results = pipe.execute()
                 if progress:
                     progress(len(results))
+            overwrite_time = time.time() - start_time
+            print(f"Force overwrite time: {overwrite_time:.4f} seconds")
 
         else:
             keys = []
