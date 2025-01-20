@@ -236,31 +236,23 @@ def _map_by_partition(
     spark_serialized_artifacts: _SparkSerializedArtifacts,
     force_overwrite: bool,
 ):
+    unserialize_artifacts_timer = time.time()
+    feature_view, online_store, repo_config = spark_serialized_artifacts.unserialize()
+    unserialize_artifacts_timer = time.time() - unserialize_artifacts_timer
+    print(f"INFO!!! Unserialized artifacts in {int(unserialize_artifacts_timer * 1000)} milliseconds")
     """Load pandas df to online store, optionally forcing overwrite."""
     for pdf in iterator:
         start_time = time.time()
-        row_count_timer = time.time()
+
         pdf_row_count = pdf.shape[0]
-        row_count_timer = time.time() - row_count_timer
-        print(f"INFO!!! Row count: {pdf_row_count} in {int(row_count_timer * 1000)} milliseconds")
-        # convert to pyarrow table
         if pdf_row_count == 0:
             print("INFO!!! Dataframe has 0 records to process")
-            return
+            continue
+
         create_table_timer = time.time()
         table = pyarrow.Table.from_pandas(pdf)
         create_table_timer = time.time() - create_table_timer
         print(f"INFO!!! Created table in {int(create_table_timer * 1000)} milliseconds")
-
-        # unserialize artifacts
-        unserialize_artifacts_timer = time.time()
-        (
-            feature_view,
-            online_store,
-            repo_config,
-        ) = spark_serialized_artifacts.unserialize()
-        unserialize_artifacts_timer = time.time() - unserialize_artifacts_timer
-        print(f"INFO!!! Unserialized artifacts in {int(unserialize_artifacts_timer * 1000)} milliseconds")
 
         if feature_view.batch_source.field_mapping is not None:
             # Spark offline store does the field mapping during pull_latest_from_table_or_query
@@ -285,13 +277,16 @@ def _map_by_partition(
         print(f"INFO!!! Converted rows to write in {int(rows_to_write_timer * 1000)} milliseconds")
 
         online_store_write_timer = time.time()
-        online_store.online_write_batch(
-            repo_config,
-            feature_view,
-            rows_to_write,
-            lambda x: None,
-            force_overwrite=force_overwrite,
-        )
+        CHUNK_SIZE = 1000
+        for i in range(0, len(rows_to_write), CHUNK_SIZE):
+            chunk = rows_to_write[i : i + CHUNK_SIZE]
+            online_store.online_write_batch(
+                repo_config,
+                feature_view,
+                chunk,
+                lambda x: None,
+                force_overwrite=force_overwrite,
+            )
         online_store_write_timer = time.time() - online_store_write_timer
         print(f"INFO!!! Wrote to online store in {int(online_store_write_timer * 1000)} milliseconds")
         end_time = time.time()
