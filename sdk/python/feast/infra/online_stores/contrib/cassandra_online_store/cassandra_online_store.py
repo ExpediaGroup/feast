@@ -44,7 +44,7 @@ from cassandra.concurrent import execute_concurrent_with_args
 from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
 from cassandra.query import PreparedStatement
 from pydantic import StrictFloat, StrictInt, StrictStr
-
+from pyspark.sql import DataFrame, Row, SparkSession
 from feast import Entity, FeatureView, RepoConfig
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.online_store import OnlineStore
@@ -351,36 +351,51 @@ class CassandraOnlineStore(OnlineStore):
                       display progress.
         """
         project = config.project
-
-        def unroll_insertion_tuples() -> Iterable[Tuple[str, bytes, str, datetime]]:
+        spark = SparkSession.builder.getOrCreate()
+        keyspace: str = self._keyspace
+        fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
+        def prepare_rows() -> List[Row]:
             """
-            We craft an iterable over all rows to be inserted (entities->features),
-            but this way we can call `progress` after each entity is done.
+            Transform data into a list of Spark Row objects for insertion.
             """
+            rows = []
             for entity_key, values, timestamp, created_ts in data:
                 entity_key_bin = serialize_entity_key(
                     entity_key,
                     entity_key_serialization_version=config.entity_key_serialization_version,
                 ).hex()
-                for feature_name, val in values.items():
-                    params: Tuple[str, bytes, str, datetime] = (
-                        feature_name,
-                        val.SerializeToString(),
-                        entity_key_bin,
-                        timestamp,
-                    )
-                    yield params
-                # this happens N-1 times, will be corrected outside:
-                if progress:
-                    progress(1)
 
-        self._write_rows_concurrently(
-            config,
-            project,
-            table,
-            unroll_insertion_tuples(),
-        )
-        # correction for the last missing call to `progress`:
+                for feature_name, val in values.items():
+                    row = Row(
+                        feature_name=feature_name,
+                        entity_key=entity_key_bin,
+                        feature_value=val.SerializeToString(),
+                        event_timestamp=timestamp,
+                        created_timestamp=created_ts,
+                    )
+                    rows.append(row)
+
+                if progress:
+                    progress(1)  # Report progress for each entity processed.
+
+            return rows
+
+        rows = prepare_rows()
+        if rows:
+            df = spark.createDataFrame(rows)
+
+            # Add ScyllaDB table as the sink using the Cassandra connector.
+            (
+                df.write.format("org.apache.spark.sql.cassandra")
+                .options(
+                    table=fqtable,
+                    keyspace=config.keyspace,
+                )
+                .mode("append")
+                .save()
+            )
+
+        # Final progress update.
         if progress:
             progress(1)
 
