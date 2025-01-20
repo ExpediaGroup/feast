@@ -277,7 +277,7 @@ def _map_by_partition(
         print(f"INFO!!! Converted rows to write in {int(rows_to_write_timer * 1000)} milliseconds")
 
         online_store_write_timer = time.time()
-        CHUNK_SIZE = 1000
+        CHUNK_SIZE = 100
         for i in range(0, len(rows_to_write), CHUNK_SIZE):
             chunk = rows_to_write[i : i + CHUNK_SIZE]
             online_store.online_write_batch(
