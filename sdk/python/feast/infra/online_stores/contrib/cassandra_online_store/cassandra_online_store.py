@@ -354,6 +354,7 @@ class CassandraOnlineStore(OnlineStore):
         spark = SparkSession.builder.getOrCreate()
         keyspace: str = self._keyspace
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
+
         def prepare_rows() -> List[Row]:
             """
             Transform data into a list of Spark Row objects for insertion.
