@@ -44,8 +44,7 @@ from cassandra.concurrent import execute_concurrent_with_args
 from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
 from cassandra.query import PreparedStatement
 from pydantic import StrictFloat, StrictInt, StrictStr
-from pyspark.sql import Row, SparkSession
-
+from pyspark.sql import Row
 from feast import Entity, FeatureView, RepoConfig
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.online_store import OnlineStore
@@ -336,7 +335,6 @@ class CassandraOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
-        spark: SparkSession
     ) -> None:
         """
         Write a batch of features of several entities to the database.
@@ -353,6 +351,7 @@ class CassandraOnlineStore(OnlineStore):
                       display progress.
         """
         project = config.project
+        spark = SparkSession.builder.getOrCreate()
         keyspace: str = self._keyspace
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
 
