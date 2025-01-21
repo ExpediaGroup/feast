@@ -1,17 +1,18 @@
 import time
+from datetime import datetime
 from types import MethodType
-from typing import List, Optional, Set, Union, no_type_check
+from typing import List, Optional, Set, Union, no_type_check, Tuple, Dict, Callable, Any
 
 import pandas as pd
 import pyarrow
 from pyspark import SparkContext
-from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import DataFrame, Row, SparkSession
 from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.column import Column, _to_java_column
 from pyspark.sql.functions import col, from_json
 from pyspark.sql.streaming import StreamingQuery
 
-from feast import FeatureView
+from feast import FeatureView, RepoConfig
 from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat, StreamFormat
 from feast.data_source import KafkaSource, PushMode
 from feast.feature_store import FeatureStore
@@ -20,10 +21,13 @@ from feast.infra.contrib.stream_processor import (
     StreamProcessor,
     StreamTable,
 )
+from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.materialization.contrib.spark.spark_materialization_engine import (
     _SparkSerializedArtifacts,
 )
 from feast.infra.provider import get_provider
+from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.stream_feature_view import StreamFeatureView
 from feast.utils import _convert_arrow_to_proto, _run_pyarrow_field_mapping
 
@@ -272,7 +276,79 @@ class SparkKafkaProcessor(StreamProcessor):
         # TODO: Support writing to offline store and preprocess_fn. Remove _write_stream_data method
 
         # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
-        def batch_write_pandas_df(iterator, spark_serialized_artifacts, join_keys):
+        def online_write_with_connector(
+                self,
+                config: RepoConfig,
+                table: FeatureView,
+                data: List[
+                    Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+                ],
+                progress: Optional[Callable[[int], Any]],
+                spark: SparkSession,
+        ) -> None:
+            """
+            Write a batch of features of several entities to the database.
+
+            Args:
+                config: The RepoConfig for the current FeatureStore.
+                table: Feast FeatureView.
+                data: a list of quadruplets containing Feature data. Each
+                      quadruplet contains an Entity Key, a dict containing feature
+                      values, an event timestamp for the row, and
+                      the created timestamp for the row if it exists.
+                progress: Optional function to be called once every mini-batch of
+                          rows is written to the online store. Can be used to
+                          display progress.
+            """
+            project = config.project
+            keyspace: str = self._keyspace
+            fqtable = f"{project}_{table.name}"
+            def prepare_rows() -> List[Row]:
+                """
+                Transform data into a list of Spark Row objects for insertion.
+                """
+                rows = []
+                for entity_key, values, timestamp, created_ts in data:
+                    entity_key_bin = serialize_entity_key(
+                        entity_key,
+                        entity_key_serialization_version=config.entity_key_serialization_version,
+                    ).hex()
+
+                    for feature_name, val in values.items():
+                        row = Row(
+                            feature_name=feature_name,
+                            entity_key=entity_key_bin,
+                            feature_value=val.SerializeToString(),
+                            event_timestamp=timestamp,
+                            created_timestamp=created_ts,
+                        )
+                        rows.append(row)
+
+                    if progress:
+                        progress(1)  # Report progress for each entity processed.
+
+                return rows
+
+            rows = prepare_rows()
+            if rows:
+                df = spark.createDataFrame(rows)
+
+                # Add ScyllaDB table as the sink using the Cassandra connector.
+                (
+                    df.write.format("org.apache.spark.sql.cassandra")
+                    .options(
+                        table=fqtable,
+                        keyspace=keyspace,
+                    )
+                    .mode("append")
+                    .save()
+                )
+
+            # Final progress update.
+            if progress:
+                progress(1)
+
+        def batch_write_pandas_df(iterator, spark_serialized_artifacts, join_keys, spark_session):
             for pdf in iterator:
                 (
                     feature_view,
@@ -305,11 +381,12 @@ class SparkKafkaProcessor(StreamProcessor):
                 rows_to_write = _convert_arrow_to_proto(
                     table, feature_view, join_key_to_value_type
                 )
-                online_store.online_write_batch(
+                online_write_with_connector(
                     repo_config,
                     feature_view,
                     rows_to_write,
                     lambda x: None,
+                    spark=spark_session,
                 )
 
             yield pd.DataFrame([pd.Series(range(1, 2))])  # dummy result
@@ -320,11 +397,12 @@ class SparkKafkaProcessor(StreamProcessor):
             spark_serialized_artifacts,
             join_keys,
             feature_view,
+            spark_session,
         ):
             start_time = time.time()
             sdf.mapInPandas(
                 lambda x: batch_write_pandas_df(
-                    x, spark_serialized_artifacts, join_keys
+                    x, spark_serialized_artifacts, join_keys, spark_session
                 ),
                 "status int",
             ).count()  # dummy action to force evaluation

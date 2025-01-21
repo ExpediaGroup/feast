@@ -44,7 +44,6 @@ from cassandra.concurrent import execute_concurrent_with_args
 from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
 from cassandra.query import PreparedStatement
 from pydantic import StrictFloat, StrictInt, StrictStr
-from pyspark.sql import Row
 from feast import Entity, FeatureView, RepoConfig
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.online_store import OnlineStore
@@ -328,13 +327,13 @@ class CassandraOnlineStore(OnlineStore):
         pass
 
     def online_write_batch(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        data: List[
-            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-        ],
-        progress: Optional[Callable[[int], Any]],
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            data: List[
+                Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+            ],
+            progress: Optional[Callable[[int], Any]],
     ) -> None:
         """
         Write a batch of features of several entities to the database.
@@ -351,55 +350,38 @@ class CassandraOnlineStore(OnlineStore):
                       display progress.
         """
         project = config.project
-        spark = SparkSession.builder.getOrCreate()
-        keyspace: str = self._keyspace
-        fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
 
-        def prepare_rows() -> List[Row]:
+        def unroll_insertion_tuples() -> Iterable[Tuple[str, bytes, str, datetime]]:
             """
-            Transform data into a list of Spark Row objects for insertion.
+            We craft an iterable over all rows to be inserted (entities->features),
+            but this way we can call `progress` after each entity is done.
             """
-            rows = []
             for entity_key, values, timestamp, created_ts in data:
                 entity_key_bin = serialize_entity_key(
                     entity_key,
                     entity_key_serialization_version=config.entity_key_serialization_version,
                 ).hex()
-
                 for feature_name, val in values.items():
-                    row = Row(
-                        feature_name=feature_name,
-                        entity_key=entity_key_bin,
-                        feature_value=val.SerializeToString(),
-                        event_timestamp=timestamp,
-                        created_timestamp=created_ts,
+                    params: Tuple[str, bytes, str, datetime] = (
+                        feature_name,
+                        val.SerializeToString(),
+                        entity_key_bin,
+                        timestamp,
                     )
-                    rows.append(row)
-
+                    yield params
+                # this happens N-1 times, will be corrected outside:
                 if progress:
-                    progress(1)  # Report progress for each entity processed.
+                    progress(1)
 
-            return rows
-
-        rows = prepare_rows()
-        if rows:
-            df = spark.createDataFrame(rows)
-
-            # Add ScyllaDB table as the sink using the Cassandra connector.
-            (
-                df.write.format("org.apache.spark.sql.cassandra")
-                .options(
-                    table=fqtable,
-                    keyspace=keyspace,
-                )
-                .mode("append")
-                .save()
-            )
-
-        # Final progress update.
+        self._write_rows_concurrently(
+            config,
+            project,
+            table,
+            unroll_insertion_tuples(),
+        )
+        # correction for the last missing call to `progress`:
         if progress:
             progress(1)
-
     def online_read(
         self,
         config: RepoConfig,
