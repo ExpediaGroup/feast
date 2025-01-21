@@ -277,14 +277,16 @@ class SparkKafkaProcessor(StreamProcessor):
 
         # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
         def online_write_with_connector(
-                self,
-                config: RepoConfig,
-                table: FeatureView,
-                data: List[
-                    Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-                ],
-                progress: Optional[Callable[[int], Any]],
-                spark: SparkSession,
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            data: List[
+                Tuple[
+                    EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]
+                ]
+            ],
+            progress: Optional[Callable[[int], Any]],
+            spark: SparkSession,
         ) -> None:
             """
             Write a batch of features of several entities to the database.
@@ -303,6 +305,7 @@ class SparkKafkaProcessor(StreamProcessor):
             project = config.project
             keyspace: str = self._keyspace
             fqtable = f"{project}_{table.name}"
+
             def prepare_rows() -> List[Row]:
                 """
                 Transform data into a list of Spark Row objects for insertion.
@@ -348,7 +351,9 @@ class SparkKafkaProcessor(StreamProcessor):
             if progress:
                 progress(1)
 
-        def batch_write_pandas_df(iterator, spark_serialized_artifacts, join_keys, spark_session):
+        def batch_write_pandas_df(
+            iterator, spark_serialized_artifacts, join_keys, spark_session
+        ):
             for pdf in iterator:
                 (
                     feature_view,

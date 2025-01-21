@@ -50,6 +50,7 @@ from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import FeastConfigBaseModel
+
 # Error messages
 E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS = (
     "Unexpected configuration object (not a CassandraOnlineStoreConfig instance)"
@@ -326,13 +327,13 @@ class CassandraOnlineStore(OnlineStore):
         pass
 
     def online_write_batch(
-            self,
-            config: RepoConfig,
-            table: FeatureView,
-            data: List[
-                Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-            ],
-            progress: Optional[Callable[[int], Any]],
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        data: List[
+            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+        ],
+        progress: Optional[Callable[[int], Any]],
     ) -> None:
         """
         Write a batch of features of several entities to the database.
@@ -381,6 +382,7 @@ class CassandraOnlineStore(OnlineStore):
         # correction for the last missing call to `progress`:
         if progress:
             progress(1)
+
     def online_read(
         self,
         config: RepoConfig,
