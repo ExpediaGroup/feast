@@ -277,16 +277,13 @@ def _map_by_partition(
         print(f"INFO!!! Converted rows to write in {int(rows_to_write_timer * 1000)} milliseconds")
 
         online_store_write_timer = time.time()
-        CHUNK_SIZE = 100
-        for i in range(0, len(rows_to_write), CHUNK_SIZE):
-            chunk = rows_to_write[i : i + CHUNK_SIZE]
-            online_store.online_write_batch(
-                repo_config,
-                feature_view,
-                chunk,
-                lambda x: None,
-                force_overwrite=force_overwrite,
-            )
+        online_store.online_write_batch(
+            repo_config,
+            feature_view,
+            rows_to_write,
+            lambda x: None,
+            force_overwrite=force_overwrite,
+        )
         online_store_write_timer = time.time() - online_store_write_timer
         print(f"INFO!!! Wrote to online store in {int(online_store_write_timer * 1000)} milliseconds")
         end_time = time.time()
