@@ -321,11 +321,12 @@ class SparkKafkaProcessor(StreamProcessor):
             spark_serialized_artifacts,
             join_keys,
             feature_view,
+            spark_session,
         ):
             start_time = time.time()
             sdf.mapInPandas(
                 lambda x: batch_write_pandas_df(
-                    x, spark_serialized_artifacts, join_keys
+                    x, spark_serialized_artifacts, join_keys, spark_session
                 ),
                 "status int",
             ).count()  # dummy action to force evaluation
@@ -344,6 +345,7 @@ class SparkKafkaProcessor(StreamProcessor):
                     self.spark_serialized_artifacts,
                     self.join_keys,
                     self.sfv,
+                    self.spark,
                 )
             )
             .start()
