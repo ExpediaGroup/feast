@@ -272,7 +272,7 @@ class SparkKafkaProcessor(StreamProcessor):
         # TODO: Support writing to offline store and preprocess_fn. Remove _write_stream_data method
 
         # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
-        def batch_write_pandas_df(iterator, spark_serialized_artifacts, join_keys):
+        def batch_write_pandas_df(iterator, spark_serialized_artifacts, join_keys, spark_session):
             for pdf in iterator:
                 (
                     feature_view,
@@ -310,6 +310,7 @@ class SparkKafkaProcessor(StreamProcessor):
                     feature_view,
                     rows_to_write,
                     lambda x: None,
+                    spark=spark_session
                 )
 
             yield pd.DataFrame([pd.Series(range(1, 2))])  # dummy result

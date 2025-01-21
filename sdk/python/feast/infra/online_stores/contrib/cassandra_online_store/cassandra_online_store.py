@@ -336,6 +336,7 @@ class CassandraOnlineStore(OnlineStore):
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
         progress: Optional[Callable[[int], Any]],
+        spark: SparkSession
     ) -> None:
         """
         Write a batch of features of several entities to the database.
@@ -352,7 +353,6 @@ class CassandraOnlineStore(OnlineStore):
                       display progress.
         """
         project = config.project
-        spark = SparkSession.builder.getOrCreate()
         keyspace: str = self._keyspace
         fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
 
