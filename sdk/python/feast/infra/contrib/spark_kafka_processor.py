@@ -7,10 +7,12 @@ import pandas as pd
 import pyarrow
 from pyspark import SparkContext
 from pyspark.sql import DataFrame, Row, SparkSession
+from pyspark.sql import functions as F
 from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.column import Column, _to_java_column
 from pyspark.sql.functions import col, from_json
 from pyspark.sql.streaming import StreamingQuery
+from pyspark.sql.window import Window
 
 from feast import FeatureView, RepoConfig
 from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat, StreamFormat
@@ -259,54 +261,18 @@ class SparkKafkaProcessor(StreamProcessor):
 
     def _write_stream_data_expedia(self, df: StreamTable, to: PushMode):
         """
-        Ensures materialization logic in sync with stream ingestion.
-        Support only write to online store. No support for preprocess_fn also.
-        In Spark 3.2.2, toPandas() is throwing error when the dataframe has Boolean columns.
-        To fix this error, we need spark 3.4.0 or numpy < 1.20.0 but feast needs numpy >= 1.22.
-        Switching to use mapInPandas to solve the problem for boolean columns and
-        toPandas() also load all data into driver's memory.
-        Error Message:
-            AttributeError: module 'numpy' has no attribute 'bool'.
-            `np.bool` was a deprecated alias for the builtin `bool`.
-            To avoid this error in existing code, use `bool` by itself.
-            Doing this will not modify any behavior and is safe.
-            If you specifically wanted the numpy scalar type, use `np.bool_` here.
+        Streamlines data writing logic
         """
 
-        # TODO: Support writing to offline store and preprocess_fn. Remove _write_stream_data method
-
-        # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
-        def online_write_with_connector(
-            self,
-            config: RepoConfig,
-            table: FeatureView,
-            data: List[
-                Tuple[
-                    EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]
-                ]
-            ],
-            progress: Optional[Callable[[int], Any]],
-            spark: SparkSession,
-        ) -> None:
+        def online_write_with_connector(config, table, data, progress, spark):
             """
-            Write a batch of features of several entities to the database.
-
-            Args:
-                config: The RepoConfig for the current FeatureStore.
-                table: Feast FeatureView.
-                data: a list of quadruplets containing Feature data. Each
-                      quadruplet contains an Entity Key, a dict containing feature
-                      values, an event timestamp for the row, and
-                      the created timestamp for the row if it exists.
-                progress: Optional function to be called once every mini-batch of
-                          rows is written to the online store. Can be used to
-                          display progress.
+            Write a batch of features to the online store.
             """
             project = config.project
-            keyspace: str = self._keyspace
+            keyspace = self._keyspace
             fqtable = f"{project}_{table.name}"
 
-            def prepare_rows() -> List[Row]:
+            def prepare_rows():
                 """
                 Transform data into a list of Spark Row objects for insertion.
                 """
@@ -318,17 +284,18 @@ class SparkKafkaProcessor(StreamProcessor):
                     ).hex()
 
                     for feature_name, val in values.items():
-                        row = Row(
-                            feature_name=feature_name,
-                            entity_key=entity_key_bin,
-                            feature_value=val.SerializeToString(),
-                            event_timestamp=timestamp,
-                            created_timestamp=created_ts,
+                        rows.append(
+                            Row(
+                                feature_name=feature_name,
+                                entity_key=entity_key_bin,
+                                feature_value=val.SerializeToString(),
+                                event_timestamp=timestamp,
+                                created_timestamp=created_ts,
+                            )
                         )
-                        rows.append(row)
 
                     if progress:
-                        progress(1)  # Report progress for each entity processed.
+                        progress(1)
 
                 return rows
 
@@ -336,84 +303,40 @@ class SparkKafkaProcessor(StreamProcessor):
             if rows:
                 df = spark.createDataFrame(rows)
 
-                # Add ScyllaDB table as the sink using the Cassandra connector.
+                # Write to ScyllaDB using the Cassandra connector
                 (
                     df.write.format("org.apache.spark.sql.cassandra")
-                    .options(
-                        table=fqtable,
-                        keyspace=keyspace,
-                    )
+                    .options(table=fqtable, keyspace=keyspace)
                     .mode("append")
                     .save()
                 )
 
-            # Final progress update.
             if progress:
                 progress(1)
 
-        def batch_write_pandas_df(
-            iterator, spark_serialized_artifacts, join_keys, spark_session
-        ):
-            for pdf in iterator:
-                (
-                    feature_view,
-                    online_store,
-                    repo_config,
-                ) = spark_serialized_artifacts.unserialize()
-
-                if isinstance(feature_view, StreamFeatureView):
-                    ts_field = feature_view.timestamp_field
-                else:
-                    ts_field = feature_view.stream_source.timestamp_field
-
-                # Extract the latest feature values for each unique entity row (i.e. the join keys).
-                pdf = (
-                    pdf.sort_values(by=[*join_keys, ts_field], ascending=False)
-                    .groupby(join_keys)
-                    .nth(0)
-                )
-
-                table = pyarrow.Table.from_pandas(pdf)
-                if feature_view.batch_source.field_mapping is not None:
-                    table = _run_pyarrow_field_mapping(
-                        table, feature_view.batch_source.field_mapping
-                    )
-
-                join_key_to_value_type = {
-                    entity.name: entity.dtype.to_value_type()
-                    for entity in feature_view.entity_columns
-                }
-                rows_to_write = _convert_arrow_to_proto(
-                    table, feature_view, join_key_to_value_type
-                )
-                online_write_with_connector(
-                    repo_config,
-                    feature_view,
-                    rows_to_write,
-                    lambda x: None,
-                    spark=spark_session,
-                )
-
-            yield pd.DataFrame([pd.Series(range(1, 2))])  # dummy result
-
-        def batch_write(
-            sdf: DataFrame,
-            batch_id: int,
-            spark_serialized_artifacts,
-            join_keys,
-            feature_view,
-            spark_session,
-        ):
+        def batch_write(sdf: DataFrame, batch_id: int, spark_serialized_artifacts, join_keys, feature_view, spark_session):
+            """
+            Write each batch of data to the online store.
+            """
             start_time = time.time()
-            sdf.mapInPandas(
-                lambda x: batch_write_pandas_df(
-                    x, spark_serialized_artifacts, join_keys, spark_session
-                ),
-                "status int",
-            ).count()  # dummy action to force evaluation
-            print(
-                f"Time taken to write batch {batch_id} is: {(time.time() - start_time) * 1000:.2f} ms"
+
+            # Extract latest feature values per entity and write to the online store
+            latest_df = (
+                sdf.withColumn(
+                    "row_number",
+                    F.row_number().over(Window.partitionBy(*join_keys).orderBy(F.desc(feature_view.timestamp_field))),
+                )
+                .filter(F.col("row_number") == 1)
+                .drop("row_number")
             )
+
+            rows_to_write = latest_df.collect()  # Convert to rows for online_write_with_connector
+
+            # Deserialize artifacts and write the batch
+            feature_view, online_store, repo_config = spark_serialized_artifacts.unserialize()
+            online_write_with_connector(repo_config, feature_view, rows_to_write, None, spark_session)
+
+            print(f"Time taken to write batch {batch_id}: {(time.time() - start_time) * 1000:.2f} ms")
 
         query = (
             df.writeStream.outputMode("update")
@@ -434,6 +357,7 @@ class SparkKafkaProcessor(StreamProcessor):
 
         query.awaitTermination(timeout=self.query_timeout)
         return query
+
 
     def _write_stream_data(self, df: StreamTable, to: PushMode) -> StreamingQuery:
         # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
