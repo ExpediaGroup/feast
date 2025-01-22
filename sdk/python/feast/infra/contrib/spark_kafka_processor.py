@@ -1,10 +1,8 @@
 import time
-from datetime import datetime
 from types import MethodType
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union, no_type_check
+from typing import List, Optional, Set, Union, no_type_check
 
 import pandas as pd
-import pyarrow
 from pyspark import SparkContext
 from pyspark.sql import DataFrame, Row, SparkSession
 from pyspark.sql import functions as F
@@ -14,7 +12,7 @@ from pyspark.sql.functions import col, from_json
 from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.window import Window
 
-from feast import FeatureView, RepoConfig
+from feast import FeatureView
 from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat, StreamFormat
 from feast.data_source import KafkaSource, PushMode
 from feast.feature_store import FeatureStore
@@ -28,10 +26,7 @@ from feast.infra.materialization.contrib.spark.spark_materialization_engine impo
     _SparkSerializedArtifacts,
 )
 from feast.infra.provider import get_provider
-from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
-from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.stream_feature_view import StreamFeatureView
-from feast.utils import _convert_arrow_to_proto, _run_pyarrow_field_mapping
 
 
 class SparkProcessorConfig(ProcessorConfig):
