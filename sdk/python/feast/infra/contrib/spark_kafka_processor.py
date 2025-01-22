@@ -309,7 +309,14 @@ class SparkKafkaProcessor(StreamProcessor):
             if progress:
                 progress(1)
 
-        def batch_write(sdf: DataFrame, batch_id: int, spark_serialized_artifacts, join_keys, feature_view, spark_session):
+        def batch_write(
+            sdf: DataFrame,
+            batch_id: int,
+            spark_serialized_artifacts,
+            join_keys,
+            feature_view,
+            spark_session,
+        ):
             """
             Write each batch of data to the online store.
             """
@@ -319,19 +326,31 @@ class SparkKafkaProcessor(StreamProcessor):
             latest_df = (
                 sdf.withColumn(
                     "row_number",
-                    F.row_number().over(Window.partitionBy(*join_keys).orderBy(F.desc(feature_view.timestamp_field))),
+                    F.row_number().over(
+                        Window.partitionBy(*join_keys).orderBy(
+                            F.desc(feature_view.timestamp_field)
+                        )
+                    ),
                 )
                 .filter(F.col("row_number") == 1)
                 .drop("row_number")
             )
 
-            rows_to_write = latest_df.collect()  # Convert to rows for online_write_with_connector
+            rows_to_write = (
+                latest_df.collect()
+            )  # Convert to rows for online_write_with_connector
 
             # Deserialize artifacts and write the batch
-            feature_view, online_store, repo_config = spark_serialized_artifacts.unserialize()
-            online_write_with_connector(repo_config, feature_view, rows_to_write, None, spark_session)
+            feature_view, online_store, repo_config = (
+                spark_serialized_artifacts.unserialize()
+            )
+            online_write_with_connector(
+                repo_config, feature_view, rows_to_write, None, spark_session
+            )
 
-            print(f"Time taken to write batch {batch_id}: {(time.time() - start_time) * 1000:.2f} ms")
+            print(
+                f"Time taken to write batch {batch_id}: {(time.time() - start_time) * 1000:.2f} ms"
+            )
 
         query = (
             df.writeStream.outputMode("update")
@@ -352,7 +371,6 @@ class SparkKafkaProcessor(StreamProcessor):
 
         query.awaitTermination(timeout=self.query_timeout)
         return query
-
 
     def _write_stream_data(self, df: StreamTable, to: PushMode) -> StreamingQuery:
         # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
