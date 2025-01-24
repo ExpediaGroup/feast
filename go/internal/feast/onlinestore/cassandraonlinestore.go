@@ -216,8 +216,8 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	}
 	store.session = createdSession
 
-	if cassandraConfig.keyBatchSize <= 0 {
-		return nil, fmt.Errorf("key_batch_size must be greater than zero")
+	if cassandraConfig.keyBatchSize <= 0 || cassandraConfig.keyBatchSize > 100 {
+		return nil, fmt.Errorf("key_batch_size must be greater than zero and less than 100")
 	} else if cassandraConfig.keyBatchSize == 1 {
 		log.Info().Msg("key batching is disabled")
 	} else {
