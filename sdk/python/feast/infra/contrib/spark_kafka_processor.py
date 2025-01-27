@@ -5,7 +5,6 @@ from typing import (
     Any,
     Callable,
     Dict,
-    Iterable,
     List,
     Optional,
     Set,
@@ -23,10 +22,10 @@ from pyspark.sql.column import Column, _to_java_column
 from pyspark.sql.functions import col, from_json
 from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.types import (
-    StructType,
-    StructField,
-    StringType,
     BinaryType,
+    StringType,
+    StructField,
+    StructType,
     TimestampType,
 )
 
