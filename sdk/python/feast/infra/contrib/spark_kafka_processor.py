@@ -297,14 +297,14 @@ class SparkKafkaProcessor(StreamProcessor):
 
         # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
         def online_write_with_connector(
-                config: RepoConfig,
-                table: FeatureView,
-                data: List[
-                    Tuple[
-                        EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]
-                    ]
-                ],
-                progress: Optional[Callable[[int], Any]],
+            config: RepoConfig,
+            table: FeatureView,
+            data: List[
+                Tuple[
+                    EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]
+                ]
+            ],
+            progress: Optional[Callable[[int], Any]],
         ) -> None:
             """
             Write a batch of features of several entities to the database using Spark Cassandra Connector.
@@ -372,6 +372,7 @@ class SparkKafkaProcessor(StreamProcessor):
             # Call progress function if provided
             if progress:
                 progress(len(data))
+
         def batch_write_pandas_df(iterator, spark_serialized_artifacts, join_keys):
             for pdf in iterator:
                 (
