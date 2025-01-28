@@ -332,8 +332,8 @@ class SparkKafkaProcessor(StreamProcessor):
             def transform_row(
                 entity_key,
                 values: Dict[str, "ValueProto"],
-                timestamp: datetime.datetime,
-                created_ts: datetime.datetime,
+                timestamp: datetime,
+                created_ts: Optional[datetime],
             ):
                 """
                 Transformation function to convert a row of data into the format required for writing to Cassandra.
