@@ -497,3 +497,4 @@ class SparkKafkaProcessor(StreamProcessor):
 
         query.awaitTermination(timeout=self.query_timeout)
         return query
+
