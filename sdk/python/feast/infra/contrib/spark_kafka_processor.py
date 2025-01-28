@@ -298,14 +298,14 @@ class SparkKafkaProcessor(StreamProcessor):
 
         # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
         def online_write_with_connector(
-            config: RepoConfig,
-            table: FeatureView,
-            data: List[
-                Tuple[
-                    EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]
-                ]
-            ],
-            progress: Optional[Callable[[int], Any]],
+                config: RepoConfig,
+                table: FeatureView,
+                data: List[
+                    Tuple[
+                        EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]
+                    ]
+                ],
+                progress: Optional[Callable[[int], Any]],
         ) -> None:
             """
             Write a batch of features of several entities to the database using Spark Cassandra Connector.
@@ -329,75 +329,50 @@ class SparkKafkaProcessor(StreamProcessor):
             cassandra_keyspace = keyspace
             cassandra_table = fqtable
 
-            def transform_row(
-                entity_key,
-                values: Dict[str, "ValueProto"],
-                timestamp: datetime,
-                created_ts: Optional[datetime],
-            ):
+            def create_spark_dataframe():
                 """
-                Transformation function to convert a row of data into the format required for writing to Cassandra.
+                Convert the data into a Spark DataFrame.
                 """
-                # Serialize the entity key (already implemented elsewhere)
-                entity_key_bin = serialize_entity_key(entity_key).hex()
-
-                # Prepare the transformed rows in the expected format directly
                 rows = []
-                for feature_name, val in values.items():
-                    rows.append(
-                        (
-                            feature_name,
-                            val.SerializeToString(),  # Assumes val is a proto object with a SerializeToString method
-                            entity_key_bin,
-                            timestamp,
-                            created_ts,
+                for entity_key, values, timestamp, created_ts in data:
+                    entity_key_bin = serialize_entity_key(
+                        entity_key,
+                        entity_key_serialization_version=config.entity_key_serialization_version,
+                    ).hex()
+                    for feature_name, val in values.items():
+                        rows.append(
+                            (
+                                feature_name,
+                                val.SerializeToString(),
+                                entity_key_bin,
+                                timestamp,
+                                created_ts,
+                            )
                         )
-                    )
 
-                # Return directly as an iterable list of rows
-                return rows
+                schema = StructType(
+                    [
+                        StructField("feature_name", StringType(), False),
+                        StructField("feature_value", BinaryType(), False),
+                        StructField("entity_key", StringType(), False),
+                        StructField("event_timestamp", TimestampType(), False),
+                        StructField("created_timestamp", TimestampType(), True),
+                    ]
+                )
 
-            transform_udf = udf(
-                transform_row,
-                ArrayType(
-                    StructType(
-                        [
-                            StructField("feature_name", StringType(), False),
-                            StructField("feature_value", BinaryType(), False),
-                            StructField("entity_key", StringType(), False),
-                            StructField("event_timestamp", TimestampType(), False),
-                            StructField("created_timestamp", TimestampType(), True),
-                        ]
-                    )
-                ),
-            )
+                return self.spark.createDataFrame(rows, schema)
 
-            # Apply the UDF directly to the DataFrame
-            df_transformed = df.withColumn(
-                "transformed_data",
-                transform_udf(
-                    df["entity_key"], df["values"], df["timestamp"], df["created_ts"]
-                ),
-            )
+            # Create a DataFrame from the input data
+            df = create_spark_dataframe()
 
-            # Instead of exploding, directly select the required columns from the 'transformed_data'
-            df_final = df_transformed.select(
-                "transformed_data.feature_name",
-                "transformed_data.feature_value",
-                "transformed_data.entity_key",
-                "transformed_data.event_timestamp",
-                "transformed_data.created_timestamp",
-            )
-
-            # Proceed with the rest of the operations to save to Cassandra
-            df_final.write.format("org.apache.spark.sql.cassandra").options(
+            # Write DataFrame to Cassandra
+            df.write.format("org.apache.spark.sql.cassandra").options(
                 keyspace=cassandra_keyspace, table=cassandra_table
             ).mode("append").save()
 
             # Call progress function if provided
             if progress:
                 progress(len(data))
-
         def batch_write_pandas_df(iterator, spark_serialized_artifacts, join_keys):
             for pdf in iterator:
                 (
