@@ -19,10 +19,9 @@ from pyspark import SparkContext
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.column import Column, _to_java_column
-from pyspark.sql.functions import col, from_json, udf
+from pyspark.sql.functions import col, from_json
 from pyspark.sql.streaming import StreamingQuery
 from pyspark.sql.types import (
-    ArrayType,
     BinaryType,
     StringType,
     StructField,
