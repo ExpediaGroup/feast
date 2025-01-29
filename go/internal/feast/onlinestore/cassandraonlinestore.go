@@ -162,7 +162,7 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 
 	keyBatchSize, ok := onlineStoreConfig["key_batch_size"]
 	if !ok {
-		keyBatchSize = 5.0
+		keyBatchSize = 10.0
 		log.Warn().Msg("key_batch_size not specified, defaulting to batches of size 5")
 	}
 	cassandraConfig.keyBatchSize = int(keyBatchSize.(float64))
