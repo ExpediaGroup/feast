@@ -257,7 +257,8 @@ func (c *CassandraOnlineStore) getMultiKeyCQLStatement(tableName string, feature
 	for i := 0; i < nkeys; i++ {
 		keyPlaceholders[i] = "?"
 	}
-
+	fmt.Printf("Number of keys: %d\n", nkeys)
+	fmt.Printf("Number of placeholders: %d\n", len(keyPlaceholders))
 	return fmt.Sprintf(
 		`SELECT "entity_key", "feature_name", "event_ts", "value" FROM %s WHERE "entity_key" IN (%s) AND "feature_name" IN (%s)`,
 		tableName,
@@ -449,13 +450,14 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	nKeys := len(serializedEntityKeys)
 	batchSize := c.keyBatchSize
 	nBatches := int(math.Ceil(float64(nKeys) / float64(batchSize)))
-
+	fmt.Printf("Total number of keys: %d, Batch size: %d, Total batches: %d\n", nKeys, batchSize, nBatches)
 	batches := make([][]any, nBatches)
 	nAssigned := 0
 	for i := 0; i < nBatches; i++ {
 		thisBatchSize := int(math.Min(float64(batchSize), float64(nKeys-nAssigned)))
 		nAssigned += thisBatchSize
 		batches[i] = make([]any, thisBatchSize)
+		fmt.Printf("Batch %d size: %d\n", i+1, thisBatchSize)
 		for j := 0; j < thisBatchSize; j++ {
 			batches[i][j] = serializedEntityKeys[i*batchSize+j]
 		}
