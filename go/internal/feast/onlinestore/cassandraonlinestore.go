@@ -425,7 +425,7 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	if len(uniqueNames) != 1 {
 		return nil, fmt.Errorf("rejecting OnlineRead as more than 1 feature view was tried to be read at once")
 	}
-
+	fmt.Printf("Input entityKeys:%d", len(entityKeys))
 	serializedEntityKeys, serializedEntityKeyToIndex, err := c.buildCassandraEntityKeys(entityKeys)
 
 	if err != nil {
@@ -450,7 +450,7 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	nKeys := len(serializedEntityKeys)
 	batchSize := c.keyBatchSize
 	nBatches := int(math.Ceil(float64(nKeys) / float64(batchSize)))
-	fmt.Printf("Total number of keys: %d, Batch size: %d, Total batches: %d\n", nKeys, batchSize, nBatches)
+	fmt.Printf("Total number of serializedEntityKeys: %d, Batch size: %d, Total batches: %d\n", nKeys, batchSize, nBatches)
 	batches := make([][]any, nBatches)
 	nAssigned := 0
 	for i := 0; i < nBatches; i++ {
