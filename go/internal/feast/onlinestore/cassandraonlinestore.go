@@ -257,8 +257,6 @@ func (c *CassandraOnlineStore) getMultiKeyCQLStatement(tableName string, feature
 	for i := 0; i < nkeys; i++ {
 		keyPlaceholders[i] = "?"
 	}
-	fmt.Printf("Number of keys: %d\n", nkeys)
-	fmt.Printf("Number of placeholders: %d\n", len(keyPlaceholders))
 	return fmt.Sprintf(
 		`SELECT "entity_key", "feature_name", "event_ts", "value" FROM %s WHERE "entity_key" IN (%s) AND "feature_name" IN (%s)`,
 		tableName,
@@ -425,7 +423,7 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	if len(uniqueNames) != 1 {
 		return nil, fmt.Errorf("rejecting OnlineRead as more than 1 feature view was tried to be read at once")
 	}
-	fmt.Printf("Input entityKeys:%d", len(entityKeys))
+	log.Info().Msgf("BatchedKeysOnlineRead: Number of entity keys %d", entityKeys)
 	serializedEntityKeys, serializedEntityKeyToIndex, err := c.buildCassandraEntityKeys(entityKeys)
 
 	if err != nil {
@@ -450,7 +448,7 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	nKeys := len(serializedEntityKeys)
 	batchSize := c.keyBatchSize
 	nBatches := int(math.Ceil(float64(nKeys) / float64(batchSize)))
-	fmt.Printf("Total number of serializedEntityKeys: %d, Batch size: %d, Total batches: %d\n", nKeys, batchSize, nBatches)
+	log.Info().Msgf("BatchedKeysOnlineRead: Total number of serializedEntityKeys: %d, Batch size: %d, Total batches: %d\n", nKeys, batchSize, nBatches)
 	batches := make([][]any, nBatches)
 	nAssigned := 0
 	for i := 0; i < nBatches; i++ {
@@ -476,12 +474,8 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 			cqlStatement = c.getMultiKeyCQLStatement(tableName, featureNames, currentBatchLength)
 			prevBatchLength = currentBatchLength
 		}
-		go func(keyBatch []any, statement string) {
+		go func(keyBatch []any, cqlStatement string) {
 			defer waitGroup.Done()
-			// this caches the previous batch query if it had the same number of keys
-			if len(keyBatch) != prevBatchLength {
-				cqlStatement = c.getMultiKeyCQLStatement(tableName, featureNames, len(keyBatch))
-			}
 			iter := c.session.Query(cqlStatement, keyBatch...).WithContext(ctx).Iter()
 
 			scanner := iter.Scanner()
