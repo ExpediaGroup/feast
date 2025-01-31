@@ -423,7 +423,7 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	if len(uniqueNames) != 1 {
 		return nil, fmt.Errorf("rejecting OnlineRead as more than 1 feature view was tried to be read at once")
 	}
-	log.Info().Msgf("BatchedKeysOnlineRead: Number of entity keys %d", entityKeys)
+	log.Info().Msgf("BatchedKeysOnlineRead: Number of entity keys %d", len(entityKeys))
 	serializedEntityKeys, serializedEntityKeyToIndex, err := c.buildCassandraEntityKeys(entityKeys)
 
 	if err != nil {
@@ -474,9 +474,9 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 			cqlStatement = c.getMultiKeyCQLStatement(tableName, featureNames, currentBatchLength)
 			prevBatchLength = currentBatchLength
 		}
-		go func(keyBatch []any, cqlStatement string) {
+		go func(keyBatch []any, statement string) {
 			defer waitGroup.Done()
-			iter := c.session.Query(cqlStatement, keyBatch...).WithContext(ctx).Iter()
+			iter := c.session.Query(statement, keyBatch...).WithContext(ctx).Iter()
 
 			scanner := iter.Scanner()
 			var entityKey string
