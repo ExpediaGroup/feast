@@ -467,14 +467,16 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	waitGroup.Add(nBatches)
 
 	errorsChannel := make(chan error, nBatches)
+	var currentBatchLength int
 	var prevBatchLength int
+	var cqlStatement string
 	for _, batch := range batches {
-		var cqlStatement string
+		currentBatchLength = len(batch)
 		if len(batch) != prevBatchLength {
-			prevBatchLength = len(batch)
-			cqlStatement = c.getMultiKeyCQLStatement(tableName, featureNames, len(batch))
+			cqlStatement = c.getMultiKeyCQLStatement(tableName, featureNames, currentBatchLength)
+			prevBatchLength = currentBatchLength
 		}
-		go func(keyBatch []any) {
+		go func(keyBatch []any, statement string) {
 			defer waitGroup.Done()
 			// this caches the previous batch query if it had the same number of keys
 			if len(keyBatch) != prevBatchLength {
@@ -543,7 +545,7 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 					results[serializedEntityKeyToIndex[keyString]][featureNamesToIdx[featName]] = featureData
 				}
 			}
-		}(batch)
+		}(batch, cqlStatement)
 	}
 	// wait until all concurrent single-key queries are done
 	waitGroup.Wait()
