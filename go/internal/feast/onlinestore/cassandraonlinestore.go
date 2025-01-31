@@ -472,7 +472,7 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	var cqlStatement string
 	for _, batch := range batches {
 		currentBatchLength = len(batch)
-		if len(batch) != prevBatchLength {
+		if currentBatchLength != prevBatchLength {
 			cqlStatement = c.getMultiKeyCQLStatement(tableName, featureNames, currentBatchLength)
 			prevBatchLength = currentBatchLength
 		}
