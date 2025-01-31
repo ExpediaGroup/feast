@@ -468,16 +468,18 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 
 	errorsChannel := make(chan error, nBatches)
 	var prevBatchLength int
-	var cqlStatement string
 	for _, batch := range batches {
+		var cqlStatement string
+		if len(batch) != prevBatchLength {
+			prevBatchLength = len(batch)
+			cqlStatement = c.getMultiKeyCQLStatement(tableName, featureNames, len(batch))
+		}
 		go func(keyBatch []any) {
 			defer waitGroup.Done()
-
 			// this caches the previous batch query if it had the same number of keys
 			if len(keyBatch) != prevBatchLength {
 				cqlStatement = c.getMultiKeyCQLStatement(tableName, featureNames, len(keyBatch))
 			}
-
 			iter := c.session.Query(cqlStatement, keyBatch...).WithContext(ctx).Iter()
 
 			scanner := iter.Scanner()
