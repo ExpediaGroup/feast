@@ -453,7 +453,6 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 		thisBatchSize := int(math.Min(float64(batchSize), float64(nKeys-nAssigned)))
 		nAssigned += thisBatchSize
 		batches[i] = make([]any, thisBatchSize)
-		fmt.Printf("Batch %d size: %d\n", i+1, thisBatchSize)
 		for j := 0; j < thisBatchSize; j++ {
 			batches[i][j] = serializedEntityKeys[i*batchSize+j]
 		}
