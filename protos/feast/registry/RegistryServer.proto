@@ -42,10 +42,8 @@ service RegistryServer{
   rpc ListFeatureViews (ListFeatureViewsRequest) returns (ListFeatureViewsResponse) {}
 
   // SortedFeatureView RPCs
-  rpc ApplySortedFeatureView (ApplySortedFeatureViewRequest) returns (google.protobuf.Empty) {}
   rpc GetSortedFeatureView (GetSortedFeatureViewRequest) returns (feast.core.SortedFeatureView) {}
   rpc ListSortedFeatureViews (ListSortedFeatureViewsRequest) returns (ListSortedFeatureViewsResponse) {}
-  rpc DeleteSortedFeatureView (DeleteSortedFeatureViewRequest) returns (google.protobuf.Empty) {}
 
   // StreamFeatureView RPCs
   rpc GetStreamFeatureView (GetStreamFeatureViewRequest) returns (feast.core.StreamFeatureView) {}
@@ -288,12 +286,6 @@ message ListOnDemandFeatureViewsResponse {
 
 // SortedFeatureView for range queries
 
-message ApplySortedFeatureViewRequest {
-  feast.core.SortedFeatureView sorted_feature_view = 1;
-  string project = 2;
-  bool commit = 3;
-}
-
 message GetSortedFeatureViewRequest {
   string name = 1;
   string project = 2;
@@ -308,12 +300,6 @@ message ListSortedFeatureViewsRequest {
 
 message ListSortedFeatureViewsResponse {
   repeated feast.core.SortedFeatureView sorted_feature_views = 1;
-}
-
-message DeleteSortedFeatureViewRequest {
-  string name = 1;
-  string project = 2;
-  bool commit = 3;
 }
 
 // FeatureServices
