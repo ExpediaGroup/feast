@@ -2,7 +2,7 @@ import logging
 import os
 import warnings
 from pathlib import Path
-from typing import Any, Dict, Optional, Union, get_args, get_origin
+from typing import Any, Dict, Optional
 
 import yaml
 from pydantic import (
@@ -112,36 +112,6 @@ class FeastConfigBaseModel(BaseModel):
     """Feast Pydantic Configuration Class"""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
-
-    def get_override_config(self, key: str, overrides: dict[str, str] = {}):
-        """
-        Get the value of a key from the overrides dictionary if it exists,
-        otherwise return the value from the model. Return value is casted
-        to the type of the model field.
-        """
-        if key in overrides:
-            annotation = self.model_fields[key].annotation
-            base_type = get_origin(annotation) or annotation
-
-            if base_type is Union:
-                types = get_args(annotation)
-                base_type = next(t for t in types if t is not type(None))
-
-            if base_type:
-                try:
-                    if base_type is bool:
-                        return overrides[key].lower() == "true"
-                    return base_type(overrides[key])
-                except (ValueError, TypeError) as e:
-                    _logger.warning(
-                        f"Could not convert override {key}='{overrides[key]}' to {base_type.__name__}. Exception is {e}"
-                    )
-            else:
-                _logger.warning(
-                    f"Could not find base_type for {key}. Please check your online store configuration."
-                )
-
-        return getattr(self, key, None)
 
 
 class RegistryConfig(FeastBaseModel):

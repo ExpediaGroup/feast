@@ -156,7 +156,6 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     key_ttl_seconds: Optional[StrictInt] = None
     """
     Default TTL (in seconds) to apply to all tables if not specified in FeatureView. Value 0 or None means No TTL.
-    Feature View specific key_ttl_seconds will take precedence over this.  To override prefix your config with "online_store_".
     """
 
     key_batch_size: Optional[StrictInt] = 10
@@ -195,8 +194,6 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     write_concurrency: Optional[StrictInt] = 100
     """
     Controls the number of concurrent writes to the database.
-    Feature View specific write_concurrency will take precedence over this.
-    To override prefix your config with "online_store_".
     Default: 100.
     """
 
@@ -204,8 +201,6 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     """
     The maximum number of write batches per second. Value 0 means no rate limiting.
     For spark materialization engine, this configuration is per executor task.
-    Feature View specific write_rate_limit will take precedence over this.
-    To override prefix your config with "online_store_".
     """
 
 
@@ -375,21 +370,13 @@ class CassandraOnlineStore(OnlineStore):
             logger.exception(f"Error writing a batch: {exc}")
             raise Exception("Exception raised while writing a batch") from exc
 
-        override_configs = table.get_online_store_tags
+        online_store_config = config.online_store
 
         project = config.project
-        write_concurrency = config.online_store.get_override_config(
-            "write_concurrency", override_configs
-        )
-        ttl = (
-            config.online_store.get_override_config(
-                "key_ttl_seconds", table.get_online_store_tags
-            )
-            or 0
-        )
-        write_rate_limit = config.online_store.get_override_config(
-            "write_rate_limit", override_configs
-        )
+
+        ttl = online_store_config.key_ttl_seconds or 0
+        write_concurrency = online_store_config.write_concurrency
+        write_rate_limit = online_store_config.write_rate_limit
         concurrent_queue: Queue = Queue(maxsize=write_concurrency)
         rate_limiter = SlidingWindowRateLimiter(write_rate_limit, 1)
 
@@ -580,9 +567,7 @@ class CassandraOnlineStore(OnlineStore):
             session,
             select_cql,
             ((entity_key_bin,) for entity_key_bin in entity_key_bins),
-            concurrency=config.online_store.get_override_config(
-                "read_concurrency", table.get_online_store_tags
-            ),
+            concurrency=config.online_store.read_concurrency,
         )
         # execute_concurrent_with_args return a sequence
         # of (success, result_or_exception) pairs:

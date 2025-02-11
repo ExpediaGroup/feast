@@ -388,33 +388,3 @@ def test_repo_config_init_expedia_provider_with_online_store_config():
     assert isinstance(c.online_store, RedisOnlineStoreConfig)
     assert isinstance(c.batch_engine, SparkMaterializationEngineConfig)
     assert isinstance(c.offline_store, SparkOfflineStoreConfig)
-
-
-def test_override_online_store_config():
-    c = _test_config(
-        dedent(
-            """
-        project: foo
-        registry: "registry.db"
-        provider: expedia
-        online_store:
-            type: redis
-            connection_string: localhost:6380
-            redis_type: redis_cluster
-            key_ttl_seconds: 123456
-        entity_key_serialization_version: 2
-        """
-        ),
-        expect_error=None,
-    )
-    assert c.online_store.get_override_config("key_ttl_seconds") == 123456
-    assert (
-        c.online_store.get_override_config(
-            "key_ttl_seconds", {"key_ttl_seconds": "654321"}
-        )
-        == 654321
-    )
-    assert (
-        c.online_store.get_override_config("key_ttl_seconds", {"batch_size": "10"})
-        == 123456
-    )
