@@ -128,8 +128,6 @@ comm==0.2.2
     #   ipywidgets
 coverage[toml]==7.6.12
     # via pytest-cov
-cramjam==2.9.1
-    # via python-snappy
 cryptography==42.0.8
     # via
     #   eg-feast (setup.py)
@@ -458,7 +456,7 @@ multidict==6.1.0
     #   aiobotocore
     #   aiohttp
     #   yarl
-mypy==1.15.0
+mypy==1.11.2
     # via
     #   eg-feast (setup.py)
     #   sqlalchemy
@@ -727,8 +725,6 @@ python-json-logger==3.2.1
     # via jupyter-events
 python-keycloak==4.2.2
     # via eg-feast (setup.py)
-python-snappy==0.7.3
-    # via eg-feast (setup.py)
 pytz==2025.1
     # via
     #   great-expectations
@@ -829,7 +825,7 @@ setuptools==75.8.0
     #   pip-tools
     #   pymilvus
     #   singlestoredb
-singlestoredb==1.11.0
+singlestoredb==1.7.2
     # via eg-feast (setup.py)
 six==1.17.0
     # via
