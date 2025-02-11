@@ -234,15 +234,25 @@ def _map_by_partition(
     spark_serialized_artifacts: _SparkSerializedArtifacts,
 ):
     feature_view, online_store, repo_config = spark_serialized_artifacts.unserialize()
+
+    total_batches = 0
+    total_time = 0.0
+    min_time = float("inf")
+    max_time = float("-inf")
+
+    total_rows = 0
+    min_batch_size = float("inf")
+    max_batch_size = float("-inf")
+
     """Load pandas df to online store"""
     for pdf in iterator:
         pdf_row_count = pdf.shape[0]
-        start_time = time.time()
         # convert to pyarrow table
         if pdf_row_count == 0:
             print("INFO!!! Dataframe has 0 records to process")
-            return
+            break
 
+        start_time = time.perf_counter()
         table = pyarrow.Table.from_pandas(pdf)
 
         if feature_view.batch_source.field_mapping is not None:
@@ -266,10 +276,29 @@ def _map_by_partition(
             rows_to_write,
             lambda x: None,
         )
-        end_time = time.time()
+        end_time = time.perf_counter()
+
+        batch_time = end_time - start_time
+
+        total_batches += 1
+        total_time += batch_time
+        min_time = min(min_time, batch_time)
+        max_time = max(max_time, batch_time)
+
+        batch_size = pdf_row_count
+        total_rows += batch_size
+        min_batch_size = min(min_batch_size, batch_size)
+        max_batch_size = max(max_batch_size, batch_size)
+
+    if total_batches > 0:
+        avg_time = total_time / total_batches
+        avg_batch_size = total_rows / total_batches
         print(
-            f"INFO!!! Processed batch with size {pdf_row_count} in {int((end_time - start_time) * 1000)} milliseconds"
+            f"Total Records: {total_rows} |"
+            f"Time - Total: {total_time:.6f}s, Avg: {avg_time:.6f}s, Min: {min_time:.6f}s, Max: {max_time:.6f}s | "
+            f"Batch Size - Avg: {avg_batch_size:.2f}, Min: {min_batch_size}, Max: {max_batch_size}"
         )
+
     yield pd.DataFrame(
         [pd.Series(range(1, 2))]
     )  # dummy result because mapInPandas needs to return something
