@@ -268,7 +268,7 @@ def _map_by_partition(
         )
         end_time = time.time()
         print(
-            f"INFO: Processed batch with size {pdf_row_count} in {int((end_time - start_time) * 1000)} milliseconds"
+            f"INFO!!! Processed batch with size {pdf_row_count} in {int((end_time - start_time) * 1000)} milliseconds"
         )
     yield pd.DataFrame(
         [pd.Series(range(1, 2))]
