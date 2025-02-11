@@ -192,6 +192,7 @@ message ApplyFeatureViewRequest {
     feast.core.FeatureView feature_view = 1;
     feast.core.OnDemandFeatureView on_demand_feature_view = 2;
     feast.core.StreamFeatureView stream_feature_view = 3;
+    feast.core.SortedFeatureView sorted_feature_view = 6;
   }
   string project = 4;
   bool commit = 5;
