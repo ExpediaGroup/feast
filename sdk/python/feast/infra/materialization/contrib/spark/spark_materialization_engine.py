@@ -1,3 +1,4 @@
+import logging
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -32,6 +33,8 @@ from feast.utils import (
     _get_column_names,
     _run_pyarrow_field_mapping,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class SparkMaterializationEngineConfig(FeastConfigBaseModel):
@@ -293,6 +296,11 @@ def _map_by_partition(
     if total_batches > 0:
         avg_time = total_time / total_batches
         avg_batch_size = total_rows / total_batches
+        logger.info(
+            f"Total Records: {total_rows} |"
+            f"Time - Total: {total_time:.6f}s, Avg: {avg_time:.6f}s, Min: {min_time:.6f}s, Max: {max_time:.6f}s | "
+            f"Batch Size - Avg: {avg_batch_size:.2f}, Min: {min_batch_size}, Max: {max_batch_size}"
+        )
         print(
             f"Total Records: {total_rows} |"
             f"Time - Total: {total_time:.6f}s, Avg: {avg_time:.6f}s, Min: {min_time:.6f}s, Max: {max_time:.6f}s | "
