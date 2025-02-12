@@ -1,5 +1,6 @@
 import logging
 import time
+import warnings
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Callable, List, Literal, Optional, Sequence, Union, cast
@@ -237,6 +238,8 @@ def _map_by_partition(
     spark_serialized_artifacts: _SparkSerializedArtifacts,
 ):
     feature_view, online_store, repo_config = spark_serialized_artifacts.unserialize()
+
+    warnings.simplefilter("once", category=DeprecationWarning)
 
     total_batches = 0
     total_time = 0.0
