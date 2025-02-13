@@ -17,8 +17,8 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/gocql/gocql"
-	"github.com/golang/protobuf/proto"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 	gocqltrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gocql/gocql"
