@@ -84,7 +84,7 @@ CREATE_TABLE_CQL_TEMPLATE = """
         created_ts      TIMESTAMP,
         PRIMARY KEY ((entity_key), feature_name)
     ) WITH CLUSTERING ORDER BY (feature_name ASC)
-    AND COMMENT="project={project}, feature_view={feature_view}";
+    AND COMMENT='project={project}, feature_view={feature_view}';
 """
 
 DROP_TABLE_CQL_TEMPLATE = "DROP TABLE IF EXISTS {fqtable};"
