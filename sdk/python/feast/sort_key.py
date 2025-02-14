@@ -33,7 +33,7 @@ class SortKey:
 
     name: str
     value_type: ValueType
-    default_sort_order: int
+    default_sort_order: SortOrder.Enum.ValueType
     tags: Dict[str, str]
     description: str
 
@@ -41,7 +41,7 @@ class SortKey:
         self,
         name: str,
         value_type: ValueType,
-        default_sort_order: int = int(SortOrder.Enum.ASC),
+        default_sort_order: SortOrder.Enum.ValueType = SortOrder.ASC,
         tags: Optional[Dict[str, str]] = None,
         description: str = "",
     ):
@@ -79,7 +79,7 @@ class SortKey:
         return cls(
             name=proto.name,
             value_type=ValueType(proto.value_type),
-            default_sort_order=int(proto.default_sort_order),
+            default_sort_order=proto.default_sort_order,
             tags=dict(proto.tags),
             description=proto.description,
         )
