@@ -6,6 +6,8 @@ from typeguard import typechecked
 from feast.entity import Entity
 from feast.protos.feast.core.SortedFeatureView_pb2 import (
     SortKey as SortKeyProto,
+)
+from feast.protos.feast.core.SortedFeatureView_pb2 import (
     SortOrder,
 )
 from feast.value_type import ValueType
@@ -28,25 +30,39 @@ class SortKey:
     """
     A helper class representing a sorting key for a SortedFeatureView.
     """
+
     name: str
     value_type: ValueType
-    default_sort_order: int  # Using the integer values from the SortOrder enum
+    default_sort_order: int
     tags: Dict[str, str]
     description: str
 
     def __init__(
-            self,
-            name: str,
-            value_type: ValueType,
-            default_sort_order: int = SortOrder.ASC,
-            tags: Optional[Dict[str, str]] = None,
-            description: str = "",
+        self,
+        name: str,
+        value_type: ValueType,
+        default_sort_order: int = int(SortOrder.Enum.ASC),
+        tags: Optional[Dict[str, str]] = None,
+        description: str = "",
     ):
         self.name = name
         self.value_type = value_type
         self.default_sort_order = default_sort_order
         self.tags = tags or {}
         self.description = description
+
+    def ensure_valid(self):
+        """
+        Validates that the SortKey has the required fields.
+        """
+        if not self.name:
+            raise ValueError("SortKey must have a non-empty name.")
+        if not isinstance(self.value_type, ValueType):
+            raise ValueError("SortKey must have a valid value_type of type ValueType.")
+        if self.default_sort_order not in (SortOrder.ASC, SortOrder.DESC):
+            raise ValueError(
+                "SortKey default_sort_order must be either SortOrder.ASC or SortOrder.DESC."
+            )
 
     def to_proto(self) -> SortKeyProto:
         proto = SortKeyProto(
@@ -60,12 +76,10 @@ class SortKey:
 
     @classmethod
     def from_proto(cls, proto: SortKeyProto) -> "SortKey":
-        # Assuming ValueType.from_proto exists.
-        vt = ValueType.from_proto(proto.value_type)
         return cls(
             name=proto.name,
-            value_type=vt,
-            default_sort_order=proto.default_sort_order,
+            value_type=ValueType(proto.value_type),
+            default_sort_order=int(proto.default_sort_order),
             tags=dict(proto.tags),
             description=proto.description,
         )

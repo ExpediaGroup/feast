@@ -27,6 +27,9 @@ from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
 from feast.protos.feast.core.StreamFeatureView_pb2 import (
     StreamFeatureView as StreamFeatureViewProto,
 )
+from feast.protos.feast.core.SortedFeatureView_pb2 import (
+    SortedFeatureView as SortedFeatureViewProto,
+)
 
 
 class BaseFeatureView(ABC):
@@ -98,7 +101,7 @@ class BaseFeatureView(ABC):
     @abstractmethod
     def to_proto(
         self,
-    ) -> Union[FeatureViewProto, OnDemandFeatureViewProto, StreamFeatureViewProto]:
+    ) -> Union[FeatureViewProto, OnDemandFeatureViewProto, StreamFeatureViewProto, SortedFeatureViewProto]:
         pass
 
     @classmethod

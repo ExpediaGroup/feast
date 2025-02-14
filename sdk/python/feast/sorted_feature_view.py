@@ -3,16 +3,18 @@ import warnings
 from datetime import timedelta
 from typing import Dict, List, Optional, Type
 
-from typeguard import typechecked
 from google.protobuf.message import Message
+from typeguard import typechecked
 
-from feast import utils, FeatureView
+from feast import FeatureView, utils
 from feast.data_source import DataSource
 from feast.entity import Entity
 from feast.feature_view_projection import FeatureViewProjection
 from feast.field import Field
 from feast.protos.feast.core.SortedFeatureView_pb2 import (
     SortedFeatureView as SortedFeatureViewProto,
+)
+from feast.protos.feast.core.SortedFeatureView_pb2 import (
     SortedFeatureViewSpec as SortedFeatureViewSpecProto,
 )
 from feast.sort_key import SortKey
@@ -36,21 +38,22 @@ class SortedFeatureView(FeatureView):
     SortedFeatureView extends FeatureView by adding support for range queries
     via sort keys.
     """
+
     sort_keys: List[SortKey]
 
     def __init__(
-            self,
-            *,
-            name: str,
-            source: DataSource,
-            schema: Optional[List[Field]] = None,
-            entities: Optional[List[Entity]] = None,
-            ttl: Optional[timedelta] = timedelta(days=0),
-            online: bool = True,
-            description: str = "",
-            tags: Optional[Dict[str, str]] = None,
-            owner: str = "",
-            sort_keys: Optional[List[SortKey]] = None,
+        self,
+        *,
+        name: str,
+        source: DataSource,
+        schema: Optional[List[Field]] = None,
+        entities: Optional[List[Entity]] = None,
+        ttl: Optional[timedelta] = timedelta(days=0),
+        online: bool = True,
+        description: str = "",
+        tags: Optional[Dict[str, str]] = None,
+        owner: str = "",
+        sort_keys: Optional[List[SortKey]] = None,
     ):
         super().__init__(
             name=name,
@@ -84,11 +87,24 @@ class SortedFeatureView(FeatureView):
         sfv.projection = copy.copy(self.projection)
         return sfv
 
+    def ensure_valid(self):
+        """
+        Validates the state of this SortedFeatureView.
+        This includes the base FeatureView validations and ensures that at least one sort key is defined.
+        """
+        super().ensure_valid()
+
+        # Check that sort_keys is not empty.
+        if not self.sort_keys:
+            raise ValueError(
+                "SortedFeatureView must have at least one sort key defined."
+            )
+
     @property
     def proto_class(self) -> Type[Message]:
         return SortedFeatureViewProto
 
-    def to_proto(self) -> SortedFeatureViewProto:
+    def to_proto(self):
         """
         Converts this SortedFeatureView to its protobuf representation.
         """
@@ -131,7 +147,7 @@ class SortedFeatureView(FeatureView):
         return SortedFeatureViewProto(spec=spec, meta=meta)
 
     @classmethod
-    def from_proto(cls, sfv_proto: SortedFeatureViewProto) -> "SortedFeatureView":
+    def from_proto(cls, sfv_proto):
         """
         Creates a SortedFeatureView from its protobuf representation.
         """
@@ -157,8 +173,8 @@ class SortedFeatureView(FeatureView):
                 else spec.ttl.ToTimedelta()
             ),
             source=batch_source,
-            schema=None,  # schema will be inferred from the fields below
-            entities=None,  # will be set below
+            schema=None,
+            entities=None,
             sort_keys=[SortKey.from_proto(sk) for sk in spec.sort_keys],
         )
 
@@ -169,14 +185,12 @@ class SortedFeatureView(FeatureView):
         sorted_feature_view.original_entities = [
             Entity.from_proto(e) for e in spec.original_entities
         ]
-        sorted_feature_view.features = [
-            Field.from_proto(f) for f in spec.features
-        ]
+        sorted_feature_view.features = [Field.from_proto(f) for f in spec.features]
         sorted_feature_view.entity_columns = [
             Field.from_proto(f) for f in spec.entity_columns
         ]
         sorted_feature_view.original_schema = (
-                sorted_feature_view.entity_columns + sorted_feature_view.features
+            sorted_feature_view.entity_columns + sorted_feature_view.features
         )
 
         sorted_feature_view.projection = FeatureViewProjection.from_definition(
