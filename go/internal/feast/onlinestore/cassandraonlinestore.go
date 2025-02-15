@@ -42,6 +42,7 @@ type CassandraOnlineStore struct {
 	// The version of the table name format
 	tableNameFormatVersion int
 
+	// Caches table names instead of generating the table name every time
 	tableNameCache sync.Map
 }
 
@@ -61,8 +62,6 @@ const (
 	V2_TABLE_NAME_FORMAT_MAX_LENGTH = 48
 	BASE62_CHAR_SET                 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 )
-
-const ()
 
 // toBase62 converts a big integer to a base62 string.
 func toBase62(num *big.Int) string {
