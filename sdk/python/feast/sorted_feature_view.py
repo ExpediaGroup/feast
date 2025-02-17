@@ -28,8 +28,7 @@ DUMMY_ENTITY = Entity(
     name=DUMMY_ENTITY_NAME,
     join_keys=[DUMMY_ENTITY_ID],
 )
-
-ONLINE_STORE_TAG_SUFFIX = "online_store_"
+DUMMY_SORT_KEY_NAME = "__dummy_sort_key"
 
 
 @typechecked
@@ -66,7 +65,7 @@ class SortedFeatureView(FeatureView):
             tags=tags,
             owner=owner,
         )
-        self.sort_keys = sort_keys or []
+        self.sort_keys = sort_keys if sort_keys is not None else []
 
     def __copy__(self):
         sfv = SortedFeatureView(
@@ -77,7 +76,7 @@ class SortedFeatureView(FeatureView):
             ttl=self.ttl,
             online=self.online,
             description=self.description,
-            tags=self.tags,
+            tags=copy.deepcopy(self.tags),
             owner=self.owner,
             sort_keys=copy.copy(self.sort_keys),
         )

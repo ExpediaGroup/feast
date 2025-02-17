@@ -22,8 +22,6 @@ DUMMY_ENTITY = Entity(
     join_keys=[DUMMY_ENTITY_ID],
 )
 
-ONLINE_STORE_TAG_SUFFIX = "online_store_"
-
 
 @typechecked
 class SortKey:
