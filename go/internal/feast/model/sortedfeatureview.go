@@ -1,12 +1,20 @@
 package model
 
 import (
-	"time"
-
-	durationpb "google.golang.org/protobuf/types/known/durationpb"
-
 	"github.com/feast-dev/feast/go/protos/feast/core"
 )
+
+type SortKey struct {
+	FieldName string
+	Order     string
+}
+
+func NewSortKeyFromProto(proto *core.SortKey) *SortKey {
+	return &SortKey{
+		FieldName: proto.GetName(),
+		Order:     proto.GetDefaultSortOrder().String(),
+	}
+}
 
 type SortedFeatureView struct {
 	*FeatureView
@@ -14,30 +22,15 @@ type SortedFeatureView struct {
 }
 
 func NewSortedFeatureViewFromProto(proto *core.SortedFeatureView) *SortedFeatureView {
-	baseFV := NewFeatureViewFromProto(&core.FeatureView{
-		Spec: proto.Spec,
-		Meta: proto.Meta,
-	})
-
-	sortKeys := make([]*SortKey, len(proto.Spec.SortKeys))
-	for i, skProto := range proto.Spec.SortKeys {
-		sortKeys[i] = NewSortKeyFromProto(skProto)
+	// Create a base FeatureView using Spec fields from the proto.
+	baseFV := &FeatureView{
+		Base: NewBaseFeatureView(proto.GetSpec().GetName(), proto.GetSpec().GetFeatures()),
+		Ttl:  proto.GetSpec().GetTtl(),
 	}
 
-	return &SortedFeatureView{
-		FeatureView: baseFV,
-		SortKeys:    sortKeys,
-	}
-}
-
-func NewSortedFeatureViewFromStreamProto(proto *core.StreamFeatureView) *SortedFeatureView {
-	baseFV := NewFeatureViewFromStreamFeatureViewProto(&core.FeatureView{
-		Spec: proto.Spec,
-		Meta: proto.Meta,
-	})
-
-	sortKeys := make([]*SortKey, len(proto.Spec.SortKeys))
-	for i, skProto := range proto.Spec.SortKeys {
+	// Convert each sort key from the proto.
+	sortKeys := make([]*SortKey, len(proto.GetSpec().GetSortKeys()))
+	for i, skProto := range proto.GetSpec().GetSortKeys() {
 		sortKeys[i] = NewSortKeyFromProto(skProto)
 	}
 
