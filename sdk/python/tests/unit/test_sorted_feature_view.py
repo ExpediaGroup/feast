@@ -5,9 +5,11 @@ import pytest
 
 from feast import FileSource
 from feast.entity import Entity
+from feast.field import Field
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.sort_key import SortKey
 from feast.sorted_feature_view import SortedFeatureView
+from feast.types import Float32
 from feast.utils import _utc_now, make_tzaware
 from feast.value_type import ValueType
 
@@ -70,6 +72,39 @@ def test_sorted_feature_view_ensure_valid():
     with pytest.raises(ValueError) as excinfo:
         sfv.ensure_valid()
     assert "must have at least one sort key defined" in str(excinfo.value)
+
+
+def test_sorted_feature_view_ensure_valid_sort_key_in_entity_columns():
+    """
+    Test that a SortedFeatureView fails validation if any sort key's name is part of the entity columns.
+    """
+    source = FileSource(path="some path")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+
+    # Create a field that represents an entity column with the same name as the entity.
+    # (Assuming Field and Float32 are imported and used similarly in your code.)
+    entity_field = Field(name="entity1", dtype=Float32)
+
+    # Create a sort key that conflicts with the entity column name.
+    sort_key = SortKey(
+        name="entity1",  # This is the same as the entity's name / entity column.
+        value_type=ValueType.STRING,
+        default_sort_order=SortOrder.ASC,  # Assuming ASC is valid.
+    )
+
+    # Create a SortedFeatureView with a sort key that conflicts.
+    sfv = SortedFeatureView(
+        name="invalid_sorted_feature_view",
+        source=source,
+        entities=[entity],
+        sort_keys=[sort_key],
+    )
+    # Simulate that the entity field is recognized as an entity column.
+    sfv.entity_columns = [entity_field]
+
+    with pytest.raises(ValueError) as excinfo:
+        sfv.ensure_valid()
+    assert "Sort key entity1 cannot be part of entity columns" in str(excinfo.value)
 
 
 def test_sorted_feature_view_copy():

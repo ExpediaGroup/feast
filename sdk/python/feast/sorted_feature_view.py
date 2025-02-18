@@ -98,6 +98,12 @@ class SortedFeatureView(FeatureView):
             raise ValueError(
                 "SortedFeatureView must have at least one sort key defined."
             )
+        # check if the sort_key is not a part of the entity_columns
+        for sort_key in self.sort_keys:
+            if sort_key.name in [entity.name for entity in self.entity_columns]:
+                raise ValueError(
+                    f"Sort key {sort_key.name} cannot be part of entity columns"
+                )
 
     @property
     def proto_class(self) -> Type[Message]:
