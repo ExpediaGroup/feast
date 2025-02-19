@@ -2,10 +2,12 @@ package onlinestore
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"os"
 	"strings"
 	"sync"
@@ -16,8 +18,8 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/gocql/gocql"
-	"github.com/golang/protobuf/proto"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/protobuf/proto"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 	gocqltrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gocql/gocql"
@@ -36,6 +38,12 @@ type CassandraOnlineStore struct {
 
 	// The number of keys to include in a single CQL query for retrieval from the database
 	keyBatchSize int
+
+	// The version of the table name format
+	tableNameFormatVersion int
+
+	// Caches table names instead of generating the table name every time
+	tableNameCache sync.Map
 }
 
 type CassandraConfig struct {
@@ -50,6 +58,36 @@ type CassandraConfig struct {
 	keyBatchSize            int
 }
 
+const (
+	V2_TABLE_NAME_FORMAT_MAX_LENGTH = 48
+	BASE62_CHAR_SET                 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+)
+
+// toBase62 converts a big integer to a base62 string.
+func toBase62(num *big.Int) string {
+	if num.Sign() == 0 {
+		return "0"
+	}
+
+	base := big.NewInt(62)
+	result := []string{}
+	zero := big.NewInt(0)
+	remainder := new(big.Int)
+
+	for num.Cmp(zero) > 0 {
+		num.DivMod(num, base, remainder)
+		result = append([]string{string(BASE62_CHAR_SET[remainder.Int64()])}, result...)
+	}
+
+	return strings.Join(result, "")
+}
+
+// base62Encode converts a byte slice to a Base62 string.
+func base62Encode(data []byte) string {
+	num := new(big.Int).SetBytes(data)
+	return toBase62(num)
+}
+
 func parseStringField(config map[string]any, fieldName string, defaultValue string) (string, error) {
 	rawValue, ok := config[fieldName]
 	if !ok {
@@ -57,7 +95,7 @@ func parseStringField(config map[string]any, fieldName string, defaultValue stri
 	}
 	stringValue, ok := rawValue.(string)
 	if !ok {
-		return "", fmt.Errorf("failed to convert %s to string: %v", fieldName, rawValue)
+		return "", fmt.Errorf("failed to convert field %s to string: %v", fieldName, rawValue)
 	}
 	return stringValue, nil
 }
@@ -225,11 +263,68 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	}
 	store.keyBatchSize = cassandraConfig.keyBatchSize
 
+	// parse tableNameFormatVersion
+	tableNameFormatVersion, ok := onlineStoreConfig["table_name_format_version"]
+	if !ok {
+		tableNameFormatVersion = 1
+		log.Warn().Msg("table_name_format_version not specified: Using 1 instead")
+	}
+	store.tableNameFormatVersion = int(tableNameFormatVersion.(float64))
+
 	return &store, nil
 }
 
-func (c *CassandraOnlineStore) getFqTableName(tableName string) string {
-	return fmt.Sprintf(`"%s"."%s_%s"`, c.clusterConfigs.Keyspace, c.project, tableName)
+// fqTableNameV2 generates a fully qualified table name with Base62 hashing.
+func getFqTableNameV2(keyspace string, project string, featureViewName string) string {
+	dbTableName := fmt.Sprintf("%s_%s", project, featureViewName)
+
+	if len(dbTableName) <= V2_TABLE_NAME_FORMAT_MAX_LENGTH {
+		return dbTableName
+	}
+
+	// Truncate project & feature view name
+	prjPrefixMaxLen := 5
+	fvPrefixMaxLen := 5
+	truncatedProject := project[:min(len(project), prjPrefixMaxLen)]
+	truncatedFv := featureViewName[:min(len(featureViewName), fvPrefixMaxLen)]
+
+	projectToHash := project[len(truncatedProject):]
+	fvToHash := featureViewName[len(truncatedFv):]
+
+	projectHashBytes := md5.Sum([]byte(projectToHash))
+	fvHashBytes := md5.Sum([]byte(fvToHash))
+
+	// Compute MD5 hash and encode to Base62
+	projectHash := base62Encode(projectHashBytes[:])
+	fvHash := base62Encode(fvHashBytes[:])
+
+	// Format final table name (48 - 3 underscores - 5 prj prefix - 5 fv prefix) / 2 = ~17 each
+	dbTableName = fmt.Sprintf("%s_%s_%s_%s",
+		truncatedProject, projectHash[:17], truncatedFv, fvHash[:18])
+
+	return dbTableName
+}
+
+func (c *CassandraOnlineStore) getFqTableName(keySpace string, project string, featureViewName string, tableNameVersion int) (string, error) {
+	var dbTableName string
+
+	tableName := fmt.Sprintf("%s_%s", project, featureViewName)
+
+	if cacheValue, found := c.tableNameCache.Load(tableName); found {
+		return fmt.Sprintf(`"%s"."%s"`, keySpace, cacheValue.(string)), nil
+	}
+
+	if tableNameVersion == 1 {
+		dbTableName = tableName
+	} else if tableNameVersion == 2 {
+		dbTableName = getFqTableNameV2(keySpace, project, featureViewName)
+	} else {
+		return "", fmt.Errorf("unknown table name format version: %d", tableNameVersion)
+	}
+
+	c.tableNameCache.Store(tableName, dbTableName)
+
+	return fmt.Sprintf(`"%s"."%s"`, keySpace, dbTableName), nil
 }
 
 func (c *CassandraOnlineStore) getSingleKeyCQLStatement(tableName string, featureNames []string) string {
@@ -307,7 +402,10 @@ func (c *CassandraOnlineStore) UnbatchedKeysOnlineRead(ctx context.Context, enti
 	featureViewName := featureViewNames[0]
 
 	// Prepare the query
-	tableName := c.getFqTableName(featureViewName)
+	tableName, err := c.getFqTableName(c.clusterConfigs.Keyspace, c.project, featureViewName, c.tableNameFormatVersion)
+	if err != nil {
+		return nil, err
+	}
 	cqlStatement := c.getSingleKeyCQLStatement(tableName, featureNames)
 
 	var waitGroup sync.WaitGroup
@@ -346,7 +444,7 @@ func (c *CassandraOnlineStore) UnbatchedKeysOnlineRead(ctx context.Context, enti
 			var eventTs time.Time
 			var valueStr []byte
 			var deserializedValue types.Value
-			rowFeatures := make(map[string]FeatureData)
+			rowFeatures := make(map[string]*FeatureData)
 			for scanner.Next() {
 				err := scanner.Scan(&entityKey, &featureName, &eventTs, &valueStr)
 				if err != nil {
@@ -360,7 +458,7 @@ func (c *CassandraOnlineStore) UnbatchedKeysOnlineRead(ctx context.Context, enti
 
 				if deserializedValue.Val != nil {
 					// Convert the value to a FeatureData struct
-					rowFeatures[featureName] = FeatureData{
+					rowFeatures[featureName] = &FeatureData{
 						Reference: serving.FeatureReferenceV2{
 							FeatureViewName: featureViewName,
 							FeatureName:     featureName,
@@ -379,9 +477,20 @@ func (c *CassandraOnlineStore) UnbatchedKeysOnlineRead(ctx context.Context, enti
 			}
 
 			for _, featName := range featureNames {
-				featureData, ok := rowFeatures[featName]
-				if !ok {
-					featureData = FeatureData{
+
+				if featureData, exists := rowFeatures[featName]; exists {
+					results[rowIdx][featureNamesToIdx[featName]] = FeatureData{
+						Reference: serving.FeatureReferenceV2{
+							FeatureViewName: featureData.Reference.FeatureViewName,
+							FeatureName:     featureData.Reference.FeatureName,
+						},
+						Timestamp: timestamppb.Timestamp{Seconds: featureData.Timestamp.Seconds, Nanos: featureData.Timestamp.Nanos},
+						Value: types.Value{
+							Val: featureData.Value.Val,
+						},
+					}
+				} else {
+					results[rowIdx][featureNamesToIdx[featName]] = FeatureData{
 						Reference: serving.FeatureReferenceV2{
 							FeatureViewName: featureViewName,
 							FeatureName:     featName,
@@ -393,7 +502,7 @@ func (c *CassandraOnlineStore) UnbatchedKeysOnlineRead(ctx context.Context, enti
 						},
 					}
 				}
-				results[rowIdx][featureNamesToIdx[featName]] = featureData
+
 			}
 		}(serializedEntityKey)
 	}
@@ -441,7 +550,10 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	featureViewName := featureViewNames[0]
 
 	// Prepare the query
-	tableName := c.getFqTableName(featureViewName)
+	tableName, err := c.getFqTableName(c.clusterConfigs.Keyspace, c.project, featureViewName, c.tableNameFormatVersion)
+	if err != nil {
+		return nil, err
+	}
 
 	// Key batching
 	nKeys := len(serializedEntityKeys)
@@ -482,7 +594,7 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 			var valueStr []byte
 			var deserializedValue types.Value
 			// key 1: entityKey - key 2: featureName
-			batchFeatures := make(map[string]map[string]FeatureData)
+			batchFeatures := make(map[string]map[string]*FeatureData)
 			for scanner.Next() {
 				err := scanner.Scan(&entityKey, &featureName, &eventTs, &valueStr)
 				if err != nil {
@@ -496,9 +608,9 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 
 				if deserializedValue.Val != nil {
 					if batchFeatures[entityKey] == nil {
-						batchFeatures[entityKey] = make(map[string]FeatureData)
+						batchFeatures[entityKey] = make(map[string]*FeatureData)
 					}
-					batchFeatures[entityKey][featureName] = FeatureData{
+					batchFeatures[entityKey][featureName] = &FeatureData{
 						Reference: serving.FeatureReferenceV2{
 							FeatureViewName: featureViewName,
 							FeatureName:     featureName,
@@ -519,9 +631,20 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 			for _, serializedEntityKey := range keyBatch {
 				for _, featName := range featureNames {
 					keyString := serializedEntityKey.(string)
-					featureData, ok := batchFeatures[keyString][featName]
-					if !ok {
-						featureData = FeatureData{
+
+					if featureData, exists := batchFeatures[keyString][featName]; exists {
+						results[serializedEntityKeyToIndex[keyString]][featureNamesToIdx[featName]] = FeatureData{
+							Reference: serving.FeatureReferenceV2{
+								FeatureViewName: featureData.Reference.FeatureViewName,
+								FeatureName:     featureData.Reference.FeatureName,
+							},
+							Timestamp: timestamppb.Timestamp{Seconds: featureData.Timestamp.Seconds, Nanos: featureData.Timestamp.Nanos},
+							Value: types.Value{
+								Val: featureData.Value.Val,
+							},
+						}
+					} else {
+						results[serializedEntityKeyToIndex[keyString]][featureNamesToIdx[featName]] = FeatureData{
 							Reference: serving.FeatureReferenceV2{
 								FeatureViewName: featureViewName,
 								FeatureName:     featName,
@@ -533,7 +656,6 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 							},
 						}
 					}
-					results[serializedEntityKeyToIndex[keyString]][featureNamesToIdx[featName]] = featureData
 				}
 			}
 		}(batch, cqlStatement)

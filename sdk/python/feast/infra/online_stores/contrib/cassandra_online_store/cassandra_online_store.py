@@ -18,7 +18,9 @@
 Cassandra/Astra DB online store for Feast.
 """
 
+import hashlib
 import logging
+import string
 import time
 from datetime import datetime
 from functools import partial
@@ -82,7 +84,8 @@ CREATE_TABLE_CQL_TEMPLATE = """
         event_ts        TIMESTAMP,
         created_ts      TIMESTAMP,
         PRIMARY KEY ((entity_key), feature_name)
-    ) WITH CLUSTERING ORDER BY (feature_name ASC);
+    ) WITH CLUSTERING ORDER BY (feature_name ASC)
+    AND COMMENT='project={project}, feature_view={feature_view}';
 """
 
 DROP_TABLE_CQL_TEMPLATE = "DROP TABLE IF EXISTS {fqtable};"
@@ -96,6 +99,8 @@ CQL_TEMPLATE_MAP = {
     "drop": (DROP_TABLE_CQL_TEMPLATE, False),
     "create": (CREATE_TABLE_CQL_TEMPLATE, False),
 }
+
+V2_TABLE_NAME_FORMAT_MAX_LENGTH = 48
 
 # Logger
 logger = logging.getLogger(__name__)
@@ -201,6 +206,14 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     """
     The maximum number of write batches per second. Value 0 means no rate limiting.
     For spark materialization engine, this configuration is per executor task.
+    """
+
+    table_name_format_version: Optional[StrictInt] = 1
+    """
+    Version of the table name format. This is used to determine the format of the table name.
+    Version 1: <project>_<feature_view_name>
+    Version 2: Limits the length of the table name to 48 characters.
+    Table names should be quoted to make them case sensitive.
     """
 
 
@@ -382,7 +395,10 @@ class CassandraOnlineStore(OnlineStore):
 
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
-        fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
+        table_name_version = online_store_config.table_name_format_version
+        fqtable = CassandraOnlineStore._fq_table_name(
+            keyspace, project, table, table_name_version
+        )
 
         insert_cql = self._get_cql_statement(
             config,
@@ -535,12 +551,77 @@ class CassandraOnlineStore(OnlineStore):
             self._drop_table(config, project, table)
 
     @staticmethod
-    def _fq_table_name(keyspace: str, project: str, table: FeatureView) -> str:
+    def _fq_table_name_v2(keyspace: str, project: str, feature_view_name: str) -> str:
+        """
+        Generate a fully-qualified table name,
+        including quotes and keyspace.
+        Limits table name to 48 characters.
+        """
+        db_table_name = f"{project}_{feature_view_name}"
+
+        def base62encode(input: bytes) -> str:
+            """Convert bytes to a base62 string."""
+
+            def to_base62(num):
+                """
+                Converts a number to a base62 string.
+                """
+                chars = string.digits + string.ascii_lowercase + string.ascii_uppercase
+                if num == 0:
+                    return "0"
+
+                result = []
+                while num:
+                    num, remainder = divmod(num, 62)
+                    result.append(chars[remainder])
+
+                return "".join(reversed(result))
+
+            byte_to_num = int.from_bytes(input, byteorder="big")
+            return to_base62(byte_to_num)
+
+        if len(db_table_name) <= V2_TABLE_NAME_FORMAT_MAX_LENGTH:
+            return f'"{keyspace}"."{db_table_name}"'
+        else:
+            # we are using quotes for table name to make it case sensitive.
+            # So we can pack more bytes into the string by including capital letters.
+            # So using base62(0-9a-zA-Z) encoding instead of base36 (0-9a-z) encoding.
+            prj_prefix_maxlen = 5
+            fv_prefix_maxlen = 5
+            truncated_project = project[:prj_prefix_maxlen]
+            truncated_fv = feature_view_name[:fv_prefix_maxlen]
+
+            project_to_hash = project[len(truncated_project) :]
+            fv_to_hash = feature_view_name[len(truncated_fv) :]
+
+            project_hash = base62encode(hashlib.md5(project_to_hash.encode()).digest())
+            fv_hash = base62encode(hashlib.md5(fv_to_hash.encode()).digest())
+
+            # (48 - 3 underscores - 5 prj prefix - 5 fv prefix) / 2 = 17.5
+            db_table_name = (
+                f"{truncated_project}_{project_hash[:17]}_{truncated_fv}_{fv_hash[:18]}"
+            )
+            return f'"{keyspace}"."{db_table_name}"'
+
+    @staticmethod
+    def _fq_table_name(
+        keyspace: str, project: str, table: FeatureView, table_name_version: int
+    ) -> str:
         """
         Generate a fully-qualified table name,
         including quotes and keyspace.
         """
-        return f'"{keyspace}"."{project}_{table.name}"'
+        feature_view_name = table.name
+        db_table_name = f"{project}_{feature_view_name}"
+        if table_name_version == 1:
+            return f'"{keyspace}"."{db_table_name}"'
+
+        elif table_name_version == 2:
+            return CassandraOnlineStore._fq_table_name_v2(
+                keyspace, project, feature_view_name
+            )
+        else:
+            raise ValueError(f"Unknown table name format version: {table_name_version}")
 
     def _read_rows_by_entity_keys(
         self,
@@ -555,7 +636,10 @@ class CassandraOnlineStore(OnlineStore):
         """
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
-        fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
+        table_name_version = config.online_store.table_name_format_version
+        fqtable = CassandraOnlineStore._fq_table_name(
+            keyspace, project, table, table_name_version
+        )
         projection_columns = "*" if columns is None else ", ".join(columns)
         select_cql = self._get_cql_statement(
             config,
@@ -592,7 +676,10 @@ class CassandraOnlineStore(OnlineStore):
         """Handle the CQL (low-level) deletion of a table."""
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
-        fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
+        table_name_version = config.online_store.table_name_format_version
+        fqtable = CassandraOnlineStore._fq_table_name(
+            keyspace, project, table, table_name_version
+        )
         drop_cql = self._get_cql_statement(config, "drop", fqtable)
         logger.info(f"Deleting table {fqtable}.")
         session.execute(drop_cql)
@@ -601,9 +688,20 @@ class CassandraOnlineStore(OnlineStore):
         """Handle the CQL (low-level) creation of a table."""
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
-        fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table)
-        create_cql = self._get_cql_statement(config, "create", fqtable)
-        logger.info(f"Creating table {fqtable} in keyspace {keyspace}.")
+        table_name_version = config.online_store.table_name_format_version
+        fqtable = CassandraOnlineStore._fq_table_name(
+            keyspace, project, table, table_name_version
+        )
+        create_cql = self._get_cql_statement(
+            config,
+            "create",
+            fqtable,
+            project=project,
+            feature_view=table.name,
+        )
+        logger.info(
+            f"Creating table {fqtable} in keyspace {keyspace} if not exists using {create_cql}."
+        )
         session.execute(create_cql)
 
     def _get_cql_statement(
