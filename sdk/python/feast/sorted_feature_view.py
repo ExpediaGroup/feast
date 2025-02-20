@@ -21,15 +21,6 @@ from feast.sort_key import SortKey
 
 warnings.simplefilter("ignore", DeprecationWarning)
 
-# DUMMY_ENTITY is a placeholder entity used in entityless FeatureViews
-DUMMY_ENTITY_ID = "__dummy_id"
-DUMMY_ENTITY_NAME = "__dummy"
-DUMMY_ENTITY = Entity(
-    name=DUMMY_ENTITY_NAME,
-    join_keys=[DUMMY_ENTITY_ID],
-)
-DUMMY_SORT_KEY_NAME = "__dummy_sort_key"
-
 
 @typechecked
 class SortedFeatureView(FeatureView):
