@@ -25,7 +25,7 @@ import time
 from datetime import datetime
 from functools import partial
 from queue import Queue
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
 
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import (
@@ -40,13 +40,15 @@ from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
 from cassandra.query import BatchStatement, BatchType, PreparedStatement
 from pydantic import StrictFloat, StrictInt, StrictStr
 
-from feast import Entity, FeatureView, RepoConfig
+from feast import Entity, FeatureView, RepoConfig, ValueType
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.online_store import OnlineStore
+from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.rate_limiter import SlidingWindowRateLimiter
 from feast.repo_config import FeastConfigBaseModel
+from feast.sorted_feature_view import SortedFeatureView
 
 # Error messages
 E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS = (
@@ -684,7 +686,7 @@ class CassandraOnlineStore(OnlineStore):
         logger.info(f"Deleting table {fqtable}.")
         session.execute(drop_cql)
 
-    def _create_table(self, config: RepoConfig, project: str, table: FeatureView):
+    def _create_table(self, config: RepoConfig, project: str, table: Union[FeatureView, SortedFeatureView]):
         """Handle the CQL (low-level) creation of a table."""
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
@@ -692,18 +694,58 @@ class CassandraOnlineStore(OnlineStore):
         fqtable = CassandraOnlineStore._fq_table_name(
             keyspace, project, table, table_name_version
         )
-        create_cql = self._get_cql_statement(
-            config,
-            "create",
-            fqtable,
-            project=project,
-            feature_view=table.name,
-        )
+        if isinstance(table, SortedFeatureView):
+            create_cql = self._build_sorted_table_cql(project, table, fqtable)
+        else:
+            create_cql = self._get_cql_statement(
+                config,
+                "create",
+                fqtable,
+                project=project,
+                feature_view=table.name,
+            )
         logger.info(
             f"Creating table {fqtable} in keyspace {keyspace} if not exists using {create_cql}."
         )
         session.execute(create_cql)
 
+    def _build_sorted_table_cql(
+            self, project: str, table: SortedFeatureView, fqtable: str
+    ) -> str:
+        """
+        Build the CQL statement for creating a SortedFeatureView table with custom
+        entity and sort key columns.
+        """
+        # Define columns for entity columns.
+        entity_columns = [
+            f"{col.name} {self._get_cql_type(col.value_type)}"
+            for col in table.spec.entity_columns
+        ]
+
+        # Define columns and ordering for sort keys.
+        sort_key_columns = [
+            f"{sk.name} {self._get_cql_type(sk.value_type)}" for sk in table.spec.sort_keys
+        ]
+        sort_key_orders = [
+            f"{sk.name} {'ASC' if sk.default_sort_order == SortOrder.Enum.ASC else 'DESC'}"
+            for sk in table.spec.sort_keys
+        ]
+
+        all_columns = entity_columns + sort_key_columns
+
+        sort_key_names = ", ".join([col.split()[0] for col in sort_key_columns])
+
+        create_cql = f"""
+            CREATE TABLE IF NOT EXISTS {fqtable} (
+                entity_key TEXT,
+                {', '.join(all_columns)},
+                event_ts TIMESTAMP,
+                created_ts TIMESTAMP,
+                PRIMARY KEY ((entity_key), {sort_key_names})
+            ) WITH CLUSTERING ORDER BY ({', '.join(sort_key_orders)})
+            AND COMMENT='project={project}, feature_view={table.name}';
+        """
+        return create_cql.strip()
     def _get_cql_statement(
         self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
     ):
@@ -737,3 +779,39 @@ class CassandraOnlineStore(OnlineStore):
             return self._prepared_statements[cache_key]
         else:
             return statement
+
+    def _get_cql_type(self, value_type: ValueType) -> str:
+        """Map Feast value types to Cassandra CQL data types."""
+        # Mapping for scalar types.
+        scalar_mapping = {
+            ValueType.BYTES: "BLOB",
+            ValueType.STRING: "TEXT",
+            ValueType.INT32: "INT",
+            ValueType.INT64: "BIGINT",
+            ValueType.DOUBLE: "DOUBLE",
+            ValueType.FLOAT: "FLOAT",
+            ValueType.BOOL: "BOOLEAN",
+            ValueType.UNIX_TIMESTAMP: "TIMESTAMP",
+        }
+
+        # Mapping for list types.
+        list_mapping = {
+            ValueType.BYTES_LIST: "BLOB",
+            ValueType.STRING_LIST: "TEXT",
+            ValueType.INT32_LIST: "INT",
+            ValueType.INT64_LIST: "BIGINT",
+            ValueType.DOUBLE_LIST: "DOUBLE",
+            ValueType.FLOAT_LIST: "FLOAT",
+            ValueType.BOOL_LIST: "BOOLEAN",
+            ValueType.UNIX_TIMESTAMP_LIST: "TIMESTAMP",
+        }
+
+        if value_type in scalar_mapping:
+            return scalar_mapping[value_type]
+        elif value_type in list_mapping:
+            # Use CQL's collection type for lists.
+            return f"list<{list_mapping[value_type]}>"
+        elif value_type in {ValueType.UNKNOWN, ValueType.NULL}:
+            raise ValueError(f"Unsupported value type: {value_type}")
+        else:
+            raise ValueError(f"Unsupported value type: {value_type}")
