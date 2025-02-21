@@ -1,5 +1,5 @@
 import warnings
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 from typeguard import typechecked
 
@@ -10,6 +10,7 @@ from feast.protos.feast.core.SortedFeatureView_pb2 import (
 from feast.protos.feast.core.SortedFeatureView_pb2 import (
     SortOrder,
 )
+from feast.types import ComplexFeastType, PrimitiveFeastType
 from feast.value_type import ValueType
 
 warnings.simplefilter("ignore", DeprecationWarning)
@@ -38,13 +39,18 @@ class SortKey:
     def __init__(
         self,
         name: str,
-        value_type: ValueType,
+        value_type: Union[ValueType, PrimitiveFeastType, ComplexFeastType],
         default_sort_order: SortOrder.Enum.ValueType = SortOrder.ASC,
         tags: Optional[Dict[str, str]] = None,
         description: str = "",
     ):
         self.name = name
-        self.value_type = value_type
+        if isinstance(value_type, ValueType):
+            self.value_type = value_type
+        elif isinstance(value_type, (PrimitiveFeastType, ComplexFeastType)):
+            self.value_type = value_type.to_value_type()
+        else:
+            raise ValueError(f"Unsupported value type: {value_type}")
         self.default_sort_order = default_sort_order
         self.tags = tags or {}
         self.description = description

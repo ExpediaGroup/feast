@@ -25,6 +25,7 @@ import time
 from datetime import datetime
 from functools import partial
 from queue import Queue
+from tokenize import Double
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
 
 from cassandra.auth import PlainTextAuthProvider
@@ -49,6 +50,17 @@ from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.rate_limiter import SlidingWindowRateLimiter
 from feast.repo_config import FeastConfigBaseModel
 from feast.sorted_feature_view import SortedFeatureView
+from feast.types import (
+    Bool,
+    Bytes,
+    Float32,
+    Float64,
+    Int32,
+    Int64,
+    String,
+    UnixTimestamp,
+    from_value_type,
+)
 
 # Error messages
 E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS = (
@@ -686,7 +698,12 @@ class CassandraOnlineStore(OnlineStore):
         logger.info(f"Deleting table {fqtable}.")
         session.execute(drop_cql)
 
-    def _create_table(self, config: RepoConfig, project: str, table: Union[FeatureView, SortedFeatureView]):
+    def _create_table(
+        self,
+        config: RepoConfig,
+        project: str,
+        table: Union[FeatureView, SortedFeatureView],
+    ):
         """Handle the CQL (low-level) creation of a table."""
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
@@ -710,42 +727,43 @@ class CassandraOnlineStore(OnlineStore):
         session.execute(create_cql)
 
     def _build_sorted_table_cql(
-            self, project: str, table: SortedFeatureView, fqtable: str
+        self, project: str, table: SortedFeatureView, fqtable: str
     ) -> str:
         """
         Build the CQL statement for creating a SortedFeatureView table with custom
         entity and sort key columns.
         """
-        # Define columns for entity columns.
-        entity_columns = [
-            f"{col.name} {self._get_cql_type(col.value_type)}"
-            for col in table.spec.entity_columns
+        feature_columns = [
+            f"{feature.name} {self._get_cql_type(feature.dtype)}"
+            for feature in table.features
         ]
 
-        # Define columns and ordering for sort keys.
         sort_key_columns = [
-            f"{sk.name} {self._get_cql_type(sk.value_type)}" for sk in table.spec.sort_keys
+            f"{sk.name} {self._get_cql_type(from_value_type(sk.value_type))}"
+            for sk in table.sort_keys
         ]
+
         sort_key_orders = [
             f"{sk.name} {'ASC' if sk.default_sort_order == SortOrder.Enum.ASC else 'DESC'}"
-            for sk in table.spec.sort_keys
+            for sk in table.sort_keys
         ]
-
-        all_columns = entity_columns + sort_key_columns
 
         sort_key_names = ", ".join([col.split()[0] for col in sort_key_columns])
 
-        create_cql = f"""
-            CREATE TABLE IF NOT EXISTS {fqtable} (
-                entity_key TEXT,
-                {', '.join(all_columns)},
-                event_ts TIMESTAMP,
-                created_ts TIMESTAMP,
-                PRIMARY KEY ((entity_key), {sort_key_names})
-            ) WITH CLUSTERING ORDER BY ({', '.join(sort_key_orders)})
-            AND COMMENT='project={project}, feature_view={table.name}';
-        """
+        feature_columns_str = ",".join(feature_columns)
+
+        create_cql = (
+            f"CREATE TABLE IF NOT EXISTS {fqtable} (\n"
+            f"    entity_key TEXT,\n"
+            f"    {feature_columns_str},\n"
+            f"    event_ts TIMESTAMP,\n"
+            f"    created_ts TIMESTAMP,\n"
+            f"    PRIMARY KEY ((entity_key), {sort_key_names})\n"
+            f") WITH CLUSTERING ORDER BY ({', '.join(sort_key_orders)})\n"
+            f"AND COMMENT='project={project}, feature_view={table.name}';"
+        )
         return create_cql.strip()
+
     def _get_cql_statement(
         self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
     ):
@@ -784,34 +802,18 @@ class CassandraOnlineStore(OnlineStore):
         """Map Feast value types to Cassandra CQL data types."""
         # Mapping for scalar types.
         scalar_mapping = {
-            ValueType.BYTES: "BLOB",
-            ValueType.STRING: "TEXT",
-            ValueType.INT32: "INT",
-            ValueType.INT64: "BIGINT",
-            ValueType.DOUBLE: "DOUBLE",
-            ValueType.FLOAT: "FLOAT",
-            ValueType.BOOL: "BOOLEAN",
-            ValueType.UNIX_TIMESTAMP: "TIMESTAMP",
-        }
-
-        # Mapping for list types.
-        list_mapping = {
-            ValueType.BYTES_LIST: "BLOB",
-            ValueType.STRING_LIST: "TEXT",
-            ValueType.INT32_LIST: "INT",
-            ValueType.INT64_LIST: "BIGINT",
-            ValueType.DOUBLE_LIST: "DOUBLE",
-            ValueType.FLOAT_LIST: "FLOAT",
-            ValueType.BOOL_LIST: "BOOLEAN",
-            ValueType.UNIX_TIMESTAMP_LIST: "TIMESTAMP",
+            Bytes: "BLOB",
+            String: "TEXT",
+            Int32: "INT",
+            Int64: "BIGINT",
+            Double: "DOUBLE",
+            Float32: "FLOAT",
+            Float64: "FLOAT",
+            Bool: "BOOLEAN",
+            UnixTimestamp: "TIMESTAMP",
         }
 
         if value_type in scalar_mapping:
             return scalar_mapping[value_type]
-        elif value_type in list_mapping:
-            # Use CQL's collection type for lists.
-            return f"list<{list_mapping[value_type]}>"
-        elif value_type in {ValueType.UNKNOWN, ValueType.NULL}:
-            raise ValueError(f"Unsupported value type: {value_type}")
         else:
-            raise ValueError(f"Unsupported value type: {value_type}")
+            raise ValueError(f"Unsupported type: {value_type}")
