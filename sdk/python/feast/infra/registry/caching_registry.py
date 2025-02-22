@@ -37,6 +37,7 @@ class CachingRegistry(BaseRegistry):
         )
         self.cached_registry_proto = self.proto()
         self.cached_registry_proto_created = _utc_now()
+        logger.info(f"Registry initialized with cache mode: {cache_mode}")
         if cache_mode == "thread":
             self._start_thread_async_refresh(cache_ttl_seconds)
             atexit.register(self._exit_handler)
@@ -456,6 +457,7 @@ class CachingRegistry(BaseRegistry):
                     self.refresh()
 
     def _start_thread_async_refresh(self, cache_ttl_seconds):
+        logger.info(f"Starting registry cache refresh thread with TTL {cache_ttl_seconds}")
         self.refresh()
         if cache_ttl_seconds <= 0:
             return
@@ -464,6 +466,8 @@ class CachingRegistry(BaseRegistry):
         )
         self.registry_refresh_thread.daemon = True
         self.registry_refresh_thread.start()
+        logger.info("Registry cache refresh thread started")
 
     def _exit_handler(self):
+        logger.info("Exiting, cancelling registry cache refresh thread")
         self.registry_refresh_thread.cancel()
