@@ -457,7 +457,9 @@ class CachingRegistry(BaseRegistry):
                     self.refresh()
 
     def _start_thread_async_refresh(self, cache_ttl_seconds):
-        logger.info(f"Starting registry cache refresh thread with TTL {cache_ttl_seconds}")
+        logger.info(
+            f"Starting registry cache refresh thread with TTL {cache_ttl_seconds}"
+        )
         self.refresh()
         if cache_ttl_seconds <= 0:
             return
