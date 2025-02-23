@@ -37,7 +37,8 @@ from colorama import Fore, Style
 from google.protobuf.timestamp_pb2 import Timestamp
 from tqdm import tqdm
 
-from feast import SortedFeatureView, feature_server, flags_helper, ui_server, utils
+from feast.sorted_feature_view import SortedFeatureView
+from feast import feature_server, flags_helper, ui_server, utils
 from feast.base_feature_view import BaseFeatureView
 from feast.batch_feature_view import BatchFeatureView
 from feast.data_source import (
