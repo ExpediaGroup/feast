@@ -13,7 +13,7 @@ import dill
 from pydantic import BaseModel, field_serializer, field_validator
 from typing_extensions import Self
 
-from feast import SortedFeatureView, ValueType
+from feast import ValueType
 from feast.expediagroup.pydantic_models.data_source_model import (
     AnyBatchDataSource,
     KafkaSourceModel,
@@ -27,6 +27,7 @@ from feast.feature_view_projection import FeatureViewProjection
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.sort_key import SortKey
+from feast.sorted_feature_view import SortedFeatureView
 from feast.transformation.pandas_transformation import PandasTransformation
 from feast.transformation.python_transformation import PythonTransformation
 from feast.transformation.substrait_transformation import SubstraitTransformation

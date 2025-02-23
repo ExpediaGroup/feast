@@ -9,7 +9,6 @@ from typing import Any, List, Optional, Set, Union
 import httpx
 from pydantic import StrictStr
 
-from feast import SortedFeatureView
 from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource, KafkaSource, PushSource, RequestSource
 from feast.entity import Entity
@@ -51,6 +50,7 @@ from feast.project_metadata import ProjectMetadata
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.repo_config import RegistryConfig
 from feast.saved_dataset import SavedDataset, ValidationReference
+from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
 
 logger = logging.getLogger(__name__)
