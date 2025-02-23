@@ -13,7 +13,6 @@ import dill
 from pydantic import BaseModel, field_serializer, field_validator
 from typing_extensions import Self
 
-from feast import ValueType
 from feast.expediagroup.pydantic_models.data_source_model import (
     AnyBatchDataSource,
     KafkaSourceModel,
@@ -31,6 +30,7 @@ from feast.sorted_feature_view import SortedFeatureView
 from feast.transformation.pandas_transformation import PandasTransformation
 from feast.transformation.python_transformation import PythonTransformation
 from feast.transformation.substrait_transformation import SubstraitTransformation
+from feast.value_type import ValueType
 
 # TO DO: Supported batch and supported streaming
 SUPPORTED_BATCH_DATA_SOURCES = [RequestSourceModel, SparkSourceModel]
