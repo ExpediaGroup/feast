@@ -1,7 +1,7 @@
 from functools import wraps
 from typing import List, Optional
 
-from feast import utils
+from feast import SortedFeatureView, utils
 from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource
 from feast.entity import Entity
@@ -118,6 +118,13 @@ def get_any_feature_view(
         ):
             return OnDemandFeatureView.from_proto(on_demand_feature_view)
 
+    for sorted_feature_view_proto in registry_proto.sorted_feature_views:
+        if (
+            sorted_feature_view_proto.spec.name == name
+            and sorted_feature_view_proto.spec.project == project
+        ):
+            return SortedFeatureView.from_proto(sorted_feature_view_proto)
+
     raise FeatureViewNotFoundException(name, project)
 
 
@@ -142,6 +149,18 @@ def get_stream_feature_view(
             and feature_view_proto.spec.project == project
         ):
             return StreamFeatureView.from_proto(feature_view_proto)
+    raise FeatureViewNotFoundException(name, project)
+
+
+def get_sorted_feature_view(
+    registry_proto: RegistryProto, name: str, project: str
+) -> SortedFeatureView:
+    for sorted_feature_view_proto in registry_proto.sorted_feature_views:
+        if (
+            sorted_feature_view_proto.spec.name == name
+            and sorted_feature_view_proto.spec.project == project
+        ):
+            return SortedFeatureView.from_proto(sorted_feature_view_proto)
     raise FeatureViewNotFoundException(name, project)
 
 
@@ -215,6 +234,7 @@ def list_all_feature_views(
         list_feature_views(registry_proto, project, tags)
         + list_stream_feature_views(registry_proto, project, tags)
         + list_on_demand_feature_views(registry_proto, project, tags)
+        + list_sorted_feature_views(registry_proto, project, tags)
     )
 
 
@@ -244,6 +264,21 @@ def list_stream_feature_views(
                 StreamFeatureView.from_proto(stream_feature_view)
             )
     return stream_feature_views
+
+
+@registry_proto_cache_with_tags
+def list_sorted_feature_views(
+    registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
+) -> List[SortedFeatureView]:
+    sorted_feature_views = []
+    for sorted_feature_view_proto in registry_proto.sorted_feature_views:
+        if sorted_feature_view_proto.spec.project == project and utils.has_all_tags(
+            sorted_feature_view_proto.spec.tags, tags
+        ):
+            sorted_feature_views.append(
+                SortedFeatureView.from_proto(sorted_feature_view_proto)
+            )
+    return sorted_feature_views
 
 
 @registry_proto_cache_with_tags

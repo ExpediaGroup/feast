@@ -13,6 +13,7 @@
 # limitations under the License.
 from typing import List, NamedTuple
 
+from feast import SortedFeatureView
 from feast.data_source import DataSource
 from feast.entity import Entity
 from feast.feature_service import FeatureService
@@ -32,6 +33,7 @@ class RepoContents(NamedTuple):
     projects: List[Project]
     data_sources: List[DataSource]
     feature_views: List[FeatureView]
+    sorted_feature_views: List[SortedFeatureView]
     on_demand_feature_views: List[OnDemandFeatureView]
     stream_feature_views: List[StreamFeatureView]
     entities: List[Entity]
@@ -45,6 +47,9 @@ class RepoContents(NamedTuple):
         registry_proto.entities.extend([e.to_proto() for e in self.entities])
         registry_proto.feature_views.extend(
             [fv.to_proto() for fv in self.feature_views]
+        )
+        registry_proto.sorted_feature_views.extend(
+            [fv.to_proto() for fv in self.sorted_feature_views]
         )
         registry_proto.on_demand_feature_views.extend(
             [fv.to_proto() for fv in self.on_demand_feature_views]

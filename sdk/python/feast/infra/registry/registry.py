@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
 from google.protobuf.message import Message
 
+from feast import SortedFeatureView
 from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource
 from feast.entity import Entity
@@ -445,6 +446,10 @@ class Registry(BaseRegistry):
             existing_feature_views_of_same_type = (
                 self.cached_registry_proto.feature_views
             )
+        elif isinstance(feature_view, SortedFeatureView):
+            existing_feature_views_of_same_type = (
+                self.cached_registry_proto.sorted_feature_views
+            )
         elif isinstance(feature_view, OnDemandFeatureView):
             existing_feature_views_of_same_type = (
                 self.cached_registry_proto.on_demand_feature_views
@@ -494,6 +499,25 @@ class Registry(BaseRegistry):
             project=project, allow_cache=allow_cache
         )
         return proto_registry_utils.list_stream_feature_views(
+            registry_proto, project, tags
+        )
+
+    def get_sorted_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> SortedFeatureView:
+        registry_proto = self._get_registry_proto(project, allow_cache)
+        return proto_registry_utils.get_sorted_feature_view(
+            registry_proto, name, project
+        )
+
+    def list_sorted_feature_views(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[Dict[str, str]] = None,
+    ) -> List[SortedFeatureView]:
+        registry_proto = self._get_registry_proto(project, allow_cache)
+        return proto_registry_utils.list_sorted_feature_views(
             registry_proto, project, tags
         )
 
@@ -676,6 +700,17 @@ class Registry(BaseRegistry):
                 and existing_on_demand_feature_view_proto.spec.project == project
             ):
                 del self.cached_registry_proto.on_demand_feature_views[idx]
+                if commit:
+                    self.commit()
+                return
+        for idx, existing_sorted_feature_view_proto in enumerate(
+            self.cached_registry_proto.sorted_feature_views
+        ):
+            if (
+                existing_sorted_feature_view_proto.spec.name == name
+                and existing_sorted_feature_view_proto.spec.project == project
+            ):
+                del self.cached_registry_proto.sorted_feature_views[idx]
                 if commit:
                     self.commit()
                 return
@@ -941,7 +976,10 @@ class Registry(BaseRegistry):
         sfv = {
             fv.spec.name: fv for fv in self.cached_registry_proto.stream_feature_views
         }
-        return {**odfvs, **fvs, **sfv}
+        sorted_fvs = {
+            fv.spec.name: fv for fv in self.cached_registry_proto.sorted_feature_views
+        }
+        return {**odfvs, **fvs, **sfv, **sorted_fvs}
 
     def get_permission(
         self, name: str, project: str, allow_cache: bool = False

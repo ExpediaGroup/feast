@@ -13,6 +13,7 @@ import dill
 from pydantic import BaseModel, field_serializer, field_validator
 from typing_extensions import Self
 
+from feast import SortedFeatureView, ValueType
 from feast.expediagroup.pydantic_models.data_source_model import (
     AnyBatchDataSource,
     KafkaSourceModel,
@@ -24,6 +25,8 @@ from feast.expediagroup.pydantic_models.field_model import FieldModel
 from feast.feature_view import FeatureView
 from feast.feature_view_projection import FeatureViewProjection
 from feast.on_demand_feature_view import OnDemandFeatureView
+from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
+from feast.sort_key import SortKey
 from feast.transformation.pandas_transformation import PandasTransformation
 from feast.transformation.python_transformation import PythonTransformation
 from feast.transformation.substrait_transformation import SubstraitTransformation
@@ -309,6 +312,136 @@ class SubstraitTransformationModel(BaseModel):
             ibis_function=dill.dumps(
                 substrait_transformation.ibis_function, recurse=True
             ).hex(),
+        )
+
+
+class SortedFeatureViewSortKeyModel(BaseModel):
+    """
+    Pydantic Model for a SortedFeatureView's sort key.
+      - name: string
+      - value_type: string (e.g., "INT64", "FLOAT", etc.)
+      - default_sort_order: string ("ASC" or "DESC")
+      - tags: map<string, string>
+      - description: string
+    """
+
+    name: str
+    value_type: str
+    default_sort_order: str
+    tags: Optional[Dict[str, str]] = None
+    description: Optional[str] = ""
+
+    def to_sort_key(self) -> SortKey:
+        sort_order = (
+            SortOrder.ASC
+            if self.default_sort_order.upper() == "ASC"
+            else SortOrder.DESC
+        )
+        return SortKey(
+            name=self.name,
+            value_type=ValueType(self.value_type),
+            default_sort_order=sort_order,
+            tags=self.tags or {},
+            description=self.description or "",
+        )
+
+    @classmethod
+    def from_sort_key(cls, sort_key: SortKey) -> "SortedFeatureViewSortKeyModel":
+        return cls(
+            name=sort_key.name,
+            value_type=str(sort_key.value_type),
+            default_sort_order=sort_key.default_sort_order.name,
+            tags=sort_key.tags,
+            description=sort_key.description,
+        )
+
+
+class SortedFeatureViewModel(FeatureViewModel):
+    """
+    Pydantic Model for a Feast SortedFeatureView.
+    Extends FeatureViewModel by adding the sort_keys field.
+    """
+
+    sort_keys: List[SortedFeatureViewSortKeyModel]
+
+    def to_feature_view(self) -> SortedFeatureView:
+        """
+        Converts this Pydantic model into a SortedFeatureView Python object.
+        """
+        # Convert sources from their pydantic representations.
+        batch_source = self.batch_source.to_data_source() if self.batch_source else None
+        stream_source = (
+            self.stream_source.to_data_source() if self.stream_source else None
+        )
+        source = stream_source if stream_source else batch_source
+        if stream_source and batch_source:
+            source.batch_source = batch_source
+
+        # Build the SortedFeatureView using base fields from FeatureViewModel plus sort_keys.
+        sorted_fv = SortedFeatureView(
+            name=self.name,
+            source=source,
+            schema=(
+                [schema.to_field() for schema in self.original_schema]
+                if self.original_schema
+                else None
+            ),
+            entities=[entity.to_entity() for entity in self.original_entities],
+            ttl=self.ttl,
+            online=self.online,
+            description=self.description,
+            tags=self.tags or None,
+            owner=self.owner,
+            sort_keys=[sk.to_sort_key() for sk in self.sort_keys],
+        )
+        sorted_fv.materialization_intervals = self.materialization_intervals
+        sorted_fv.created_timestamp = self.created_timestamp
+        sorted_fv.last_updated_timestamp = self.last_updated_timestamp
+        return sorted_fv
+
+    @classmethod
+    def from_feature_view(
+        cls, sorted_feature_view: SortedFeatureView
+    ) -> "SortedFeatureViewModel":
+        """
+        Converts a SortedFeatureView Python object into its Pydantic model representation.
+        """
+        batch_source = None
+        if sorted_feature_view.batch_source:
+            batch_source = KafkaSourceModel.from_data_source(
+                sorted_feature_view.batch_source
+            )
+        stream_source = None
+        if sorted_feature_view.stream_source:
+            stream_source = KafkaSourceModel.from_data_source(
+                sorted_feature_view.stream_source
+            )
+
+        return cls(
+            name=sorted_feature_view.name,
+            original_entities=[
+                EntityModel.from_entity(e)
+                for e in sorted_feature_view.original_entities
+            ],
+            ttl=sorted_feature_view.ttl,
+            original_schema=(
+                [FieldModel.from_field(f) for f in sorted_feature_view.original_schema]
+                if sorted_feature_view.original_schema
+                else None
+            ),
+            batch_source=batch_source,
+            stream_source=stream_source,
+            online=sorted_feature_view.online,
+            description=sorted_feature_view.description,
+            tags=sorted_feature_view.tags or None,
+            owner=sorted_feature_view.owner,
+            materialization_intervals=sorted_feature_view.materialization_intervals,
+            created_timestamp=sorted_feature_view.created_timestamp,
+            last_updated_timestamp=sorted_feature_view.last_updated_timestamp,
+            sort_keys=[
+                SortedFeatureViewSortKeyModel.from_sort_key(sk)
+                for sk in sorted_feature_view.sort_keys
+            ],
         )
 
 

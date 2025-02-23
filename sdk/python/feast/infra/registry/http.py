@@ -9,6 +9,7 @@ from typing import Any, List, Optional, Set, Union
 import httpx
 from pydantic import StrictStr
 
+from feast import SortedFeatureView
 from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource, KafkaSource, PushSource, RequestSource
 from feast.entity import Entity
@@ -30,6 +31,7 @@ from feast.expediagroup.pydantic_models.feature_service import FeatureServiceMod
 from feast.expediagroup.pydantic_models.feature_view_model import (
     FeatureViewModel,
     OnDemandFeatureViewModel,
+    SortedFeatureViewModel,
 )
 from feast.expediagroup.pydantic_models.project_metadata_model import (
     ProjectMetadataModel,
@@ -448,6 +450,15 @@ class HttpRegistry(BaseRegistry):
                 ).model_dump_json()
                 response_data = self._send_request("PUT", url, params=params, data=data)
                 return FeatureViewModel.model_validate(response_data).to_feature_view()
+            elif isinstance(feature_view, SortedFeatureView):
+                url = f"{self.base_url}/projects/{project}/sorted_feature_views"
+                data = SortedFeatureViewModel.from_feature_view(
+                    feature_view
+                ).model_dump_json()
+                response_data = self._send_request("PUT", url, params=params, data=data)
+                return SortedFeatureViewModel.model_validate(
+                    response_data
+                ).to_feature_view()
             elif isinstance(feature_view, OnDemandFeatureView):
                 url = f"{self.base_url}/projects/{project}/on_demand_feature_views"
                 data = OnDemandFeatureViewModel.from_feature_view(
@@ -520,6 +531,50 @@ class HttpRegistry(BaseRegistry):
             return [
                 FeatureViewModel.model_validate(feature_view).to_feature_view()
                 for feature_view in response_list
+            ]
+        except Exception as exception:
+            self._handle_exception(exception)
+
+    def get_sorted_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> SortedFeatureView:
+        if allow_cache:
+            self._check_if_registry_refreshed()
+            return proto_registry_utils.get_sorted_feature_view(
+                self.cached_registry_proto, name, project
+            )
+        try:
+            url = f"{self.base_url}/projects/{project}/sorted_feature_views/{name}"
+            response_data = self._send_request("GET", url)
+            return SortedFeatureViewModel.model_validate(
+                response_data
+            ).to_feature_view()
+        except FeatureViewNotFoundException as exception:
+            logger.error(
+                f"SortedFeatureView {name} requested does not exist: {str(exception)}"
+            )
+            raise httpx.HTTPError(message=f"SortedFeatureView: {name} not found")
+        except Exception as exception:
+            self._handle_exception(exception)
+
+    def list_sorted_feature_views(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
+    ) -> List[SortedFeatureView]:
+        if allow_cache:
+            self._check_if_registry_refreshed()
+            return proto_registry_utils.list_sorted_feature_views(
+                self.cached_registry_proto, project, tags
+            )
+        try:
+            url = f"{self.base_url}/projects/{project}/sorted_feature_views"
+            response_data = self._send_request("GET", url)
+            response_list = response_data if isinstance(response_data, list) else []
+            return [
+                SortedFeatureViewModel.model_validate(sfv).to_feature_view()
+                for sfv in response_list
             ]
         except Exception as exception:
             self._handle_exception(exception)
