@@ -80,6 +80,7 @@ class FeastObjectType(Enum):
     FEATURE_VIEW = "feature view"
     ON_DEMAND_FEATURE_VIEW = "on demand feature view"
     STREAM_FEATURE_VIEW = "stream feature view"
+    SORTED_FEATURE_VIEW = "sorted feature view"
     FEATURE_SERVICE = "feature service"
     PERMISSION = "permission"
 
@@ -97,6 +98,9 @@ class FeastObjectType(Enum):
             FeastObjectType.ENTITY: registry.list_entities(project=project),
             FeastObjectType.FEATURE_VIEW: registry.list_feature_views(project=project),
             FeastObjectType.ON_DEMAND_FEATURE_VIEW: registry.list_on_demand_feature_views(
+                project=project
+            ),
+            FeastObjectType.SORTED_FEATURE_VIEW: registry.list_sorted_feature_views(
                 project=project
             ),
             FeastObjectType.STREAM_FEATURE_VIEW: registry.list_stream_feature_views(
@@ -117,6 +121,7 @@ class FeastObjectType(Enum):
             FeastObjectType.DATA_SOURCE: repo_contents.data_sources,
             FeastObjectType.ENTITY: repo_contents.entities,
             FeastObjectType.FEATURE_VIEW: repo_contents.feature_views,
+            FeastObjectType.SORTED_FEATURE_VIEW: repo_contents.sorted_feature_views,
             FeastObjectType.ON_DEMAND_FEATURE_VIEW: repo_contents.on_demand_feature_views,
             FeastObjectType.STREAM_FEATURE_VIEW: repo_contents.stream_feature_views,
             FeastObjectType.FEATURE_SERVICE: repo_contents.feature_services,
@@ -1107,6 +1112,10 @@ class Registry(BaseRegistry):
                 list_stream_feature_views = self.list_stream_feature_views(name)
                 for stream_feature_view in list_stream_feature_views:
                     self.delete_feature_view(stream_feature_view.name, name)
+
+                list_sorted_feature_views = self.list_sorted_feature_views(name)
+                for sorted_feature_view in list_sorted_feature_views:
+                    self.delete_feature_view(sorted_feature_view.name, name)
 
                 list_feature_views = self.list_feature_views(name)
                 for feature_view in list_feature_views:
