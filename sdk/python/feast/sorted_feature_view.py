@@ -6,10 +6,10 @@ from typing import Dict, List, Optional, Type
 from google.protobuf.message import Message
 from typeguard import typechecked
 
-from feast.feature_view import FeatureView
 from feast import utils
 from feast.data_source import DataSource
 from feast.entity import Entity
+from feast.feature_view import FeatureView
 from feast.feature_view_projection import FeatureViewProjection
 from feast.field import Field
 from feast.protos.feast.core.SortedFeatureView_pb2 import (
