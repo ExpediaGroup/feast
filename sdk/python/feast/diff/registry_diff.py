@@ -24,6 +24,9 @@ from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
 from feast.protos.feast.core.OnDemandFeatureView_pb2 import OnDemandFeatureViewSpec
 from feast.protos.feast.core.Permission_pb2 import Permission as PermissionProto
 from feast.protos.feast.core.SavedDataset_pb2 import SavedDataset as SavedDatasetProto
+from feast.protos.feast.core.SortedFeatureView_pb2 import (
+    SortedFeatureView as SortedFeatureViewProto,
+)
 from feast.protos.feast.core.StreamFeatureView_pb2 import (
     StreamFeatureView as StreamFeatureViewProto,
 )
@@ -110,6 +113,7 @@ FeastObjectProto = TypeVar(
     EntityProto,
     FeatureViewProto,
     FeatureServiceProto,
+    SortedFeatureViewProto,
     OnDemandFeatureViewProto,
     StreamFeatureViewProto,
     ValidationReferenceProto,

@@ -535,7 +535,7 @@ class HttpRegistry(BaseRegistry):
         except Exception as exception:
             self._handle_exception(exception)
 
-    def get_sorted_feature_view(
+    def get_sorted_feature_view(  # type: ignore[return]
         self, name: str, project: str, allow_cache: bool = False
     ) -> SortedFeatureView:
         if allow_cache:
@@ -557,7 +557,7 @@ class HttpRegistry(BaseRegistry):
         except Exception as exception:
             self._handle_exception(exception)
 
-    def list_sorted_feature_views(
+    def list_sorted_feature_views(  # type: ignore[return]
         self,
         project: str,
         allow_cache: bool = False,

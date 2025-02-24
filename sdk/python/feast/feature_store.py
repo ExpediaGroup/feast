@@ -37,7 +37,6 @@ from colorama import Fore, Style
 from google.protobuf.timestamp_pb2 import Timestamp
 from tqdm import tqdm
 
-from feast.sorted_feature_view import SortedFeatureView
 from feast import feature_server, flags_helper, ui_server, utils
 from feast.base_feature_view import BaseFeatureView
 from feast.batch_feature_view import BatchFeatureView
@@ -85,6 +84,7 @@ from feast.protos.feast.types.Value_pb2 import RepeatedValue, Value
 from feast.repo_config import RepoConfig, load_repo_config
 from feast.repo_contents import RepoContents
 from feast.saved_dataset import SavedDataset, SavedDatasetStorage, ValidationReference
+from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
 from feast.utils import _utc_now
 from feast.version import get_version
@@ -1027,12 +1027,16 @@ class FeatureStore:
                 )
 
         tables_to_delete: List[FeatureView] = (
-            views_to_delete + sfvs_to_delete + sorted_fvs_to_delete
+            views_to_delete
+            + sfvs_to_delete
+            + cast(List[FeatureView], sorted_fvs_to_delete)
             if not partial
             else []  # type: ignore
         )
         tables_to_keep: List[FeatureView] = (
-            views_to_update + sfvs_to_update + sorted_fvs_to_update
+            views_to_update
+            + sfvs_to_update
+            + cast(List[FeatureView], sorted_fvs_to_update)
         )  # type: ignore
 
         if not getattr(self.config.online_store, "lazy_table_creation", False):

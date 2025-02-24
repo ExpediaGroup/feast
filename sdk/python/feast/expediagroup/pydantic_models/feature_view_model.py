@@ -348,10 +348,13 @@ class SortedFeatureViewSortKeyModel(BaseModel):
 
     @classmethod
     def from_sort_key(cls, sort_key: SortKey) -> "SortedFeatureViewSortKeyModel":
+        default_sort_order_str = (
+            "ASC" if sort_key.default_sort_order == SortOrder.ASC else "DESC"
+        )
         return cls(
             name=sort_key.name,
             value_type=str(sort_key.value_type),
-            default_sort_order=sort_key.default_sort_order.name,
+            default_sort_order=default_sort_order_str,
             tags=sort_key.tags,
             description=sort_key.description,
         )
@@ -369,19 +372,18 @@ class SortedFeatureViewModel(FeatureViewModel):
         """
         Converts this Pydantic model into a SortedFeatureView Python object.
         """
-        # Convert sources from their pydantic representations.
         batch_source = self.batch_source.to_data_source() if self.batch_source else None
         stream_source = (
             self.stream_source.to_data_source() if self.stream_source else None
         )
-        source = stream_source if stream_source else batch_source
-        if stream_source and batch_source:
-            source.batch_source = batch_source
 
-        # Build the SortedFeatureView using base fields from FeatureViewModel plus sort_keys.
+        source = stream_source if stream_source else batch_source
+        if stream_source and isinstance(stream_source, KafkaSourceModel):
+            stream_source.batch_source = batch_source
+
         sorted_fv = SortedFeatureView(
             name=self.name,
-            source=source,
+            source=source,  # type: ignore
             schema=(
                 [schema.to_field() for schema in self.original_schema]
                 if self.original_schema
@@ -402,16 +404,23 @@ class SortedFeatureViewModel(FeatureViewModel):
 
     @classmethod
     def from_feature_view(
-        cls, sorted_feature_view: SortedFeatureView
+        cls, sorted_feature_view: FeatureView
     ) -> "SortedFeatureViewModel":
-        """
-        Converts a SortedFeatureView Python object into its Pydantic model representation.
-        """
-        batch_source = None
+        assert isinstance(sorted_feature_view, SortedFeatureView)
+        # TODO: Check batch_source and stream_source implementation
         if sorted_feature_view.batch_source:
-            batch_source = KafkaSourceModel.from_data_source(
+            class_name = type(sorted_feature_view.batch_source).__name__ + "Model"
+            model_class = getattr(sys.modules[__name__], class_name, None)
+            if model_class is None:
+                raise ValueError(f"Batch source model class {class_name} not found.")
+            if model_class not in SUPPORTED_BATCH_DATA_SOURCES:
+                raise ValueError(
+                    "Batch source type is not a supported data source type for SortedFeatureView."
+                )
+            batch_source = model_class.from_data_source(
                 sorted_feature_view.batch_source
             )
+
         stream_source = None
         if sorted_feature_view.stream_source:
             stream_source = KafkaSourceModel.from_data_source(
