@@ -43,6 +43,7 @@ class CassandraOnlineStoreCreator(OnlineStoreCreator):
         keyspace_name = "feast_keyspace"
         keyspace_creation_command = f"create KEYSPACE \"{keyspace_name}\" WITH replication = {{'class': 'SimpleStrategy', 'replication_factor': 1}};"
         self.container.exec(f'cqlsh -e "{keyspace_creation_command}"')
+
         time.sleep(2)
         exposed_port = int(self.container.get_exposed_port("9042"))
         return {
@@ -50,7 +51,9 @@ class CassandraOnlineStoreCreator(OnlineStoreCreator):
             "hosts": ["127.0.0.1"],
             "port": exposed_port,
             "keyspace": keyspace_name,
+            "container": self.container
         }
 
     def teardown(self):
+        print("tearing down")
         self.container.stop()

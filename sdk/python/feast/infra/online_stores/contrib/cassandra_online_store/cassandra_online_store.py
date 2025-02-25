@@ -22,6 +22,7 @@ import hashlib
 import logging
 import string
 import time
+from collections import defaultdict
 from datetime import datetime
 from functools import partial
 from queue import Queue
@@ -74,6 +75,10 @@ INSERT_CQL_4_TEMPLATE = (
     " (?, ?, ?, ?) USING TTL {ttl};"
 )
 
+INSERT_RANGE_QUERY_TEMPLATE = (
+    "INSERT INTO {fqtable} ({featurelist}, entity_key, event_ts) VALUES ({placeholderlist}) USING TTL {ttl};"
+)
+
 SELECT_CQL_TEMPLATE = "SELECT {columns} FROM {fqtable} WHERE entity_key = ?;"
 
 CREATE_TABLE_CQL_TEMPLATE = """
@@ -94,6 +99,7 @@ DROP_TABLE_CQL_TEMPLATE = "DROP TABLE IF EXISTS {fqtable};"
 CQL_TEMPLATE_MAP = {
     # Queries/DML, statements to be prepared
     "insert4": (INSERT_CQL_4_TEMPLATE, True),
+    "insert_range_query": (INSERT_RANGE_QUERY_TEMPLATE, True),
     "select": (SELECT_CQL_TEMPLATE, True),
     # DDL, do not prepare these
     "drop": (DROP_TABLE_CQL_TEMPLATE, False),
@@ -352,13 +358,13 @@ class CassandraOnlineStore(OnlineStore):
                 self._cluster.shutdown()
 
     def online_write_batch(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        data: List[
-            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-        ],
-        progress: Optional[Callable[[int], Any]],
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            data: List[
+                Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+            ],
+            progress: Optional[Callable[[int], Any]],
     ) -> None:
         """
         Write a batch of features of several entities to the database.
@@ -400,50 +406,111 @@ class CassandraOnlineStore(OnlineStore):
             keyspace, project, table, table_name_version
         )
 
-        insert_cql = self._get_cql_statement(
-            config,
-            "insert4",
-            fqtable=fqtable,
-            ttl=ttl,
-            session=session,
-        )
+        if table.name == "rangequery":
+            batch_dict_to_insert = defaultdict(list[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]])
+            for row in data:
+                entity_key_bin = serialize_entity_key(
+                    row[0],
+                    entity_key_serialization_version=config.entity_key_serialization_version,
+                ).hex()
+                batch_dict_to_insert[entity_key_bin].append(row)
 
-        for entity_key, values, timestamp, created_ts in data:
-            batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-            entity_key_bin = serialize_entity_key(
-                entity_key,
-                entity_key_serialization_version=config.entity_key_serialization_version,
-            ).hex()
-            for feature_name, val in values.items():
-                params: Tuple[str, bytes, str, datetime] = (
-                    feature_name,
-                    val.SerializeToString(),
-                    entity_key_bin,
-                    timestamp,
-                )
-                batch.add(insert_cql, params)
 
-            # Wait until the rate limiter allows
-            if not rate_limiter.acquire():
-                while not rate_limiter.acquire():
-                    time.sleep(0.001)
+            feature_dict = data[0][1]
+            feature_list = list(feature_dict.keys())
+            feature_list_cs = ', '.join(feature_list)
+            place_holder_list = ", ".join(["?"] * len(feature_list)*2)
 
-            future = session.execute_async(batch)
-            concurrent_queue.put(future)
-            future.add_callbacks(
-                partial(
-                    on_success,
-                    concurrent_queue=concurrent_queue,
-                ),
-                partial(
-                    on_failure,
-                    concurrent_queue=concurrent_queue,
-                ),
+            insert_cql = self._get_cql_statement(
+                config,
+                "insert_range_query",
+                fqtable=fqtable,
+                ttl=ttl,
+                session=session,
+                column_list=feature_list_cs,
+                place_holder_list=place_holder_list,
             )
 
-            # this happens N-1 times, will be corrected outside:
-            if progress:
-                progress(1)
+            for entity_key_hex, batch_to_insert in batch_dict_to_insert.items():
+
+                batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                entity_key_bin = entity_key_hex
+                for entity_key, feat_dict, timestamp, created_ts in batch_to_insert:
+                    feat_vals=()
+                    for valProto in feat_dict.values():
+                        deser_feat_val=getattr(valProto, valProto.WhichOneof('val'))
+                        feat_vals += (deser_feat_val,)
+                    params = tuple(feat_vals) + (entity_key_bin,timestamp)
+
+                    batch.add(insert_cql, params)
+
+                # Wait until the rate limiter allows
+                if not rate_limiter.acquire():
+                    while not rate_limiter.acquire():
+                        time.sleep(0.001)
+
+                future = session.execute_async(batch)
+                concurrent_queue.put(future)
+                future.add_callbacks(
+                    partial(
+                        on_success,
+                        concurrent_queue=concurrent_queue,
+                    ),
+                    partial(
+                        on_failure,
+                        concurrent_queue=concurrent_queue,
+                    ),
+                )
+
+                # this happens N-1 times, will be corrected outside:
+                if progress:
+                    progress(1)
+
+        else:
+            insert_cql = self._get_cql_statement(
+                config,
+                "insert4",
+                fqtable=fqtable,
+                ttl=ttl,
+                session=session,
+            )
+
+            for entity_key, values, timestamp, created_ts in data:
+                batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                entity_key_bin = serialize_entity_key(
+                    entity_key,
+                    entity_key_serialization_version=config.entity_key_serialization_version,
+                ).hex()
+                for feature_name, val in values.items():
+                    params: Tuple[str, bytes, str, datetime] = (
+                        feature_name,
+                        val.SerializeToString(),
+                        entity_key_bin,
+                        timestamp,
+                    )
+                    batch.add(insert_cql, params)
+
+                # Wait until the rate limiter allows
+                if not rate_limiter.acquire():
+                    while not rate_limiter.acquire():
+                        time.sleep(0.001)
+
+                future = session.execute_async(batch)
+                concurrent_queue.put(future)
+                future.add_callbacks(
+                    partial(
+                        on_success,
+                        concurrent_queue=concurrent_queue,
+                    ),
+                    partial(
+                        on_failure,
+                        concurrent_queue=concurrent_queue,
+                    ),
+                )
+
+                # this happens N-1 times, will be corrected outside:
+                if progress:
+                    progress(1)
         # Wait for all tasks to complete
         while not concurrent_queue.empty():
             time.sleep(0.001)
@@ -453,11 +520,11 @@ class CassandraOnlineStore(OnlineStore):
             progress(1)
 
     def online_read(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        entity_keys: List[EntityKeyProto],
-        requested_features: Optional[List[str]] = None,
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            entity_keys: List[EntityKeyProto],
+            requested_features: Optional[List[str]] = None,
     ) -> List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]]:
         """
         Read feature values pertaining to the requested entities from
@@ -495,8 +562,8 @@ class CassandraOnlineStore(OnlineStore):
             if feature_rows:
                 for feature_row in feature_rows:
                     if (
-                        requested_features is None
-                        or feature_row.feature_name in requested_features
+                            requested_features is None
+                            or feature_row.feature_name in requested_features
                     ):
                         val = ValueProto()
                         val.ParseFromString(feature_row.value)
@@ -509,13 +576,13 @@ class CassandraOnlineStore(OnlineStore):
         return result
 
     def update(
-        self,
-        config: RepoConfig,
-        tables_to_delete: Sequence[FeatureView],
-        tables_to_keep: Sequence[FeatureView],
-        entities_to_delete: Sequence[Entity],
-        entities_to_keep: Sequence[Entity],
-        partial: bool,
+            self,
+            config: RepoConfig,
+            tables_to_delete: Sequence[FeatureView],
+            tables_to_keep: Sequence[FeatureView],
+            entities_to_delete: Sequence[Entity],
+            entities_to_keep: Sequence[Entity],
+            partial: bool,
     ):
         """
         Update schema on DB, by creating and destroying tables accordingly.
@@ -533,10 +600,10 @@ class CassandraOnlineStore(OnlineStore):
             self._drop_table(config, project, table)
 
     def teardown(
-        self,
-        config: RepoConfig,
-        tables: Sequence[FeatureView],
-        entities: Sequence[Entity],
+            self,
+            config: RepoConfig,
+            tables: Sequence[FeatureView],
+            entities: Sequence[Entity],
     ):
         """
         Delete tables from the database.
@@ -591,8 +658,8 @@ class CassandraOnlineStore(OnlineStore):
             truncated_project = project[:prj_prefix_maxlen]
             truncated_fv = feature_view_name[:fv_prefix_maxlen]
 
-            project_to_hash = project[len(truncated_project) :]
-            fv_to_hash = feature_view_name[len(truncated_fv) :]
+            project_to_hash = project[len(truncated_project):]
+            fv_to_hash = feature_view_name[len(truncated_fv):]
 
             project_hash = base62encode(hashlib.md5(project_to_hash.encode()).digest())
             fv_hash = base62encode(hashlib.md5(fv_to_hash.encode()).digest())
@@ -605,7 +672,7 @@ class CassandraOnlineStore(OnlineStore):
 
     @staticmethod
     def _fq_table_name(
-        keyspace: str, project: str, table: FeatureView, table_name_version: int
+            keyspace: str, project: str, table: FeatureView, table_name_version: int
     ) -> str:
         """
         Generate a fully-qualified table name,
@@ -624,12 +691,12 @@ class CassandraOnlineStore(OnlineStore):
             raise ValueError(f"Unknown table name format version: {table_name_version}")
 
     def _read_rows_by_entity_keys(
-        self,
-        config: RepoConfig,
-        project: str,
-        table: FeatureView,
-        entity_key_bins: List[str],
-        columns: Optional[List[str]] = None,
+            self,
+            config: RepoConfig,
+            project: str,
+            table: FeatureView,
+            entity_key_bins: List[str],
+            columns: Optional[List[str]] = None,
     ) -> ResultSet:
         """
         Handle the CQL (low-level) reading of feature values from a table.
@@ -668,10 +735,10 @@ class CassandraOnlineStore(OnlineStore):
         return returned_sequence
 
     def _drop_table(
-        self,
-        config: RepoConfig,
-        project: str,
-        table: FeatureView,
+            self,
+            config: RepoConfig,
+            project: str,
+            table: FeatureView,
     ):
         """Handle the CQL (low-level) deletion of a table."""
         session: Session = self._get_session(config)
@@ -705,7 +772,7 @@ class CassandraOnlineStore(OnlineStore):
         session.execute(create_cql)
 
     def _get_cql_statement(
-        self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
+            self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
     ):
         """
         Resolve an 'op_name' (create, insert4, etc) into a CQL statement
@@ -724,10 +791,19 @@ class CassandraOnlineStore(OnlineStore):
             session = self._get_session(config)
 
         template, prepare = CQL_TEMPLATE_MAP[op_name]
-        statement = template.format(
-            fqtable=fqtable,
-            **kwargs,
-        )
+        if op_name == "insert_range_query":
+            statement = template.format(
+                fqtable=fqtable,
+                featurelist=kwargs.get('column_list'),
+                placeholderlist=kwargs.get('place_holder_list'),
+                **kwargs,
+            )
+        else:
+            statement = template.format(
+                fqtable=fqtable,
+                **kwargs,
+            )
+
         if prepare:
             # using the statement itself as key (no problem with that)
             cache_key = statement

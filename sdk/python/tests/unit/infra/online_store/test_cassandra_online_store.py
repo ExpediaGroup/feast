@@ -1,16 +1,80 @@
 import pytest
+from datetime import datetime
+import random
 
 from feast import FeatureView
+from feast.repo_config import RepoConfig
 from feast.infra.offline_stores.file_source import FileSource
+from feast.infra.offline_stores.dask import DaskOfflineStoreConfig
 from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_store import (
     CassandraOnlineStore,
+CassandraOnlineStoreConfig,
+)
+from feast.types import (
+    Array,
+    Bool,
+    Bytes,
+    Float32,
+    Float64,
+    Int32,
+    Int64,
+    String,
+    UnixTimestamp,
+)
+from feast.protos.feast.types.Value_pb2 import BytesList, FloatList
+from feast.protos.feast.types.Value_pb2 import Value as ValueProto
+from feast.field import Field
+from feast.entity import Entity
+from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+from tests.integration.feature_repos.universal.online_store.cassandra import (
+    CassandraOnlineStoreCreator,
 )
 
+
+
+REGISTRY = "s3://test_registry/registry.db"
+PROJECT = "test_range_query"
+PROVIDER = "aws"
+REGION = "us-west-2"
+SOURCE = FileSource(path="some path")
 
 @pytest.fixture
 def file_source():
     file_source = FileSource(name="my_file_source", path="test.parquet")
     return file_source
+
+
+@pytest.fixture(scope="session")
+def cassandra_repo_config(embedded_cassandra):
+    return RepoConfig(
+        registry=REGISTRY,
+        project=PROJECT,
+        provider=PROVIDER,
+        online_store=CassandraOnlineStoreConfig(
+            type=embedded_cassandra["type"],
+            hosts=embedded_cassandra["hosts"],
+            port=embedded_cassandra["port"],
+            keyspace=embedded_cassandra["keyspace"],
+            write_concurrency=100,
+        ),
+        offline_store=DaskOfflineStoreConfig(),
+        entity_key_serialization_version=2,
+    ), embedded_cassandra["container"]
+
+
+@pytest.fixture(scope="session")
+def embedded_cassandra():
+    print("creating online store")
+    # Creating a local dockerized Cassandra online store for tests in the class
+    online_store_creator = CassandraOnlineStoreCreator("cassandra")
+    online_store_config = online_store_creator.create_online_store()
+
+    yield online_store_config
+
+    print("done")
+
+    # Tearing down the Cassandra instance after all tests in the class
+    #online_store_creator.teardown()
 
 
 def test_fq_table_name_v1_within_limit(file_source):
@@ -71,3 +135,71 @@ def test_fq_table_name_invalid_version(file_source):
     with pytest.raises(ValueError) as excinfo:
         CassandraOnlineStore._fq_table_name(keyspace, project, table, 3)
     assert "Unknown table name format version: 3" in str(excinfo.value)
+
+
+def test_online_write_batch_for_range_query(cassandra_repo_config):
+
+    repo_config, container = cassandra_repo_config[0], cassandra_repo_config[1]
+
+    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_rangequery(entity_key TEXT,text TEXT,int int,event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
+
+    print("printing table details")
+    print(container.exec(
+        f'cqlsh -e "USE feast_keyspace;"'))
+    print(container.exec(
+        f'cqlsh -e "DESCRIBE TABLES;"'))
+
+    total_rows_to_write = 10
+    (
+        feature_view,
+        data,
+    ) = _create_n_customer_test_samples_elasticsearch_online_read(
+        n=total_rows_to_write,
+    )
+
+
+    CassandraOnlineStore().online_write_batch(config=repo_config,
+        table=feature_view,
+        data=data,
+        progress=None,)
+    print(container.exec(f'cqlsh -e "select * from feast_keyspace.test_range_query_rangequery;"'))
+
+
+def _create_n_customer_test_samples_elasticsearch_online_read(n=10):
+    fv = FeatureView(
+        name="rangequery",
+        source=SOURCE,
+        entities=[Entity(name="id")],
+        schema=[
+            Field(
+                name="id",
+                dtype=String,
+            ),
+            Field(
+                name="text",
+                dtype=String,
+            ),
+            Field(
+                name="int",
+                dtype=Int32,
+            ),
+        ],
+    )
+    return fv, [
+        (
+            EntityKeyProto(
+                join_keys=["id"],
+                entity_values=[ValueProto(string_val=str(i))],
+            ),
+            {
+                "text": ValueProto(string_val="text"),
+                "int": ValueProto(int32_val=n),
+            },
+            datetime.utcnow(),
+            None,
+        )
+        for i in range(n)
+    ]
+
+
+
