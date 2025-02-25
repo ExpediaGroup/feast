@@ -461,12 +461,16 @@ class CachingRegistry(BaseRegistry):
             f"Starting registry cache refresh thread with TTL {cache_ttl_seconds}"
         )
         self.refresh()
+        logger.info("Registry cache self.refresh() executed")
         if cache_ttl_seconds <= 0:
+            logger.info("Registry cache refresh thread not started as TTL is 0")
             return
         self.registry_refresh_thread = threading.Timer(
             cache_ttl_seconds, self._start_thread_async_refresh, [cache_ttl_seconds]
         )
+        logger.info("Registry cache refresh thread timer created")
         self.registry_refresh_thread.daemon = True
+        logger.info("Registry cache refresh thread daemon set")
         self.registry_refresh_thread.start()
         logger.info("Registry cache refresh thread started")
 
