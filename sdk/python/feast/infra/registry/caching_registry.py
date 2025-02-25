@@ -1,6 +1,7 @@
 import atexit
 import logging
 import threading
+import time
 import warnings
 from abc import abstractmethod
 from datetime import timedelta
@@ -37,6 +38,7 @@ class CachingRegistry(BaseRegistry):
         )
         self.cached_registry_proto = self.proto()
         self.cached_registry_proto_created = _utc_now()
+        self._stop_event = threading.Event()
         logger.info(f"Registry initialized with cache mode: {cache_mode}")
         if cache_mode == "thread":
             self._start_thread_async_refresh(cache_ttl_seconds)
@@ -462,18 +464,26 @@ class CachingRegistry(BaseRegistry):
         )
         self.refresh()
         logger.info("Registry cache self.refresh() executed")
+
         if cache_ttl_seconds <= 0:
             logger.info("Registry cache refresh thread not started as TTL is 0")
             return
-        self.registry_refresh_thread = threading.Timer(
-            cache_ttl_seconds, self._start_thread_async_refresh, [cache_ttl_seconds]
+
+        def refresh_loop():
+            while not self._stop_event.is_set():
+                time.sleep(cache_ttl_seconds)
+                if not self._stop_event.is_set():
+                    logger.info(
+                        "Registry cache refresh thread waking up, refreshing..."
+                    )
+                    self.refresh()
+
+        self.registry_refresh_thread = threading.Thread(
+            target=refresh_loop, daemon=True
         )
-        logger.info("Registry cache refresh thread timer created")
-        self.registry_refresh_thread.daemon = True
-        logger.info("Registry cache refresh thread daemon set")
         self.registry_refresh_thread.start()
         logger.info("Registry cache refresh thread started")
 
     def _exit_handler(self):
-        logger.info("Exiting, cancelling registry cache refresh thread")
-        self.registry_refresh_thread.cancel()
+        logger.info("Exiting, setting stop event for registry cache refresh thread")
+        self._stop_event.set()
