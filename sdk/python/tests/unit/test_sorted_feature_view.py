@@ -80,14 +80,10 @@ def test_sorted_feature_view_ensure_valid_sort_key_in_entity_columns():
     """
     source = FileSource(path="some path")
     entity = Entity(name="entity1", join_keys=["entity1_id"])
-
-    # Create a field that represents an entity column with the same name as the entity.
-    # (Assuming Field and Float32 are imported and used similarly in your code.)
     entity_field = Field(name="entity1", dtype=Float32)
 
-    # Create a sort key that conflicts with the entity column name.
     sort_key = SortKey(
-        name="entity1",  # This is the same as the entity's name / entity column.
+        name="entity1",
         value_type=ValueType.STRING,
         default_sort_order=SortOrder.ASC,  # Assuming ASC is valid.
     )
@@ -99,7 +95,7 @@ def test_sorted_feature_view_ensure_valid_sort_key_in_entity_columns():
         entities=[entity],
         sort_keys=[sort_key],
     )
-    # Simulate that the entity field is recognized as an entity column.
+
     sfv.entity_columns = [entity_field]
 
     with pytest.raises(ValueError) as excinfo:

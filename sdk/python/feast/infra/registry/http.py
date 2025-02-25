@@ -443,14 +443,7 @@ class HttpRegistry(BaseRegistry):
     ):
         try:
             params = {"commit": commit}
-            if isinstance(feature_view, FeatureView):
-                url = f"{self.base_url}/projects/{project}/feature_views"
-                data = FeatureViewModel.from_feature_view(
-                    feature_view
-                ).model_dump_json()
-                response_data = self._send_request("PUT", url, params=params, data=data)
-                return FeatureViewModel.model_validate(response_data).to_feature_view()
-            elif isinstance(feature_view, SortedFeatureView):
+            if isinstance(feature_view, SortedFeatureView):
                 url = f"{self.base_url}/projects/{project}/sorted_feature_views"
                 data = SortedFeatureViewModel.from_feature_view(
                     feature_view
@@ -459,6 +452,13 @@ class HttpRegistry(BaseRegistry):
                 return SortedFeatureViewModel.model_validate(
                     response_data
                 ).to_feature_view()
+            elif isinstance(feature_view, FeatureView):
+                url = f"{self.base_url}/projects/{project}/feature_views"
+                data = FeatureViewModel.from_feature_view(
+                    feature_view
+                ).model_dump_json()
+                response_data = self._send_request("PUT", url, params=params, data=data)
+                return FeatureViewModel.model_validate(response_data).to_feature_view()
             elif isinstance(feature_view, OnDemandFeatureView):
                 url = f"{self.base_url}/projects/{project}/on_demand_feature_views"
                 data = OnDemandFeatureViewModel.from_feature_view(

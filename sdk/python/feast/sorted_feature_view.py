@@ -78,6 +78,14 @@ class SortedFeatureView(FeatureView):
         sfv.projection = copy.copy(self.projection)
         return sfv
 
+    def __eq__(self, other):
+        if not isinstance(other, SortedFeatureView):
+            return NotImplemented
+        if not super().__eq__(other):
+            return False
+        # Compare sort_keys lists
+        return self.sort_keys == other.sort_keys
+
     def ensure_valid(self):
         """
         Validates the state of this SortedFeatureView.

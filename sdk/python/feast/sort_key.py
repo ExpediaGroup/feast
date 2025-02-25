@@ -49,6 +49,17 @@ class SortKey:
         self.tags = tags or {}
         self.description = description
 
+    def __eq__(self, other):
+        if not isinstance(other, SortKey):
+            return NotImplemented
+        return (
+            self.name == other.name
+            and self.value_type == other.value_type
+            and self.default_sort_order == other.default_sort_order
+            and self.tags == other.tags
+            and self.description == other.description
+        )
+
     def ensure_valid(self):
         """
         Validates that the SortKey has the required fields.

@@ -447,13 +447,13 @@ class Registry(BaseRegistry):
             existing_feature_views_of_same_type = (
                 self.cached_registry_proto.stream_feature_views
             )
-        elif isinstance(feature_view, FeatureView):
-            existing_feature_views_of_same_type = (
-                self.cached_registry_proto.feature_views
-            )
         elif isinstance(feature_view, SortedFeatureView):
             existing_feature_views_of_same_type = (
                 self.cached_registry_proto.sorted_feature_views
+            )
+        elif isinstance(feature_view, FeatureView):
+            existing_feature_views_of_same_type = (
+                self.cached_registry_proto.feature_views
             )
         elif isinstance(feature_view, OnDemandFeatureView):
             existing_feature_views_of_same_type = (

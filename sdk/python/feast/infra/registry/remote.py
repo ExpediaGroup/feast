@@ -195,12 +195,12 @@ class RemoteRegistry(BaseRegistry):
     ):
         if isinstance(feature_view, StreamFeatureView):
             arg_name = "stream_feature_view"
+        elif isinstance(feature_view, SortedFeatureView):
+            arg_name = "sorted_feature_view"
         elif isinstance(feature_view, FeatureView):
             arg_name = "feature_view"
         elif isinstance(feature_view, OnDemandFeatureView):
             arg_name = "on_demand_feature_view"
-        elif isinstance(feature_view, SortedFeatureView):
-            arg_name = "sorted_feature_view"
 
         request = RegistryServer_pb2.ApplyFeatureViewRequest(
             feature_view=(
