@@ -19,7 +19,7 @@ from feast.permissions.policy import RoleBasedPolicy
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.sort_key import SortKey
 from feast.sorted_feature_view import SortedFeatureView
-from feast.types import String
+from feast.types import Int64, String
 from feast.value_type import ValueType
 from tests.utils.data_source_test_creator import prep_file_source
 
@@ -28,6 +28,7 @@ from tests.utils.data_source_test_creator import prep_file_source
 def sorted_feature_view_fixture(simple_dataset_1):
     with prep_file_source(df=simple_dataset_1, timestamp_field="ts_1") as file_source:
         entity = Entity(name="id", join_keys=["id"])
+        schema = [Field(name="sort_key_1", dtype=Int64)]
         sort_key1 = SortKey(
             name="sort_key_1",
             value_type=ValueType.INT64,
@@ -38,6 +39,7 @@ def sorted_feature_view_fixture(simple_dataset_1):
         sfv = SortedFeatureView(
             name="sorted_fv",
             entities=[entity],
+            schema=schema,
             source=file_source,
             sort_keys=[sort_key1],
         )
