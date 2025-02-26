@@ -512,7 +512,7 @@ class SqlRegistry(CachingRegistry):
                 self._list_on_demand_feature_views(project=project, tags=tags),
             )
             + cast(
-                List[BaseFeatureView],
+                list[BaseFeatureView],
                 self._list_sorted_feature_views(project=project, tags=tags),
             )
         )

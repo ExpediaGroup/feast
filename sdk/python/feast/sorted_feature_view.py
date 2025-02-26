@@ -45,6 +45,7 @@ class SortedFeatureView(FeatureView):
         tags: Optional[Dict[str, str]] = None,
         owner: str = "",
         sort_keys: Optional[List[SortKey]] = None,
+        _skip_validation: bool = False,  # only skipping validation for proto creation, internal use only
     ):
         super().__init__(
             name=name,
@@ -58,6 +59,8 @@ class SortedFeatureView(FeatureView):
             owner=owner,
         )
         self.sort_keys = sort_keys if sort_keys is not None else []
+        if not _skip_validation:
+            self.ensure_valid()
 
     def __copy__(self):
         sfv = SortedFeatureView(
@@ -88,21 +91,59 @@ class SortedFeatureView(FeatureView):
 
     def ensure_valid(self):
         """
-        Validates the state of this SortedFeatureView.
-        This includes the base FeatureView validations and ensures that at least one sort key is defined.
+        Validates this SortedFeatureView. In addition to the base FeatureView
+        validations.
         """
         super().ensure_valid()
 
-        # Check that sort_keys is not empty.
         if not self.sort_keys:
             raise ValueError(
                 "SortedFeatureView must have at least one sort key defined."
             )
-        # check if the sort_key is not a part of the entity_columns
+
+        valid_feature_names = [field.name for field in self.features]
+        if (
+            hasattr(self.batch_source, "timestamp_field")
+            and self.batch_source.timestamp_field
+        ):
+            valid_feature_names.append(self.batch_source.timestamp_field)
+
+        entity_names = [entity.name for entity in self.entity_columns]
+
+        # Validate each sort key.
         for sort_key in self.sort_keys:
-            if sort_key.name in [entity.name for entity in self.entity_columns]:
+            # Sort key should not be an entity column.
+            if sort_key.name in entity_names:
                 raise ValueError(
-                    f"Sort key {sort_key.name} cannot be part of entity columns"
+                    f"Sort key '{sort_key.name}' cannot be part of entity columns."
+                )
+
+            # Sort key name must match a feature name (or event timestamp field).
+            if sort_key.name not in valid_feature_names:
+                raise ValueError(
+                    f"Sort key '{sort_key.name}' does not match any feature name. "
+                    f"Valid options are: {valid_feature_names}"
+                )
+
+            # If sort key matches a feature, its value type must match.
+            matching_features = [
+                field for field in self.features if field.name == sort_key.name
+            ]
+            if not matching_features:
+                raise ValueError(
+                    f"Sort key '{sort_key.name}' does not correspond to any feature column."
+                )
+            if len(matching_features) > 1:
+                raise ValueError(
+                    f"Multiple features found with the name '{sort_key.name}'. "
+                    f"Sort key names must be unique and correspond to a single feature column."
+                )
+            feature_field = matching_features[0]
+            expected_value_type = feature_field.dtype.to_value_type()
+            if sort_key.value_type != expected_value_type:
+                raise ValueError(
+                    f"Sort key '{sort_key.name}' has value type {sort_key.value_type} which does not match "
+                    f"the expected feature value type {expected_value_type} for feature '{feature_field.name}'."
                 )
 
     @property
@@ -181,6 +222,7 @@ class SortedFeatureView(FeatureView):
             schema=None,
             entities=None,
             sort_keys=[SortKey.from_proto(sk) for sk in spec.sort_keys],
+            _skip_validation=True,
         )
 
         if stream_source:
@@ -217,5 +259,8 @@ class SortedFeatureView(FeatureView):
                     utils.make_tzaware(interval.end_time.ToDatetime()),
                 )
             )
+
+        # Run validation after attributes are set
+        sorted_feature_view.ensure_valid()
 
         return sorted_feature_view

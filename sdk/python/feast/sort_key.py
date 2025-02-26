@@ -3,7 +3,6 @@ from typing import Dict, Optional
 
 from typeguard import typechecked
 
-from feast.entity import Entity
 from feast.protos.feast.core.SortedFeatureView_pb2 import (
     SortKey as SortKeyProto,
 )
@@ -13,14 +12,6 @@ from feast.protos.feast.core.SortedFeatureView_pb2 import (
 from feast.value_type import ValueType
 
 warnings.simplefilter("ignore", DeprecationWarning)
-
-# DUMMY_ENTITY is a placeholder entity used in entityless FeatureViews
-DUMMY_ENTITY_ID = "__dummy_id"
-DUMMY_ENTITY_NAME = "__dummy"
-DUMMY_ENTITY = Entity(
-    name=DUMMY_ENTITY_NAME,
-    join_keys=[DUMMY_ENTITY_ID],
-)
 
 
 @typechecked
@@ -44,6 +35,7 @@ class SortKey:
         description: str = "",
     ):
         self.name = name
+        # TODO: Handle ValueType conversion, user should be able to pass in a dtype instead of ValueType
         self.value_type = value_type
         self.default_sort_order = default_sort_order
         self.tags = tags or {}
@@ -51,7 +43,7 @@ class SortKey:
 
     def __eq__(self, other):
         if not isinstance(other, SortKey):
-            return NotImplemented
+            raise TypeError("Comparisons should only involve SortKey class objects.")
         return (
             self.name == other.name
             and self.value_type == other.value_type
@@ -79,8 +71,8 @@ class SortKey:
             value_type=self.value_type.value,
             default_sort_order=self.default_sort_order,
             description=self.description,
+            tags=self.tags,
         )
-        proto.tags.update(self.tags)
         return proto
 
     @classmethod
