@@ -330,7 +330,6 @@ def test_sorted_feature_view_sort_key_matches_event_timestamp():
         default_sort_order=SortOrder.ASC,
     )
 
-    # Create a SortedFeatureView with a sort key that matches the event timestamp field.
     sfv = SortedFeatureView(
         name="valid_sorted_feature_view",
         source=source,
@@ -339,6 +338,5 @@ def test_sorted_feature_view_sort_key_matches_event_timestamp():
         sort_keys=[sort_key],
     )
 
-    # Ensure that the SortedFeatureView is valid and does not raise any exceptions.
     assert sfv.name == "valid_sorted_feature_view"
     assert sfv.sort_keys[0].name == "event_timestamp"

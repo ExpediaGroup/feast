@@ -2,6 +2,7 @@ package model
 
 import (
 	"github.com/feast-dev/feast/go/protos/feast/core"
+	"github.com/feast-dev/feast/go/protos/feast/types"
 )
 
 type SortOrder struct {
@@ -32,12 +33,14 @@ func (so *SortOrder) ToProto() core.SortOrder_Enum {
 type SortKey struct {
 	FieldName string
 	Order     *SortOrder
+	ValueType types.ValueType_Enum
 }
 
 func NewSortKeyFromProto(proto *core.SortKey) *SortKey {
 	return &SortKey{
 		FieldName: proto.GetName(),
 		Order:     NewSortOrderFromProto(proto.GetDefaultSortOrder()),
+		ValueType: proto.GetValueType(),
 	}
 }
 
@@ -47,7 +50,6 @@ type SortedFeatureView struct {
 }
 
 func NewSortedFeatureViewFromProto(proto *core.SortedFeatureView) *SortedFeatureView {
-	// Create a base FeatureView using Spec fields from the proto.
 	baseFV := &FeatureView{
 		Base: NewBaseFeatureView(proto.GetSpec().GetName(), proto.GetSpec().GetFeatures()),
 		Ttl:  proto.GetSpec().GetTtl(),
