@@ -19,6 +19,7 @@ from feast.protos.feast.core.SortedFeatureView_pb2 import (
     SortedFeatureViewSpec as SortedFeatureViewSpecProto,
 )
 from feast.sort_key import SortKey
+from feast.value_type import ValueType
 
 warnings.simplefilter("ignore", DeprecationWarning)
 
@@ -101,16 +102,12 @@ class SortedFeatureView(FeatureView):
                 "SortedFeatureView must have at least one sort key defined."
             )
 
-        valid_feature_names = [field.name for field in self.features]
-        if (
-            hasattr(self.batch_source, "timestamp_field")
-            and self.batch_source.timestamp_field
-        ):
-            valid_feature_names.append(self.batch_source.timestamp_field)
-
         entity_names = [entity.name for entity in self.entity_columns]
+        feature_names = [field.name for field in self.features]
+        event_timestamp = getattr(self.batch_source, "timestamp_field", None)
+        if event_timestamp:
+            feature_names.append(event_timestamp)
 
-        # Validate each sort key.
         for sort_key in self.sort_keys:
             # Sort key should not be an entity column.
             if sort_key.name in entity_names:
@@ -118,32 +115,34 @@ class SortedFeatureView(FeatureView):
                     f"Sort key '{sort_key.name}' cannot be part of entity columns."
                 )
 
-            # Sort key name must match a feature name (or event timestamp field).
-            if sort_key.name not in valid_feature_names:
-                raise ValueError(
-                    f"Sort key '{sort_key.name}' does not match any feature name. "
-                    f"Valid options are: {valid_feature_names}"
-                )
-
             # If sort key matches a feature, its value type must match.
             matching_features = [
                 field for field in self.features if field.name == sort_key.name
             ]
-            if not matching_features:
+
+            if matching_features:
+                if len(matching_features) > 1:
+                    raise ValueError(
+                        f"Multiple features found with the name '{sort_key.name}'. "
+                        f"Sort key names must be unique and correspond to a single feature column."
+                    )
+                feature_field = matching_features[0]
+                expected_value_type = feature_field.dtype.to_value_type()
+
+            # If not found in features, allow it if it exactly matches the event timestamp.
+            elif event_timestamp and sort_key.name == event_timestamp:
+                # TODO: Check if this is a valid assumption.
+                expected_value_type = ValueType.UNIX_TIMESTAMP
+            else:
                 raise ValueError(
-                    f"Sort key '{sort_key.name}' does not correspond to any feature column."
+                    f"Sort key '{sort_key.name}' does not match any feature name or the event timestamp. "
+                    f"Valid options are: {feature_names}"
                 )
-            if len(matching_features) > 1:
-                raise ValueError(
-                    f"Multiple features found with the name '{sort_key.name}'. "
-                    f"Sort key names must be unique and correspond to a single feature column."
-                )
-            feature_field = matching_features[0]
-            expected_value_type = feature_field.dtype.to_value_type()
+
             if sort_key.value_type != expected_value_type:
                 raise ValueError(
                     f"Sort key '{sort_key.name}' has value type {sort_key.value_type} which does not match "
-                    f"the expected feature value type {expected_value_type} for feature '{feature_field.name}'."
+                    f"the expected feature value type {expected_value_type} for feature '{sort_key.name}'."
                 )
 
     @property

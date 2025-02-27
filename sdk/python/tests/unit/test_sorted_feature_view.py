@@ -101,7 +101,7 @@ def test_sorted_feature_view_ensure_valid_sort_key_in_entity_columns():
         sfv.entity_columns = [entity_field]
 
     assert (
-        "Sort key 'entity1' does not match any feature name. Valid options are: []"
+        "Sort key 'entity1' does not match any feature name or the event timestamp. Valid options are: []"
         in str(excinfo.value)
     )
 
@@ -260,7 +260,7 @@ def test_sorted_feature_view_sort_key_not_in_schema():
         )
 
     assert (
-        "Sort key 'sort_key1' does not match any feature name. Valid options are: ['feature1']"
+        "Sort key 'sort_key1' does not match any feature name or the event timestamp. Valid options are: ['feature1']"
         in str(excinfo.value)
     )
 
@@ -312,3 +312,33 @@ def test_sorted_feature_view_same_sort_key_repeated_in_schema():
             schema=schema,
             sort_keys=[sort_key],
         )
+
+
+def test_sorted_feature_view_sort_key_matches_event_timestamp():
+    """
+    Test that a SortedFeatureView is valid if the sort key matches the event timestamp field.
+    """
+    source = FileSource(path="some path", timestamp_field="event_timestamp")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+    schema = [
+        Field(name="feature1", dtype=Int64),
+    ]
+
+    sort_key = SortKey(
+        name="event_timestamp",
+        value_type=ValueType.UNIX_TIMESTAMP,
+        default_sort_order=SortOrder.ASC,
+    )
+
+    # Create a SortedFeatureView with a sort key that matches the event timestamp field.
+    sfv = SortedFeatureView(
+        name="valid_sorted_feature_view",
+        source=source,
+        entities=[entity],
+        schema=schema,
+        sort_keys=[sort_key],
+    )
+
+    # Ensure that the SortedFeatureView is valid and does not raise any exceptions.
+    assert sfv.name == "valid_sorted_feature_view"
+    assert sfv.sort_keys[0].name == "event_timestamp"
