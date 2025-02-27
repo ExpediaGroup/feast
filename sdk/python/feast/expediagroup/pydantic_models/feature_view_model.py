@@ -327,7 +327,7 @@ class SortedFeatureViewSortKeyModel(BaseModel):
     """
 
     name: str
-    value_type: str
+    value_type: ValueType
     default_sort_order: str
     tags: Optional[Dict[str, str]] = None
     description: Optional[str] = ""
