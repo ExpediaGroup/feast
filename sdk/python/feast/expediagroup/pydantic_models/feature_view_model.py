@@ -320,7 +320,7 @@ class SortedFeatureViewSortKeyModel(BaseModel):
     """
     Pydantic Model for a SortedFeatureView's sort key.
       - name: string
-      - value_type: string (e.g., "INT64", "FLOAT", etc.)
+      - value_type: ValueType
       - default_sort_order: string ("ASC" or "DESC")
       - tags: map<string, string>
       - description: string
@@ -340,7 +340,7 @@ class SortedFeatureViewSortKeyModel(BaseModel):
         )
         return SortKey(
             name=self.name,
-            value_type=ValueType(self.value_type),
+            value_type=self.value_type,
             default_sort_order=sort_order,
             tags=self.tags or {},
             description=self.description or "",
@@ -353,7 +353,7 @@ class SortedFeatureViewSortKeyModel(BaseModel):
         )
         return cls(
             name=sort_key.name,
-            value_type=str(sort_key.value_type),
+            value_type=sort_key.value_type,
             default_sort_order=default_sort_order_str,
             tags=sort_key.tags,
             description=sort_key.description,
