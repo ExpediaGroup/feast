@@ -1028,15 +1028,15 @@ class FeatureStore:
 
         tables_to_delete: List[FeatureView] = (
             views_to_delete
-            + sfvs_to_delete
-            + cast(List[FeatureView], sorted_fvs_to_delete)
+            + sfvs_to_delete  # type: ignore
+            + sorted_fvs_to_delete  # type: ignore
             if not partial
             else []  # type: ignore
         )
         tables_to_keep: List[FeatureView] = (
             views_to_update
-            + sfvs_to_update
-            + cast(List[FeatureView], sorted_fvs_to_update)
+            + sfvs_to_update  # type: ignore
+            + sorted_fvs_to_update  # type: ignore
         )  # type: ignore
 
         if not getattr(self.config.online_store, "lazy_table_creation", False):
