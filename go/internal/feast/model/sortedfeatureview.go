@@ -4,15 +4,40 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/core"
 )
 
+type SortOrder struct {
+	Order core.SortOrder_Enum
+}
+
+func NewSortOrderFromProto(order core.SortOrder_Enum) *SortOrder {
+	return &SortOrder{
+		Order: order,
+	}
+}
+
+func (so *SortOrder) String() string {
+	switch so.Order {
+	case core.SortOrder_ASC:
+		return "ASC"
+	case core.SortOrder_DESC:
+		return "DESC"
+	default:
+		return "INVALID"
+	}
+}
+
+func (so *SortOrder) ToProto() core.SortOrder_Enum {
+	return so.Order
+}
+
 type SortKey struct {
 	FieldName string
-	Order     string
+	Order     *SortOrder
 }
 
 func NewSortKeyFromProto(proto *core.SortKey) *SortKey {
 	return &SortKey{
 		FieldName: proto.GetName(),
-		Order:     proto.GetDefaultSortOrder().String(),
+		Order:     NewSortOrderFromProto(proto.GetDefaultSortOrder()),
 	}
 }
 
