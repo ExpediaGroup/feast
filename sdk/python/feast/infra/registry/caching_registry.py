@@ -459,30 +459,30 @@ class CachingRegistry(BaseRegistry):
                     self.refresh()
 
     def _start_thread_async_refresh(self, cache_ttl_seconds):
-        logger.info(
-            f"Starting registry cache refresh thread with TTL {cache_ttl_seconds}"
-        )
         self.refresh()
-        logger.info("Registry cache self.refresh() executed")
-
         if cache_ttl_seconds <= 0:
             logger.info("Registry cache refresh thread not started as TTL is 0")
             return
 
         def refresh_loop():
             while not self._stop_event.is_set():
-                time.sleep(cache_ttl_seconds)
-                if not self._stop_event.is_set():
-                    logger.info(
-                        "Registry cache refresh thread waking up, refreshing..."
-                    )
-                    self.refresh()
+                try:
+                    time.sleep(cache_ttl_seconds)
+                    if not self._stop_event.is_set():
+                        self.refresh()
+                except Exception as e:
+                    logger.exception("Exception in refresh_loop: %s", e)
 
-        self.registry_refresh_thread = threading.Thread(
-            target=refresh_loop, daemon=True
-        )
-        self.registry_refresh_thread.start()
-        logger.info("Registry cache refresh thread started")
+        try:
+            self.registry_refresh_thread = threading.Thread(
+                target=refresh_loop, daemon=True
+            )
+            self.registry_refresh_thread.start()
+            logger.info(
+                f"Registry cache refresh thread started with TTL {cache_ttl_seconds}"
+            )
+        except Exception as e:
+            logger.exception("Failed to start registry refresh thread: %s", e)
 
     def _exit_handler(self):
         logger.info("Exiting, setting stop event for registry cache refresh thread")
