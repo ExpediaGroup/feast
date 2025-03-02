@@ -75,8 +75,8 @@ INSERT_CQL_4_TEMPLATE = (
     " (?, ?, ?, ?) USING TTL {ttl};"
 )
 
-INSERT_RANGE_QUERY_TEMPLATE = (
-    "INSERT INTO {fqtable} ({featurelist}, entity_key, event_ts) VALUES ({placeholderlist}) USING TTL {ttl};"
+INSERT_TIME_SERIES_TEMPLATE = (
+    "INSERT INTO {fqtable} ({feature_names}, entity_key, event_ts) VALUES ({parameters}) USING TTL {ttl};"
 )
 
 SELECT_CQL_TEMPLATE = "SELECT {columns} FROM {fqtable} WHERE entity_key = ?;"
@@ -99,7 +99,7 @@ DROP_TABLE_CQL_TEMPLATE = "DROP TABLE IF EXISTS {fqtable};"
 CQL_TEMPLATE_MAP = {
     # Queries/DML, statements to be prepared
     "insert4": (INSERT_CQL_4_TEMPLATE, True),
-    "insert_range_query": (INSERT_RANGE_QUERY_TEMPLATE, True),
+    "insert_time_series": (INSERT_TIME_SERIES_TEMPLATE, True),
     "select": (SELECT_CQL_TEMPLATE, True),
     # DDL, do not prepare these
     "drop": (DROP_TABLE_CQL_TEMPLATE, False),
@@ -406,66 +406,46 @@ class CassandraOnlineStore(OnlineStore):
             keyspace, project, table, table_name_version
         )
 
-        if table.name == "rangequery":
-            batch_dict_to_insert = defaultdict(list[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]])
+        #TODO: Change later to validate if the feature view is of type SortedFeatureView
+        if table.name == "sortedfeatureview":
+            # Split the data in to multiple batches, with each batch having the same entity key (partition key).
+            # NOTE: It is not a good practice to have data from multiple partitions in the same batch.
+            # Doing so can affect performance and also data loss among other things.
+            entity_dict = defaultdict(list[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]])
             for row in data:
                 entity_key_bin = serialize_entity_key(
                     row[0],
                     entity_key_serialization_version=config.entity_key_serialization_version,
                 ).hex()
-                batch_dict_to_insert[entity_key_bin].append(row)
+                entity_dict[entity_key_bin].append(row)
 
-
-            feature_dict = data[0][1]
-            feature_list = list(feature_dict.keys())
-            feature_list_cs = ', '.join(feature_list)
-            place_holder_list = ", ".join(["?"] * len(feature_list)*2)
+            # Get the list of feature names from data to use in the insert query
+            feature_names = list(data[0][1].keys())
+            feature_names_str = ', '.join(feature_names)
+            params_str = ", ".join(["?"] * len(feature_names)*2)
 
             insert_cql = self._get_cql_statement(
                 config,
-                "insert_range_query",
+                "insert_time_series",
                 fqtable=fqtable,
                 ttl=ttl,
                 session=session,
-                column_list=feature_list_cs,
-                place_holder_list=place_holder_list,
+                feature_names_str=feature_names_str,
+                params_str=params_str,
             )
 
-            for entity_key_hex, batch_to_insert in batch_dict_to_insert.items():
-
+            # Write each batch with the same entity key in to the online store
+            for entity_key_bin, batch_to_write in entity_dict.items():
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-                entity_key_bin = entity_key_hex
-                for entity_key, feat_dict, timestamp, created_ts in batch_to_insert:
-                    feat_vals=()
+                for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
+                    feature_values = ()
                     for valProto in feat_dict.values():
-                        deser_feat_val=getattr(valProto, valProto.WhichOneof('val'))
-                        feat_vals += (deser_feat_val,)
-                    params = tuple(feat_vals) + (entity_key_bin,timestamp)
-
+                        feature_value = getattr(valProto, valProto.WhichOneof('val'))
+                        feature_values += (feature_value,)
+                    params = tuple(feature_values) + (entity_key_bin,timestamp)
                     batch.add(insert_cql, params)
 
-                # Wait until the rate limiter allows
-                if not rate_limiter.acquire():
-                    while not rate_limiter.acquire():
-                        time.sleep(0.001)
-
-                future = session.execute_async(batch)
-                concurrent_queue.put(future)
-                future.add_callbacks(
-                    partial(
-                        on_success,
-                        concurrent_queue=concurrent_queue,
-                    ),
-                    partial(
-                        on_failure,
-                        concurrent_queue=concurrent_queue,
-                    ),
-                )
-
-                # this happens N-1 times, will be corrected outside:
-                if progress:
-                    progress(1)
-
+                CassandraOnlineStore._apply_batch(rate_limiter, batch, progress, session, concurrent_queue, on_success, on_failure)
         else:
             insert_cql = self._get_cql_statement(
                 config,
@@ -490,27 +470,8 @@ class CassandraOnlineStore(OnlineStore):
                     )
                     batch.add(insert_cql, params)
 
-                # Wait until the rate limiter allows
-                if not rate_limiter.acquire():
-                    while not rate_limiter.acquire():
-                        time.sleep(0.001)
+                CassandraOnlineStore._apply_batch(rate_limiter, batch, progress, session, concurrent_queue, on_success, on_failure)
 
-                future = session.execute_async(batch)
-                concurrent_queue.put(future)
-                future.add_callbacks(
-                    partial(
-                        on_success,
-                        concurrent_queue=concurrent_queue,
-                    ),
-                    partial(
-                        on_failure,
-                        concurrent_queue=concurrent_queue,
-                    ),
-                )
-
-                # this happens N-1 times, will be corrected outside:
-                if progress:
-                    progress(1)
         # Wait for all tasks to complete
         while not concurrent_queue.empty():
             time.sleep(0.001)
@@ -562,8 +523,8 @@ class CassandraOnlineStore(OnlineStore):
             if feature_rows:
                 for feature_row in feature_rows:
                     if (
-                        requested_features is None
-                        or feature_row.feature_name in requested_features
+                            requested_features is None
+                            or feature_row.feature_name in requested_features
                     ):
                         val = ValueProto()
                         val.ParseFromString(feature_row.value)
@@ -576,13 +537,13 @@ class CassandraOnlineStore(OnlineStore):
         return result
 
     def update(
-        self,
-        config: RepoConfig,
-        tables_to_delete: Sequence[FeatureView],
-        tables_to_keep: Sequence[FeatureView],
-        entities_to_delete: Sequence[Entity],
-        entities_to_keep: Sequence[Entity],
-        partial: bool,
+            self,
+            config: RepoConfig,
+            tables_to_delete: Sequence[FeatureView],
+            tables_to_keep: Sequence[FeatureView],
+            entities_to_delete: Sequence[Entity],
+            entities_to_keep: Sequence[Entity],
+            partial: bool,
     ):
         """
         Update schema on DB, by creating and destroying tables accordingly.
@@ -691,12 +652,12 @@ class CassandraOnlineStore(OnlineStore):
             raise ValueError(f"Unknown table name format version: {table_name_version}")
 
     def _read_rows_by_entity_keys(
-        self,
-        config: RepoConfig,
-        project: str,
-        table: FeatureView,
-        entity_key_bins: List[str],
-        columns: Optional[List[str]] = None,
+            self,
+            config: RepoConfig,
+            project: str,
+            table: FeatureView,
+            entity_key_bins: List[str],
+            columns: Optional[List[str]] = None,
     ) -> ResultSet:
         """
         Handle the CQL (low-level) reading of feature values from a table.
@@ -735,10 +696,10 @@ class CassandraOnlineStore(OnlineStore):
         return returned_sequence
 
     def _drop_table(
-            self,
-            config: RepoConfig,
-            project: str,
-            table: FeatureView,
+        self,
+        config: RepoConfig,
+        project: str,
+        table: FeatureView,
     ):
         """Handle the CQL (low-level) deletion of a table."""
         session: Session = self._get_session(config)
@@ -772,7 +733,7 @@ class CassandraOnlineStore(OnlineStore):
         session.execute(create_cql)
 
     def _get_cql_statement(
-        self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
+            self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
     ):
         """
         Resolve an 'op_name' (create, insert4, etc) into a CQL statement
@@ -791,11 +752,11 @@ class CassandraOnlineStore(OnlineStore):
             session = self._get_session(config)
 
         template, prepare = CQL_TEMPLATE_MAP[op_name]
-        if op_name == "insert_range_query":
+        if op_name == "insert_time_series":
             statement = template.format(
                 fqtable=fqtable,
-                featurelist=kwargs.get('column_list'),
-                placeholderlist=kwargs.get('place_holder_list'),
+                feature_names=kwargs.get('feature_names_str'),
+                parameters=kwargs.get('params_str'),
                 **kwargs,
             )
         else:
@@ -813,3 +774,37 @@ class CassandraOnlineStore(OnlineStore):
             return self._prepared_statements[cache_key]
         else:
             return statement
+
+    @staticmethod
+    def _apply_batch(
+            rate_limiter: SlidingWindowRateLimiter,
+            batch: BatchStatement,
+            progress: Optional[Callable[[int], Any]],
+            session: Session,
+            concurrent_queue: Queue,
+            on_success,
+            on_failure
+    ):
+        # Wait until the rate limiter allows
+        if not rate_limiter.acquire():
+            while not rate_limiter.acquire():
+                time.sleep(0.001)
+
+        future = session.execute_async(batch)
+        concurrent_queue.put(future)
+        future.add_callbacks(
+            partial(
+                on_success,
+                concurrent_queue=concurrent_queue,
+            ),
+            partial(
+                on_failure,
+                concurrent_queue=concurrent_queue,
+            ),
+        )
+
+        # this happens N-1 times, will be corrected outside:
+        if progress:
+            progress(1)
+
+

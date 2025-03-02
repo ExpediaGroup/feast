@@ -45,6 +45,17 @@ def file_source():
 
 
 @pytest.fixture(scope="session")
+def embedded_cassandra():
+    online_store_creator = CassandraOnlineStoreCreator("cassandra")
+    online_store_config = online_store_creator.create_online_store()
+
+    yield online_store_config
+
+    # Tearing down the Cassandra instance after all tests in the class
+    online_store_creator.teardown()
+
+
+@pytest.fixture(scope="session")
 def cassandra_repo_config(embedded_cassandra):
     return RepoConfig(
         registry=REGISTRY,
@@ -60,21 +71,6 @@ def cassandra_repo_config(embedded_cassandra):
         offline_store=DaskOfflineStoreConfig(),
         entity_key_serialization_version=2,
     ), embedded_cassandra["container"]
-
-
-@pytest.fixture(scope="session")
-def embedded_cassandra():
-    print("creating online store")
-    # Creating a local dockerized Cassandra online store for tests in the class
-    online_store_creator = CassandraOnlineStoreCreator("cassandra")
-    online_store_config = online_store_creator.create_online_store()
-
-    yield online_store_config
-
-    print("done")
-
-    # Tearing down the Cassandra instance after all tests in the class
-    #online_store_creator.teardown()
 
 
 def test_fq_table_name_v1_within_limit(file_source):
@@ -141,33 +137,25 @@ def test_online_write_batch_for_range_query(cassandra_repo_config):
 
     repo_config, container = cassandra_repo_config[0], cassandra_repo_config[1]
 
-    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_rangequery(entity_key TEXT,text TEXT,int int,event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
+    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT,int int,event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
 
-    print("printing table details")
-    print(container.exec(
-        f'cqlsh -e "USE feast_keyspace;"'))
-    print(container.exec(
-        f'cqlsh -e "DESCRIBE TABLES;"'))
-
-    total_rows_to_write = 10
     (
         feature_view,
         data,
-    ) = _create_n_customer_test_samples_elasticsearch_online_read(
-        n=total_rows_to_write,
+    ) = _create_n_test_sample_features(
+        n=10,
     )
-
 
     CassandraOnlineStore().online_write_batch(config=repo_config,
         table=feature_view,
         data=data,
         progress=None,)
-    print(container.exec(f'cqlsh -e "select * from feast_keyspace.test_range_query_rangequery;"'))
+    assert True == ("10" in container.exec(f'cqlsh -e "select COUNT(*) from feast_keyspace.test_range_query_sortedfeatureview;"').output.decode("utf-8"))
 
 
-def _create_n_customer_test_samples_elasticsearch_online_read(n=10):
+def _create_n_test_sample_features(n=10):
     fv = FeatureView(
-        name="rangequery",
+        name="sortedfeatureview",
         source=SOURCE,
         entities=[Entity(name="id")],
         schema=[

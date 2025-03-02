@@ -258,11 +258,14 @@ class SparkKafkaProcessor(StreamProcessor):
                 ts_field = self.sfv.timestamp_field
             else:
                 ts_field = self.sfv.stream_source.timestamp_field  # type: ignore
-            rows = (
-                rows.sort_values(by=[*self.join_keys, ts_field], ascending=False)
-                .groupby(self.join_keys)
-                .nth(0)
-            )
+
+            # TODO: Change later to validate if the feature view is not of type SortedFeatureView
+            if self.sfv.name != "sortedfeatureview":
+                rows = (
+                    rows.sort_values(by=[*self.join_keys, ts_field], ascending=False)
+                    .groupby(self.join_keys)
+                    .nth(0)
+                )
             # Created column is not used anywhere in the code, but it is added to the dataframe.
             # Commenting this out as it is not used anywhere in the code
             # rows["created"] = pd.to_datetime("now", utc=True)

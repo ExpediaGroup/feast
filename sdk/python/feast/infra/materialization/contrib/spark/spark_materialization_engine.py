@@ -155,19 +155,33 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
         job_id = f"{feature_view.name}-{start_date}-{end_date}"
 
         try:
-            offline_job = cast(
-                SparkRetrievalJob,
-                self.offline_store.pull_latest_from_table_or_query(
-                    config=self.repo_config,
-                    data_source=feature_view.batch_source,
-                    join_key_columns=join_key_columns,
-                    feature_name_columns=feature_name_columns,
-                    timestamp_field=timestamp_field,
-                    created_timestamp_column=created_timestamp_column,
-                    start_date=start_date,
-                    end_date=end_date,
-                ),
-            )
+            if feature_view.name == "sortedfeatureview":
+                offline_job = cast(
+                    SparkRetrievalJob,
+                    self.offline_store.pull_all_from_table_or_query(
+                        config=self.repo_config,
+                        data_source=feature_view.batch_source,
+                        join_key_columns=join_key_columns,
+                        feature_name_columns=feature_name_columns,
+                        timestamp_field=timestamp_field,
+                        start_date=start_date,
+                        end_date=end_date,
+                    ),
+                )
+            else:
+                offline_job = cast(
+                    SparkRetrievalJob,
+                    self.offline_store.pull_latest_from_table_or_query(
+                        config=self.repo_config,
+                        data_source=feature_view.batch_source,
+                        join_key_columns=join_key_columns,
+                        feature_name_columns=feature_name_columns,
+                        timestamp_field=timestamp_field,
+                        created_timestamp_column=created_timestamp_column,
+                        start_date=start_date,
+                        end_date=end_date,
+                    ),
+                )
 
             spark_serialized_artifacts = _SparkSerializedArtifacts.serialize(
                 feature_view=feature_view, repo_config=self.repo_config

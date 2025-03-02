@@ -55,5 +55,4 @@ class CassandraOnlineStoreCreator(OnlineStoreCreator):
         }
 
     def teardown(self):
-        print("tearing down")
         self.container.stop()
