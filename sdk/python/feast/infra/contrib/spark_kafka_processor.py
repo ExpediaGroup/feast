@@ -22,6 +22,7 @@ from feast.infra.materialization.contrib.spark.spark_materialization_engine impo
     _SparkSerializedArtifacts,
 )
 from feast.infra.provider import get_provider
+from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
 
 
@@ -259,8 +260,7 @@ class SparkKafkaProcessor(StreamProcessor):
             else:
                 ts_field = self.sfv.stream_source.timestamp_field  # type: ignore
 
-            # TODO: Change later to validate if the feature view is not of type SortedFeatureView
-            if self.sfv.name != "sortedfeatureview":
+            if not isinstance(self.sfv, SortedFeatureView):
                 rows = (
                     rows.sort_values(by=[*self.join_keys, ts_field], ascending=False)
                     .groupby(self.join_keys)

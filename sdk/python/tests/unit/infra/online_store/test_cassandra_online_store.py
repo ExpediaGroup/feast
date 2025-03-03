@@ -25,10 +25,14 @@ from feast.protos.feast.types.Value_pb2 import BytesList, FloatList
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.field import Field
 from feast.entity import Entity
+from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+from feast.sort_key import SortKey
 from tests.integration.feature_repos.universal.online_store.cassandra import (
     CassandraOnlineStoreCreator,
 )
+from feast.sorted_feature_view import SortedFeatureView
+from feast.value_type import ValueType
 
 
 
@@ -36,7 +40,7 @@ REGISTRY = "s3://test_registry/registry.db"
 PROJECT = "test_range_query"
 PROVIDER = "aws"
 REGION = "us-west-2"
-SOURCE = FileSource(path="some path")
+SOURCE = FileSource(path="some path", timestamp_field="event_timestamp",)
 
 @pytest.fixture
 def file_source():
@@ -137,7 +141,7 @@ def test_online_write_batch_for_range_query(cassandra_repo_config):
 
     repo_config, container = cassandra_repo_config[0], cassandra_repo_config[1]
 
-    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT,int int,event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
+    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT,int int, event_timestamp TIMESTAMP, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
 
     (
         feature_view,
@@ -154,10 +158,11 @@ def test_online_write_batch_for_range_query(cassandra_repo_config):
 
 
 def _create_n_test_sample_features(n=10):
-    fv = FeatureView(
+    fv = SortedFeatureView(
         name="sortedfeatureview",
         source=SOURCE,
         entities=[Entity(name="id")],
+        sort_keys=[SortKey(name="event_timestamp", value_type=ValueType.UNIX_TIMESTAMP, default_sort_order=SortOrder.DESC,)],
         schema=[
             Field(
                 name="id",

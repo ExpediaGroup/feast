@@ -26,6 +26,7 @@ from feast.infra.passthrough_provider import PassthroughProvider
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
 from feast.repo_config import FeastConfigBaseModel, RepoConfig
+from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
 from feast.utils import (
     _convert_arrow_to_proto,
@@ -135,7 +136,7 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
     def _materialize_one(
         self,
         registry: BaseRegistry,
-        feature_view: Union[BatchFeatureView, StreamFeatureView, FeatureView],
+        feature_view: Union[BatchFeatureView, SortedFeatureView, StreamFeatureView, FeatureView],
         start_date: datetime,
         end_date: datetime,
         project: str,
@@ -155,7 +156,7 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
         job_id = f"{feature_view.name}-{start_date}-{end_date}"
 
         try:
-            if feature_view.name == "sortedfeatureview":
+            if isinstance(feature_view, SortedFeatureView):
                 offline_job = cast(
                     SparkRetrievalJob,
                     self.offline_store.pull_all_from_table_or_query(

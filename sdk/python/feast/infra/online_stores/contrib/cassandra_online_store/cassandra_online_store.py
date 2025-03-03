@@ -48,6 +48,7 @@ from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.rate_limiter import SlidingWindowRateLimiter
 from feast.repo_config import FeastConfigBaseModel
+from feast.sorted_feature_view import SortedFeatureView
 
 # Error messages
 E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS = (
@@ -406,11 +407,10 @@ class CassandraOnlineStore(OnlineStore):
             keyspace, project, table, table_name_version
         )
 
-        #TODO: Change later to validate if the feature view is of type SortedFeatureView
-        if table.name == "sortedfeatureview":
+        if isinstance(table, SortedFeatureView):
             # Split the data in to multiple batches, with each batch having the same entity key (partition key).
             # NOTE: It is not a good practice to have data from multiple partitions in the same batch.
-            # Doing so can affect performance and also data loss among other things.
+            # Doing so can affect write latency and also data loss among other things.
             entity_dict = defaultdict(list[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]])
             for row in data:
                 entity_key_bin = serialize_entity_key(
@@ -421,8 +421,16 @@ class CassandraOnlineStore(OnlineStore):
 
             # Get the list of feature names from data to use in the insert query
             feature_names = list(data[0][1].keys())
+            # Get the event timestamp field name if its specified as a sort key (in which case its duplicated
+            # and stored as a feature)
+            sort_keys = [sort_key.name for sort_key in table.sort_keys]
+            timestamp_in_sortkeys = False
+            if table.batch_source.timestamp_field in sort_keys:
+                timestamp_in_sortkeys = True
+                feature_names.append(table.batch_source.timestamp_field)
+
             feature_names_str = ', '.join(feature_names)
-            params_str = ", ".join(["?"] * len(feature_names)*2)
+            params_str = ", ".join(["?"] * (len(feature_names)+2))
 
             insert_cql = self._get_cql_statement(
                 config,
@@ -434,15 +442,19 @@ class CassandraOnlineStore(OnlineStore):
                 params_str=params_str,
             )
 
-            # Write each batch with the same entity key in to the online store
+            # Write each batch with same entity key in to the online store
             for entity_key_bin, batch_to_write in entity_dict.items():
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
-                    feature_values = ()
+                    params = ()
                     for valProto in feat_dict.values():
                         feature_value = getattr(valProto, valProto.WhichOneof('val'))
-                        feature_values += (feature_value,)
-                    params = tuple(feature_values) + (entity_key_bin,timestamp)
+                        params += (feature_value,)
+                    # If event timestamp is a sort key, then also insert it as a feature
+                    if timestamp_in_sortkeys:
+                        params = params + (timestamp,)
+
+                    params = params + (entity_key_bin,timestamp)
                     batch.add(insert_cql, params)
 
                 CassandraOnlineStore._apply_batch(rate_limiter, batch, progress, session, concurrent_queue, on_success, on_failure)
