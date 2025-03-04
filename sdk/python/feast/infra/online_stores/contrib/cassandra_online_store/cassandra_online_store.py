@@ -60,7 +60,6 @@ from feast.types import (
     PrimitiveFeastType,
     String,
     UnixTimestamp,
-    from_value_type,
 )
 
 # Error messages
@@ -740,17 +739,12 @@ class CassandraOnlineStore(OnlineStore):
             for feature in table.features
         ]
 
-        sort_key_columns = [
-            f"{sk.name} {self._get_cql_type(from_value_type(sk.value_type))}"
-            for sk in table.sort_keys
-        ]
+        sort_key_names = ", ".join([f"{sk.name}" for sk in table.sort_keys])
 
         sort_key_orders = [
             f"{sk.name} {'ASC' if sk.default_sort_order == SortOrder.Enum.ASC else 'DESC'}"
             for sk in table.sort_keys
         ]
-
-        sort_key_names = ", ".join([col.split()[0] for col in sort_key_columns])
 
         feature_columns_str = ",".join(feature_columns)
 
