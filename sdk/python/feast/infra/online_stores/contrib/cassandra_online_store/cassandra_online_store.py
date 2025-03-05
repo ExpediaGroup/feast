@@ -76,7 +76,7 @@ INSERT_CQL_4_TEMPLATE = (
     " (?, ?, ?, ?) USING TTL {ttl};"
 )
 
-INSERT_TIME_SERIES_TEMPLATE = (
+INSERT_SORTED_FEATURES_TEMPLATE = (
     "INSERT INTO {fqtable} ({feature_names}, entity_key, event_ts) VALUES ({parameters}) USING TTL {ttl};"
 )
 
@@ -100,7 +100,7 @@ DROP_TABLE_CQL_TEMPLATE = "DROP TABLE IF EXISTS {fqtable};"
 CQL_TEMPLATE_MAP = {
     # Queries/DML, statements to be prepared
     "insert4": (INSERT_CQL_4_TEMPLATE, True),
-    "insert_time_series": (INSERT_TIME_SERIES_TEMPLATE, True),
+    "insert_time_series": (INSERT_SORTED_FEATURES_TEMPLATE, True),
     "select": (SELECT_CQL_TEMPLATE, True),
     # DDL, do not prepare these
     "drop": (DROP_TABLE_CQL_TEMPLATE, False),
@@ -439,7 +439,7 @@ class CassandraOnlineStore(OnlineStore):
             for entity_key_bin, batch_to_write in entity_dict.items():
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
-                    feature_values = ()
+                    feature_values: tuple = ()
                     for valProto in feat_dict.values():
                         feature_value = getattr(valProto, valProto.WhichOneof('val'))
                         feature_values += (feature_value,)
