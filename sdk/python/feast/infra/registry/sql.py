@@ -264,6 +264,7 @@ class SqlRegistry(CachingRegistry):
         registry_config,
         project: str,
         repo_path: Optional[Path],
+        on_cache_refresh_failure: Optional[Callable[[Exception], None]] = None,
     ):
         assert registry_config is not None and isinstance(
             registry_config, SqlRegistryConfig
@@ -296,6 +297,7 @@ class SqlRegistry(CachingRegistry):
             project=project,
             cache_ttl_seconds=registry_config.cache_ttl_seconds,
             cache_mode=registry_config.cache_mode,
+            on_cache_refresh_failure=on_cache_refresh_failure,
         )
 
     def _sync_feast_metadata_to_projects_table(self):
