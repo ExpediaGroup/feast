@@ -1,6 +1,5 @@
 import pytest
 from datetime import datetime
-import random
 
 from feast import FeatureView
 from feast.repo_config import RepoConfig
@@ -11,17 +10,9 @@ from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_s
 CassandraOnlineStoreConfig,
 )
 from feast.types import (
-    Array,
-    Bool,
-    Bytes,
-    Float32,
-    Float64,
     Int32,
-    Int64,
     String,
-    UnixTimestamp,
 )
-from feast.protos.feast.types.Value_pb2 import BytesList, FloatList
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.field import Field
 from feast.entity import Entity
