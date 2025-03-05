@@ -460,7 +460,7 @@ class HttpRegistry(BaseRegistry):
                 response_data = self._send_request("PUT", url, params=params, data=data)
                 return FeatureViewModel.model_validate(response_data).to_feature_view()
             elif isinstance(feature_view, OnDemandFeatureView):
-                url = f"{self.base_url}/projects/{project}/feature_views"
+                url = f"{self.base_url}/projects/{project}/on_demand_feature_views"
                 data = OnDemandFeatureViewModel.from_feature_view(
                     feature_view
                 ).model_dump_json()
