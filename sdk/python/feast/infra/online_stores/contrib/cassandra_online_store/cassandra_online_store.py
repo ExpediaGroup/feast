@@ -441,7 +441,7 @@ class CassandraOnlineStore(OnlineStore):
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
                     feature_values: tuple = ()
                     for valProto in feat_dict.values():
-                        feature_value = getattr(valProto, valProto.WhichOneof('val'))
+                        feature_value = getattr(valProto, str(valProto.WhichOneof('val')))
                         feature_values += (feature_value,)
 
                     feature_values = feature_values + (entity_key_bin,timestamp)
