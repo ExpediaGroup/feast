@@ -34,13 +34,12 @@ from tests.integration.feature_repos.universal.online_store.cassandra import (
 from feast.sorted_feature_view import SortedFeatureView
 from feast.value_type import ValueType
 
-
-
 REGISTRY = "s3://test_registry/registry.db"
 PROJECT = "test_range_query"
 PROVIDER = "aws"
 REGION = "us-west-2"
 SOURCE = FileSource(path="some path", timestamp_field="event_timestamp",)
+
 
 @pytest.fixture
 def file_source():
@@ -137,11 +136,11 @@ def test_fq_table_name_invalid_version(file_source):
     assert "Unknown table name format version: 3" in str(excinfo.value)
 
 
-def test_online_write_batch_for_range_query(cassandra_repo_config):
-
+def test_online_write_batch_for_sorted_feature_view(cassandra_repo_config):
     repo_config, container = cassandra_repo_config[0], cassandra_repo_config[1]
 
-    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT,int int, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
+    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT,'
+                   f'int int, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
 
     (
         feature_view,

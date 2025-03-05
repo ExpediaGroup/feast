@@ -525,8 +525,8 @@ class CassandraOnlineStore(OnlineStore):
             if feature_rows:
                 for feature_row in feature_rows:
                     if (
-                            requested_features is None
-                            or feature_row.feature_name in requested_features
+                        requested_features is None
+                        or feature_row.feature_name in requested_features
                     ):
                         val = ValueProto()
                         val.ParseFromString(feature_row.value)
@@ -539,13 +539,13 @@ class CassandraOnlineStore(OnlineStore):
         return result
 
     def update(
-            self,
-            config: RepoConfig,
-            tables_to_delete: Sequence[FeatureView],
-            tables_to_keep: Sequence[FeatureView],
-            entities_to_delete: Sequence[Entity],
-            entities_to_keep: Sequence[Entity],
-            partial: bool,
+        self,
+        config: RepoConfig,
+        tables_to_delete: Sequence[FeatureView],
+        tables_to_keep: Sequence[FeatureView],
+        entities_to_delete: Sequence[Entity],
+        entities_to_keep: Sequence[Entity],
+        partial: bool,
     ):
         """
         Update schema on DB, by creating and destroying tables accordingly.
@@ -635,7 +635,7 @@ class CassandraOnlineStore(OnlineStore):
 
     @staticmethod
     def _fq_table_name(
-            keyspace: str, project: str, table: FeatureView, table_name_version: int
+        keyspace: str, project: str, table: FeatureView, table_name_version: int
     ) -> str:
         """
         Generate a fully-qualified table name,
@@ -654,12 +654,12 @@ class CassandraOnlineStore(OnlineStore):
             raise ValueError(f"Unknown table name format version: {table_name_version}")
 
     def _read_rows_by_entity_keys(
-            self,
-            config: RepoConfig,
-            project: str,
-            table: FeatureView,
-            entity_key_bins: List[str],
-            columns: Optional[List[str]] = None,
+        self,
+        config: RepoConfig,
+        project: str,
+        table: FeatureView,
+        entity_key_bins: List[str],
+        columns: Optional[List[str]] = None,
     ) -> ResultSet:
         """
         Handle the CQL (low-level) reading of feature values from a table.
@@ -735,7 +735,7 @@ class CassandraOnlineStore(OnlineStore):
         session.execute(create_cql)
 
     def _get_cql_statement(
-            self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
+        self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
     ):
         """
         Resolve an 'op_name' (create, insert4, etc) into a CQL statement
@@ -808,5 +808,3 @@ class CassandraOnlineStore(OnlineStore):
         # this happens N-1 times, will be corrected outside:
         if progress:
             progress(1)
-
-
