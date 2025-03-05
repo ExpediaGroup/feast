@@ -733,7 +733,7 @@ class CassandraOnlineStore(OnlineStore):
         Build the CQL statement for creating a SortedFeatureView table with custom
         entity and sort key columns.
         """
-        # Build the feature columns string.
+
         feature_columns = [
             f"{feature.name} {self._get_cql_type(feature.dtype)}"
             for feature in table.features
