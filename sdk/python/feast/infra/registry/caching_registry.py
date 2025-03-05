@@ -24,13 +24,18 @@ from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.saved_dataset import SavedDataset, ValidationReference
 from feast.stream_feature_view import StreamFeatureView
 from feast.utils import _utc_now
-from sdk.python.feast.expediagroup.caching_registry.functions import start_thread_safely
 
 logger = logging.getLogger(__name__)
 
 
 class CachingRegistry(BaseRegistry):
-    def __init__(self, project: str, cache_ttl_seconds: int, cache_mode: str, on_cache_refresh_failure: Optional[Callable[[Exception], None]] = None):
+    def __init__(
+        self,
+        project: str,
+        cache_ttl_seconds: int,
+        cache_mode: str,
+        on_cache_refresh_failure: Optional[Callable[[Exception], None]] = None,
+    ):
         self.cache_mode = cache_mode
         self._on_cache_refresh_failure = on_cache_refresh_failure
         self.cached_registry_proto = RegistryProto()
