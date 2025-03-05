@@ -141,7 +141,7 @@ def test_online_write_batch_for_range_query(cassandra_repo_config):
 
     repo_config, container = cassandra_repo_config[0], cassandra_repo_config[1]
 
-    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT,int int, event_timestamp TIMESTAMP, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
+    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT,int int, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
 
     (
         feature_view,
@@ -193,6 +193,3 @@ def _create_n_test_sample_features(n=10):
         )
         for i in range(n)
     ]
-
-
-
