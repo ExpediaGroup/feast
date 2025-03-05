@@ -1,6 +1,5 @@
 import atexit
 import logging
-import random
 import threading
 import time
 import warnings
@@ -475,8 +474,6 @@ class CachingRegistry(BaseRegistry):
         def refresh_loop():
             while not self._stop_event.is_set():
                 try:
-                    if random.randint(1, 100) < 10:
-                        raise Exception("Random exception to test error handling")
                     time.sleep(cache_ttl_seconds)
                     if not self._stop_event.is_set():
                         self.refresh()
