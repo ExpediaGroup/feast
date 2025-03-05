@@ -733,20 +733,27 @@ class CassandraOnlineStore(OnlineStore):
         Build the CQL statement for creating a SortedFeatureView table with custom
         entity and sort key columns.
         """
-
+        # Build the feature columns string.
         feature_columns = [
             f"{feature.name} {self._get_cql_type(feature.dtype)}"
             for feature in table.features
         ]
+        feature_columns_str = ",".join(feature_columns)
 
-        sort_key_names = ", ".join([f"{sk.name}" for sk in table.sort_keys])
+        ts_field = getattr(table.batch_source, "timestamp_field", None)
+
+        sort_key_names_list = [sk.name for sk in table.sort_keys if sk.name != ts_field]
+
+        if ts_field:
+            sort_key_names = ", ".join(sort_key_names_list + ["event_ts"])
+        else:
+            sort_key_names = ", ".join(sort_key_names_list)
 
         sort_key_orders = [
-            f"{sk.name} {'ASC' if sk.default_sort_order == SortOrder.Enum.ASC else 'DESC'}"
+            f"{'event_ts' if sk.name == ts_field else sk.name} {'ASC' if sk.default_sort_order == SortOrder.Enum.ASC else 'DESC'}"
             for sk in table.sort_keys
         ]
-
-        feature_columns_str = ",".join(feature_columns)
+        clustering_order = ", ".join(sort_key_orders)
 
         create_cql = (
             f"CREATE TABLE IF NOT EXISTS {fqtable} (\n"
@@ -755,7 +762,7 @@ class CassandraOnlineStore(OnlineStore):
             f"    event_ts TIMESTAMP,\n"
             f"    created_ts TIMESTAMP,\n"
             f"    PRIMARY KEY ((entity_key), {sort_key_names})\n"
-            f") WITH CLUSTERING ORDER BY ({', '.join(sort_key_orders)})\n"
+            f") WITH CLUSTERING ORDER BY ({clustering_order})\n"
             f"AND COMMENT='project={project}, feature_view={table.name}';"
         )
         return create_cql.strip()
