@@ -366,7 +366,7 @@ class SqlRegistry(CachingRegistry):
             not_found_exception=FeatureViewNotFoundException,
         )
 
-    def get_sorted_feature_view(
+    def _get_sorted_feature_view(
         self, name: str, project: str, allow_cache: bool = False
     ):
         return self._get_object(
