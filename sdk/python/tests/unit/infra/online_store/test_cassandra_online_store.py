@@ -25,6 +25,7 @@ from tests.integration.feature_repos.universal.online_store.cassandra import (
 from feast.sorted_feature_view import SortedFeatureView
 from feast.value_type import ValueType
 
+
 REGISTRY = "s3://test_registry/registry.db"
 PROJECT = "test_range_query"
 PROVIDER = "aws"
@@ -144,7 +145,7 @@ def test_online_write_batch_for_sorted_feature_view(cassandra_repo_config):
         table=feature_view,
         data=data,
         progress=None,)
-    assert True == ("10" in container.exec(f'cqlsh -e "select COUNT(*) from feast_keyspace.test_range_query_sortedfeatureview;"').output.decode("utf-8"))
+    assert ("10" in container.exec(f'cqlsh -e "select COUNT(*) from feast_keyspace.test_range_query_sortedfeatureview;"').output.decode("utf-8"))
 
 
 def _create_n_test_sample_features(n=10):

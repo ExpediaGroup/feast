@@ -806,7 +806,7 @@ class SqlRegistry(CachingRegistry):
             raise ValueError(
                 f"Cannot apply materialization for feature {feature_view.name} of type {python_class}"
             )
-        fv: Union[FeatureView, StreamFeatureView] = self._get_object(
+        fv: Union[FeatureView, StreamFeatureView, SortedFeatureView] = self._get_object(
             table,
             feature_view.name,
             project,
@@ -1055,7 +1055,7 @@ class SqlRegistry(CachingRegistry):
                             tzinfo=timezone.utc
                         )
                     )
-                    if isinstance(obj, (FeatureView, StreamFeatureView)):
+                    if isinstance(obj, (FeatureView, StreamFeatureView, SortedFeatureView)):
                         obj.update_materialization_intervals(
                             type(obj)
                             .from_proto(deserialized_proto)

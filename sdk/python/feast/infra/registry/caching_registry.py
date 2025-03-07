@@ -8,6 +8,7 @@ from datetime import timedelta
 from threading import Lock
 from typing import List, Optional
 
+from feast import SortedFeatureView
 from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource
 from feast.entity import Entity
@@ -241,6 +242,39 @@ class CachingRegistry(BaseRegistry):
                 self.cached_registry_proto, project, tags
             )
         return self._list_stream_feature_views(project, tags)
+
+    @abstractmethod
+    def _get_sorted_feature_view(self, name: str, project: str) -> SortedFeatureView:
+        pass
+
+    def get_sorted_feature_view(
+            self, name: str, project: str, allow_cache: bool = False
+    ) -> SortedFeatureView:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            return proto_registry_utils.get_sorted_feature_view(
+                self.cached_registry_proto, name, project
+            )
+        return self._get_sorted_feature_view(name, project)
+
+    @abstractmethod
+    def _list_sorted_feature_views(
+            self, project: str, tags: Optional[dict[str, str]]
+    ) -> List[SortedFeatureView]:
+        pass
+
+    def list_sorted_feature_views(
+            self,
+            project: str,
+            allow_cache: bool = False,
+            tags: Optional[dict[str, str]] = None,
+    ) -> List[SortedFeatureView]:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            return proto_registry_utils.list_sorted_feature_views(
+                self.cached_registry_proto, project, tags
+            )
+        return self._list_sorted_feature_views(project, tags)
 
     @abstractmethod
     def _get_feature_service(self, name: str, project: str) -> FeatureService:
