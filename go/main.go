@@ -49,6 +49,7 @@ func main() {
 	serverType := "http"
 	host := ""
 	port := 8080
+	grpcPort := 6566
 	server := RealServerStarter{}
 	// Current Directory
 	repoPath, err := os.Getwd()
@@ -56,11 +57,12 @@ func main() {
 		log.Error().Stack().Err(err).Msg("Failed to get current directory")
 	}
 
-	flag.StringVar(&serverType, "type", serverType, "Specify the server type (http or grpc)")
+	flag.StringVar(&serverType, "type", serverType, "Specify the server type (http, grpc, or hybrid)")
 	flag.StringVar(&repoPath, "chdir", repoPath, "Repository path where feature store yaml file is stored")
 
 	flag.StringVar(&host, "host", host, "Specify a host for the server")
 	flag.IntVar(&port, "port", port, "Specify a port for the server")
+	flag.IntVar(&grpcPort, "grpcPort", grpcPort, "Specify a grpc port for the server")
 	flag.Parse()
 
 	repoConfig, err := registry.NewRepoConfigFromFile(repoPath)
@@ -84,6 +86,14 @@ func main() {
 		err = server.StartHttpServer(fs, host, port, nil, loggingOptions)
 	} else if serverType == "grpc" {
 		err = server.StartGrpcServer(fs, host, port, nil, loggingOptions)
+	} else if serverType == "hybrid" {
+		go func() {
+			err := server.StartHttpServer(fs, host, port, nil, loggingOptions)
+			if err != nil {
+				log.Fatal().Stack().Err(err).Msg("Failed to start HTTP server")
+			}
+		}()
+		err = server.StartGrpcServer(fs, host, grpcPort, nil, loggingOptions)
 	} else {
 		fmt.Println("Unknown server type. Please specify 'http' or 'grpc'.")
 	}
