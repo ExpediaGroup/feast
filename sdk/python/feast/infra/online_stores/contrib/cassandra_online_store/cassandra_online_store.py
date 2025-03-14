@@ -26,7 +26,7 @@ from collections import defaultdict
 from datetime import datetime
 from functools import partial
 from queue import Queue
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
 
 from cassandra.auth import PlainTextAuthProvider
 from cassandra.cluster import (
@@ -41,14 +41,29 @@ from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
 from cassandra.query import BatchStatement, BatchType, PreparedStatement
 from pydantic import StrictFloat, StrictInt, StrictStr
 
-from feast import Entity, FeatureView, RepoConfig
+from feast import Entity, FeatureView, RepoConfig, SortedFeatureView
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.online_store import OnlineStore
+from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.rate_limiter import SlidingWindowRateLimiter
 from feast.repo_config import FeastConfigBaseModel
 from feast.sorted_feature_view import SortedFeatureView
+from feast.types import (
+    Array,
+    Bool,
+    Bytes,
+    ComplexFeastType,
+    Float32,
+    Float64,
+    Int32,
+    Int64,
+    PrimitiveFeastType,
+    String,
+    UnixTimestamp,
+)
+
 
 # Error messages
 E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS = (
@@ -157,7 +172,7 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     """Explicit specification of the CQL protocol version used."""
 
     request_timeout: Optional[StrictFloat] = None
-    """Request timeout in seconds."""
+    """Request timeout in seconds. Defaults to no operation timeout."""
 
     lazy_table_creation: Optional[bool] = False
     """
@@ -477,8 +492,17 @@ class CassandraOnlineStore(OnlineStore):
         # Wait for all tasks to complete
         while not concurrent_queue.empty():
             time.sleep(0.001)
+        if not concurrent_queue.empty():
+            logger.warning(
+                f"Waiting for futures. Pending are {concurrent_queue.qsize()}"
+            )
+            while not concurrent_queue.empty():
+                time.sleep(0.001)
+            # Spark materialization engine doesn't log info messages
+            # so we print the message to stdout
+            print("Completed writing all futures.")
 
-        # correction for the last missing call to `progress`:
+            # correction for the last missing call to `progress`:
         if progress:
             progress(1)
 
@@ -714,7 +738,12 @@ class CassandraOnlineStore(OnlineStore):
         logger.info(f"Deleting table {fqtable}.")
         session.execute(drop_cql)
 
-    def _create_table(self, config: RepoConfig, project: str, table: FeatureView):
+    def _create_table(
+        self,
+        config: RepoConfig,
+        project: str,
+        table: Union[FeatureView, SortedFeatureView],
+    ):
         """Handle the CQL (low-level) creation of a table."""
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
@@ -722,17 +751,59 @@ class CassandraOnlineStore(OnlineStore):
         fqtable = CassandraOnlineStore._fq_table_name(
             keyspace, project, table, table_name_version
         )
-        create_cql = self._get_cql_statement(
-            config,
-            "create",
-            fqtable,
-            project=project,
-            feature_view=table.name,
-        )
+        if isinstance(table, SortedFeatureView):
+            create_cql = self._build_sorted_table_cql(project, table, fqtable)
+        else:
+            create_cql = self._get_cql_statement(
+                config,
+                "create",
+                fqtable,
+                project=project,
+                feature_view=table.name,
+            )
         logger.info(
             f"Creating table {fqtable} in keyspace {keyspace} if not exists using {create_cql}."
         )
         session.execute(create_cql)
+
+    def _build_sorted_table_cql(
+        self, project: str, table: SortedFeatureView, fqtable: str
+    ) -> str:
+        """
+        Build the CQL statement for creating a SortedFeatureView table with custom
+        entity and sort key columns.
+        """
+
+        feature_columns = [
+            f"{feature.name} {self._get_cql_type(feature.dtype)}"
+            for feature in table.features
+        ]
+        feature_columns_str = ",".join(feature_columns)
+
+        ts_field = getattr(table.batch_source, "timestamp_field", None)
+
+        sorted_keys = [
+            (
+                "event_ts" if sk.name == ts_field else sk.name,
+                "ASC" if sk.default_sort_order == SortOrder.Enum.ASC else "DESC",
+            )
+            for sk in table.sort_keys
+        ]
+
+        sort_key_names = ", ".join(name for name, _ in sorted_keys)
+        clustering_order = ", ".join(f"{name} {order}" for name, order in sorted_keys)
+
+        create_cql = (
+            f"CREATE TABLE IF NOT EXISTS {fqtable} (\n"
+            f"    entity_key TEXT,\n"
+            f"    {feature_columns_str},\n"
+            f"    event_ts TIMESTAMP,\n"
+            f"    created_ts TIMESTAMP,\n"
+            f"    PRIMARY KEY ((entity_key), {sort_key_names})\n"
+            f") WITH CLUSTERING ORDER BY ({clustering_order})\n"
+            f"AND COMMENT='project={project}, feature_view={table.name}';"
+        )
+        return create_cql.strip()
 
     def _get_cql_statement(
         self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
@@ -808,3 +879,31 @@ class CassandraOnlineStore(OnlineStore):
         # this happens N-1 times, will be corrected outside:
         if progress:
             progress(1)
+
+    def _get_cql_type(
+        self, value_type: Union[ComplexFeastType, PrimitiveFeastType]
+    ) -> str:
+        """Map Feast value types to Cassandra CQL data types."""
+        scalar_mapping = {
+            Bytes: "BLOB",
+            String: "TEXT",
+            Int32: "INT",
+            Int64: "BIGINT",
+            Float32: "FLOAT",
+            Float64: "DOUBLE",
+            Bool: "BOOLEAN",
+            UnixTimestamp: "TIMESTAMP",
+            Array(Bytes): "LIST<BLOB>",
+            Array(String): "LIST<TEXT>",
+            Array(Int32): "LIST<INT>",
+            Array(Int64): "LIST<BIGINT>",
+            Array(Float32): "LIST<FLOAT>",
+            Array(Float64): "LIST<DOUBLE>",
+            Array(Bool): "LIST<BOOLEAN>",
+            Array(UnixTimestamp): "LIST<TIMESTAMP>",
+        }
+
+        if value_type in scalar_mapping:
+            return scalar_mapping[value_type]
+        else:
+            raise ValueError(f"Unsupported type: {value_type}")
