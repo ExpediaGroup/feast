@@ -489,9 +489,6 @@ class CassandraOnlineStore(OnlineStore):
 
                 CassandraOnlineStore._apply_batch(rate_limiter, batch, progress, session, concurrent_queue, on_success, on_failure)
 
-        # Wait for all tasks to complete
-        while not concurrent_queue.empty():
-            time.sleep(0.001)
         if not concurrent_queue.empty():
             logger.warning(
                 f"Waiting for futures. Pending are {concurrent_queue.qsize()}"
