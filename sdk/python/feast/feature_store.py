@@ -464,6 +464,37 @@ class FeatureStore:
             feature_view.entities = []
         return feature_view
 
+    def get_sorted_feature_view(
+        self, name: str, allow_registry_cache: bool = False
+    ) -> SortedFeatureView:
+        """
+        Retrieves a sorted feature view.
+
+        Args:
+            name: Name of sorted feature view.
+            allow_registry_cache: (Optional) Whether to allow returning this entity from a cached registry
+
+        Returns:
+            The specified feature view.
+
+        Raises:
+            FeatureViewNotFoundException: The feature view could not be found.
+        """
+        return self._get_sorted_feature_view(name, allow_registry_cache=allow_registry_cache)
+
+    def _get_sorted_feature_view(
+        self,
+        name: str,
+        hide_dummy_entity: bool = True,
+        allow_registry_cache: bool = False,
+    ) -> SortedFeatureView:
+        sorted_feature_view = self._registry.get_sorted_feature_view(
+            name, self.project, allow_cache=allow_registry_cache
+        )
+        if hide_dummy_entity and sorted_feature_view.entities[0] == DUMMY_ENTITY_NAME:
+            sorted_feature_view.entities = []
+        return sorted_feature_view
+
     def get_stream_feature_view(
         self, name: str, allow_registry_cache: bool = False
     ) -> StreamFeatureView:
