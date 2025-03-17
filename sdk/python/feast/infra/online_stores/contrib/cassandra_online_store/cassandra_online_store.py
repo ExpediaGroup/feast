@@ -41,7 +41,7 @@ from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
 from cassandra.query import BatchStatement, BatchType, PreparedStatement
 from pydantic import StrictFloat, StrictInt, StrictStr
 
-from feast import Entity, FeatureView, RepoConfig, SortedFeatureView
+from feast import Entity, FeatureView, RepoConfig
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
