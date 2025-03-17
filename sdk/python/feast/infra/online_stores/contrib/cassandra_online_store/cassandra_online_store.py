@@ -64,7 +64,6 @@ from feast.types import (
     UnixTimestamp,
 )
 
-
 # Error messages
 E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS = (
     "Unexpected configuration object (not a CassandraOnlineStoreConfig instance)"

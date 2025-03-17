@@ -1,26 +1,21 @@
 import textwrap
-
-import pytest
 from datetime import datetime
 
-from feast import FeatureView
-from feast.repo_config import RepoConfig
-from feast.infra.offline_stores.file_source import FileSource
-from feast.infra.offline_stores.dask import DaskOfflineStoreConfig
-from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_store import (
-    CassandraOnlineStore,
-CassandraOnlineStoreConfig,
-)
+import pytest
 
+from feast import FeatureView
 from feast.entity import Entity
 from feast.field import Field
-from feast.protos.feast.types.Value_pb2 import Value as ValueProto
-from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
-from tests.integration.feature_repos.universal.online_store.cassandra import (
-    CassandraOnlineStoreCreator,
+from feast.infra.offline_stores.dask import DaskOfflineStoreConfig
+from feast.infra.offline_stores.file_source import FileSource
+from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_store import (
+    CassandraOnlineStore,
+    CassandraOnlineStoreConfig,
 )
-from feast.value_type import ValueType
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
+from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+from feast.protos.feast.types.Value_pb2 import Value as ValueProto
+from feast.repo_config import RepoConfig
 from feast.sorted_feature_view import SortedFeatureView, SortKey
 from feast.types import (
     Array,
@@ -33,7 +28,10 @@ from feast.types import (
     String,
     UnixTimestamp,
 )
-
+from feast.value_type import ValueType
+from tests.integration.feature_repos.universal.online_store.cassandra import (
+    CassandraOnlineStoreCreator,
+)
 
 REGISTRY = "s3://test_registry/registry.db"
 PROJECT = "test_range_query"
