@@ -777,6 +777,7 @@ class HttpRegistry(BaseRegistry):
                 (self.list_feature_views, r.feature_views),
                 (self.list_data_sources, r.data_sources),
                 (self.list_on_demand_feature_views, r.on_demand_feature_views),
+                (self.list_sorted_feature_views, r.sorted_feature_views),
                 (self.list_stream_feature_views, r.stream_feature_views),
                 (self.list_feature_services, r.feature_services),
                 (self.list_saved_datasets, r.saved_datasets),
