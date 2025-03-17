@@ -57,6 +57,7 @@ from feast.errors import (
     FeatureViewNotFoundException,
     PushSourceNotFoundException,
     RequestDataNotFoundInEntityDfException,
+    SortedFeatureViewNotFoundException,
 )
 from feast.feast_object import FeastObject
 from feast.feature_service import FeatureService
@@ -1544,9 +1545,14 @@ class FeatureStore:
                 feature_view_name, allow_registry_cache=allow_registry_cache
             )
         except FeatureViewNotFoundException:
-            feature_view = self.get_stream_feature_view(
-                feature_view_name, allow_registry_cache=allow_registry_cache
-            )
+            try:
+                feature_view = self.get_sorted_feature_view(
+                    feature_view_name, allow_registry_cache=allow_registry_cache
+                )
+            except SortedFeatureViewNotFoundException:
+                feature_view = self.get_stream_feature_view(
+                    feature_view_name, allow_registry_cache=allow_registry_cache
+                )
         if df is not None and inputs is not None:
             raise ValueError("Both df and inputs cannot be provided at the same time.")
         if df is None and inputs is not None:
