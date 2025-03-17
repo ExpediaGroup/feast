@@ -3,7 +3,7 @@ import textwrap
 import pytest
 from datetime import datetime
 
-from feast import Entity, FeatureView, Field, ValueType
+from feast import FeatureView
 from feast.repo_config import RepoConfig
 from feast.infra.offline_stores.file_source import FileSource
 from feast.infra.offline_stores.dask import DaskOfflineStoreConfig
@@ -11,10 +11,7 @@ from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_s
     CassandraOnlineStore,
 CassandraOnlineStoreConfig,
 )
-from feast.types import (
-    Int32,
-    String,
-)
+
 from feast.entity import Entity
 from feast.field import Field
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
@@ -204,8 +201,7 @@ def test_fq_table_name_invalid_version(file_source):
 def test_online_write_batch_for_sorted_feature_view(cassandra_repo_config):
     repo_config, container = cassandra_repo_config[0], cassandra_repo_config[1]
 
-    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT,'
-                   f'int int, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
+    container.exec(f'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT, int int, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"')
 
     (
         feature_view,
