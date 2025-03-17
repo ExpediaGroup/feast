@@ -3,6 +3,9 @@ package onlinestore
 import (
 	"context"
 	"fmt"
+	"github.com/feast-dev/feast/go/internal/feast/model"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"time"
 
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
@@ -22,6 +25,16 @@ type RangeFeatureData struct {
 	Values          []interface{}
 	Statuses        []serving.FieldStatus
 	EventTimestamps []timestamp.Timestamp
+}
+
+func (r *RangeFeatureData) AppendValueStatusTime(value interface{}, status serving.FieldStatus, ts time.Time) RangeFeatureData {
+	return RangeFeatureData{
+		FeatureView:     r.FeatureView,
+		FeatureName:     r.FeatureName,
+		Values:          append(r.Values, value),
+		Statuses:        append(r.Statuses, status),
+		EventTimestamps: append(r.EventTimestamps, timestamppb.Timestamp{Seconds: ts.Unix(), Nanos: int32(ts.Nanosecond())}),
+	}
 }
 
 type OnlineStore interface {
@@ -44,7 +57,9 @@ type OnlineStore interface {
 	// => allocate memory for each field once in OnlineRead
 	// and reuse them in GetOnlineFeaturesResponse?
 	OnlineRead(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string) ([][]FeatureData, error)
-	OnlineReadRange(ctx context.Context, entityRows []*types.EntityKey, featureViewNames []string, featureNames []string, sortKeyFilters []*serving.SortKeyFilter, reverseSortOrder bool, limit int32) ([][]RangeFeatureData, error)
+
+	OnlineReadRange(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string, sortKeyFilters []*model.SortKeyFilter, limit int32) ([][]RangeFeatureData, error)
+
 	// Destruct must be call once user is done using OnlineStore
 	// This is to comply with the Connector since we have to close the plugin
 	Destruct()
