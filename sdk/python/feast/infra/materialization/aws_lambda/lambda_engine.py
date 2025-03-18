@@ -115,7 +115,9 @@ class LambdaMaterializationEngine(BatchMaterializationEngine):
     def teardown_infra(
         self,
         project: str,
-        fvs: Sequence[Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView]],
+        fvs: Sequence[
+            Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView]
+        ],
         entities: Sequence[Entity],
     ):
         # This should be tearing down the lambda function.
@@ -167,7 +169,9 @@ class LambdaMaterializationEngine(BatchMaterializationEngine):
     def _materialize_one(
         self,
         registry: BaseRegistry,
-        feature_view: Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView],
+        feature_view: Union[
+            BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView
+        ],
         start_date: datetime,
         end_date: datetime,
         project: str,

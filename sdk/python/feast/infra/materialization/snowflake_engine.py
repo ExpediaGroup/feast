@@ -175,7 +175,9 @@ class SnowflakeMaterializationEngine(BatchMaterializationEngine):
     def teardown_infra(
         self,
         project: str,
-        fvs: Sequence[Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView]],
+        fvs: Sequence[
+            Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView]
+        ],
         entities: Sequence[Entity],
     ):
         stage_path = f'"{self.repo_config.batch_engine.database}"."{self.repo_config.batch_engine.schema_}"."feast_{project}"'
@@ -232,7 +234,9 @@ class SnowflakeMaterializationEngine(BatchMaterializationEngine):
     def _materialize_one(
         self,
         registry: BaseRegistry,
-        feature_view: Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView],
+        feature_view: Union[
+            BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView
+        ],
         start_date: datetime,
         end_date: datetime,
         project: str,

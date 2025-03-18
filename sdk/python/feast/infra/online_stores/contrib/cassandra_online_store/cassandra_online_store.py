@@ -90,9 +90,7 @@ INSERT_CQL_4_TEMPLATE = (
     " (?, ?, ?, ?) USING TTL {ttl};"
 )
 
-INSERT_SORTED_FEATURES_TEMPLATE = (
-    "INSERT INTO {fqtable} ({feature_names}, entity_key, event_ts) VALUES ({parameters}) USING TTL {ttl};"
-)
+INSERT_SORTED_FEATURES_TEMPLATE = "INSERT INTO {fqtable} ({feature_names}, entity_key, event_ts) VALUES ({parameters}) USING TTL {ttl};"
 
 SELECT_CQL_TEMPLATE = "SELECT {columns} FROM {fqtable} WHERE entity_key = ?;"
 
@@ -425,8 +423,26 @@ class CassandraOnlineStore(OnlineStore):
             # Split the data in to multiple batches, with each batch having the same entity key (partition key).
             # NOTE: It is not a good practice to have data from multiple partitions in the same batch.
             # Doing so can affect write latency and also data loss among other things.
-            entity_dict: Dict[str, List[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]]] = \
-                defaultdict(list[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]])
+            entity_dict: Dict[
+                str,
+                List[
+                    Tuple[
+                        EntityKeyProto,
+                        Dict[str, ValueProto],
+                        datetime,
+                        Optional[datetime],
+                    ]
+                ],
+            ] = defaultdict(
+                list[
+                    Tuple[
+                        EntityKeyProto,
+                        Dict[str, ValueProto],
+                        datetime,
+                        Optional[datetime],
+                    ]
+                ]
+            )
             for row in data:
                 entity_key_bin = serialize_entity_key(
                     row[0],
@@ -436,8 +452,8 @@ class CassandraOnlineStore(OnlineStore):
 
             # Get the list of feature names from data to use in the insert query
             feature_names = list(data[0][1].keys())
-            feature_names_str = ', '.join(feature_names)
-            params_str = ", ".join(["?"] * (len(feature_names)+2))
+            feature_names_str = ", ".join(feature_names)
+            params_str = ", ".join(["?"] * (len(feature_names) + 2))
 
             insert_cql = self._get_cql_statement(
                 config,
@@ -455,13 +471,23 @@ class CassandraOnlineStore(OnlineStore):
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
                     feature_values: tuple = ()
                     for valProto in feat_dict.values():
-                        feature_value = getattr(valProto, str(valProto.WhichOneof('val')))
+                        feature_value = getattr(
+                            valProto, str(valProto.WhichOneof("val"))
+                        )
                         feature_values += (feature_value,)
 
-                    feature_values = feature_values + (entity_key_bin,timestamp)
+                    feature_values = feature_values + (entity_key_bin, timestamp)
                     batch.add(insert_cql, feature_values)
 
-                CassandraOnlineStore._apply_batch(rate_limiter, batch, progress, session, concurrent_queue, on_success, on_failure)
+                CassandraOnlineStore._apply_batch(
+                    rate_limiter,
+                    batch,
+                    progress,
+                    session,
+                    concurrent_queue,
+                    on_success,
+                    on_failure,
+                )
         else:
             insert_cql = self._get_cql_statement(
                 config,
@@ -486,7 +512,15 @@ class CassandraOnlineStore(OnlineStore):
                     )
                     batch.add(insert_cql, params)
 
-                CassandraOnlineStore._apply_batch(rate_limiter, batch, progress, session, concurrent_queue, on_success, on_failure)
+                CassandraOnlineStore._apply_batch(
+                    rate_limiter,
+                    batch,
+                    progress,
+                    session,
+                    concurrent_queue,
+                    on_success,
+                    on_failure,
+                )
 
         if not concurrent_queue.empty():
             logger.warning(
@@ -824,8 +858,8 @@ class CassandraOnlineStore(OnlineStore):
         if op_name == "insert_time_series":
             statement = template.format(
                 fqtable=fqtable,
-                feature_names=kwargs.get('feature_names_str'),
-                parameters=kwargs.get('params_str'),
+                feature_names=kwargs.get("feature_names_str"),
+                parameters=kwargs.get("params_str"),
                 **kwargs,
             )
         else:
@@ -846,13 +880,13 @@ class CassandraOnlineStore(OnlineStore):
 
     @staticmethod
     def _apply_batch(
-            rate_limiter: SlidingWindowRateLimiter,
-            batch: BatchStatement,
-            progress: Optional[Callable[[int], Any]],
-            session: Session,
-            concurrent_queue: Queue,
-            on_success,
-            on_failure
+        rate_limiter: SlidingWindowRateLimiter,
+        batch: BatchStatement,
+        progress: Optional[Callable[[int], Any]],
+        session: Session,
+        concurrent_queue: Queue,
+        on_success,
+        on_failure,
     ):
         # Wait until the rate limiter allows
         if not rate_limiter.acquire():

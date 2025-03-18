@@ -37,7 +37,10 @@ REGISTRY = "s3://test_registry/registry.db"
 PROJECT = "test_range_query"
 PROVIDER = "aws"
 REGION = "us-west-2"
-SOURCE = FileSource(path="some path", timestamp_field="event_timestamp",)
+SOURCE = FileSource(
+    path="some path",
+    timestamp_field="event_timestamp",
+)
 
 
 @pytest.fixture
@@ -199,7 +202,9 @@ def test_fq_table_name_invalid_version(file_source):
 def test_online_write_batch_for_sorted_feature_view(cassandra_repo_config):
     repo_config, container = cassandra_repo_config[0], cassandra_repo_config[1]
 
-    container.exec("cqlsh -e \"CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT, int int, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));\"")
+    container.exec(
+        'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT, int int, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"'
+    )
 
     (
         feature_view,
@@ -208,11 +213,15 @@ def test_online_write_batch_for_sorted_feature_view(cassandra_repo_config):
         n=10,
     )
 
-    CassandraOnlineStore().online_write_batch(config=repo_config,
+    CassandraOnlineStore().online_write_batch(
+        config=repo_config,
         table=feature_view,
         data=data,
-        progress=None,)
-    assert ("10" in container.exec("cqlsh -e \"select COUNT(*) from feast_keyspace.test_range_query_sortedfeatureview;\"").output.decode("utf-8"))
+        progress=None,
+    )
+    assert "10" in container.exec(
+        'cqlsh -e "select COUNT(*) from feast_keyspace.test_range_query_sortedfeatureview;"'
+    ).output.decode("utf-8")
 
 
 def _create_n_test_sample_features(n=10):
@@ -220,7 +229,13 @@ def _create_n_test_sample_features(n=10):
         name="sortedfeatureview",
         source=SOURCE,
         entities=[Entity(name="id")],
-        sort_keys=[SortKey(name="event_timestamp", value_type=ValueType.UNIX_TIMESTAMP, default_sort_order=SortOrder.DESC,)],
+        sort_keys=[
+            SortKey(
+                name="event_timestamp",
+                value_type=ValueType.UNIX_TIMESTAMP,
+                default_sort_order=SortOrder.DESC,
+            )
+        ],
         schema=[
             Field(
                 name="id",
@@ -334,4 +349,3 @@ def test_get_cql_type():
     assert store._get_cql_type(Array(Float32)) == "LIST<FLOAT>"
     assert store._get_cql_type(Array(Float64)) == "LIST<DOUBLE>"
     assert store._get_cql_type(Array(Bool)) == "LIST<BOOLEAN>"
-

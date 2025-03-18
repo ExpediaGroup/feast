@@ -481,7 +481,9 @@ class FeatureStore:
         Raises:
             FeatureViewNotFoundException: The feature view could not be found.
         """
-        return self._get_sorted_feature_view(name, allow_registry_cache=allow_registry_cache)
+        return self._get_sorted_feature_view(
+            name, allow_registry_cache=allow_registry_cache
+        )
 
     def _get_sorted_feature_view(
         self,

@@ -93,7 +93,9 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
     def teardown_infra(
         self,
         project: str,
-        fvs: Sequence[Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView]],
+        fvs: Sequence[
+            Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView]
+        ],
         entities: Sequence[Entity],
     ):
         # Nothing to tear down.
@@ -136,7 +138,9 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
     def _materialize_one(
         self,
         registry: BaseRegistry,
-        feature_view: Union[BatchFeatureView, SortedFeatureView, StreamFeatureView, FeatureView],
+        feature_view: Union[
+            BatchFeatureView, SortedFeatureView, StreamFeatureView, FeatureView
+        ],
         start_date: datetime,
         end_date: datetime,
         project: str,

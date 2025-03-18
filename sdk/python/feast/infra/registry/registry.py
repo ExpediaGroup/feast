@@ -481,7 +481,10 @@ class Registry(BaseRegistry):
                     feature_view.created_timestamp = (
                         existing_feature_view.created_timestamp
                     )
-                    if isinstance(feature_view, (FeatureView, StreamFeatureView, SortedFeatureView)):
+                    if isinstance(
+                        feature_view,
+                        (FeatureView, StreamFeatureView, SortedFeatureView),
+                    ):
                         feature_view.update_materialization_intervals(
                             existing_feature_view.materialization_intervals
                         )
@@ -591,11 +594,11 @@ class Registry(BaseRegistry):
                 return
 
         for idx, existing_sorted_feature_view_proto in enumerate(
-                self.cached_registry_proto.sorted_feature_views
+            self.cached_registry_proto.sorted_feature_views
         ):
             if (
-                    existing_sorted_feature_view_proto.spec.name == feature_view.name
-                    and existing_sorted_feature_view_proto.spec.project == project
+                existing_sorted_feature_view_proto.spec.name == feature_view.name
+                and existing_sorted_feature_view_proto.spec.project == project
             ):
                 existing_sorted_feature_view = SortedFeatureView.from_proto(
                     existing_sorted_feature_view_proto
