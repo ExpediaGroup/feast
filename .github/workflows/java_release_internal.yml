@@ -1,0 +1,43 @@
+# Internal workflow to release eg-feast/java modules back to artylab. 
+
+name: "Feast Java Dev Release"
+
+on:
+    workflow_dispatch:
+    workflow_call:
+
+jobs: 
+    publish-java-snapshots:
+        runs-on: eg-default
+        steps:
+            - name: Checkout repo
+              uses: actions/checkout@v4
+
+            - name: Set up JDK 11
+              uses: actions/setup-java@v3
+              with:
+                java-version: 11
+                distribution: 'adopt'
+                overwrite-settings: false
+
+            - name: Setup Maven
+              uses: eg-cicd/setup-maven-settings@v1.0.1
+              with:
+                settings-path: ${{ github.workspace }}
+                servers: |
+                    - id: central
+                        username: '${{ secrets.CICD_ARTYLAB_PUBLISH_USER }}'
+                        password: '${{ secrets.CICD_ARTYLAB_PUBLISH_TOKEN }}'
+                    - id: eg-artylab-release
+                        username: '${{ secrets.CICD_ARTYLAB_PUBLISH_USER }}'
+                        password: '${{ secrets.CICD_ARTYLAB_PUBLISH_TOKEN }}'
+                mirrors: |
+                    - id: central
+                        mirrorOf: "*"
+                        url: "https://artylab.expedia.biz/public-maven-virtual"
+            
+            - name: Deploy to eg-maven-release-local
+              run: |
+                cd feast/java
+                mvn clean
+                mvn deploy -am -Dgpg.skip=true -s ${{ github.workspace }}/settings.xml
