@@ -381,6 +381,22 @@ class FeatureStore:
         """
         return self._list_stream_feature_views(allow_cache, tags=tags)
 
+    def _list_sorted_feature_views(
+        self,
+        allow_cache: bool = False,
+        hide_dummy_entity: bool = True,
+        tags: Optional[dict[str, str]] = None,
+    ) -> List[SortedFeatureView]:
+        sorted_feature_views = []
+        for sfv in self._registry.list_sorted_feature_views(
+            self.project, allow_cache=allow_cache, tags=tags
+        ):
+            if hide_dummy_entity and sfv.entities[0] == DUMMY_ENTITY_NAME:
+                sfv.entities = []
+                sfv.entity_columns = []
+            sorted_feature_views.append(sfv)
+        return sorted_feature_views
+
     def list_data_sources(
         self, allow_cache: bool = False, tags: Optional[dict[str, str]] = None
     ) -> List[DataSource]:
@@ -701,10 +717,8 @@ class FeatureStore:
                 sfv for sfv in stream_feature_views_to_materialize if sfv.online
             ]
             # Get sorted feature views from the registry and append those that are online.
-            sorted_feature_views_to_materialize = (
-                self._registry.list_sorted_feature_views(
-                    self.project, allow_cache=False, tags={}
-                )
+            sorted_feature_views_to_materialize = self._list_sorted_feature_views(
+                hide_dummy_entity=False
             )
             feature_views_to_materialize += [
                 sfv for sfv in sorted_feature_views_to_materialize if sfv.online
@@ -720,8 +734,8 @@ class FeatureStore:
                         )
                     except FeatureViewNotFoundException:
                         # Fallback to sorted feature view lookup.
-                        feature_view = self._registry.get_sorted_feature_view(
-                            name, self.project, allow_cache=False
+                        feature_view = self._get_sorted_feature_view(
+                            name, hide_dummy_entity=False
                         )
 
                 if not feature_view.online:
