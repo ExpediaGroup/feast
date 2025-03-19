@@ -736,7 +736,7 @@ class FeatureStore:
                         print(f"Exception type after checking for stream fv: {type(e).__name__}")
                         # Fallback to sorted feature view lookup.
                         feature_view = self._get_sorted_feature_view(
-                                name, hide_dummy_entity=False
+                            name, hide_dummy_entity=False
                         )
 
                     except Exception as e:
