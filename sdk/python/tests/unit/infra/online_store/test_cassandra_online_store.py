@@ -1,5 +1,4 @@
 import textwrap
-from datetime import datetime
 
 import pytest
 
@@ -13,8 +12,6 @@ from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_s
     CassandraOnlineStoreConfig,
 )
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
-from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
-from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import RepoConfig
 from feast.sorted_feature_view import SortedFeatureView, SortKey
 from feast.types import (
@@ -197,75 +194,6 @@ def test_fq_table_name_invalid_version(file_source):
     with pytest.raises(ValueError) as excinfo:
         CassandraOnlineStore._fq_table_name(keyspace, project, table, 3)
     assert "Unknown table name format version: 3" in str(excinfo.value)
-
-
-def test_online_write_batch_for_sorted_feature_view(cassandra_repo_config):
-    repo_config, container = cassandra_repo_config[0], cassandra_repo_config[1]
-
-    container.exec(
-        'cqlsh -e "CREATE TABLE feast_keyspace.test_range_query_sortedfeatureview(entity_key TEXT,text TEXT, int int, event_ts TIMESTAMP,created_ts TIMESTAMP,PRIMARY KEY (entity_key));"'
-    )
-
-    (
-        feature_view,
-        data,
-    ) = _create_n_test_sample_features(
-        n=10,
-    )
-
-    CassandraOnlineStore().online_write_batch(
-        config=repo_config,
-        table=feature_view,
-        data=data,
-        progress=None,
-    )
-    assert "10" in container.exec(
-        'cqlsh -e "select COUNT(*) from feast_keyspace.test_range_query_sortedfeatureview;"'
-    ).output.decode("utf-8")
-
-
-def _create_n_test_sample_features(n=10):
-    fv = SortedFeatureView(
-        name="sortedfeatureview",
-        source=SOURCE,
-        entities=[Entity(name="id")],
-        sort_keys=[
-            SortKey(
-                name="event_timestamp",
-                value_type=ValueType.UNIX_TIMESTAMP,
-                default_sort_order=SortOrder.DESC,
-            )
-        ],
-        schema=[
-            Field(
-                name="id",
-                dtype=String,
-            ),
-            Field(
-                name="text",
-                dtype=String,
-            ),
-            Field(
-                name="int",
-                dtype=Int32,
-            ),
-        ],
-    )
-    return fv, [
-        (
-            EntityKeyProto(
-                join_keys=["id"],
-                entity_values=[ValueProto(string_val=str(i))],
-            ),
-            {
-                "text": ValueProto(string_val="text"),
-                "int": ValueProto(int32_val=n),
-            },
-            datetime.utcnow(),
-            None,
-        )
-        for i in range(n)
-    ]
 
 
 def test_build_sorted_table_cql(sorted_feature_view):

@@ -1,4 +1,5 @@
 import textwrap
+from datetime import datetime
 
 import pytest
 from cassandra.cluster import Cluster
@@ -10,11 +11,15 @@ from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_s
     CassandraOnlineStoreConfig,
 )
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
+from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.sorted_feature_view import SortedFeatureView, SortKey
 from feast.types import (
     Array,
+    Int32,
     Int64,
     String,
+    UnixTimestamp,
 )
 from tests.expediagroup.cassandra_online_store_creator import (
     EGCassandraOnlineStoreCreator,
@@ -192,3 +197,92 @@ class TestCassandraOnlineStore:
             assert actual_columns[col] == expected_type, (
                 f"Column '{col}' has type '{actual_columns[col]}' but expected '{expected_type}'"
             )
+
+    def test_cassandra_online_write_batch(
+        self,
+        cassandra_session,
+        repo_config: RepoConfig,
+        online_store: CassandraOnlineStore,
+    ):
+        session, keyspace = cassandra_session
+        (
+            feature_view,
+            data,
+        ) = self._create_n_test_sample_features()
+        constructed_table_name_in_cassandra = online_store._fq_table_name(
+            keyspace,
+            repo_config.project,
+            feature_view,
+            repo_config.online_store.table_name_format_version,
+        )
+
+        constructed_table_name = constructed_table_name_in_cassandra.split(".")[
+            1
+        ].strip('"')
+
+        online_store._create_table(repo_config, repo_config.project, feature_view)
+        online_store.online_write_batch(
+            config=repo_config,
+            table=feature_view,
+            data=data,
+            progress=None,
+        )
+        result = session.execute(
+            f"SELECT COUNT(*) from {keyspace}.{constructed_table_name};"
+        )
+        count = [row.count for row in result]
+        assert count[0] == 10
+
+    def _create_n_test_sample_features(self, n=10):
+        fv = SortedFeatureView(
+            name="sortedfeatureview",
+            source=FileSource(
+                name="my_file_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="id")],
+            sort_keys=[
+                SortKey(
+                    name="event_timestamp",
+                    value_type=ValueType.UNIX_TIMESTAMP,
+                    default_sort_order=SortOrder.DESC,
+                )
+            ],
+            schema=[
+                Field(
+                    name="id",
+                    dtype=String,
+                ),
+                Field(
+                    name="text",
+                    dtype=String,
+                ),
+                Field(
+                    name="int",
+                    dtype=Int32,
+                ),
+                Field(
+                    name="event_timestamp",
+                    dtype=UnixTimestamp,
+                ),
+            ],
+        )
+        return fv, [
+            (
+                EntityKeyProto(
+                    join_keys=["id"],
+                    entity_values=[ValueProto(string_val=str(i))],
+                ),
+                {
+                    "text": ValueProto(string_val="text"),
+                    "int": ValueProto(int32_val=n),
+                    "event_timestamp": ValueProto(
+                        unix_timestamp_val=int(datetime.utcnow().timestamp())
+                    ),
+                },
+                datetime.utcnow(),
+                None,
+            )
+            for i in range(n)
+        ]

@@ -112,7 +112,7 @@ DROP_TABLE_CQL_TEMPLATE = "DROP TABLE IF EXISTS {fqtable};"
 CQL_TEMPLATE_MAP = {
     # Queries/DML, statements to be prepared
     "insert4": (INSERT_CQL_4_TEMPLATE, True),
-    "insert_time_series": (INSERT_SORTED_FEATURES_TEMPLATE, True),
+    "insert_sorted_features": (INSERT_SORTED_FEATURES_TEMPLATE, True),
     "select": (SELECT_CQL_TEMPLATE, True),
     # DDL, do not prepare these
     "drop": (DROP_TABLE_CQL_TEMPLATE, False),
@@ -457,7 +457,7 @@ class CassandraOnlineStore(OnlineStore):
 
             insert_cql = self._get_cql_statement(
                 config,
-                "insert_time_series",
+                "insert_sorted_features",
                 fqtable=fqtable,
                 ttl=ttl,
                 session=session,
@@ -466,28 +466,58 @@ class CassandraOnlineStore(OnlineStore):
             )
 
             # Write each batch with same entity key in to the online store
-            for entity_key_bin, batch_to_write in entity_dict.items():
-                batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-                for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
-                    feature_values: tuple = ()
-                    for valProto in feat_dict.values():
-                        feature_value = getattr(
-                            valProto, str(valProto.WhichOneof("val"))
+            timestamp_field_name = table.batch_source.timestamp_field
+            sort_key_names = [sort_key.name for sort_key in table.sort_keys]
+            if timestamp_field_name in sort_key_names:
+                for entity_key_bin, batch_to_write in entity_dict.items():
+                    batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                    for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
+                        feature_values: tuple = ()
+                        for feature_name, valProto in feat_dict.items():
+                            if feature_name == timestamp_field_name:
+                                feature_value = timestamp
+                            else:
+                                feature_value = getattr(
+                                    valProto, str(valProto.WhichOneof("val"))
+                                )
+                            feature_values += (feature_value,)
+
+                        feature_values = feature_values + (entity_key_bin, timestamp)
+                        batch.add(insert_cql, feature_values)
+                    CassandraOnlineStore._apply_batch(
+                        rate_limiter,
+                        batch,
+                        progress,
+                        session,
+                        concurrent_queue,
+                        on_success,
+                        on_failure,
+                    )
+            else:
+                for entity_key_bin, batch_to_write in entity_dict.items():
+                    batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                    for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
+                        feature_values_tuple: tuple = ()
+                        for valProto in feat_dict.values():
+                            feature_value = getattr(
+                                valProto, str(valProto.WhichOneof("val"))
+                            )
+                            feature_values_tuple += (feature_value,)
+
+                        feature_values_tuple = feature_values_tuple + (
+                            entity_key_bin,
+                            timestamp,
                         )
-                        feature_values += (feature_value,)
-
-                    feature_values = feature_values + (entity_key_bin, timestamp)
-                    batch.add(insert_cql, feature_values)
-
-                CassandraOnlineStore._apply_batch(
-                    rate_limiter,
-                    batch,
-                    progress,
-                    session,
-                    concurrent_queue,
-                    on_success,
-                    on_failure,
-                )
+                        batch.add(insert_cql, feature_values_tuple)
+                    CassandraOnlineStore._apply_batch(
+                        rate_limiter,
+                        batch,
+                        progress,
+                        session,
+                        concurrent_queue,
+                        on_success,
+                        on_failure,
+                    )
         else:
             insert_cql = self._get_cql_statement(
                 config,
@@ -849,7 +879,7 @@ class CassandraOnlineStore(OnlineStore):
             session = self._get_session(config)
 
         template, prepare = CQL_TEMPLATE_MAP[op_name]
-        if op_name == "insert_time_series":
+        if op_name == "insert_sorted_features":
             statement = template.format(
                 fqtable=fqtable,
                 feature_names=kwargs.get("feature_names_str"),
