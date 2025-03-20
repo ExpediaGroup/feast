@@ -726,23 +726,17 @@ class FeatureStore:
             for name in feature_views:
                 try:
                     feature_view = self._get_feature_view(name, hide_dummy_entity=False)
-                except FeatureViewNotFoundException as e:
-                    print(f"Exception type after checking for feature view: {type(e).__name__}")
+                except FeatureViewNotFoundException:
                     try:
                         feature_view = self._get_stream_feature_view(
                             name, hide_dummy_entity=False
                         )
-                    except FeatureViewNotFoundException as e:
-                        print(f"Exception type after checking for stream fv: {type(e).__name__}")
+                    except FeatureViewNotFoundException:
                         # Fallback to sorted feature view lookup.
                         feature_view = self._get_sorted_feature_view(
                             name, hide_dummy_entity=False
                         )
 
-                    except Exception as e:
-                            raise FeatureViewNotFoundException(f"Feature View {feature_view.name} doesn't exist. Please check if your feature view was registered successfully. Error message: {e}")
-
-                print(f"Outside try block. Feature view name {feature_view.name} and type {type(feature_view).__name__}")
                 if not feature_view.online:
                     raise ValueError(
                         f"FeatureView {feature_view.name} is not configured to be served online."
