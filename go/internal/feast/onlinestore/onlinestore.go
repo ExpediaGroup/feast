@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/feast-dev/feast/go/internal/feast/model"
-	"google.golang.org/protobuf/types/known/timestamppb"
-	"time"
-
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
@@ -25,16 +22,6 @@ type RangeFeatureData struct {
 	Values          []interface{}
 	Statuses        []serving.FieldStatus
 	EventTimestamps []timestamp.Timestamp
-}
-
-func (r *RangeFeatureData) AppendValueStatusTime(value interface{}, status serving.FieldStatus, ts time.Time) RangeFeatureData {
-	return RangeFeatureData{
-		FeatureView:     r.FeatureView,
-		FeatureName:     r.FeatureName,
-		Values:          append(r.Values, value),
-		Statuses:        append(r.Statuses, status),
-		EventTimestamps: append(r.EventTimestamps, timestamppb.Timestamp{Seconds: ts.Unix(), Nanos: int32(ts.Nanosecond())}),
-	}
 }
 
 type OnlineStore interface {
