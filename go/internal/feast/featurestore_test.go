@@ -7,6 +7,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/internal/feast/onlinestore"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/protos/feast/core"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/golang/protobuf/ptypes/timestamp"
@@ -109,6 +110,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	sortKey := &model.SortKey{
 		FieldName: "event_timestamp",
 		ValueType: types.ValueType_UNIX_TIMESTAMP,
+		Order:     model.NewSortOrderFromProto(core.SortOrder_ASC),
 	}
 
 	sortedFV := &model.SortedFeatureView{
@@ -153,6 +155,9 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 			StartInclusive: true,
 			EndInclusive:   true,
 		},
+	}
+	sortKeyFilterModels := []*model.SortKeyFilter{
+		model.NewSortKeyFilterFromProto(sortKeyFilters[0], core.SortOrder_ASC),
 	}
 
 	mockRangeFeatureData := [][]onlinestore.RangeFeatureData{
@@ -214,8 +219,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		mock.AnythingOfType("[]*types.EntityKey"),
 		featureViewNamesMatcher,
 		[]string{"conv_rate", "acc_rate"},
-		sortKeyFilters,
-		false,
+		sortKeyFilterModels,
 		int32(0),
 	).Return(mockRangeFeatureData, nil)
 
