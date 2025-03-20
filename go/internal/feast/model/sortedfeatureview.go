@@ -2,6 +2,7 @@ package model
 
 import (
 	"github.com/feast-dev/feast/go/protos/feast/core"
+	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 )
 
@@ -72,5 +73,25 @@ func (sfv *SortedFeatureView) NewSortedFeatureViewFromBase(base *BaseFeatureView
 	return &SortedFeatureView{
 		FeatureView: newFV,
 		SortKeys:    sfv.SortKeys,
+	}
+}
+
+type SortKeyFilter struct {
+	SortKeyName    string
+	RangeStart     interface{}
+	RangeEnd       interface{}
+	StartInclusive bool
+	EndInclusive   bool
+	Order          *SortOrder
+}
+
+func NewSortKeyFilterFromProto(proto *serving.SortKeyFilter, sortOrder core.SortOrder_Enum) *SortKeyFilter {
+	return &SortKeyFilter{
+		SortKeyName:    proto.GetSortKeyName(),
+		RangeStart:     proto.GetRangeStart(),
+		RangeEnd:       proto.GetRangeEnd(),
+		StartInclusive: proto.GetStartInclusive(),
+		EndInclusive:   proto.GetEndInclusive(),
+		Order:          NewSortOrderFromProto(sortOrder),
 	}
 }

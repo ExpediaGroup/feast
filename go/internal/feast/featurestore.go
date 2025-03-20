@@ -314,7 +314,6 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 			groupRef.FeatureViewNames,
 			groupRef.FeatureNames,
 			groupRef.SortKeyFilters,
-			groupRef.ReverseSortOrder,
 			groupRef.Limit)
 		if err != nil {
 			return nil, err
@@ -481,8 +480,7 @@ func (fs *FeatureStore) readRangeFromOnlineStore(
 	entityRows []*prototypes.EntityKey,
 	requestedFeatureViewNames []string,
 	requestedFeatureNames []string,
-	sortKeyFilters []*serving.SortKeyFilter,
-	reverseSortOrder bool,
+	sortKeyFilters []*model.SortKeyFilter,
 	limit int32) ([][]onlinestore.RangeFeatureData, error) {
 
 	span, _ := tracer.StartSpanFromContext(ctx, "fs.readRangeFromOnlineStore")
@@ -503,7 +501,6 @@ func (fs *FeatureStore) readRangeFromOnlineStore(
 		requestedFeatureViewNames,
 		requestedFeatureNames,
 		sortKeyFilters,
-		reverseSortOrder,
 		limit)
 }
 
