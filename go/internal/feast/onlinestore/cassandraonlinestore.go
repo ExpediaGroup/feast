@@ -835,7 +835,13 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, entityKeys [
 						}
 
 						if featureData := &rowFeatures[featureNamesToIdx[featName]]; featureData != nil {
-							rowFeatures[featureNamesToIdx[featName]] = featureData.AppendValueStatusTime(val, status, eventTs)
+							rowFeatures[featureNamesToIdx[featName]] = RangeFeatureData{
+								FeatureView:     featureViewName,
+								FeatureName:     featName,
+								Values:          append(featureData.Values, val),
+								Statuses:        append(featureData.Statuses, status),
+								EventTimestamps: append(featureData.EventTimestamps, timestamppb.Timestamp{Seconds: eventTs.Unix(), Nanos: int32(eventTs.Nanosecond())}),
+							}
 						} else {
 							rowFeatures[featureNamesToIdx[featName]] = RangeFeatureData{
 								FeatureView:     featureViewName,
@@ -847,7 +853,13 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, entityKeys [
 						}
 					} else {
 						if featureData := &rowFeatures[featureNamesToIdx[featName]]; featureData != nil {
-							rowFeatures[featureNamesToIdx[featName]] = featureData.AppendValueStatusTime(nil, serving.FieldStatus_NOT_FOUND, eventTs)
+							rowFeatures[featureNamesToIdx[featName]] = RangeFeatureData{
+								FeatureView:     featureViewName,
+								FeatureName:     featName,
+								Values:          append(featureData.Values, nil),
+								Statuses:        append(featureData.Statuses, serving.FieldStatus_NOT_FOUND),
+								EventTimestamps: append(featureData.EventTimestamps, timestamppb.Timestamp{Seconds: eventTs.Unix(), Nanos: int32(eventTs.Nanosecond())}),
+							}
 						} else {
 							rowFeatures[featureNamesToIdx[featName]] = RangeFeatureData{
 								FeatureView:     featureViewName,
