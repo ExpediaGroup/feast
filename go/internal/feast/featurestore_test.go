@@ -88,8 +88,8 @@ func (m *MockOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.En
 	return args.Get(0).([][]onlinestore.FeatureData), args.Error(1)
 }
 
-func (m *MockOnlineStore) OnlineReadRange(ctx context.Context, entityRows []*types.EntityKey, featureViewNames []string, featureNames []string, sortKeyFilters []*serving.SortKeyFilter, reverseSortOrder bool, limit int32) ([][]onlinestore.RangeFeatureData, error) {
-	args := m.Called(ctx, entityRows, featureViewNames, featureNames, sortKeyFilters, reverseSortOrder, limit)
+func (m *MockOnlineStore) OnlineReadRange(ctx context.Context, entityRows []*types.EntityKey, featureViewNames []string, featureNames []string, sortKeyFilters []*model.SortKeyFilter, limit int32) ([][]onlinestore.RangeFeatureData, error) {
+	args := m.Called(ctx, entityRows, featureViewNames, featureNames, sortKeyFilters, limit)
 	return args.Get(0).([][]onlinestore.RangeFeatureData), args.Error(1)
 }
 
@@ -333,7 +333,6 @@ func testGetOnlineFeaturesRange(
 			groupRef.FeatureViewNames,
 			groupRef.FeatureNames,
 			groupRef.SortKeyFilters,
-			groupRef.ReverseSortOrder,
 			groupRef.Limit)
 		if err != nil {
 			return nil, err
