@@ -18,6 +18,7 @@ from feast.errors import (
     FeatureServiceNotFoundException,
     FeatureViewNotFoundException,
     ProjectMetadataNotFoundException,
+    SortedFeatureViewNotFoundException,
 )
 from feast.expediagroup.pydantic_models.data_source_model import (
     KafkaSourceModel,
@@ -549,7 +550,7 @@ class HttpRegistry(BaseRegistry):
             return SortedFeatureViewModel.model_validate(
                 response_data
             ).to_feature_view()
-        except FeatureViewNotFoundException as exception:
+        except SortedFeatureViewNotFoundException as exception:
             logger.error(
                 f"SortedFeatureView {name} requested does not exist: {str(exception)}"
             )
@@ -776,6 +777,7 @@ class HttpRegistry(BaseRegistry):
                 (self.list_feature_views, r.feature_views),
                 (self.list_data_sources, r.data_sources),
                 (self.list_on_demand_feature_views, r.on_demand_feature_views),
+                (self.list_sorted_feature_views, r.sorted_feature_views),
                 (self.list_stream_feature_views, r.stream_feature_views),
                 (self.list_feature_services, r.feature_services),
                 (self.list_saved_datasets, r.saved_datasets),
