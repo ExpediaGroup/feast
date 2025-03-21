@@ -25,6 +25,9 @@ from feast.infra.online_stores.online_store import OnlineStore
 from feast.infra.passthrough_provider import PassthroughProvider
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+from feast.protos.feast.core.SortedFeatureView_pb2 import (
+    SortedFeatureView as SortedFeatureViewProto,
+)
 from feast.repo_config import FeastConfigBaseModel, RepoConfig
 from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
@@ -217,6 +220,7 @@ class _SparkSerializedArtifacts:
 
     feature_view_proto: str
     repo_config_byte: str
+    feature_view_class: str = None
 
     @classmethod
     def serialize(cls, feature_view, repo_config):
@@ -227,14 +231,20 @@ class _SparkSerializedArtifacts:
         repo_config_byte = dill.dumps(repo_config)
 
         return _SparkSerializedArtifacts(
-            feature_view_proto=feature_view_proto, repo_config_byte=repo_config_byte
+            feature_view_proto=feature_view_proto, repo_config_byte=repo_config_byte, feature_view_class=type(feature_view)
         )
 
     def unserialize(self):
         # unserialize
-        proto = FeatureViewProto()
-        proto.ParseFromString(self.feature_view_proto)
-        feature_view = FeatureView.from_proto(proto)
+
+        if self.feature_view_class == "SortedFeatureView":
+            proto = SortedFeatureViewProto()
+            proto.ParseFromString(self.feature_view_proto)
+            feature_view = SortedFeatureView.from_proto(proto)
+        else:
+            proto = FeatureViewProto()
+            proto.ParseFromString(self.feature_view_proto)
+            feature_view = FeatureView.from_proto(proto)
 
         # load
         repo_config = dill.loads(self.repo_config_byte)
@@ -285,7 +295,6 @@ def _map_by_partition(
         rows_to_write = _convert_arrow_to_proto(
             table, feature_view, join_key_to_value_type
         )
-        print(f"feature view {feature_view.name} type {type(feature_view)} isinstance(feature_view,SortedFeatureView) value: {isinstance(feature_view,SortedFeatureView)}")
         online_store.online_write_batch(
             repo_config,
             feature_view,
