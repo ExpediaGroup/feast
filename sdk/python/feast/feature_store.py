@@ -726,12 +726,12 @@ class FeatureStore:
             for name in feature_views:
                 try:
                     feature_view = self._get_feature_view(name, hide_dummy_entity=False)
-                except FeatureViewNotFoundException:
+                except Exception:
                     try:
                         feature_view = self._get_stream_feature_view(
                             name, hide_dummy_entity=False
                         )
-                    except FeatureViewNotFoundException:
+                    except Exception:
                         # Fallback to sorted feature view lookup.
                         feature_view = self._get_sorted_feature_view(
                             name, hide_dummy_entity=False
