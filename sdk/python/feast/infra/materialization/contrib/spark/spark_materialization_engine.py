@@ -193,7 +193,7 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
 
             print(f"feature view {feature_view.name} type {type(feature_view)}")
             spark_serialized_artifacts = _SparkSerializedArtifacts.serialize(
-                feature_view=feature_view, repo_config=self.repo_config, feature_view_class=type(feature_view)
+                feature_view=feature_view, repo_config=self.repo_config, feature_view_class=feature_view.__class__.__name__
             )
 
             spark_df = offline_job.to_spark_df()
