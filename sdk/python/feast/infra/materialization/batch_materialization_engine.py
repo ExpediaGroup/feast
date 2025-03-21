@@ -25,7 +25,9 @@ class MaterializationTask:
     """
 
     project: str
-    feature_view: Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView]
+    feature_view: Union[
+        BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView
+    ]
     start_time: datetime
     end_time: datetime
     tqdm_builder: Callable[[int], tqdm]
@@ -129,7 +131,9 @@ class BatchMaterializationEngine(ABC):
     def teardown_infra(
         self,
         project: str,
-        fvs: Sequence[Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView]],
+        fvs: Sequence[
+            Union[BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView]
+        ],
         entities: Sequence[Entity],
     ):
         """

@@ -1056,7 +1056,9 @@ class SqlRegistry(CachingRegistry):
                             tzinfo=timezone.utc
                         )
                     )
-                    if isinstance(obj, (FeatureView, StreamFeatureView, SortedFeatureView)):
+                    if isinstance(
+                        obj, (FeatureView, StreamFeatureView, SortedFeatureView)
+                    ):
                         obj.update_materialization_intervals(
                             type(obj)
                             .from_proto(deserialized_proto)

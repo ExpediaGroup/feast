@@ -715,9 +715,8 @@ class FeatureStore:
                 sfv for sfv in stream_feature_views_to_materialize if sfv.online
             ]
             # Get sorted feature views from the registry and append those that are online.
-            sorted_feature_views_to_materialize = (
-                self._list_sorted_feature_views(hide_dummy_entity=False
-                )
+            sorted_feature_views_to_materialize = self._list_sorted_feature_views(
+                hide_dummy_entity=False
             )
             feature_views_to_materialize += [
                 sfv for sfv in sorted_feature_views_to_materialize if sfv.online
@@ -919,6 +918,7 @@ class FeatureStore:
                 # BFVs are not handled separately from FVs right now.
                 (isinstance(ob, FeatureView) or isinstance(ob, BatchFeatureView))
                 and not isinstance(ob, StreamFeatureView)
+                and not isinstance(ob, SortedFeatureView)
             )
         ]
         sfvs_to_update = [ob for ob in objects if isinstance(ob, StreamFeatureView)]
@@ -980,10 +980,8 @@ class FeatureStore:
             self._registry.apply_project(project, commit=False)
         for ds in data_sources_to_update:
             self._registry.apply_data_source(ds, project=self.project, commit=False)
-        for view in itertools.chain(views_to_update, odfvs_to_update, sfvs_to_update):
-            self._registry.apply_feature_view(view, project=self.project, commit=False)
         for view in itertools.chain(
-            views_to_update, sfvs_to_update, sorted_fvs_to_update
+            views_to_update, odfvs_to_update, sfvs_to_update, sorted_fvs_to_update
         ):
             self._registry.apply_feature_view(view, project=self.project, commit=False)
         for ent in entities_to_update:

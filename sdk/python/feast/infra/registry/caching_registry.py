@@ -248,7 +248,7 @@ class CachingRegistry(BaseRegistry):
         pass
 
     def get_sorted_feature_view(
-            self, name: str, project: str, allow_cache: bool = False
+        self, name: str, project: str, allow_cache: bool = False
     ) -> SortedFeatureView:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
@@ -259,15 +259,15 @@ class CachingRegistry(BaseRegistry):
 
     @abstractmethod
     def _list_sorted_feature_views(
-            self, project: str, tags: Optional[dict[str, str]]
+        self, project: str, tags: Optional[dict[str, str]]
     ) -> List[SortedFeatureView]:
         pass
 
     def list_sorted_feature_views(
-            self,
-            project: str,
-            allow_cache: bool = False,
-            tags: Optional[dict[str, str]] = None,
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
     ) -> List[SortedFeatureView]:
         if allow_cache:
             self._refresh_cached_registry_if_necessary()
