@@ -474,6 +474,8 @@ class CassandraOnlineStore(OnlineStore):
                     for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
                         feature_values: tuple = ()
                         for feature_name, valProto in feat_dict.items():
+                            # When the event timestamp is added as a feature, it is converted in to UNIX_TIMESTAMP
+                            # feast type. Hence, its value must be reassigned before inserting in to online store
                             if feature_name == timestamp_field_name:
                                 feature_value = timestamp
                             else:
