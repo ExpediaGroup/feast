@@ -285,6 +285,7 @@ def _map_by_partition(
         rows_to_write = _convert_arrow_to_proto(
             table, feature_view, join_key_to_value_type
         )
+        print(f"feature view {feature_view.name} type {type(feature_view)} isinstance(feature_view,SortedFeatureView) value: {isinstance(feature_view,SortedFeatureView)}")
         online_store.online_write_batch(
             repo_config,
             feature_view,

@@ -420,10 +420,8 @@ class CassandraOnlineStore(OnlineStore):
         fqtable = CassandraOnlineStore._fq_table_name(
             keyspace, project, table, table_name_version
         )
-        logger.info(f"Feature view {table} and type {type(table)}")
-        logger.info(f"isinstance(table, SortedFeatureView) value {isinstance(table, SortedFeatureView)}")
+
         if isinstance(table, SortedFeatureView):
-            logger.infot(f"Inside SortedFeatureView branch of execution")
             # Split the data in to multiple batches, with each batch having the same entity key (partition key).
             # NOTE: It is not a good practice to have data from multiple partitions in the same batch.
             # Doing so can affect write latency and also data loss among other things.
@@ -465,7 +463,6 @@ class CassandraOnlineStore(OnlineStore):
 
                 CassandraOnlineStore._apply_batch(rate_limiter, batch, progress, session, concurrent_queue, on_success, on_failure)
         else:
-            logger.info(f"Inside FeatureView branch of execution")
             insert_cql = self._get_cql_statement(
                 config,
                 "insert4",
