@@ -192,7 +192,7 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
                 )
 
             spark_serialized_artifacts = _SparkSerializedArtifacts.serialize(
-                feature_view=feature_view, repo_config=self.repo_config
+                feature_view=feature_view, repo_config=self.repo_config, feature_view_type = type(feature_view)
             )
 
             spark_df = offline_job.to_spark_df()
@@ -227,7 +227,7 @@ class _SparkSerializedArtifacts:
     feature_view_class: str = None
 
     @classmethod
-    def serialize(cls, feature_view, repo_config):
+    def serialize(cls, feature_view, repo_config, feature_view_class = None):
         # serialize to proto
         feature_view_proto = feature_view.to_proto().SerializeToString()
 
@@ -235,12 +235,11 @@ class _SparkSerializedArtifacts:
         repo_config_byte = dill.dumps(repo_config)
 
         return _SparkSerializedArtifacts(
-            feature_view_proto=feature_view_proto, repo_config_byte=repo_config_byte, feature_view_class=type(feature_view)
+            feature_view_proto=feature_view_proto, repo_config_byte=repo_config_byte, feature_view_class = feature_view_class
         )
 
     def unserialize(self):
         # unserialize
-
         if self.feature_view_class == "SortedFeatureView":
             proto = SortedFeatureViewProto()
             proto.ParseFromString(self.feature_view_proto)
