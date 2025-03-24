@@ -242,15 +242,30 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		return result[i].Name < result[j].Name
 	})
 
+	var driverIdVector, convRateVector, accRateVector *onlineserving.RangeFeatureVector
+	for _, vec := range result {
+		switch vec.Name {
+		case "driver_id":
+			driverIdVector = vec
+		case "driver_stats__conv_rate":
+			convRateVector = vec
+		case "driver_stats__acc_rate":
+			accRateVector = vec
+		}
+	}
+
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
+	assert.NotNil(t, driverIdVector, "driver_id vector not found")
+	assert.NotNil(t, convRateVector, "conv_rate vector not found")
+	assert.NotNil(t, accRateVector, "acc_rate vector not found")
 	assert.Equal(t, 3, len(result), "Should have 3 vectors (1 entity + 2 features)")
-	assert.Equal(t, "driver_id", result[0].Name)
-	assert.Equal(t, "driver_stats__acc_rate", result[1].Name)
-	assert.Equal(t, "driver_stats__conv_rate", result[2].Name)
-	assert.Equal(t, 2, len(result[1].RangeStatuses))
-	assert.Equal(t, 3, len(result[1].RangeStatuses[0]))
-	assert.Equal(t, 2, len(result[1].RangeStatuses[1]))
+	assert.Equal(t, "driver_id", driverIdVector.Name)
+	assert.Equal(t, "driver_stats__conv_rate", convRateVector.Name)
+	assert.Equal(t, "driver_stats__acc_rate", accRateVector.Name)
+	assert.Equal(t, 2, len(driverIdVector.RangeStatuses))
+	assert.Equal(t, 3, len(convRateVector.RangeStatuses[0]))
+	assert.Equal(t, 2, len(accRateVector.RangeStatuses[1]))
 	mockStore.AssertExpectations(t)
 }
 
