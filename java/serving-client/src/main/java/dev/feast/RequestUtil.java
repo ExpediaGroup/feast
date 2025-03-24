@@ -16,7 +16,9 @@
  */
 package dev.feast;
 
+import com.google.protobuf.ByteString;
 import feast.proto.serving.ServingAPIProto.FeatureReferenceV2;
+import feast.proto.types.ValueProto.Value;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -74,5 +76,27 @@ public class RequestUtil {
             .build();
 
     return featureRef;
+  }
+
+  public static Value objectToValue(Object value) {
+    switch (value.getClass().getCanonicalName()) {
+      case "java.lang.Integer":
+        return Value.newBuilder().setInt32Val((int) value).build();
+      case "java.lang.Long":
+        return Value.newBuilder().setInt64Val((long) value).build();
+      case "java.lang.Float":
+        return Value.newBuilder().setFloatVal((float) value).build();
+      case "java.lang.Double":
+        return Value.newBuilder().setDoubleVal((double) value).build();
+      case "java.lang.String":
+        return Value.newBuilder().setStringVal((String) value).build();
+      case "byte[]":
+        return Value.newBuilder().setBytesVal(ByteString.copyFrom((byte[]) value)).build();
+      case "feast.proto.types.ValueProto.Value":
+        return (Value) value;
+      default:
+        throw new IllegalArgumentException(
+            String.format("Unsupported type: %s", value.getClass().getSimpleName()));
+    }
   }
 }
