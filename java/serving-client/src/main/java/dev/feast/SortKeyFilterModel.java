@@ -10,7 +10,7 @@ public class SortKeyFilterModel {
     private boolean startInclusive;
     private boolean endInclusive;
 
-    public SortKeyFilterModel(String sortKeyName, Object rangeStart, Object rangeEnd, boolean inclusiveStart = false, boolean inclusiveEnd = false) {
+    public SortKeyFilterModel(String sortKeyName, Object rangeStart, Object rangeEnd, boolean inclusiveStart, boolean inclusiveEnd) {
         this.sortKeyName = sortKeyName;
         this.rangeStart = RequestUtil.objectToValue(rangeStart);
         this.rangeEnd = RequestUtil.objectToValue(rangeEnd);
