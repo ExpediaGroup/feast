@@ -191,7 +191,6 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
                     ),
                 )
 
-            print(f"feature view {feature_view.name} type {type(feature_view)}")
             spark_serialized_artifacts = _SparkSerializedArtifacts.serialize(
                 feature_view=feature_view, repo_config=self.repo_config, feature_view_class=feature_view.__class__.__name__
             )
