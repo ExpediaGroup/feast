@@ -219,6 +219,11 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	requestData map[string]*prototypes.RepeatedValue,
 	fullFeatureNames bool) ([]*onlineserving.RangeFeatureVector, error) {
 
+	// This allows empty requestData to be passed in
+	if requestData == nil {
+		requestData = make(map[string]*prototypes.RepeatedValue)
+	}
+
 	fvs, sortedFvs, odFvs, err := fs.listAllViews()
 	if err != nil {
 		return nil, err
