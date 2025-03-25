@@ -382,14 +382,14 @@ class FeatureStore:
         return self._list_stream_feature_views(allow_cache, tags=tags)
 
     def _list_sorted_feature_views(
-            self,
-            allow_cache: bool = False,
-            hide_dummy_entity: bool = True,
-            tags: Optional[dict[str, str]] = None,
+        self,
+        allow_cache: bool = False,
+        hide_dummy_entity: bool = True,
+        tags: Optional[dict[str, str]] = None,
     ) -> List[SortedFeatureView]:
         sorted_feature_views = []
         for sfv in self._registry.list_sorted_feature_views(
-                self.project, allow_cache=allow_cache, tags=tags
+            self.project, allow_cache=allow_cache, tags=tags
         ):
             if hide_dummy_entity and sfv.entities[0] == DUMMY_ENTITY_NAME:
                 sfv.entities = []
@@ -497,7 +497,9 @@ class FeatureStore:
         Raises:
             FeatureViewNotFoundException: The feature view could not be found.
         """
-        return self._get_sorted_feature_view(name, allow_registry_cache=allow_registry_cache)
+        return self._get_sorted_feature_view(
+            name, allow_registry_cache=allow_registry_cache
+        )
 
     def _get_sorted_feature_view(
         self,

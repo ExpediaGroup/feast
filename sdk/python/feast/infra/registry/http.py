@@ -658,7 +658,9 @@ class HttpRegistry(BaseRegistry):
                     feature_view
                 ).model_dump_json()
                 response_data = self._send_request("PUT", url, params=params, data=data)
-                return SortedFeatureViewModel.model_validate(response_data).to_feature_view()
+                return SortedFeatureViewModel.model_validate(
+                    response_data
+                ).to_feature_view()
             elif isinstance(feature_view, FeatureView):
                 data = FeatureViewModel.from_feature_view(
                     feature_view

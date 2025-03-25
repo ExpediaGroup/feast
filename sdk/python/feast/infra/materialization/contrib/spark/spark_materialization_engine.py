@@ -192,7 +192,9 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
                 )
 
             spark_serialized_artifacts = _SparkSerializedArtifacts.serialize(
-                feature_view=feature_view, repo_config=self.repo_config, feature_view_class=feature_view.__class__.__name__
+                feature_view=feature_view,
+                repo_config=self.repo_config,
+                feature_view_class=feature_view.__class__.__name__,
             )
 
             spark_df = offline_job.to_spark_df()
@@ -235,7 +237,9 @@ class _SparkSerializedArtifacts:
         repo_config_byte = dill.dumps(repo_config)
 
         return _SparkSerializedArtifacts(
-            feature_view_proto=feature_view_proto, repo_config_byte=repo_config_byte, feature_view_class=feature_view_class
+            feature_view_proto=feature_view_proto,
+            repo_config_byte=repo_config_byte,
+            feature_view_class=feature_view_class,
         )
 
     def unserialize(self):
