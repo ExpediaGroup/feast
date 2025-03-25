@@ -37,7 +37,7 @@ func combinedHealthCheck(hs *health.Server) http.HandlerFunc {
 	// Calls the grpc.server healthcheck check endpoint. Saves us a call to gRPC dial.
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(d, defaultCheckTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), defaultCheckTimeout)
 		defer cancel()
 
 		req := &healthpb.HealthCheckRequest{
