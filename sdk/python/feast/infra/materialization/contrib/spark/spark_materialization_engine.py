@@ -226,7 +226,7 @@ class _SparkSerializedArtifacts:
 
     feature_view_proto: str
     repo_config_byte: str
-    feature_view_class: str = None
+    feature_view_class: str
 
     @classmethod
     def serialize(cls, feature_view, repo_config, feature_view_class=None):
