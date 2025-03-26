@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/feast-dev/feast/go/protos/feast/core"
+	"github.com/rs/zerolog/log"
 	"math"
 	"sort"
 	"strings"
@@ -390,6 +391,9 @@ func ValidateEntityValues(joinKeyValues map[string]*prototypes.RepeatedValue,
 	requestData map[string]*prototypes.RepeatedValue,
 	expectedJoinKeysSet map[string]interface{}) (int, error) {
 	numRows := -1
+	log.Info().Msgf("DEBUG: joinKeyValues: %v", joinKeyValues)
+	log.Info().Msgf("DEBUG: requestData: %v", requestData)
+	log.Info().Msgf("DEBUG: expectedJoinKeysSet: %v", expectedJoinKeysSet)
 
 	for joinKey, values := range joinKeyValues {
 		if _, ok := expectedJoinKeysSet[joinKey]; !ok {
@@ -407,7 +411,7 @@ func ValidateEntityValues(joinKeyValues map[string]*prototypes.RepeatedValue,
 
 		}
 	}
-
+	log.Info().Msgf("DEBUG: numRows: %d", numRows)
 	return numRows, nil
 }
 

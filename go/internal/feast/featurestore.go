@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/rs/zerolog/log"
 	"os"
 	"strings"
 
@@ -323,6 +324,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		if err != nil {
 			return nil, err
 		}
+		log.Info().Msgf("DEBUG: Feature data: %v", featureData)
 
 		vectors, err := onlineserving.TransposeRangeFeatureRowsIntoColumns(
 			featureData,
