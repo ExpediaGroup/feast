@@ -55,6 +55,16 @@ func NewSortedFeatureViewFromProto(proto *core.SortedFeatureView) *SortedFeature
 		Base: NewBaseFeatureView(proto.GetSpec().GetName(), proto.GetSpec().GetFeatures()),
 		Ttl:  proto.GetSpec().GetTtl(),
 	}
+	if len(proto.Spec.Entities) == 0 {
+		baseFV.EntityNames = []string{DUMMY_ENTITY_NAME}
+	} else {
+		baseFV.EntityNames = proto.Spec.Entities
+	}
+	entityColumns := make([]*Field, len(proto.Spec.EntityColumns))
+	for i, entityColumn := range proto.Spec.EntityColumns {
+		entityColumns[i] = NewFieldFromProto(entityColumn)
+	}
+	baseFV.EntityColumns = entityColumns
 
 	// Convert each sort key from the proto.
 	sortKeys := make([]*SortKey, len(proto.GetSpec().GetSortKeys()))
