@@ -357,33 +357,53 @@ func GetEntityMapsForSortedViews(sortedViews []*SortedFeatureViewAndRefs, entiti
 	entityNameToJoinKeyMap := make(map[string]string)
 	expectedJoinKeysSet := make(map[string]interface{})
 
+	log.Printf("Debug - Entity count: %d", len(entities))
+	for _, entity := range entities {
+		log.Printf("Debug - Entity: %s, JoinKey: %s", entity.Name, entity.JoinKey)
+	}
+
 	entitiesByName := make(map[string]*model.Entity)
 	for _, entity := range entities {
 		entitiesByName[entity.Name] = entity
 	}
 
+	log.Printf("Debug - Sorted views count: %d", len(sortedViews))
 	for _, featuresAndView := range sortedViews {
 		featureView := featuresAndView.View
+		log.Printf("Debug - Feature view: %s, EntityNames: %v", featureView.Base.Name, featureView.EntityNames)
+
 		var joinKeyToAliasMap map[string]string
 
 		if featureView.Base.Projection != nil && featureView.Base.Projection.JoinKeyMap != nil {
 			joinKeyToAliasMap = featureView.Base.Projection.JoinKeyMap
+			log.Printf("Debug - Using projection join key map: %v", joinKeyToAliasMap)
 		} else {
 			joinKeyToAliasMap = map[string]string{}
+			log.Printf("Debug - No projection join key map")
 		}
 
 		for _, entityName := range featureView.EntityNames {
-			joinKey := entitiesByName[entityName].JoinKey
+			entity, exists := entitiesByName[entityName]
+			if !exists {
+				log.Printf("Error - Entity not found in registry: %s", entityName)
+				continue
+			}
+
+			joinKey := entity.JoinKey
+			log.Printf("Debug - Adding join key mapping: %s -> %s", entityName, joinKey)
 			entityNameToJoinKeyMap[entityName] = joinKey
 
 			if alias, ok := joinKeyToAliasMap[joinKey]; ok {
+				log.Printf("Debug - Using aliased join key: %s -> %s", joinKey, alias)
 				expectedJoinKeysSet[alias] = nil
 			} else {
+				log.Printf("Debug - Using direct join key: %s", joinKey)
 				expectedJoinKeysSet[joinKey] = nil
 			}
 		}
 	}
 
+	log.Printf("Debug - Final expected join keys: %v", expectedJoinKeysSet)
 	return entityNameToJoinKeyMap, expectedJoinKeysSet, nil
 }
 
