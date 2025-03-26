@@ -11,7 +11,6 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/golang/protobuf/ptypes/timestamp"
-	"github.com/rs/zerolog/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -286,16 +285,6 @@ func testGetOnlineFeaturesRange(
 	requestData map[string]*types.RepeatedValue,
 	fullFeatureNames bool) ([]*onlineserving.RangeFeatureVector, error) {
 
-	//entityNameToJoinKeyMap := make(map[string]string)
-	//for _, entity := range entities {
-	//	entityNameToJoinKeyMap[entity.Name] = entity.JoinKey
-	//}
-	//
-	//expectedJoinKeysSet := make(map[string]interface{})
-	//for _, joinKey := range entityNameToJoinKeyMap {
-	//	expectedJoinKeysSet[joinKey] = nil
-	//}
-
 	sortedFeatureViews := make([]*onlineserving.SortedFeatureViewAndRefs, 0)
 	for _, view := range sortedViews {
 		viewFeatures := make([]string, 0)
@@ -319,8 +308,6 @@ func testGetOnlineFeaturesRange(
 		return nil, err
 	}
 
-	log.Info().Msgf("entityNameToJoinKeyMap: %v", entityNameToJoinKeyMap)
-	log.Info().Msgf("expectedJoinKeysSet: %v", expectedJoinKeysSet)
 	numRows, err := onlineserving.ValidateEntityValues(joinKeyToEntityValues, requestData, expectedJoinKeysSet)
 	if err != nil {
 		return nil, err

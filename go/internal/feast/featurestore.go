@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/rs/zerolog/log"
 	"os"
 	"strings"
 
@@ -219,21 +218,15 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	limit int32,
 	requestData map[string]*prototypes.RepeatedValue,
 	fullFeatureNames bool) ([]*onlineserving.RangeFeatureVector, error) {
-
-	log.Printf("Processing range query with entities: %v, features: %v",
-		keysToString(joinKeyToEntityValues), featureRefs)
-
-	// This allows empty requestData to be passed in
-	if requestData == nil {
-		requestData = make(map[string]*prototypes.RepeatedValue)
-	}
+	//// This allows empty requestData to be passed in
+	//if requestData == nil {
+	//	requestData = make(map[string]*prototypes.RepeatedValue)
+	//}
 
 	fvs, sortedFvs, odFvs, err := fs.listAllViews()
 	if err != nil {
 		return nil, err
 	}
-
-	log.Printf("Found %d sorted feature views", len(sortedFvs))
 
 	entities, err := fs.ListEntities(false)
 	if err != nil {
@@ -257,8 +250,6 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		return nil, fmt.Errorf("no sorted feature views found for the requested features")
 	}
 
-	log.Printf("Using sorted feature views: %v", viewNamesToString(requestedSortedFeatureViews))
-
 	// Note: We're ignoring on-demand feature views for now.
 
 	entityNameToJoinKeyMap, expectedJoinKeysSet, err := onlineserving.GetEntityMapsForSortedViews(
@@ -270,9 +261,6 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	if len(expectedJoinKeysSet) == 0 {
 		return nil, fmt.Errorf("no entity join keys found, check feature view entity configuration")
 	}
-
-	log.Printf("Expected join keys: %v", keysToString(expectedJoinKeysSet))
-	log.Printf("Provided entity keys: %v", keysToString(joinKeyToEntityValues))
 
 	err = onlineserving.ValidateSortedFeatureRefs(requestedSortedFeatureViews, fullFeatureNames)
 	if err != nil {
@@ -287,8 +275,6 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	if numRows <= 0 {
 		return nil, fmt.Errorf("invalid number of entity rows: %d", numRows)
 	}
-
-	log.Printf("Validated entity values, numRows: %d", numRows)
 
 	err = onlineserving.ValidateSortKeyFilters(sortKeyFilters, requestedSortedFeatureViews)
 	if err != nil {
@@ -344,7 +330,6 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		if err != nil {
 			return nil, err
 		}
-		log.Info().Msgf("DEBUG: Feature data: %v", featureData)
 
 		vectors, err := onlineserving.TransposeRangeFeatureRowsIntoColumns(
 			featureData,
