@@ -220,6 +220,9 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	requestData map[string]*prototypes.RepeatedValue,
 	fullFeatureNames bool) ([]*onlineserving.RangeFeatureVector, error) {
 
+	log.Printf("Processing range query with entities: %v, features: %v",
+		keysToString(joinKeyToEntityValues), featureRefs)
+
 	// This allows empty requestData to be passed in
 	if requestData == nil {
 		requestData = make(map[string]*prototypes.RepeatedValue)
@@ -229,6 +232,8 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	if err != nil {
 		return nil, err
 	}
+
+	log.Printf("Found %d sorted feature views", len(sortedFvs))
 
 	entities, err := fs.ListEntities(false)
 	if err != nil {
@@ -252,6 +257,8 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		return nil, fmt.Errorf("no sorted feature views found for the requested features")
 	}
 
+	log.Printf("Using sorted feature views: %v", viewNamesToString(requestedSortedFeatureViews))
+
 	// Note: We're ignoring on-demand feature views for now.
 
 	entityNameToJoinKeyMap, expectedJoinKeysSet, err := onlineserving.GetEntityMapsForSortedViews(
@@ -260,6 +267,13 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		return nil, err
 	}
 
+	if len(expectedJoinKeysSet) == 0 {
+		return nil, fmt.Errorf("no entity join keys found, check feature view entity configuration")
+	}
+
+	log.Printf("Expected join keys: %v", keysToString(expectedJoinKeysSet))
+	log.Printf("Provided entity keys: %v", keysToString(joinKeyToEntityValues))
+
 	err = onlineserving.ValidateSortedFeatureRefs(requestedSortedFeatureViews, fullFeatureNames)
 	if err != nil {
 		return nil, err
@@ -267,8 +281,14 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 
 	numRows, err := onlineserving.ValidateEntityValues(joinKeyToEntityValues, requestData, expectedJoinKeysSet)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("entity validation failed: %w", err)
 	}
+
+	if numRows <= 0 {
+		return nil, fmt.Errorf("invalid number of entity rows: %d", numRows)
+	}
+
+	log.Printf("Validated entity values, numRows: %d", numRows)
 
 	err = onlineserving.ValidateSortKeyFilters(sortKeyFilters, requestedSortedFeatureViews)
 	if err != nil {
@@ -554,4 +574,31 @@ func (fs *FeatureStore) GetFcosMap() (map[string]*model.Entity, map[string]*mode
 		odfvMap[odfv.Base.Name] = odfv
 	}
 	return entityMap, fvMap, sortedFvMap, odfvMap, nil
+}
+
+func keysToString(m interface{}) string {
+	switch v := m.(type) {
+	case map[string]*prototypes.RepeatedValue:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		return strings.Join(keys, ", ")
+	case map[string]bool:
+		keys := make([]string, 0, len(v))
+		for k := range v {
+			keys = append(keys, k)
+		}
+		return strings.Join(keys, ", ")
+	default:
+		return fmt.Sprintf("%v", m)
+	}
+}
+
+func viewNamesToString(views []*onlineserving.SortedFeatureViewAndRefs) string {
+	names := make([]string, 0, len(views))
+	for _, v := range views {
+		names = append(names, v.View.Base.Name)
+	}
+	return strings.Join(names, ", ")
 }
