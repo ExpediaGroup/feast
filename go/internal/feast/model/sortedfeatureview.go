@@ -4,6 +4,7 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/core"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
+	types2 "github.com/feast-dev/feast/go/types"
 )
 
 type SortOrder struct {
@@ -98,8 +99,8 @@ type SortKeyFilter struct {
 func NewSortKeyFilterFromProto(proto *serving.SortKeyFilter, sortOrder core.SortOrder_Enum) *SortKeyFilter {
 	return &SortKeyFilter{
 		SortKeyName:    proto.GetSortKeyName(),
-		RangeStart:     proto.GetRangeStart(),
-		RangeEnd:       proto.GetRangeEnd(),
+		RangeStart:     types2.ValueTypeToGoType(*proto.GetRangeStart()),
+		RangeEnd:       types2.ValueTypeToGoType(*proto.GetRangeEnd()),
 		StartInclusive: proto.GetStartInclusive(),
 		EndInclusive:   proto.GetEndInclusive(),
 		Order:          NewSortOrderFromProto(sortOrder),

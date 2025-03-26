@@ -693,7 +693,7 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 func (c *CassandraOnlineStore) rangeFilterToCQL(filter *model.SortKeyFilter) (string, []interface{}) {
 	rangeParams := make([]interface{}, 0)
 
-	var rangeStart string
+	rangeStart := ""
 	if filter.RangeStart != nil {
 		if filter.StartInclusive {
 			rangeStart = fmt.Sprintf(`"%s" >= ?`, filter.SortKeyName)
@@ -702,7 +702,7 @@ func (c *CassandraOnlineStore) rangeFilterToCQL(filter *model.SortKeyFilter) (st
 		}
 		rangeParams = append(rangeParams, filter.RangeStart)
 	}
-	var rangeEnd string
+	rangeEnd := ""
 	if filter.RangeEnd != nil {
 		if filter.EndInclusive {
 			rangeEnd = fmt.Sprintf(`"%s" <= ?`, filter.SortKeyName)
