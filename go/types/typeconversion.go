@@ -508,7 +508,11 @@ func appendNullByType(builder array.Builder) {
 	}
 }
 
-func ValueTypeToGoType(value types.Value) interface{} {
+func ValueTypeToGoType(value *types.Value) interface{} {
+	if value == nil || value.Val == nil {
+		return nil
+	}
+
 	switch x := value.Val.(type) {
 	case *types.Value_StringVal:
 		return x.StringVal

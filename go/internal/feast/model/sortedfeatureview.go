@@ -99,8 +99,8 @@ type SortKeyFilter struct {
 func NewSortKeyFilterFromProto(proto *serving.SortKeyFilter, sortOrder core.SortOrder_Enum) *SortKeyFilter {
 	return &SortKeyFilter{
 		SortKeyName:    proto.GetSortKeyName(),
-		RangeStart:     types2.ValueTypeToGoType(*proto.GetRangeStart()),
-		RangeEnd:       types2.ValueTypeToGoType(*proto.GetRangeEnd()),
+		RangeStart:     types2.ValueTypeToGoType(proto.GetRangeStart()),
+		RangeEnd:       types2.ValueTypeToGoType(proto.GetRangeEnd()),
 		StartInclusive: proto.GetStartInclusive(),
 		EndInclusive:   proto.GetEndInclusive(),
 		Order:          NewSortOrderFromProto(sortOrder),
