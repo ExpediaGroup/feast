@@ -650,10 +650,18 @@ class HttpRegistry(BaseRegistry):
         commit: bool = True,
     ):
         try:
-            if isinstance(feature_view, FeatureView):
-                feature_view.materialization_intervals.append((start_date, end_date))
-                params = {"commit": commit}
-                url = f"{self.base_url}/projects/{project}/feature_views"
+            feature_view.materialization_intervals.append((start_date, end_date))
+            params = {"commit": commit}
+            url = f"{self.base_url}/projects/{project}/feature_views"
+            if isinstance(feature_view, SortedFeatureView):
+                data = SortedFeatureViewModel.from_feature_view(
+                    feature_view
+                ).model_dump_json()
+                response_data = self._send_request("PUT", url, params=params, data=data)
+                return SortedFeatureViewModel.model_validate(
+                    response_data
+                ).to_feature_view()
+            elif isinstance(feature_view, FeatureView):
                 data = FeatureViewModel.from_feature_view(
                     feature_view
                 ).model_dump_json()
@@ -661,7 +669,7 @@ class HttpRegistry(BaseRegistry):
                 return FeatureViewModel.model_validate(response_data).to_feature_view()
             else:
                 raise TypeError(
-                    "Unsupported FeatureView type. Please use either FeatureView or OnDemandFeatureView only"
+                    "Unsupported FeatureView type. Please use either FeatureView, SortedFeatureView or OnDemandFeatureView only"
                 )
         except Exception as exception:
             self._handle_exception(exception)

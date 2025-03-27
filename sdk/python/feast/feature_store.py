@@ -727,18 +727,12 @@ class FeatureStore:
             for name in feature_views:
                 try:
                     feature_view = self._get_feature_view(name, hide_dummy_entity=False)
-                except Exception as e:
-                    print(
-                        f"Exception type after checking for feature view: {type(e).__name__}"
-                    )
+                except Exception:
                     try:
                         feature_view = self._get_stream_feature_view(
                             name, hide_dummy_entity=False
                         )
-                    except Exception as e:
-                        print(
-                            f"Exception type after checking for stream fv: {type(e).__name__}"
-                        )
+                    except Exception:
                         # Fallback to sorted feature view lookup.
                         feature_view = self._get_sorted_feature_view(
                             name, hide_dummy_entity=False

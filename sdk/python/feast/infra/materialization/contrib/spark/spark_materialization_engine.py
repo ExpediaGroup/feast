@@ -25,6 +25,9 @@ from feast.infra.online_stores.online_store import OnlineStore
 from feast.infra.passthrough_provider import PassthroughProvider
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+from feast.protos.feast.core.SortedFeatureView_pb2 import (
+    SortedFeatureView as SortedFeatureViewProto,
+)
 from feast.repo_config import FeastConfigBaseModel, RepoConfig
 from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
@@ -189,7 +192,9 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
                 )
 
             spark_serialized_artifacts = _SparkSerializedArtifacts.serialize(
-                feature_view=feature_view, repo_config=self.repo_config
+                feature_view=feature_view,
+                repo_config=self.repo_config,
+                feature_view_class=feature_view.__class__.__name__,
             )
 
             spark_df = offline_job.to_spark_df()
@@ -221,9 +226,10 @@ class _SparkSerializedArtifacts:
 
     feature_view_proto: str
     repo_config_byte: str
+    feature_view_class: str
 
     @classmethod
-    def serialize(cls, feature_view, repo_config):
+    def serialize(cls, feature_view, repo_config, feature_view_class=None):
         # serialize to proto
         feature_view_proto = feature_view.to_proto().SerializeToString()
 
@@ -231,14 +237,21 @@ class _SparkSerializedArtifacts:
         repo_config_byte = dill.dumps(repo_config)
 
         return _SparkSerializedArtifacts(
-            feature_view_proto=feature_view_proto, repo_config_byte=repo_config_byte
+            feature_view_proto=feature_view_proto,
+            repo_config_byte=repo_config_byte,
+            feature_view_class=feature_view_class,
         )
 
     def unserialize(self):
         # unserialize
-        proto = FeatureViewProto()
-        proto.ParseFromString(self.feature_view_proto)
-        feature_view = FeatureView.from_proto(proto)
+        if self.feature_view_class == "SortedFeatureView":
+            proto = SortedFeatureViewProto()
+            proto.ParseFromString(self.feature_view_proto)
+            feature_view = SortedFeatureView.from_proto(proto)
+        else:
+            proto = FeatureViewProto()
+            proto.ParseFromString(self.feature_view_proto)
+            feature_view = FeatureView.from_proto(proto)
 
         # load
         repo_config = dill.loads(self.repo_config_byte)
