@@ -369,7 +369,9 @@ func GetEntityMapsForSortedViews(sortedViews []*SortedFeatureViewAndRefs, entiti
 		}
 
 		for _, entityName := range featureView.EntityNames {
-			joinKey := entitiesByName[entityName].JoinKey
+			entity := entitiesByName[entityName]
+			joinKey := entity.JoinKey
+
 			entityNameToJoinKeyMap[entityName] = joinKey
 
 			if alias, ok := joinKeyToAliasMap[joinKey]; ok {

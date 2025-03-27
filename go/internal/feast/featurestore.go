@@ -318,19 +318,27 @@ func (fs *FeatureStore) DestructOnlineStore() {
 
 // ParseFeatures parses the kind field of a GetOnlineFeaturesRequest protobuf message
 // and populates a Features struct with the result.
-// todo: refactor this function to be more generic and handle range requests and throw an error if a range request is using feature service
+// todo: enable support for feature service for GetOnlineFeaturesRange requests
 func (fs *FeatureStore) ParseFeatures(kind interface{}) (*Features, error) {
-	if featureList, ok := kind.(*serving.GetOnlineFeaturesRequest_Features); ok {
+	switch kind.(type) {
+	case *serving.GetOnlineFeaturesRequest_Features:
+		featureList := kind.(*serving.GetOnlineFeaturesRequest_Features)
 		return &Features{FeaturesRefs: featureList.Features.GetVal(), FeatureService: nil}, nil
-	}
-	if featureServiceRequest, ok := kind.(*serving.GetOnlineFeaturesRequest_FeatureService); ok {
+	case *serving.GetOnlineFeaturesRangeRequest_Features:
+		featureList := kind.(*serving.GetOnlineFeaturesRangeRequest_Features)
+		return &Features{FeaturesRefs: featureList.Features.GetVal(), FeatureService: nil}, nil
+	case *serving.GetOnlineFeaturesRequest_FeatureService:
+		featureServiceRequest := kind.(*serving.GetOnlineFeaturesRequest_FeatureService)
 		featureService, err := fs.registry.GetFeatureService(fs.config.Project, featureServiceRequest.FeatureService)
 		if err != nil {
 			return nil, err
 		}
 		return &Features{FeaturesRefs: nil, FeatureService: featureService}, nil
+	case *serving.GetOnlineFeaturesRangeRequest_FeatureService:
+		return nil, errors.New("range requests only support feature refs")
+	default:
+		return nil, errors.New("cannot parse 'kind' from request")
 	}
-	return nil, errors.New("cannot parse kind from GetOnlineFeaturesRequest")
 }
 
 func (fs *FeatureStore) GetFeatureService(name string) (*model.FeatureService, error) {
