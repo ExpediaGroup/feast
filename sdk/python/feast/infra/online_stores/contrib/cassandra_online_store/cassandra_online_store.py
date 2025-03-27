@@ -479,9 +479,13 @@ class CassandraOnlineStore(OnlineStore):
                             if feature_name == timestamp_field_name:
                                 feature_value = timestamp
                             else:
-                                feature_value = getattr(
-                                    valProto, str(valProto.WhichOneof("val"))
-                                )
+                                feast_value_type = valProto.WhichOneof("val")
+                                if feast_value_type is None:
+                                    feature_value = None
+                                else:
+                                    feature_value = getattr(
+                                        valProto, str(valProto.WhichOneof("val"))
+                                    )
                             feature_values += (feature_value,)
 
                         feature_values = feature_values + (entity_key_bin, timestamp)
@@ -501,9 +505,13 @@ class CassandraOnlineStore(OnlineStore):
                     for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
                         feature_values_tuple: tuple = ()
                         for valProto in feat_dict.values():
-                            feature_value = getattr(
-                                valProto, str(valProto.WhichOneof("val"))
-                            )
+                            feast_value_type = valProto.WhichOneof("val")
+                            if feast_value_type is None:
+                                feature_value = None
+                            else:
+                                feature_value = getattr(
+                                    valProto, str(valProto.WhichOneof("val"))
+                                )
                             feature_values_tuple += (feature_value,)
 
                         feature_values_tuple = feature_values_tuple + (
