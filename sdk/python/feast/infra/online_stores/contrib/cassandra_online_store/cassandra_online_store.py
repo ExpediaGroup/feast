@@ -480,6 +480,9 @@ class CassandraOnlineStore(OnlineStore):
             sort_key_names = [sort_key.name for sort_key in table.sort_keys]
             if timestamp_field_name in sort_key_names:
                 for entity_key_bin, batch_to_write in entity_dict.items():
+                    print(
+                        f"INFO: Writing {entity_key_bin} to the online store"
+                    )
                     batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                     for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
                         feature_values: tuple = ()
