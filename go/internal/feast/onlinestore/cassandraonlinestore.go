@@ -711,7 +711,7 @@ func (c *CassandraOnlineStore) rangeFilterToCQL(filter *model.SortKeyFilter) (st
 		}
 		rangeParams = append(rangeParams, filter.RangeEnd)
 	}
-	log.Printf("Debug - range start: %s, range end: %s, range params: %v", rangeStart, rangeEnd, rangeParams)
+
 	if rangeStart != "" && rangeEnd != "" {
 		return fmt.Sprintf(`%s AND %s`, rangeStart, rangeEnd), rangeParams
 	} else if rangeStart != "" {
@@ -729,7 +729,6 @@ func (c *CassandraOnlineStore) getRangeQueryCQLStatement(tableName string, featu
 	for i, featureName := range featureNames {
 		quotedFeatureNames[i] = fmt.Sprintf(`"%s"`, featureName)
 	}
-	log.Printf("Debug - sort key filters: %v", sortKeyFilters)
 
 	rangeFilterString := ""
 	orderByString := ""
@@ -804,15 +803,12 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, entityKeys [
 		go func(serEntityKey any) {
 			defer waitGroup.Done()
 
-			log.Printf("Debug - query: %s", cqlStatement)
-			log.Printf("Debug - entity key: %v params: %v", serEntityKey, rangeParams)
 			queryParams := append([]interface{}{serEntityKey}, rangeParams...)
 			iter := c.session.Query(cqlStatement, queryParams...).WithContext(ctx).Iter()
 			rowIdx := serializedEntityKeyToIndex[serializedEntityKey.(string)]
 
 			// fill the row with nulls if not found
 			if iter.NumRows() == 0 {
-				log.Printf("Debug - no rows found for entity key: %v", serEntityKey)
 				for _, featName := range featureNames {
 					results[rowIdx][featureNamesToIdx[featName]] = RangeFeatureData{
 						FeatureView: featureViewName,
@@ -827,7 +823,6 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, entityKeys [
 			for i := 0; i < iter.NumRows(); i++ {
 				readValues := make(map[string]interface{})
 				iter.MapScan(readValues)
-				log.Printf("Debug - read values: %v", readValues)
 				eventTs := readValues["event_ts"].(time.Time)
 
 				rowFeatures := results[rowIdx]
