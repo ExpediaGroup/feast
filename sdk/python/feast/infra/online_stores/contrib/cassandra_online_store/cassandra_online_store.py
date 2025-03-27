@@ -411,6 +411,8 @@ class CassandraOnlineStore(OnlineStore):
         write_rate_limit = online_store_config.write_rate_limit
         concurrent_queue: Queue = Queue(maxsize=write_concurrency)
         rate_limiter = SlidingWindowRateLimiter(write_rate_limit, 1)
+        feast_array_types = ["bytes_list_val", "string_list_val", "int32_list_val", "int64_list_val", "double_list_val",
+                             "float_list_val", "bool_list_val", "unix_timestamp_list_val"]
 
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
@@ -482,9 +484,13 @@ class CassandraOnlineStore(OnlineStore):
                                 feast_value_type = valProto.WhichOneof("val")
                                 if feast_value_type is None:
                                     feature_value = None
+                                elif feast_value_type in feast_array_types:
+                                    feature_value = getattr(
+                                        valProto, str(feast_value_type)
+                                    ).val
                                 else:
                                     feature_value = getattr(
-                                        valProto, str(valProto.WhichOneof("val"))
+                                        valProto, str(feast_value_type)
                                     )
                             feature_values += (feature_value,)
 
@@ -508,9 +514,13 @@ class CassandraOnlineStore(OnlineStore):
                             feast_value_type = valProto.WhichOneof("val")
                             if feast_value_type is None:
                                 feature_value = None
+                            elif feast_value_type in feast_array_types:
+                                feature_value = getattr(
+                                    valProto, str(feast_value_type)
+                                ).val
                             else:
                                 feature_value = getattr(
-                                    valProto, str(valProto.WhichOneof("val"))
+                                    valProto, str(feast_value_type)
                                 )
                             feature_values_tuple += (feature_value,)
 
