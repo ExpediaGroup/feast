@@ -711,6 +711,7 @@ func (c *CassandraOnlineStore) rangeFilterToCQL(filter *model.SortKeyFilter) (st
 		}
 		rangeParams = append(rangeParams, filter.RangeEnd)
 	}
+	log.Printf("Debug - range start: %s, range end: %s, range params: %v", rangeStart, rangeEnd, rangeParams)
 	if rangeStart != "" && rangeEnd != "" {
 		return fmt.Sprintf(`%s AND %s`, rangeStart, rangeEnd), rangeParams
 	} else if rangeStart != "" {
@@ -728,6 +729,7 @@ func (c *CassandraOnlineStore) getRangeQueryCQLStatement(tableName string, featu
 	for i, featureName := range featureNames {
 		quotedFeatureNames[i] = fmt.Sprintf(`"%s"`, featureName)
 	}
+	log.Printf("Debug - sort key filters: %v", sortKeyFilters)
 
 	rangeFilterString := ""
 	orderByString := ""
