@@ -11,7 +11,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-var defaultCheckTimeout = 10 * time.Second
+var defaultCheckTimeout = 2 * time.Second
 
 // Register default HTTP handlers specific to the hybrid server configuration.
 func DefaultHybridHandlers(s *httpServer, hs *health.Server) []Handler {
@@ -31,13 +31,11 @@ func DefaultHybridHandlers(s *httpServer, hs *health.Server) []Handler {
 	}
 }
 
-// Closure that injects health.Server during registration of http.Handler
+// This function wraps an http.Handler that is registered during hybrid server creation.
+// Calls the grpc.server healthcheck check endpoint
 func combinedHealthCheck(hs *health.Server) http.HandlerFunc {
-	// This function should be registered within the httpHandler.
-	// Calls the grpc.server healthcheck check endpoint. Saves us a call to gRPC dial.
-
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(context.Background(), defaultCheckTimeout)
+		ctx, cancel := context.WithTimeout(r.Context(), defaultCheckTimeout)
 		defer cancel()
 
 		req := &healthpb.HealthCheckRequest{
