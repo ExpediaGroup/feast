@@ -190,7 +190,8 @@ func StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingServi
 	return ser.Serve(host, port, server.DefaultHttpHandlers(ser))
 }
 
-// StartHybridServer creates a gRPCServer and HTTPServer on port: port, gRPC port: grpc
+// StartHybridServer creates a gRPC Server and HTTP server
+// Handlers for these are defined in hybrid_server.go
 // Stops both servers if a stop signal is recieved.
 func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService) error {
 	if strings.ToLower(os.Getenv("ENABLE_DATADOG_TRACING")) == "true" {
@@ -218,7 +219,6 @@ func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPo
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		// As soon as these signals are received from OS, try to gracefully stop the HTTP server
 		<-stop
 		log.Info().Msg("Stopping the HTTP server...")
 		err := httpSer.Stop()
@@ -232,7 +232,7 @@ func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPo
 		if loggingService != nil {
 			loggingService.Stop()
 		}
-		log.Info().Msg("HTTP server terminated")
+		log.Info().Msg("HTTP and gRPC servers terminated")
 	}()
 
 	err = httpSer.Serve(host, httpPort, server.DefaultHybridHandlers(httpSer, healthService))

@@ -17,7 +17,6 @@ import (
 
 	grpcPrometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
-	_ "go.uber.org/automaxprocs"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	grpcTrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/google.golang.org/grpc"
 )
@@ -212,10 +211,8 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 }
 
 // Register services used by the grpcServingServiceServer.
-// Any middleware configs should be specified here.
 func (s *grpcServingServiceServer) RegisterServices() (*grpc.Server, *health.Server) {
 	grpcPromMetrics := grpcPrometheus.NewServerMetrics()
-	// mustRegister publishes to the defaultRegistrar
 	prometheus.MustRegister(grpcPromMetrics)
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(grpcTrace.UnaryServerInterceptor(), grpcPromMetrics.UnaryServerInterceptor()),
