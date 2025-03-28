@@ -3,13 +3,21 @@ package server
 import (
 	"context"
 	"fmt"
+
 	"github.com/feast-dev/feast/go/internal/feast"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/feast-dev/feast/go/types"
 	"github.com/google/uuid"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+
+	grpcPrometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+	"google.golang.org/grpc/health/grpc_health_v1"
+	grpcTrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/google.golang.org/grpc"
 )
 
 const feastServerVersion = "0.0.1"
@@ -105,6 +113,21 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		}
 	}
 	return resp, nil
+}
+
+// Register services used by the grpcServingServiceServer.
+func (s *grpcServingServiceServer) RegisterServices() (*grpc.Server, *health.Server) {
+	grpcPromMetrics := grpcPrometheus.NewServerMetrics()
+	prometheus.MustRegister(grpcPromMetrics)
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(grpcTrace.UnaryServerInterceptor(), grpcPromMetrics.UnaryServerInterceptor()),
+	)
+
+	serving.RegisterServingServiceServer(grpcServer, s)
+	healthService := health.NewServer()
+	grpc_health_v1.RegisterHealthServer(grpcServer, healthService)
+
+	return grpcServer, healthService
 }
 
 func GenerateRequestId() string {
