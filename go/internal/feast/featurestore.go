@@ -258,6 +258,10 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		return nil, err
 	}
 
+	if limit < 0 {
+		return nil, fmt.Errorf("limit must be non-negative, got %d", limit)
+	}
+
 	entitylessCase := checkEntitylessCase(requestedSortedFeatureViews)
 	addDummyEntityIfNeeded(entitylessCase, joinKeyToEntityValues, numRows)
 
