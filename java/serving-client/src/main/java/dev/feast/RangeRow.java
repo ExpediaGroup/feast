@@ -118,6 +118,36 @@ public class RangeRow {
         .collect(Collectors.toList());
   }
 
+  public List<Boolean> getBooleans(String fieldName) {
+    return getValues(fieldName).stream().map(Value::getBoolVal).collect(Collectors.toList());
+  }
+
+  public List<List<?>> getLists(String fieldName) {
+    return getValues(fieldName).stream().map(v -> {
+      switch (v.getValCase()) {
+        case INT32_LIST_VAL:
+          return v.getInt32ListVal().getValList();
+        case INT64_LIST_VAL:
+            return v.getInt64ListVal().getValList();
+        case FLOAT_LIST_VAL:
+            return v.getFloatListVal().getValList();
+        case DOUBLE_LIST_VAL:
+            return v.getDoubleListVal().getValList();
+        case STRING_LIST_VAL:
+            return v.getStringListVal().getValList();
+        case BYTES_LIST_VAL:
+            return v.getBytesListVal().getValList().stream()
+                .map(ByteString::toByteArray)
+                .collect(Collectors.toList());
+        case BOOL_LIST_VAL:
+            return v.getBoolListVal().getValList();
+        default:
+            throw new IllegalArgumentException(
+                String.format("Unsupported list type: %s", v.getValCase().name()));
+      }
+    }).collect(Collectors.toList());
+  }
+
   public Map<String, List<FieldStatus>> getStatuses() {
     return fieldStatuses;
   }
