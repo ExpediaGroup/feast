@@ -395,7 +395,7 @@ func (c *CassandraOnlineStore) UnbatchedKeysOnlineRead(ctx context.Context, enti
 	serializedEntityKeys, serializedEntityKeyToIndex, err := c.buildCassandraEntityKeys(entityKeys)
 
 	if err != nil {
-		return nil, fmt.Errorf("error when serializing entity keys for Cassandra")
+		return nil, fmt.Errorf("error when serializing entity keys for Cassandra: %v", err)
 	}
 	results := make([][]FeatureData, len(entityKeys))
 	for i := range results {
@@ -540,7 +540,7 @@ func (c *CassandraOnlineStore) BatchedKeysOnlineRead(ctx context.Context, entity
 	serializedEntityKeys, serializedEntityKeyToIndex, err := c.buildCassandraEntityKeys(entityKeys)
 
 	if err != nil {
-		return nil, fmt.Errorf("error when serializing entity keys for Cassandra")
+		return nil, fmt.Errorf("error when serializing entity keys for Cassandra: %v", err)
 	}
 	results := make([][]FeatureData, len(entityKeys))
 	for i := range results {
@@ -773,7 +773,7 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, entityKeys [
 
 	serializedEntityKeys, serializedEntityKeyToIndex, err := c.buildCassandraEntityKeys(entityKeys)
 	if err != nil {
-		return nil, fmt.Errorf("error when serializing entity keys for Cassandra")
+		return nil, fmt.Errorf("error when serializing entity keys for Cassandra: %v", err)
 	}
 	results := make([][]RangeFeatureData, len(entityKeys))
 	for i := range results {

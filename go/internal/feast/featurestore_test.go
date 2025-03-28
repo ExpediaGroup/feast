@@ -270,16 +270,6 @@ func testGetOnlineFeaturesRange(
 	requestData map[string]*types.RepeatedValue,
 	fullFeatureNames bool) ([]*onlineserving.RangeFeatureVector, error) {
 
-	entityNameToJoinKeyMap := make(map[string]string)
-	for _, entity := range entities {
-		entityNameToJoinKeyMap[entity.Name] = entity.JoinKey
-	}
-
-	expectedJoinKeysSet := make(map[string]interface{})
-	for _, joinKey := range entityNameToJoinKeyMap {
-		expectedJoinKeysSet[joinKey] = nil
-	}
-
 	sortedFeatureViews := make([]*onlineserving.SortedFeatureViewAndRefs, 0)
 	for _, view := range sortedViews {
 		viewFeatures := make([]string, 0)
@@ -296,6 +286,11 @@ func testGetOnlineFeaturesRange(
 				FeatureRefs: viewFeatures,
 			})
 		}
+	}
+	entityNameToJoinKeyMap, expectedJoinKeysSet, err := onlineserving.GetEntityMapsForSortedViews(
+		sortedFeatureViews, entities)
+	if err != nil {
+		return nil, err
 	}
 
 	numRows, err := onlineserving.ValidateEntityValues(joinKeyToEntityValues, requestData, expectedJoinKeysSet)

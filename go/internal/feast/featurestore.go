@@ -339,9 +339,9 @@ func (fs *FeatureStore) ParseFeatures(kind interface{}) (*Features, error) {
 		}
 		return &Features{FeaturesRefs: nil, FeatureService: featureService}, nil
 	case *serving.GetOnlineFeaturesRangeRequest_FeatureService:
-		return nil, errors.New("range requests only support feature refs")
+		return nil, errors.New("range requests only support 'kind' of a list of Features")
 	default:
-		return nil, errors.New("cannot parse 'kind' from request")
+		return nil, errors.New("cannot parse 'kind' of either a Feature Service or list of Features from request")
 	}
 }
 
