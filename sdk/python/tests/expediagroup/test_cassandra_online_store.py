@@ -1,14 +1,5 @@
 import textwrap
 from datetime import datetime
-from feast.protos.feast.types.Value_pb2 import FloatList
-from feast.protos.feast.types.Value_pb2 import Int64List
-from feast.protos.feast.types.Value_pb2 import Int32List
-from feast.protos.feast.types.Value_pb2 import StringList
-from feast.protos.feast.types.Value_pb2 import BoolList
-from feast.protos.feast.types.Value_pb2 import BytesList
-from feast.protos.feast.types.Value_pb2 import DoubleList
-
-import random
 
 import pytest
 from cassandra.cluster import Cluster
@@ -21,15 +12,17 @@ from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_s
 )
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+from feast.protos.feast.types.Value_pb2 import (
+    BoolList,
+    BytesList,
+    DoubleList,
+    FloatList,
+    Int32List,
+    Int64List,
+    StringList,
+)
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.sorted_feature_view import SortedFeatureView, SortKey
-from feast.types import (
-    Array,
-    Int32,
-    Int64,
-    String,
-    UnixTimestamp,
-)
 from feast.types import (
     Array,
     Bool,
@@ -427,13 +420,14 @@ class TestCassandraOnlineStore:
     def _create_n_test_sample_features_all_datatypes(self, n=10):
         mlpfs_test_all_dtypes_sorted_fv = SortedFeatureView(
             name="all_dtypes_sorted_fv",
-            entities=[Entity(
-            name="index_sfv",
-            description="Index for the SortedFeatureView",
-            join_keys=["index_id"],
-            value_type=ValueType.STRING,
-        )],
-
+            entities=[
+                Entity(
+                    name="index_sfv",
+                    description="Index for the SortedFeatureView",
+                    join_keys=["index_id"],
+                    value_type=ValueType.STRING,
+                )
+            ],
             sort_keys=[
                 SortKey(
                     name="event_timestamp",
@@ -456,9 +450,7 @@ class TestCassandraOnlineStore:
                 path="test.parquet",
                 timestamp_field="event_timestamp",
             ),
-
             description="Sorted Feature View with all supported feast datatypes",
-
             online=True,
             schema=[
                 Field(name="index_id", dtype=String),
@@ -509,59 +501,62 @@ class TestCassandraOnlineStore:
                     "long_val": ValueProto(int64_val=79856),
                     "float_val": ValueProto(float_val=12.433371),
                     "double_val": ValueProto(double_val=8.295230388348628),
-                    "byte_val": ValueProto(bytes_val=bytes('some random byte', 'utf-8')),
+                    "byte_val": ValueProto(
+                        bytes_val=bytes("some random byte", "utf-8")
+                    ),
                     "string_val": ValueProto(string_val="text"),
                     "timestamp_val": ValueProto(unix_timestamp_val=n),
-                    "boolean_val": ValueProto(bool_val= True),
-
-                    "array_int_val": ValueProto(int32_list_val=Int32List(
-                            val=[712, 317]
-                        )),
-                    "array_long_val": ValueProto(int64_list_val=Int64List(
-                            val=[34949, 51284]
-                        )),
-                    "array_float_val": ValueProto(float_list_val=FloatList(
-                            val=[25.404484, 48.07086]
-                        )),
-                    "array_double_val": ValueProto(double_list_val=DoubleList(
+                    "boolean_val": ValueProto(bool_val=True),
+                    "array_int_val": ValueProto(
+                        int32_list_val=Int32List(val=[712, 317])
+                    ),
+                    "array_long_val": ValueProto(
+                        int64_list_val=Int64List(val=[34949, 51284])
+                    ),
+                    "array_float_val": ValueProto(
+                        float_list_val=FloatList(val=[25.404484, 48.07086])
+                    ),
+                    "array_double_val": ValueProto(
+                        double_list_val=DoubleList(
                             val=[98.94745193632949, 98.94745193632949]
-                        )),
-                    "array_byte_val": ValueProto(bytes_list_val=BytesList(
-                            val=[bytes('some random byte', 'utf-8'), bytes('some random byte', 'utf-8')]
-                        )),
-                    "array_string_val": ValueProto(string_list_val=StringList(
-                            val=["6J0T8", "9EN4B"]
-                        )),
-                    "array_timestamp_val": ValueProto(unix_timestamp_list_val=Int64List(
-                            val=[34949, 51284]
-                        )),
-                    "array_boolean_val": ValueProto(bool_list_val=BoolList(
-                            val=[True, True]
-                        )),
-
-                    "null_int_val": ValueProto( null_val=None),
-                    "null_long_val": ValueProto( null_val=None),
-                    "null_float_val": ValueProto( null_val=None),
-                    "null_double_val": ValueProto( null_val=None),
-                    "null_byte_val": ValueProto( null_val=None),
-                    "null_string_val": ValueProto( null_val=None),
-                    "null_timestamp_val": ValueProto( null_val=None),
-                    "null_boolean_val": ValueProto( null_val=None),
-
-                    "null_array_int_val": ValueProto( null_val=None),
-                    "null_array_long_val": ValueProto( null_val=None),
-                    "null_array_float_val": ValueProto( null_val=None),
-                    "null_array_double_val": ValueProto( null_val=None),
-                    "null_array_byte_val": ValueProto( null_val=None),
-                    "null_array_string_val": ValueProto( null_val=None),
-                    "null_array_timestamp_val": ValueProto( null_val=None),
-                    "null_array_boolean_val": ValueProto( null_val=None),
+                        )
+                    ),
+                    "array_byte_val": ValueProto(
+                        bytes_list_val=BytesList(
+                            val=[
+                                bytes("some random byte", "utf-8"),
+                                bytes("some random byte", "utf-8"),
+                            ]
+                        )
+                    ),
+                    "array_string_val": ValueProto(
+                        string_list_val=StringList(val=["6J0T8", "9EN4B"])
+                    ),
+                    "array_timestamp_val": ValueProto(
+                        unix_timestamp_list_val=Int64List(val=[34949, 51284])
+                    ),
+                    "array_boolean_val": ValueProto(
+                        bool_list_val=BoolList(val=[True, True])
+                    ),
+                    "null_int_val": ValueProto(null_val=None),
+                    "null_long_val": ValueProto(null_val=None),
+                    "null_float_val": ValueProto(null_val=None),
+                    "null_double_val": ValueProto(null_val=None),
+                    "null_byte_val": ValueProto(null_val=None),
+                    "null_string_val": ValueProto(null_val=None),
+                    "null_timestamp_val": ValueProto(null_val=None),
+                    "null_boolean_val": ValueProto(null_val=None),
+                    "null_array_int_val": ValueProto(null_val=None),
+                    "null_array_long_val": ValueProto(null_val=None),
+                    "null_array_float_val": ValueProto(null_val=None),
+                    "null_array_double_val": ValueProto(null_val=None),
+                    "null_array_byte_val": ValueProto(null_val=None),
+                    "null_array_string_val": ValueProto(null_val=None),
+                    "null_array_timestamp_val": ValueProto(null_val=None),
+                    "null_array_boolean_val": ValueProto(null_val=None),
                     "event_timestamp": ValueProto(int32_val=n),
                 },
                 datetime.utcnow(),
                 None,
             )
         ]
-
-
-
