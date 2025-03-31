@@ -24,13 +24,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.google.common.collect.ImmutableList;
 import com.google.protobuf.TextFormat;
 import feast.proto.serving.ServingAPIProto.FeatureReferenceV2;
+import feast.proto.types.ValueProto;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import feast.proto.types.ValueProto;
 import org.junit.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -110,59 +109,70 @@ public class RequestUtilTest {
 
   @Test
   public void objectToValueTest() {
-    assertEquals(
-        RequestUtil.objectToValue(42).getInt32Val(), 42);
-    assertEquals(
-        RequestUtil.objectToValue(42L).getInt64Val(), 42L);
-    assertEquals(
-        RequestUtil.objectToValue(3.14f).getFloatVal(), 3.14f);
-    assertEquals(
-        RequestUtil.objectToValue(3.14).getDoubleVal(), 3.14);
-    assertEquals(
-        RequestUtil.objectToValue("test").getStringVal(), "test");
+    assertEquals(RequestUtil.objectToValue(42).getInt32Val(), 42);
+    assertEquals(RequestUtil.objectToValue(42L).getInt64Val(), 42L);
+    assertEquals(RequestUtil.objectToValue(3.14f).getFloatVal(), 3.14f);
+    assertEquals(RequestUtil.objectToValue(3.14).getDoubleVal(), 3.14);
+    assertEquals(RequestUtil.objectToValue("test").getStringVal(), "test");
     byte[] bytes = "test".getBytes();
-    assertArrayEquals(
-        RequestUtil.objectToValue(bytes).getBytesVal().toByteArray(), bytes);
+    assertArrayEquals(RequestUtil.objectToValue(bytes).getBytesVal().toByteArray(), bytes);
     assertTrue(RequestUtil.objectToValue(true).getBoolVal());
+    assertEquals(RequestUtil.objectToValue(null).getNullVal(), ValueProto.Null.NULL);
     assertEquals(
-        RequestUtil.objectToValue(null).getNullVal(), ValueProto.Null.NULL);
+        RequestUtil.objectToValue(Arrays.asList(1, 2, 3)).getInt32ListVal().getValList(),
+        Arrays.asList(1, 2, 3));
     assertEquals(
-        RequestUtil.objectToValue(Arrays.asList(1, 2, 3)).getInt32ListVal().getValList(), Arrays.asList(1, 2, 3));
+        RequestUtil.objectToValue(Arrays.asList(1L, 2L, 3L)).getInt64ListVal().getValList(),
+        Arrays.asList(1L, 2L, 3L));
     assertEquals(
-        RequestUtil.objectToValue(Arrays.asList(1L, 2L, 3L)).getInt64ListVal().getValList(), Arrays.asList(1L, 2L, 3L));
+        RequestUtil.objectToValue(Arrays.asList(3.14f, 2.71f)).getFloatListVal().getValList(),
+        Arrays.asList(3.14f, 2.71f));
     assertEquals(
-            RequestUtil.objectToValue(Arrays.asList(3.14f, 2.71f)).getFloatListVal().getValList(), Arrays.asList(3.14f, 2.71f));
+        RequestUtil.objectToValue(Arrays.asList(1.0, 2.0, 3.0)).getDoubleListVal().getValList(),
+        Arrays.asList(1.0, 2.0, 3.0));
     assertEquals(
-        RequestUtil.objectToValue(Arrays.asList(1.0, 2.0, 3.0)).getDoubleListVal().getValList(), Arrays.asList(1.0, 2.0, 3.0));
-    assertEquals(
-        RequestUtil.objectToValue(Arrays.asList("a", "b", "c")).getStringListVal().getValList(), Arrays.asList("a", "b", "c"));
+        RequestUtil.objectToValue(Arrays.asList("a", "b", "c")).getStringListVal().getValList(),
+        Arrays.asList("a", "b", "c"));
     assertArrayEquals(
-        RequestUtil.objectToValue(Arrays.asList(bytes, bytes)).getBytesListVal().getValList().get(0).toByteArray(), bytes);
+        RequestUtil.objectToValue(Arrays.asList(bytes, bytes))
+            .getBytesListVal()
+            .getValList()
+            .get(0)
+            .toByteArray(),
+        bytes);
     assertEquals(
-        RequestUtil.objectToValue(Arrays.asList(true, false)).getBoolListVal().getValList(), Arrays.asList(true, false));
+        RequestUtil.objectToValue(Arrays.asList(true, false)).getBoolListVal().getValList(),
+        Arrays.asList(true, false));
   }
 
   @Test
   public void objectToValue_ShouldThrowExceptionForUnsupportedType() {
-    Exception exception = assertThrows(IllegalArgumentException.class, () -> RequestUtil.objectToValue(new Object()));
+    Exception exception =
+        assertThrows(IllegalArgumentException.class, () -> RequestUtil.objectToValue(new Object()));
     assertEquals("Unsupported type: Object", exception.getMessage());
   }
 
   @Test
   public void objectToValue_ShouldThrowExceptionForEmptyList() {
     List<Object> emptyList = Arrays.asList();
-    Exception exception = assertThrows(IllegalArgumentException.class, () -> RequestUtil.objectToValue(emptyList));
+    Exception exception =
+        assertThrows(IllegalArgumentException.class, () -> RequestUtil.objectToValue(emptyList));
     assertEquals("Unsupported empty list type", exception.getMessage());
   }
 
   @Test
   public void objectToValue_ShouldThrowExceptionForUnsupportedListType() {
     List<Object> unsupportedList = Arrays.asList(new Object(), new Object());
-    Exception exception = assertThrows(IllegalArgumentException.class, () -> RequestUtil.objectToValue(unsupportedList));
+    Exception exception =
+        assertThrows(
+            IllegalArgumentException.class, () -> RequestUtil.objectToValue(unsupportedList));
     assertEquals("Unsupported list type: Object", exception.getMessage());
 
     List<Object> mixedList = Arrays.asList(1, "test", 3.14);
-    exception = assertThrows(IllegalArgumentException.class, () -> RequestUtil.objectToValue(mixedList));
-    assertEquals("Unknown list type, error during casting: class java.lang.String cannot be cast to class java.lang.Integer (java.lang.String and java.lang.Integer are in module java.base of loader 'bootstrap')", exception.getMessage());
+    exception =
+        assertThrows(IllegalArgumentException.class, () -> RequestUtil.objectToValue(mixedList));
+    assertEquals(
+        "Unknown list type, error during casting: class java.lang.String cannot be cast to class java.lang.Integer (java.lang.String and java.lang.Integer are in module java.base of loader 'bootstrap')",
+        exception.getMessage());
   }
 }

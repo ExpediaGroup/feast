@@ -96,8 +96,8 @@ public class RequestUtil {
         return Value.newBuilder().setStringVal((String) value).build();
       case "byte[]":
         return Value.newBuilder().setBytesVal(ByteString.copyFrom((byte[]) value)).build();
-        case "java.lang.Boolean":
-          return Value.newBuilder().setBoolVal((boolean) value).build();
+      case "java.lang.Boolean":
+        return Value.newBuilder().setBoolVal((boolean) value).build();
       case "feast.proto.types.ValueProto.Value":
         return (Value) value;
       case "java.util.Arrays.ArrayList":
@@ -110,52 +110,45 @@ public class RequestUtil {
             case "java.lang.Integer":
               return Value.newBuilder()
                   .setInt32ListVal(
-                          ValueProto.Int32List.newBuilder()
-                                  .addAllVal((List<Integer>) value).build()
-                  ).build();
+                      ValueProto.Int32List.newBuilder().addAllVal((List<Integer>) value).build())
+                  .build();
             case "java.lang.Long":
               return Value.newBuilder()
                   .setInt64ListVal(
-                          ValueProto.Int64List.newBuilder()
-                                  .addAllVal((List<Long>) value).build()
-                  ).build();
+                      ValueProto.Int64List.newBuilder().addAllVal((List<Long>) value).build())
+                  .build();
             case "java.lang.Float":
               return Value.newBuilder()
                   .setFloatListVal(
-                          ValueProto.FloatList.newBuilder()
-                                  .addAllVal((List<Float>) value).build()
-                  ).build();
+                      ValueProto.FloatList.newBuilder().addAllVal((List<Float>) value).build())
+                  .build();
             case "java.lang.Double":
               return Value.newBuilder()
                   .setDoubleListVal(
-                          ValueProto.DoubleList.newBuilder()
-                                  .addAllVal((List<Double>) value).build()
-                  ).build();
+                      ValueProto.DoubleList.newBuilder().addAllVal((List<Double>) value).build())
+                  .build();
             case "java.lang.String":
-                return Value.newBuilder()
-                    .setStringListVal(
-                        ValueProto.StringList.newBuilder()
-                            .addAllVal((List<String>) value).build())
-                    .build();
+              return Value.newBuilder()
+                  .setStringListVal(
+                      ValueProto.StringList.newBuilder().addAllVal((List<String>) value).build())
+                  .build();
             case "byte[]":
-                List<ByteString> byteList =
-                    ((List<byte[]>) value).stream()
-                        .map(ByteString::copyFrom)
-                        .collect(Collectors.toList());
-                return Value.newBuilder()
-                    .setBytesListVal(
-                        ValueProto.BytesList.newBuilder()
-                            .addAllVal(byteList).build())
-                    .build();
+              List<ByteString> byteList =
+                  ((List<byte[]>) value)
+                      .stream().map(ByteString::copyFrom).collect(Collectors.toList());
+              return Value.newBuilder()
+                  .setBytesListVal(ValueProto.BytesList.newBuilder().addAllVal(byteList).build())
+                  .build();
             case "java.lang.Boolean":
-                return Value.newBuilder()
-                    .setBoolListVal(
-                        ValueProto.BoolList.newBuilder()
-                            .addAllVal((List<Boolean>) value).build())
-                    .build();
+              return Value.newBuilder()
+                  .setBoolListVal(
+                      ValueProto.BoolList.newBuilder().addAllVal((List<Boolean>) value).build())
+                  .build();
             default:
               throw new IllegalArgumentException(
-                  String.format("Unsupported list type: %s", ((List<?>) value).get(0).getClass().getSimpleName()));
+                  String.format(
+                      "Unsupported list type: %s",
+                      ((List<?>) value).get(0).getClass().getSimpleName()));
           }
         } catch (ClassCastException e) {
           throw new IllegalArgumentException(
