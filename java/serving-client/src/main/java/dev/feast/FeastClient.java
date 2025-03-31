@@ -278,7 +278,7 @@ public class FeastClient implements AutoCloseable {
   /**
    * Get online features range from Feast, without indicating project, will use `default`.
    *
-   * <p>See {@link #getOnlineFeaturesRange(List, List, List, boolean, String)}
+   * <p>See {@link #getOnlineFeaturesRange(List, List, List, int, boolean, String)}
    *
    * @param featureRefs list of string feature references to retrieve in the following format
    *     featureTable:feature, where 'featureTable' and 'feature' refer to the FeatureTable and
@@ -290,6 +290,7 @@ public class FeastClient implements AutoCloseable {
       List<String> featureRefs,
       List<Row> entities,
       List<SortKeyFilterModel> sortKeyFilters,
+      int limit,
       boolean reverseSortOrder) {
     GetOnlineFeaturesRangeRequest.Builder requestBuilder =
         GetOnlineFeaturesRangeRequest.newBuilder();
@@ -301,6 +302,8 @@ public class FeastClient implements AutoCloseable {
 
     requestBuilder.addAllSortKeyFilters(
         sortKeyFilters.stream().map(SortKeyFilterModel::toProto).collect(Collectors.toList()));
+
+    requestBuilder.setLimit(limit);
 
     requestBuilder.setReverseSortOrder(reverseSortOrder);
 
@@ -342,9 +345,10 @@ public class FeastClient implements AutoCloseable {
       List<String> featureRefs,
       List<Row> rows,
       List<SortKeyFilterModel> sortKeyFilters,
+      int limit,
       boolean reverseSortOrder,
       String project) {
-    return getOnlineFeaturesRange(featureRefs, rows, sortKeyFilters, reverseSortOrder);
+    return getOnlineFeaturesRange(featureRefs, rows, sortKeyFilters, limit, reverseSortOrder);
   }
 
   protected FeastClient(ManagedChannel channel, Optional<CallCredentials> credentials) {

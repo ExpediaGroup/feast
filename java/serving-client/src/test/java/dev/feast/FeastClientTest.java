@@ -150,6 +150,7 @@ public class FeastClientTest {
             Arrays.asList("driver:name", "driver:rating", "driver:null_value"),
             Arrays.asList(Row.create().set("driver_id", 1)),
             Arrays.asList(new SortKeyFilterModel("sort_key", 2.5f, 5.0f, true, false)),
+            10,
             false,
             "driver_project");
 
