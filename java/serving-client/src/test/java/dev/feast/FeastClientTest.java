@@ -241,6 +241,7 @@ public class FeastClientTest {
                 .setRangeEnd(Value.newBuilder().setFloatVal(5.0f).build())
                 .setStartInclusive(true)
                 .setEndInclusive(false))
+        .setLimit(10)
         .setReverseSortOrder(false)
         .build();
   }
