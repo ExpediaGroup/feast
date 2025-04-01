@@ -207,6 +207,10 @@ public class FeastClient implements AutoCloseable {
 
     List<Row> results = Lists.newArrayList();
     if (response.getResultsCount() == 0) {
+      logger.info(
+          "No results returned from Feast for getOnlineFeatures with entities: {} and features: {}",
+          entities,
+          featureRefs);
       return results;
     }
 
@@ -315,6 +319,10 @@ public class FeastClient implements AutoCloseable {
 
     List<RangeRow> results = Lists.newArrayList();
     if (response.getResultsCount() == 0) {
+      logger.info(
+          "No results returned from Feast for getOnlineFeaturesRange with entities: {} and features: {}",
+          entities,
+          featureRefs);
       return results;
     }
 
