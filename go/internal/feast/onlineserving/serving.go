@@ -589,6 +589,11 @@ func isValueTypeCompatible(value *prototypes.Value, expectedType prototypes.Valu
 		return false
 	}
 
+	switch value.Val.(type) {
+	case *prototypes.Value_NullVal:
+		return true
+	}
+
 	switch expectedType {
 	case prototypes.ValueType_INT32:
 		_, ok := value.Val.(*prototypes.Value_Int32Val)

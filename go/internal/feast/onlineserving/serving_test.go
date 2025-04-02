@@ -396,7 +396,7 @@ func TestValidateSortKeyFilters_ValidFilters(t *testing.T) {
 			SortKeyName: "price",
 			Query: &serving.SortKeyFilter_Range{
 				Range: &serving.SortKeyFilter_RangeQuery{
-					RangeStart:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 10.5}},
+					RangeStart:     &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}},
 					RangeEnd:       &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 50.0}},
 					StartInclusive: true,
 					EndInclusive:   true,
