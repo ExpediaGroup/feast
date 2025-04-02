@@ -36,6 +36,8 @@ import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.StreamObserver;
 import io.grpc.testing.GrpcCleanupRule;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -149,7 +151,10 @@ public class FeastClientTest {
         client.getOnlineFeaturesRange(
             Arrays.asList("driver:name", "driver:rating", "driver:null_value"),
             Arrays.asList(Row.create().set("driver_id", 1)),
-            Arrays.asList(new SortKeyFilterModel("sort_key", 2.5f, 5.0f, true, false)),
+            Arrays.asList(
+                new SortKeyFilterModel(
+                    "event_timestamp", LocalDateTime.ofEpochSecond(1743542014, 0, ZoneOffset.UTC)),
+                new SortKeyFilterModel("sort_key", 2.5f, 5.0f, true, false)),
             10,
             false,
             "driver_project");
@@ -234,13 +239,21 @@ public class FeastClientTest {
                 .addVal("driver:null_value")
                 .build())
         .putEntities("driver_id", ValueProto.RepeatedValue.newBuilder().addVal(intValue(1)).build())
-        .addSortKeyFilters(
-            ServingAPIProto.SortKeyFilter.newBuilder()
-                .setSortKeyName("sort_key")
-                .setRangeStart(Value.newBuilder().setFloatVal(2.5f).build())
-                .setRangeEnd(Value.newBuilder().setFloatVal(5.0f).build())
-                .setStartInclusive(true)
-                .setEndInclusive(false))
+        .addAllSortKeyFilters(
+            Arrays.asList(
+                ServingAPIProto.SortKeyFilter.newBuilder()
+                    .setSortKeyName("event_timestamp")
+                    .setEquals(Value.newBuilder().setUnixTimestampVal(1743542014).build())
+                    .build(),
+                ServingAPIProto.SortKeyFilter.newBuilder()
+                    .setSortKeyName("sort_key")
+                    .setRange(
+                        ServingAPIProto.SortKeyFilter.RangeQuery.newBuilder()
+                            .setRangeStart(Value.newBuilder().setFloatVal(2.5f).build())
+                            .setRangeEnd(Value.newBuilder().setFloatVal(5.0f).build())
+                            .setStartInclusive(true)
+                            .setEndInclusive(false))
+                    .build()))
         .setLimit(10)
         .setReverseSortOrder(false)
         .build();

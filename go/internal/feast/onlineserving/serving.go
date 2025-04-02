@@ -526,17 +526,53 @@ func ValidateSortKeyFilters(filters []*serving.SortKeyFilter, sortedViews []*Sor
 				filter.SortKeyName)
 		}
 
-		if filter.RangeStart != nil {
-			if !isValueTypeCompatible(filter.RangeStart, expectedType) {
-				return fmt.Errorf("range_start value for sort key '%s' has incompatible type: expected %s",
+		if filter.GetEquals() != nil {
+			if !isValueTypeCompatible(filter.GetEquals(), expectedType) {
+				return fmt.Errorf("equals value for sort key '%s' has incompatible type: expected %s",
 					filter.SortKeyName, valueTypeToString(expectedType))
 			}
-		}
+		} else if filter.GetRange() == nil {
+			return fmt.Errorf("sort key filter for sort key '%s' must have either equals or range_query set",
+				filter.SortKeyName)
+		} else {
+			if filter.GetRange().RangeStart != nil {
+				if !isValueTypeCompatible(filter.GetRange().RangeStart, expectedType) {
+					return fmt.Errorf("range_start value for sort key '%s' has incompatible type: expected %s",
+						filter.SortKeyName, valueTypeToString(expectedType))
+				}
+			}
 
-		if filter.RangeEnd != nil {
-			if !isValueTypeCompatible(filter.RangeEnd, expectedType) {
-				return fmt.Errorf("range_end value for sort key '%s' has incompatible type: expected %s",
-					filter.SortKeyName, valueTypeToString(expectedType))
+			if filter.GetRange().RangeEnd != nil {
+				if !isValueTypeCompatible(filter.GetRange().RangeEnd, expectedType) {
+					return fmt.Errorf("range_end value for sort key '%s' has incompatible type: expected %s",
+						filter.SortKeyName, valueTypeToString(expectedType))
+				}
+			}
+		}
+	}
+
+	return ValidateSortKeyFilterOrder(filters, sortedViews)
+}
+
+func ValidateSortKeyFilterOrder(filters []*serving.SortKeyFilter, sortedViews []*SortedFeatureViewAndRefs) error {
+	filtersByName := make(map[string]*serving.SortKeyFilter)
+	for _, filter := range filters {
+		filtersByName[filter.SortKeyName] = filter
+	}
+
+	for _, sortedView := range sortedViews {
+		if len(sortedView.View.SortKeys) > 1 {
+			orderedFilters := make([]*serving.SortKeyFilter, 0)
+
+			for _, sortKey := range sortedView.View.SortKeys {
+				orderedFilters = append(orderedFilters, filtersByName[sortKey.FieldName])
+			}
+
+			for _, filter := range orderedFilters[:len(orderedFilters)-1] {
+				if filter.GetEquals() == nil {
+					return fmt.Errorf("sort key filter for sort key '%s' must have an equality relation",
+						filter.SortKeyName)
+				}
 			}
 		}
 	}

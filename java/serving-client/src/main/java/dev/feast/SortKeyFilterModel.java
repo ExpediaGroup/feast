@@ -21,6 +21,7 @@ import feast.proto.types.ValueProto.Value;
 
 public class SortKeyFilterModel {
   private String sortKeyName;
+  private Value equals;
   private Value rangeStart;
   private Value rangeEnd;
   private boolean startInclusive;
@@ -39,13 +40,25 @@ public class SortKeyFilterModel {
     this.endInclusive = inclusiveEnd;
   }
 
+  public SortKeyFilterModel(String sortKeyName, Object equals) {
+    this.sortKeyName = sortKeyName;
+    this.equals = RequestUtil.objectToValue(equals);
+  }
+
   public SortKeyFilter toProto() {
+    if (equals != null) {
+      return SortKeyFilter.newBuilder().setSortKeyName(sortKeyName).setEquals(equals).build();
+    }
+
     return SortKeyFilter.newBuilder()
         .setSortKeyName(sortKeyName)
-        .setRangeStart(rangeStart)
-        .setRangeEnd(rangeEnd)
-        .setStartInclusive(startInclusive)
-        .setEndInclusive(endInclusive)
+        .setRange(
+            SortKeyFilter.RangeQuery.newBuilder()
+                .setRangeStart(rangeStart)
+                .setRangeEnd(rangeEnd)
+                .setStartInclusive(startInclusive)
+                .setEndInclusive(endInclusive)
+                .build())
         .build();
   }
 

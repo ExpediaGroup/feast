@@ -142,18 +142,22 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	sortKeyFilters := []*serving.SortKeyFilter{
 		{
 			SortKeyName: "event_timestamp",
-			RangeStart: &types.Value{
-				Val: &types.Value_UnixTimestampVal{
-					UnixTimestampVal: oneWeekAgo.Unix(),
+			Query: &serving.SortKeyFilter_Range{
+				Range: &serving.SortKeyFilter_RangeQuery{
+					RangeStart: &types.Value{
+						Val: &types.Value_UnixTimestampVal{
+							UnixTimestampVal: oneWeekAgo.Unix(),
+						},
+					},
+					RangeEnd: &types.Value{
+						Val: &types.Value_UnixTimestampVal{
+							UnixTimestampVal: now.Unix(),
+						},
+					},
+					StartInclusive: true,
+					EndInclusive:   true,
 				},
 			},
-			RangeEnd: &types.Value{
-				Val: &types.Value_UnixTimestampVal{
-					UnixTimestampVal: now.Unix(),
-				},
-			},
-			StartInclusive: true,
-			EndInclusive:   true,
 		},
 	}
 	sortKeyFilterModels := []*model.SortKeyFilter{
