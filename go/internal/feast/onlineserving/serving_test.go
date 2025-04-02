@@ -525,6 +525,46 @@ func TestValidateSortKeyFilters_InvalidRangeFilter(t *testing.T) {
 	assert.Contains(t, err.Error(), "sort key filter for sort key 'timestamp' must have an equality relation")
 }
 
+func TestValidateSortKeyFilters_InvalidEqualsFilter(t *testing.T) {
+	sortKey1 := createSortKey("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
+	sortKey2 := createSortKey("price", core.SortOrder_ASC, types.ValueType_DOUBLE)
+	sortKey3 := createSortKey("name", core.SortOrder_ASC, types.ValueType_STRING)
+
+	sfv1 := createSortedFeatureView("sfv1", []string{"driver"},
+		[]*core.SortKey{sortKey1, sortKey2},
+		createFeature("f1", types.ValueType_DOUBLE))
+
+	sfv2 := createSortedFeatureView("sfv2", []string{"customer"},
+		[]*core.SortKey{sortKey3},
+		createFeature("f2", types.ValueType_STRING))
+
+	sortedViews := []*SortedFeatureViewAndRefs{
+		{View: sfv1, FeatureRefs: []string{"f1"}},
+		{View: sfv2, FeatureRefs: []string{"f2"}},
+	}
+
+	invalidRangeFilter := []*serving.SortKeyFilter{
+		{
+			SortKeyName: "timestamp",
+			Query: &serving.SortKeyFilter_Equals{
+				Equals: &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}},
+			},
+		},
+		{
+			SortKeyName: "price",
+			Query: &serving.SortKeyFilter_Range{
+				Range: &serving.SortKeyFilter_RangeQuery{
+					RangeStart: &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 10.5}},
+				},
+			},
+		},
+	}
+
+	err := ValidateSortKeyFilters(invalidRangeFilter, sortedViews)
+	assert.Error(t, err, "Sort key filter equality value cannot be null")
+	assert.Contains(t, err.Error(), "equals value for sort key 'timestamp' has incompatible type: expected UNIX_TIMESTAMP")
+}
+
 func TestGroupSortedFeatureRefs(t *testing.T) {
 	sortKey1 := createSortKey("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
 	sortKey2 := createSortKey("featureF", core.SortOrder_ASC, types.ValueType_DOUBLE)

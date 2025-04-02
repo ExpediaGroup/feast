@@ -527,7 +527,7 @@ func ValidateSortKeyFilters(filters []*serving.SortKeyFilter, sortedViews []*Sor
 		}
 
 		if filter.GetEquals() != nil {
-			if !isValueTypeCompatible(filter.GetEquals(), expectedType) {
+			if !isValueTypeCompatible(filter.GetEquals(), expectedType, false) {
 				return fmt.Errorf("equals value for sort key '%s' has incompatible type: expected %s",
 					filter.SortKeyName, valueTypeToString(expectedType))
 			}
@@ -536,14 +536,14 @@ func ValidateSortKeyFilters(filters []*serving.SortKeyFilter, sortedViews []*Sor
 				filter.SortKeyName)
 		} else {
 			if filter.GetRange().RangeStart != nil {
-				if !isValueTypeCompatible(filter.GetRange().RangeStart, expectedType) {
+				if !isValueTypeCompatible(filter.GetRange().RangeStart, expectedType, true) {
 					return fmt.Errorf("range_start value for sort key '%s' has incompatible type: expected %s",
 						filter.SortKeyName, valueTypeToString(expectedType))
 				}
 			}
 
 			if filter.GetRange().RangeEnd != nil {
-				if !isValueTypeCompatible(filter.GetRange().RangeEnd, expectedType) {
+				if !isValueTypeCompatible(filter.GetRange().RangeEnd, expectedType, true) {
 					return fmt.Errorf("range_end value for sort key '%s' has incompatible type: expected %s",
 						filter.SortKeyName, valueTypeToString(expectedType))
 				}
@@ -580,45 +580,30 @@ func ValidateSortKeyFilterOrder(filters []*serving.SortKeyFilter, sortedViews []
 	return nil
 }
 
-func isValueTypeCompatible(value *prototypes.Value, expectedType prototypes.ValueType_Enum) bool {
-	if value == nil {
-		return true
-	}
-
-	if value.Val == nil {
-		return false
+func isValueTypeCompatible(value *prototypes.Value, expectedType prototypes.ValueType_Enum, canBeNull bool) bool {
+	if value == nil || value.Val == nil {
+		return canBeNull
 	}
 
 	switch value.Val.(type) {
+	case *prototypes.Value_Int32Val:
+		return expectedType == prototypes.ValueType_INT32
+	case *prototypes.Value_Int64Val:
+		return expectedType == prototypes.ValueType_INT64
+	case *prototypes.Value_FloatVal:
+		return expectedType == prototypes.ValueType_FLOAT
+	case *prototypes.Value_DoubleVal:
+		return expectedType == prototypes.ValueType_DOUBLE
+	case *prototypes.Value_StringVal:
+		return expectedType == prototypes.ValueType_STRING
+	case *prototypes.Value_BoolVal:
+		return expectedType == prototypes.ValueType_BOOL
+	case *prototypes.Value_BytesVal:
+		return expectedType == prototypes.ValueType_BYTES
+	case *prototypes.Value_UnixTimestampVal:
+		return expectedType == prototypes.ValueType_UNIX_TIMESTAMP
 	case *prototypes.Value_NullVal:
-		return true
-	}
-
-	switch expectedType {
-	case prototypes.ValueType_INT32:
-		_, ok := value.Val.(*prototypes.Value_Int32Val)
-		return ok
-	case prototypes.ValueType_INT64:
-		_, ok := value.Val.(*prototypes.Value_Int64Val)
-		return ok
-	case prototypes.ValueType_FLOAT:
-		_, ok := value.Val.(*prototypes.Value_FloatVal)
-		return ok
-	case prototypes.ValueType_DOUBLE:
-		_, ok := value.Val.(*prototypes.Value_DoubleVal)
-		return ok
-	case prototypes.ValueType_STRING:
-		_, ok := value.Val.(*prototypes.Value_StringVal)
-		return ok
-	case prototypes.ValueType_BOOL:
-		_, ok := value.Val.(*prototypes.Value_BoolVal)
-		return ok
-	case prototypes.ValueType_BYTES:
-		_, ok := value.Val.(*prototypes.Value_BytesVal)
-		return ok
-	case prototypes.ValueType_UNIX_TIMESTAMP:
-		_, ok := value.Val.(*prototypes.Value_UnixTimestampVal)
-		return ok
+		return canBeNull
 	default:
 		return false
 	}
