@@ -568,7 +568,11 @@ func ValidateSortKeyFilterOrder(filters []*serving.SortKeyFilter, sortedViews []
 				orderedFilters = append(orderedFilters, filtersByName[sortKey.FieldName])
 			}
 
-			for _, filter := range orderedFilters[:len(orderedFilters)-1] {
+			for i, filter := range orderedFilters[:len(orderedFilters)-1] {
+				if filter == nil {
+					return fmt.Errorf("sort key '%s' not found in sort key filters", sortedView.View.SortKeys[i].FieldName)
+				}
+
 				if filter.GetEquals() == nil {
 					return fmt.Errorf("sort key filter for sort key '%s' must have an equality relation",
 						filter.SortKeyName)

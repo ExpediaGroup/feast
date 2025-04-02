@@ -565,6 +565,46 @@ func TestValidateSortKeyFilters_InvalidEqualsFilter(t *testing.T) {
 	assert.Contains(t, err.Error(), "equals value for sort key 'timestamp' has incompatible type: expected UNIX_TIMESTAMP")
 }
 
+func TestValidateSortKeyFilters_MissingFilter(t *testing.T) {
+	sortKey1 := createSortKey("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
+	sortKey2 := createSortKey("price", core.SortOrder_ASC, types.ValueType_DOUBLE)
+	sortKey3 := createSortKey("name", core.SortOrder_ASC, types.ValueType_STRING)
+
+	sfv1 := createSortedFeatureView("sfv1", []string{"driver"},
+		[]*core.SortKey{sortKey1, sortKey2, sortKey3},
+		createFeature("f1", types.ValueType_DOUBLE))
+
+	sfv2 := createSortedFeatureView("sfv2", []string{"customer"},
+		[]*core.SortKey{sortKey3},
+		createFeature("f2", types.ValueType_STRING))
+
+	sortedViews := []*SortedFeatureViewAndRefs{
+		{View: sfv1, FeatureRefs: []string{"f1"}},
+		{View: sfv2, FeatureRefs: []string{"f2"}},
+	}
+
+	missingFilters := []*serving.SortKeyFilter{
+		{
+			SortKeyName: "timestamp",
+			Query: &serving.SortKeyFilter_Equals{
+				Equals: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 1640995200}},
+			},
+		},
+		{
+			SortKeyName: "name",
+			Query: &serving.SortKeyFilter_Range{
+				Range: &serving.SortKeyFilter_RangeQuery{
+					RangeStart: &types.Value{Val: &types.Value_StringVal{StringVal: "A"}},
+				},
+			},
+		},
+	}
+
+	err := ValidateSortKeyFilters(missingFilters, sortedViews)
+	assert.Error(t, err, "Must include all previous sort keys in the filter list")
+	assert.Contains(t, err.Error(), "sort key 'price' not found in sort key filters")
+}
+
 func TestGroupSortedFeatureRefs(t *testing.T) {
 	sortKey1 := createSortKey("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
 	sortKey2 := createSortKey("featureF", core.SortOrder_ASC, types.ValueType_DOUBLE)
