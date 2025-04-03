@@ -105,7 +105,7 @@ mvn package -pl sdk/java --also-make -Dmaven.test.skip=true
 
 2. Developing on Feast Java Client with Maven: 
 
-Note that the feast-datatypes library contains a symlink to the proto definitions, therefore you may need to build this folder for type hinting. 
+Note that the feast-datatypes library contains a symlink to the proto definitions, therefore you may need to build this folder to generate proto sources.
 
 Optionally add -Dgpg.skip if you want to skip signing(for local development)
 
