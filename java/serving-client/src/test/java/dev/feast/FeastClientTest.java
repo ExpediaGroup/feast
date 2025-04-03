@@ -37,7 +37,6 @@ import io.grpc.stub.StreamObserver;
 import io.grpc.testing.GrpcCleanupRule;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -152,9 +151,8 @@ public class FeastClientTest {
             Arrays.asList("driver:name", "driver:rating", "driver:null_value"),
             Arrays.asList(Row.create().set("driver_id", 1)),
             Arrays.asList(
-                new SortKeyFilterModel(
-                    "event_timestamp", LocalDateTime.ofEpochSecond(1743542014, 0, ZoneOffset.UTC)),
-                new SortKeyFilterModel("sort_key", 2.5f, 5.0f, true, false)),
+                new SortKeyFilterModel("event_timestamp", LocalDateTime.of(2025, 5, 1, 0, 0)),
+                new SortKeyFilterModel("sort_key", new RangeQueryModel(2.5f, 5.0f, true, false))),
             10,
             false,
             "driver_project");
@@ -243,7 +241,7 @@ public class FeastClientTest {
             Arrays.asList(
                 ServingAPIProto.SortKeyFilter.newBuilder()
                     .setSortKeyName("event_timestamp")
-                    .setEquals(Value.newBuilder().setUnixTimestampVal(1743542014).build())
+                    .setEquals(Value.newBuilder().setUnixTimestampVal(1746057600000L).build())
                     .build(),
                 ServingAPIProto.SortKeyFilter.newBuilder()
                     .setSortKeyName("sort_key")

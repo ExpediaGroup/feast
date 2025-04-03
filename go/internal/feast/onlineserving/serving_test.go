@@ -413,6 +413,43 @@ func TestValidateSortKeyFilters_ValidFilters(t *testing.T) {
 
 	err := ValidateSortKeyFilters(validFilters, sortedViews)
 	assert.NoError(t, err, "Valid filters should not produce an error")
+
+	sfv3 := createSortedFeatureView("sfv2", []string{"customer"},
+		[]*core.SortKey{sortKey1, sortKey3, sortKey2},
+		createFeature("f3", types.ValueType_STRING))
+
+	sortedViews = []*SortedFeatureViewAndRefs{
+		{View: sfv3, FeatureRefs: []string{"f3"}},
+	}
+
+	validFilters = []*serving.SortKeyFilter{
+		{
+			SortKeyName: "price",
+			Query: &serving.SortKeyFilter_Range{
+				Range: &serving.SortKeyFilter_RangeQuery{
+					RangeStart:     &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}},
+					RangeEnd:       &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 50.0}},
+					StartInclusive: true,
+					EndInclusive:   true,
+				},
+			},
+		},
+		{
+			SortKeyName: "timestamp",
+			Query: &serving.SortKeyFilter_Equals{
+				Equals: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 1640995200}},
+			},
+		},
+		{
+			SortKeyName: "name",
+			Query: &serving.SortKeyFilter_Equals{
+				Equals: &types.Value{Val: &types.Value_StringVal{StringVal: "John"}},
+			},
+		},
+	}
+
+	err = ValidateSortKeyFilters(validFilters, sortedViews)
+	assert.NoError(t, err, "Valid filters should not produce an error")
 }
 
 func TestValidateSortKeyFilters_NonExistentKey(t *testing.T) {
@@ -493,7 +530,7 @@ func TestValidateSortKeyFilters_InvalidRangeFilter(t *testing.T) {
 		createFeature("f1", types.ValueType_DOUBLE))
 
 	sfv2 := createSortedFeatureView("sfv2", []string{"customer"},
-		[]*core.SortKey{sortKey3},
+		[]*core.SortKey{sortKey1, sortKey2, sortKey3},
 		createFeature("f2", types.ValueType_STRING))
 
 	sortedViews := []*SortedFeatureViewAndRefs{
@@ -522,25 +559,49 @@ func TestValidateSortKeyFilters_InvalidRangeFilter(t *testing.T) {
 
 	err := ValidateSortKeyFilters(invalidRangeFilter, sortedViews)
 	assert.Error(t, err, "Only the last sort key filter may have a range query")
-	assert.Contains(t, err.Error(), "sort key filter for sort key 'timestamp' must have an equality relation")
+	assert.Contains(t, err.Error(), "sort key filter for sort key 'timestamp' must have query type equals instead of range")
+
+	invalidRangeFilter = []*serving.SortKeyFilter{
+		{
+			SortKeyName: "timestamp",
+			Query: &serving.SortKeyFilter_Equals{
+				Equals: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 1}},
+			},
+		},
+		{
+			SortKeyName: "price",
+			Query: &serving.SortKeyFilter_Range{
+				Range: &serving.SortKeyFilter_RangeQuery{
+					RangeEnd:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 10.5}},
+					EndInclusive: true,
+				},
+			},
+		},
+		{
+			SortKeyName: "name",
+			Query: &serving.SortKeyFilter_Range{
+				Range: &serving.SortKeyFilter_RangeQuery{
+					RangeStart: &types.Value{Val: &types.Value_StringVal{StringVal: "A"}},
+				},
+			},
+		},
+	}
+
+	err = ValidateSortKeyFilters(invalidRangeFilter, sortedViews)
+	assert.Error(t, err, "Sort key filter must have equality relations for all sort keys except the last one")
+	assert.Contains(t, err.Error(), "sort key filter for sort key 'price' must have query type equals instead of range")
 }
 
 func TestValidateSortKeyFilters_InvalidEqualsFilter(t *testing.T) {
 	sortKey1 := createSortKey("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
 	sortKey2 := createSortKey("price", core.SortOrder_ASC, types.ValueType_DOUBLE)
-	sortKey3 := createSortKey("name", core.SortOrder_ASC, types.ValueType_STRING)
 
 	sfv1 := createSortedFeatureView("sfv1", []string{"driver"},
 		[]*core.SortKey{sortKey1, sortKey2},
 		createFeature("f1", types.ValueType_DOUBLE))
 
-	sfv2 := createSortedFeatureView("sfv2", []string{"customer"},
-		[]*core.SortKey{sortKey3},
-		createFeature("f2", types.ValueType_STRING))
-
 	sortedViews := []*SortedFeatureViewAndRefs{
 		{View: sfv1, FeatureRefs: []string{"f1"}},
-		{View: sfv2, FeatureRefs: []string{"f2"}},
 	}
 
 	invalidRangeFilter := []*serving.SortKeyFilter{
@@ -602,7 +663,7 @@ func TestValidateSortKeyFilters_MissingFilter(t *testing.T) {
 
 	err := ValidateSortKeyFilters(missingFilters, sortedViews)
 	assert.Error(t, err, "Must include all previous sort keys in the filter list")
-	assert.Contains(t, err.Error(), "sort key 'price' not found in sort key filters")
+	assert.Contains(t, err.Error(), "specify sort key filter in request for sort key: 'price' with query type equals")
 }
 
 func TestGroupSortedFeatureRefs(t *testing.T) {

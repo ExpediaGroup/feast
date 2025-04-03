@@ -570,11 +570,11 @@ func ValidateSortKeyFilterOrder(filters []*serving.SortKeyFilter, sortedViews []
 
 			for i, filter := range orderedFilters[:len(orderedFilters)-1] {
 				if filter == nil {
-					return fmt.Errorf("sort key '%s' not found in sort key filters", sortedView.View.SortKeys[i].FieldName)
+					return fmt.Errorf("specify sort key filter in request for sort key: '%s' with query type equals", sortedView.View.SortKeys[i].FieldName)
 				}
 
 				if filter.GetEquals() == nil {
-					return fmt.Errorf("sort key filter for sort key '%s' must have an equality relation",
+					return fmt.Errorf("sort key filter for sort key '%s' must have query type equals instead of range",
 						filter.SortKeyName)
 				}
 			}

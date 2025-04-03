@@ -103,15 +103,16 @@ public class RequestUtil {
         return (Value) value;
       case "java.time.LocalDateTime":
         return Value.newBuilder()
-            .setUnixTimestampVal(((java.time.LocalDateTime) value).toEpochSecond(ZoneOffset.UTC))
+            .setUnixTimestampVal(
+                ((java.time.LocalDateTime) value).toInstant(ZoneOffset.UTC).toEpochMilli())
             .build();
       case "java.time.Instant":
         return Value.newBuilder()
-            .setUnixTimestampVal(((java.time.Instant) value).getEpochSecond())
+            .setUnixTimestampVal(((java.time.Instant) value).toEpochMilli())
             .build();
       case "java.time.OffsetDateTime":
         return Value.newBuilder()
-            .setUnixTimestampVal(((java.time.OffsetDateTime) value).toEpochSecond())
+            .setUnixTimestampVal(((java.time.OffsetDateTime) value).toInstant().toEpochMilli())
             .build();
       case "java.util.Arrays.ArrayList":
         if (((List<?>) value).isEmpty()) {

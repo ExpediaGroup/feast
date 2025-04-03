@@ -125,14 +125,13 @@ public class RequestUtilTest {
     assertEquals(
         RequestUtil.objectToValue(LocalDateTime.ofInstant(instant, ZoneId.of("UTC")))
             .getUnixTimestampVal(),
-        instant.getEpochSecond());
+        instant.toEpochMilli());
     assertEquals(
         RequestUtil.objectToValue(
                 OffsetDateTime.ofInstant(instant, ZoneId.of("America/Los_Angeles")))
             .getUnixTimestampVal(),
-        instant.getEpochSecond());
-    assertEquals(
-        RequestUtil.objectToValue(instant).getUnixTimestampVal(), instant.getEpochSecond());
+        instant.toEpochMilli());
+    assertEquals(RequestUtil.objectToValue(instant).getUnixTimestampVal(), instant.toEpochMilli());
     assertEquals(RequestUtil.objectToValue(null).getNullVal(), ValueProto.Null.NULL);
     assertEquals(
         RequestUtil.objectToValue(Arrays.asList(1, 2, 3)).getInt32ListVal().getValList(),
