@@ -6,7 +6,7 @@ import warnings
 from abc import abstractmethod
 from datetime import timedelta
 from threading import Lock
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource
@@ -30,8 +30,15 @@ logger = logging.getLogger(__name__)
 
 
 class CachingRegistry(BaseRegistry):
-    def __init__(self, project: str, cache_ttl_seconds: int, cache_mode: str):
+    def __init__(
+        self,
+        project: str,
+        cache_ttl_seconds: int,
+        cache_mode: str,
+        on_cache_refresh_failure: Optional[Callable[[Exception], None]] = None,
+    ):
         self.cache_mode = cache_mode
+        self._on_cache_refresh_failure = on_cache_refresh_failure
         self.cached_registry_proto = RegistryProto()
         self._refresh_lock = Lock()
         self.cached_registry_proto_ttl = timedelta(
@@ -505,7 +512,8 @@ class CachingRegistry(BaseRegistry):
                     if not self._stop_event.is_set():
                         self.refresh()
                 except Exception as e:
-                    logger.exception("Exception in refresh_loop: %s", e)
+                    if self._on_cache_refresh_failure:
+                        self._on_cache_refresh_failure(e)
 
         try:
             self.registry_refresh_thread = threading.Thread(
@@ -517,6 +525,7 @@ class CachingRegistry(BaseRegistry):
             )
         except Exception as e:
             logger.exception("Failed to start registry refresh thread: %s", e)
+            raise e
 
     def _exit_handler(self):
         logger.info("Exiting, setting stop event for registry cache refresh thread")
