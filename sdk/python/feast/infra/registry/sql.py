@@ -1431,6 +1431,6 @@ class SqlRegistry(CachingRegistry):
     def _exit_handler(self):
         if self._executor:
             logger.info("Shutting down SqlRegistry's ThreadPoolExecutor...")
-            self._executor.shutdown(wait=True)
+            self._executor.shutdown(wait=False, cancel_futures=True)
             logger.info("ThreadPoolExecutor shut down successfully.")
             self._executor = None
