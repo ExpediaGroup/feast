@@ -285,6 +285,12 @@ class SqlRegistry(CachingRegistry):
         self.thread_pool_executor_worker_count = (
             registry_config.thread_pool_executor_worker_count
         )
+        if self.thread_pool_executor_worker_count > 0:
+            self._executor = ThreadPoolExecutor(
+                max_workers=self.thread_pool_executor_worker_count
+            )
+        else:
+            self._executor = None
         self.purge_feast_metadata = registry_config.purge_feast_metadata
         # Sync feast_metadata to projects table
         # when purge_feast_metadata is set to True, Delete data from
@@ -983,14 +989,11 @@ class SqlRegistry(CachingRegistry):
             r.infra.CopyFrom(self.get_infra(project_name).to_proto())
 
         projects_list = self.list_projects(allow_cache=False)
-        if self.thread_pool_executor_worker_count == 0:
-            for project in projects_list:
-                process_project(project)
+        if self._executor:
+            self._executor.map(process_project, projects_list)
         else:
-            with ThreadPoolExecutor(
-                max_workers=self.thread_pool_executor_worker_count
-            ) as executor:
-                executor.map(process_project, projects_list)
+            for p in projects_list:
+                process_project(p)
 
         if last_updated_timestamps:
             r.last_updated.FromDatetime(max(last_updated_timestamps))
