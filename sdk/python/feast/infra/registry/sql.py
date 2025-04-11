@@ -991,9 +991,13 @@ class SqlRegistry(CachingRegistry):
 
         projects_list = self.list_projects(allow_cache=False)
         if self._executor:
-            logger.info(f"Thread count before executor.map: {len(threading.enumerate())}")
+            logger.info(
+                f"Thread count before executor.map: {len(threading.enumerate())}"
+            )
             self._executor.map(process_project, projects_list)
-            logger.info(f"Thread count after executor.map: {len(threading.enumerate())}")
+            logger.info(
+                f"Thread count after executor.map: {len(threading.enumerate())}"
+            )
         else:
             for p in projects_list:
                 process_project(p)
