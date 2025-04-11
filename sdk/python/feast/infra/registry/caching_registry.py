@@ -465,7 +465,7 @@ class CachingRegistry(BaseRegistry):
             self.cached_registry_proto = self.proto()
             self.cached_registry_proto_created = _utc_now()
         except Exception as e:
-            logger.error(f"Error while refreshing registry: {e}", exc_info=True)
+            logger.exception(f"Error while refreshing registry: {e}")
 
     def _refresh_cached_registry_if_necessary(self):
         if self.cache_mode == "sync":
@@ -500,10 +500,7 @@ class CachingRegistry(BaseRegistry):
                     logger.info("Registry cache expired, so refreshing")
                     self.refresh()
             except Exception as e:
-                logger.error(
-                    f"Error in _refresh_cached_registry_if_necessary: {e}",
-                    exc_info=True,
-                )
+                logger.exception(f"Error in _refresh_cached_registry_if_necessary: {e}")
             finally:
                 self._refresh_lock.release()  # Always release the lock safely
 
@@ -517,11 +514,6 @@ class CachingRegistry(BaseRegistry):
                 if self._refresh_lock.acquire(blocking=False):
                     try:
                         self.refresh()
-                    except Exception as e:
-                        logger.exception(
-                            f"Exception in registry cache refresh_loop: {e}",
-                            exc_info=True,
-                        )
                     finally:
                         self._refresh_lock.release()
                 else:
