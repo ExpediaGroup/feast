@@ -1,7 +1,6 @@
 import atexit
 import logging
 import threading
-import time
 import warnings
 from abc import abstractmethod
 from datetime import timedelta
@@ -462,12 +461,21 @@ class CachingRegistry(BaseRegistry):
         return self._list_projects(tags)
 
     def refresh(self, project: Optional[str] = None):
-        self.cached_registry_proto = self.proto()
-        self.cached_registry_proto_created = _utc_now()
+        try:
+            self.cached_registry_proto = self.proto()
+            self.cached_registry_proto_created = _utc_now()
+        except Exception as e:
+            logger.exception(f"Error while refreshing registry: {e}")
 
     def _refresh_cached_registry_if_necessary(self):
         if self.cache_mode == "sync":
-            with self._refresh_lock:
+            # Try acquiring the lock without blocking
+            if not self._refresh_lock.acquire(blocking=False):
+                logger.info(
+                    "Skipping refresh if lock is already held by another thread"
+                )
+                return
+            try:
                 if self.cached_registry_proto == RegistryProto():
                     # Avoids the need to refresh the registry when cache is not populated yet
                     # Specially during the __init__ phase
@@ -491,21 +499,29 @@ class CachingRegistry(BaseRegistry):
                 if expired:
                     logger.info("Registry cache expired, so refreshing")
                     self.refresh()
+            except Exception as e:
+                logger.exception(f"Error in _refresh_cached_registry_if_necessary: {e}")
+            finally:
+                self._refresh_lock.release()  # Always release the lock safely
 
     def _start_thread_async_refresh(self, cache_ttl_seconds):
-        self.refresh()
         if cache_ttl_seconds <= 0:
             logger.info("Registry cache refresh thread not started as TTL is 0")
             return
 
         def refresh_loop():
             while not self._stop_event.is_set():
-                try:
-                    time.sleep(cache_ttl_seconds)
-                    if not self._stop_event.is_set():
+                if self._refresh_lock.acquire(blocking=False):
+                    try:
                         self.refresh()
-                except Exception as e:
-                    logger.exception("Exception in refresh_loop: %s", e)
+                    finally:
+                        self._refresh_lock.release()
+                else:
+                    logger.debug(
+                        "Previous refresh still in progress. Skipping this cycle."
+                    )
+
+                self._stop_event.wait(cache_ttl_seconds)
 
         try:
             self.registry_refresh_thread = threading.Thread(
@@ -517,7 +533,10 @@ class CachingRegistry(BaseRegistry):
             )
         except Exception as e:
             logger.exception("Failed to start registry refresh thread: %s", e)
+            raise e
 
     def _exit_handler(self):
         logger.info("Exiting, setting stop event for registry cache refresh thread")
         self._stop_event.set()
+        if self.registry_refresh_thread:
+            self.registry_refresh_thread.join(timeout=5)
