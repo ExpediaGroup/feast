@@ -292,8 +292,6 @@ class SqlRegistry(CachingRegistry):
                 max_workers=self.thread_pool_executor_worker_count
             )
             atexit.register(self._exit_handler)
-        else:
-            self._executor = None
         self.purge_feast_metadata = registry_config.purge_feast_metadata
         # Sync feast_metadata to projects table
         # when purge_feast_metadata is set to True, Delete data from
@@ -1427,10 +1425,6 @@ class SqlRegistry(CachingRegistry):
         return project_metadata_model
 
     def _exit_handler(self):
-        """
-        Cleanly stop the ThreadPoolExecutor. Called automatically on process exit
-        via atexit, but can also be invoked manually if you want.
-        """
         if self._executor:
             logger.info("Shutting down SqlRegistry's ThreadPoolExecutor...")
             self._executor.shutdown(wait=True)
