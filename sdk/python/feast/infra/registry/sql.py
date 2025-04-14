@@ -1007,7 +1007,9 @@ class SqlRegistry(CachingRegistry):
             ) as executor:
                 logger.info("Starting timer for multi threaded self.proto()")
                 start = time.time()
-                list(executor.map(process_project, filtered_project_list)) # blocking call
+                list(
+                    executor.map(process_project, filtered_project_list)
+                )  # blocking call
                 end = time.time()
                 logger.info(
                     f"Multi threaded self.proto() using f{self.thread_pool_executor_worker_count} workers took {end - start} seconds to process {len(filtered_project_list)} projects"
