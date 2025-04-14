@@ -122,6 +122,13 @@ func (r *HttpRegistryStore) loadEntities(registry *core.Registry) error {
 	})
 }
 
+func (r *HttpRegistryStore) loadAndListEntities(registry *core.Registry) []*core.Entity {
+	if err := r.loadEntities(registry); err != nil {
+		log.Warn().Msgf("Error loading entities: %v", err)
+	}
+	return registry.Entities
+}
+
 func (r *HttpRegistryStore) loadDatasources(registry *core.Registry) error {
 	url := fmt.Sprintf("%s/projects/%s/data_sources?allow_cache=true", r.endpoint, r.project)
 	return r.loadProtobufMessages(url, func(data []byte) error {
@@ -152,6 +159,13 @@ func (r *HttpRegistryStore) loadFeatureViews(registry *core.Registry) error {
 	})
 }
 
+func (r *HttpRegistryStore) loadAndListFeatureViews(registry *core.Registry) []*core.FeatureView {
+	if err := r.loadFeatureViews(registry); err != nil {
+		log.Warn().Msgf("Error loading feature views: %v", err)
+	}
+	return registry.FeatureViews
+}
+
 func (r *HttpRegistryStore) loadSortedFeatureViews(registry *core.Registry) error {
 	url := fmt.Sprintf("%s/projects/%s/sorted_feature_views?allow_cache=true", r.endpoint, r.project)
 	return r.loadProtobufMessages(url, func(data []byte) error {
@@ -167,6 +181,13 @@ func (r *HttpRegistryStore) loadSortedFeatureViews(registry *core.Registry) erro
 	})
 }
 
+func (r *HttpRegistryStore) loadAndListSortedFeatureViews(registry *core.Registry) []*core.SortedFeatureView {
+	if err := r.loadSortedFeatureViews(registry); err != nil {
+		log.Warn().Msgf("Error loading sorted feature views: %v", err)
+	}
+	return registry.SortedFeatureViews
+}
+
 func (r *HttpRegistryStore) loadOnDemandFeatureViews(registry *core.Registry) error {
 	url := fmt.Sprintf("%s/projects/%s/on_demand_feature_views?allow_cache=true", r.endpoint, r.project)
 	return r.loadProtobufMessages(url, func(data []byte) error {
@@ -179,6 +200,13 @@ func (r *HttpRegistryStore) loadOnDemandFeatureViews(registry *core.Registry) er
 	})
 }
 
+func (r *HttpRegistryStore) loadAndListOnDemandFeatureViews(registry *core.Registry) []*core.OnDemandFeatureView {
+	if err := r.loadOnDemandFeatureViews(registry); err != nil {
+		log.Warn().Msgf("Error loading on-demand feature views: %v", err)
+	}
+	return registry.OnDemandFeatureViews
+}
+
 func (r *HttpRegistryStore) loadFeatureServices(registry *core.Registry) error {
 	url := fmt.Sprintf("%s/projects/%s/feature_services?allow_cache=true", r.endpoint, r.project)
 	return r.loadProtobufMessages(url, func(data []byte) error {
@@ -189,6 +217,40 @@ func (r *HttpRegistryStore) loadFeatureServices(registry *core.Registry) error {
 		registry.FeatureServices = append(registry.FeatureServices, feature_service_list.GetFeatureservices()...)
 		return nil
 	})
+}
+
+func (r *HttpRegistryStore) getFeatureView(registry *core.Registry, name string) (*core.FeatureView, error) {
+	url := fmt.Sprintf("%s/projects/%s/feature_views/%s?allow_cache=true", r.endpoint, r.project, name)
+	featureView := &core.FeatureView{}
+	err := r.loadProtobufMessages(url, func(data []byte) error {
+		if err := proto.Unmarshal(data, featureView); err != nil {
+			return err
+		}
+		registry.FeatureViews = append(registry.FeatureViews, featureView)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return featureView, nil
+}
+
+func (r *HttpRegistryStore) getSortedFeatureView(registry *core.Registry, name string) (*core.SortedFeatureView, error) {
+	url := fmt.Sprintf("%s/projects/%s/sorted_feature_views/%s?allow_cache=true", r.endpoint, r.project, name)
+	sortedFeatureView := &core.SortedFeatureView{}
+	err := r.loadProtobufMessages(url, func(data []byte) error {
+		if err := proto.Unmarshal(data, sortedFeatureView); err != nil {
+			return err
+		}
+		registry.SortedFeatureViews = append(registry.SortedFeatureViews, sortedFeatureView)
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return sortedFeatureView, nil
 }
 
 func (r *HttpRegistryStore) GetRegistryProto() (*core.Registry, error) {

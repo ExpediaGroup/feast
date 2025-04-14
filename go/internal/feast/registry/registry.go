@@ -196,18 +196,22 @@ func (r *Registry) loadOnDemandFeatureViews(registry *core.Registry) {
 
 func (r *Registry) ListEntities(project string) ([]*model.Entity, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if cachedEntities, ok := r.cachedEntities[project]; !ok {
-		return []*model.Entity{}, nil
-	} else {
-		entities := make([]*model.Entity, len(cachedEntities))
-		index := 0
-		for _, entityProto := range cachedEntities {
-			entities[index] = model.NewEntityFromProto(entityProto)
-			index += 1
+	cachedEntities, ok := r.cachedEntities[project]
+	r.mu.RUnlock()
+	if !ok {
+		entities := r.registryStore.(*HttpRegistryStore).loadAndListEntities(r.cachedRegistry)
+		for _, entityProto := range entities {
+			cachedEntities[entityProto.Spec.Name] = entityProto
 		}
-		return entities, nil
+		r.cachedEntities[project] = cachedEntities
 	}
+	entities := make([]*model.Entity, len(cachedEntities))
+	index := 0
+	for _, entityProto := range cachedEntities {
+		entities[index] = model.NewEntityFromProto(entityProto)
+		index += 1
+	}
+	return entities, nil
 }
 
 /*
@@ -217,18 +221,22 @@ func (r *Registry) ListEntities(project string) ([]*model.Entity, error) {
 
 func (r *Registry) ListFeatureViews(project string) ([]*model.FeatureView, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if cachedFeatureViews, ok := r.cachedFeatureViews[project]; !ok {
-		return []*model.FeatureView{}, nil
-	} else {
-		featureViews := make([]*model.FeatureView, len(cachedFeatureViews))
-		index := 0
-		for _, featureViewProto := range cachedFeatureViews {
-			featureViews[index] = model.NewFeatureViewFromProto(featureViewProto)
-			index += 1
+	cachedFeatureViews, ok := r.cachedFeatureViews[project]
+	r.mu.RUnlock()
+	if !ok {
+		featureViews := r.registryStore.(*HttpRegistryStore).loadAndListFeatureViews(r.cachedRegistry)
+		for _, featureViewProto := range featureViews {
+			cachedFeatureViews[featureViewProto.Spec.Name] = featureViewProto
 		}
-		return featureViews, nil
+		r.cachedFeatureViews[project] = cachedFeatureViews
 	}
+	featureViews := make([]*model.FeatureView, len(cachedFeatureViews))
+	index := 0
+	for _, featureViewProto := range cachedFeatureViews {
+		featureViews[index] = model.NewFeatureViewFromProto(featureViewProto)
+		index += 1
+	}
+	return featureViews, nil
 }
 
 /*
@@ -238,18 +246,22 @@ func (r *Registry) ListFeatureViews(project string) ([]*model.FeatureView, error
 
 func (r *Registry) ListSortedFeatureViews(project string) ([]*model.SortedFeatureView, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if cachedSortedFeatureViews, ok := r.cachedSortedFeatureViews[project]; !ok {
-		return []*model.SortedFeatureView{}, nil
-	} else {
-		sortedFeatureViews := make([]*model.SortedFeatureView, len(cachedSortedFeatureViews))
-		index := 0
-		for _, sortedFeatureViewProto := range cachedSortedFeatureViews {
-			sortedFeatureViews[index] = model.NewSortedFeatureViewFromProto(sortedFeatureViewProto)
-			index += 1
+	cachedSortedFeatureViews, ok := r.cachedSortedFeatureViews[project]
+	r.mu.RUnlock()
+	if !ok {
+		sortedFeatureViews := r.registryStore.(*HttpRegistryStore).loadAndListSortedFeatureViews(r.cachedRegistry)
+		for _, sortedFeatureViewProto := range sortedFeatureViews {
+			cachedSortedFeatureViews[sortedFeatureViewProto.Spec.Name] = sortedFeatureViewProto
 		}
-		return sortedFeatureViews, nil
+		r.cachedSortedFeatureViews[project] = cachedSortedFeatureViews
 	}
+	sortedFeatureViews := make([]*model.SortedFeatureView, len(cachedSortedFeatureViews))
+	index := 0
+	for _, sortedFeatureViewProto := range cachedSortedFeatureViews {
+		sortedFeatureViews[index] = model.NewSortedFeatureViewFromProto(sortedFeatureViewProto)
+		index += 1
+	}
+	return sortedFeatureViews, nil
 }
 
 /*
@@ -301,18 +313,22 @@ func (r *Registry) ListFeatureServices(project string) ([]*model.FeatureService,
 
 func (r *Registry) ListOnDemandFeatureViews(project string) ([]*model.OnDemandFeatureView, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if cachedOnDemandFeatureViews, ok := r.cachedOnDemandFeatureViews[project]; !ok {
-		return []*model.OnDemandFeatureView{}, nil
-	} else {
-		onDemandFeatureViews := make([]*model.OnDemandFeatureView, len(cachedOnDemandFeatureViews))
-		index := 0
-		for _, onDemandFeatureViewProto := range cachedOnDemandFeatureViews {
-			onDemandFeatureViews[index] = model.NewOnDemandFeatureViewFromProto(onDemandFeatureViewProto)
-			index += 1
+	cachedOnDemandFeatureViews, ok := r.cachedOnDemandFeatureViews[project]
+	r.mu.RUnlock()
+	if !ok {
+		onDemandFeatureViews := r.registryStore.(*HttpRegistryStore).loadAndListOnDemandFeatureViews(r.cachedRegistry)
+		for _, onDemandFeatureViewProto := range onDemandFeatureViews {
+			cachedOnDemandFeatureViews[onDemandFeatureViewProto.Spec.Name] = onDemandFeatureViewProto
 		}
-		return onDemandFeatureViews, nil
+		r.cachedOnDemandFeatureViews[project] = cachedOnDemandFeatureViews
 	}
+	onDemandFeatureViews := make([]*model.OnDemandFeatureView, len(cachedOnDemandFeatureViews))
+	index := 0
+	for _, onDemandFeatureViewProto := range cachedOnDemandFeatureViews {
+		onDemandFeatureViews[index] = model.NewOnDemandFeatureViewFromProto(onDemandFeatureViewProto)
+		index += 1
+	}
+	return onDemandFeatureViews, nil
 }
 
 func (r *Registry) GetEntity(project, entityName string) (*model.Entity, error) {
@@ -331,30 +347,50 @@ func (r *Registry) GetEntity(project, entityName string) (*model.Entity, error) 
 
 func (r *Registry) GetFeatureView(project, featureViewName string) (*model.FeatureView, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if cachedFeatureViews, ok := r.cachedFeatureViews[project]; !ok {
-		return nil, fmt.Errorf("no cached feature views found for project %s", project)
-	} else {
-		if featureViewProto, ok := cachedFeatureViews[featureViewName]; !ok {
-			return nil, fmt.Errorf("no cached feature view %s found for project %s", featureViewName, project)
-		} else {
-			return model.NewFeatureViewFromProto(featureViewProto), nil
-		}
+	cachedFeatureViews, ok := r.cachedFeatureViews[project]
+	r.mu.RUnlock()
+	if !ok {
+		return r.GetFeatureViewFromRegistry(featureViewName, project)
 	}
+
+	featureViewProto, ok := cachedFeatureViews[featureViewName]
+	if !ok {
+		return r.GetFeatureViewFromRegistry(featureViewName, project)
+	}
+	return model.NewFeatureViewFromProto(featureViewProto), nil
+}
+
+func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project string) (*model.FeatureView, error) {
+	featureViewProto, err := r.registryStore.(*HttpRegistryStore).getFeatureView(r.cachedRegistry, featureViewName)
+	if err != nil {
+		return nil, fmt.Errorf("no feature view %s found in project %s", featureViewName, project)
+	}
+	r.cachedFeatureViews[project][featureViewName] = featureViewProto
+	return model.NewFeatureViewFromProto(featureViewProto), nil
 }
 
 func (r *Registry) GetSortedFeatureView(project, sortedFeatureViewName string) (*model.SortedFeatureView, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if cachedSortedFeatureViews, ok := r.cachedSortedFeatureViews[project]; !ok {
-		return nil, fmt.Errorf("no cached sorted feature views found for project %s", project)
-	} else {
-		if sortedFeatureViewProto, ok := cachedSortedFeatureViews[sortedFeatureViewName]; !ok {
-			return nil, fmt.Errorf("no cached sorted feature view %s found for project %s", sortedFeatureViewName, project)
-		} else {
-			return model.NewSortedFeatureViewFromProto(sortedFeatureViewProto), nil
-		}
+	cachedSortedFeatureViews, ok := r.cachedSortedFeatureViews[project]
+	r.mu.RUnlock()
+	if !ok {
+		return r.GetSortedFeatureViewFromRegistry(sortedFeatureViewName, project)
 	}
+
+	sortedFeatureViewProto, protoOk := cachedSortedFeatureViews[sortedFeatureViewName]
+	if !protoOk {
+		return r.GetSortedFeatureViewFromRegistry(sortedFeatureViewName, project)
+	}
+	return model.NewSortedFeatureViewFromProto(sortedFeatureViewProto), nil
+}
+
+func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string, project string) (*model.SortedFeatureView, error) {
+	sortedFeatureViewProto, err := r.registryStore.(*HttpRegistryStore).getSortedFeatureView(r.cachedRegistry, sortedFeatureViewName)
+	if err != nil {
+		return nil, fmt.Errorf("no sorted feature view %s found in project %s", sortedFeatureViewName, project)
+	}
+	r.cachedSortedFeatureViews[project][sortedFeatureViewName] = sortedFeatureViewProto
+	return model.NewSortedFeatureViewFromProto(sortedFeatureViewProto), nil
 }
 
 func (r *Registry) GetStreamFeatureView(project, streamFeatureViewName string) (*model.FeatureView, error) {
