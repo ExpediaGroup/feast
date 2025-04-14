@@ -1,4 +1,6 @@
+import atexit
 import logging
+import threading
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -288,6 +290,11 @@ class SqlRegistry(CachingRegistry):
         self.thread_pool_executor_worker_count = (
             registry_config.thread_pool_executor_worker_count
         )
+        if self.thread_pool_executor_worker_count > 0:
+            self._executor = ThreadPoolExecutor(
+                max_workers=self.thread_pool_executor_worker_count
+            )
+            atexit.register(self._exit_handler)
         self.purge_feast_metadata = registry_config.purge_feast_metadata
         # Sync feast_metadata to projects table
         # when purge_feast_metadata is set to True, Delete data from
@@ -989,14 +996,17 @@ class SqlRegistry(CachingRegistry):
         projects_list = self.list_projects(allow_cache=False)
         filtered_project_list = [p for p in projects_list if p.name not in self.cache_exempt_projects]
 
-        if self.thread_pool_executor_worker_count == 0:
-            for project in filtered_project_list:
-                process_project(project)
+        if self._executor:
+            logger.info(
+                f"Thread count before executor.map: {len(threading.enumerate())}"
+            )
+            self._executor.map(process_project, filtered_project_list)
+            logger.info(
+                f"Thread count after executor.map: {len(threading.enumerate())}"
+            )
         else:
-            with ThreadPoolExecutor(
-                max_workers=self.thread_pool_executor_worker_count
-            ) as executor:
-                executor.map(process_project, filtered_project_list)
+            for p in filtered_project_list:
+                process_project(p)
 
         if last_updated_timestamps:
             r.last_updated.FromDatetime(max(last_updated_timestamps))
@@ -1423,3 +1433,10 @@ class SqlRegistry(CachingRegistry):
                             datetime.utcfromtimestamp(int(metadata_value))
                         )
         return project_metadata_model
+
+    def _exit_handler(self):
+        if self._executor:
+            logger.info("Shutting down SqlRegistry's ThreadPoolExecutor...")
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            logger.info("ThreadPoolExecutor shut down successfully.")
+            self._executor = None
