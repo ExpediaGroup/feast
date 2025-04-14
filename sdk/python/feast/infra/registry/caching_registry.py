@@ -460,8 +460,9 @@ class CachingRegistry(BaseRegistry):
         return self._list_projects(tags)
 
     def refresh(self, project: Optional[str] = None):
-        self.cached_registry_proto = self.proto()
-        self.cached_registry_proto_created = _utc_now()
+        with self._refresh_lock:
+            self.cached_registry_proto = self.proto()
+            self.cached_registry_proto_created = _utc_now()
 
     def _refresh_cached_registry_if_necessary(self):
         if self.cache_mode == "sync":
