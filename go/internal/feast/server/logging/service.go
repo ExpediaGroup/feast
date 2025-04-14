@@ -1,6 +1,7 @@
 package logging
 
 import (
+	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"sync"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 )
 
 type FeatureStore interface {
-	GetFcosMap() (map[string]*model.Entity, map[string]*model.FeatureView, map[string]*model.SortedFeatureView, map[string]*model.OnDemandFeatureView, error)
+	GetFcosMap(featureServiceName string) ([]string, []string, []string, map[string]prototypes.ValueType_Enum, map[string]prototypes.ValueType_Enum, map[string]prototypes.ValueType_Enum, error)
 	GetFeatureService(name string) (*model.FeatureService, error)
 }
 
