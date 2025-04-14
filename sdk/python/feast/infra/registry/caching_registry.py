@@ -30,7 +30,13 @@ logger = logging.getLogger(__name__)
 
 
 class CachingRegistry(BaseRegistry):
-    def __init__(self, project: str, cache_ttl_seconds: int, cache_mode: str, exempt_projects: Optional[List[str]] = None):
+    def __init__(
+        self,
+        project: str,
+        cache_ttl_seconds: int,
+        cache_mode: str,
+        exempt_projects: Optional[List[str]] = None,
+    ):
         self.cache_mode = cache_mode
         self.cached_registry_proto = RegistryProto()
         self._refresh_lock = Lock()

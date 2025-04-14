@@ -994,7 +994,9 @@ class SqlRegistry(CachingRegistry):
             r.infra.CopyFrom(self.get_infra(project_name).to_proto())
 
         projects_list = self.list_projects(allow_cache=False)
-        filtered_project_list = [p for p in projects_list if p.name not in self.cache_exempt_projects]
+        filtered_project_list = [
+            p for p in projects_list if p.name not in self.cache_exempt_projects
+        ]
 
         if self._executor:
             logger.info(
