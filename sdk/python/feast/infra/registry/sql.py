@@ -1002,18 +1002,18 @@ class SqlRegistry(CachingRegistry):
                 f"Single threaded self.proto() took {end - start} seconds to process {len(filtered_project_list)} projects"
             )
         else:
+            logger.info("Starting timer for multi threaded self.proto()")
+            start = time.time()
+
             with ThreadPoolExecutor(
                 max_workers=self.thread_pool_executor_worker_count
             ) as executor:
-                logger.info("Starting timer for multi threaded self.proto()")
-                start = time.time()
-                list(
-                    executor.map(process_project, filtered_project_list)
-                )  # blocking call
-                end = time.time()
-                logger.info(
-                    f"Multi threaded self.proto() using f{self.thread_pool_executor_worker_count} workers took {end - start} seconds to process {len(filtered_project_list)} projects"
-                )
+                list(executor.map(process_project, filtered_project_list))
+
+            end = time.time()
+            logger.info(
+                f"Multi threaded self.proto() took {end - start} seconds to process {len(filtered_project_list)} projects"
+            )
 
         if last_updated_timestamps:
             r.last_updated.FromDatetime(max(last_updated_timestamps))
