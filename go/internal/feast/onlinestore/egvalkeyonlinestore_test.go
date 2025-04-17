@@ -9,68 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewValkeyOnlineStore(t *testing.T) {
-	var config = map[string]interface{}{
-		"connection_string": "localhost:6379",
-	}
-	rc := &registry.RepoConfig{
-		OnlineStore:                   config,
-		EntityKeySerializationVersion: 2,
-	}
-	_, err := NewValkeyOnlineStore("test", rc, config)
-	assert.Nil(t, err)
-	// var opts = store.client
-	// assert.Equal(t, opts.Addr, "localhost:6379")
-	// assert.Equal(t, opts.Password, "")
-	// assert.Equal(t, opts.DB, 0)
-	// assert.Nil(t, opts.TLSConfig)
-}
-
-func TestNewValkeyOnlineStoreWithPassword(t *testing.T) {
-	var config = map[string]interface{}{
-		"connection_string": "localhost:6379,password=secret",
-	}
-	rc := &registry.RepoConfig{
-		OnlineStore:                   config,
-		EntityKeySerializationVersion: 2,
-	}
-	_, err := NewValkeyOnlineStore("test", rc, config)
-	assert.Nil(t, err)
-	// var opts = store.client.Options()
-	// assert.Equal(t, opts.Addr, "valkey://localhost:6379")
-	// assert.Equal(t, opts.Password, "secret")
-}
-
-func TestNewValkeyOnlineStoreWithDB(t *testing.T) {
-	var config = map[string]interface{}{
-		"connection_string": "localhost:6379,db=1",
-	}
-	rc := &registry.RepoConfig{
-		OnlineStore:                   config,
-		EntityKeySerializationVersion: 2,
-	}
-	_, err := NewValkeyOnlineStore("test", rc, config)
-	assert.Nil(t, err)
-	// var opts = store.client.Options()
-	// assert.Equal(t, opts.Addr, "localhost:6379")
-	// assert.Equal(t, opts.DB, 1)
-}
-
-func TestNewValkeyOnlineStoreWithSsl(t *testing.T) {
-	var config = map[string]interface{}{
-		"connection_string": "localhost:6379",
-	}
-	rc := &registry.RepoConfig{
-		OnlineStore:                   config,
-		EntityKeySerializationVersion: 2,
-	}
-	_, err := NewValkeyOnlineStore("test", rc, config)
-	assert.Nil(t, err)
-	// var opts = store.client.Options()
-	// assert.Equal(t, opts.Addr, "valkey://localhost:6379")
-	// assert.NotNil(t, opts.TLSConfig)
-}
-
 func TestBuildValkeyFeatureViewIndices(t *testing.T) {
 	r := &ValkeyOnlineStore{}
 

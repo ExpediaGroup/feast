@@ -116,6 +116,7 @@ func NewValkeyOnlineStore(project string, config *registry.RepoConfig, onlineSto
 		Password:    password,
 		SelectDB:    db,
 		TLSConfig:   tlsConfig,
+		ReplicaOnly: true,
 	})
 	if err != nil {
 		return nil, err
