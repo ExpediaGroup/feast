@@ -692,10 +692,13 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 
 func (c *CassandraOnlineStore) rangeFilterToCQL(filter *model.SortKeyFilter) (string, []interface{}) {
 	rangeParams := make([]interface{}, 0)
-
 	equality := ""
 	if filter.Equals != nil {
 		equality = fmt.Sprintf(`"%s" = ?`, filter.SortKeyName)
+		// Convert timestamp if needed
+		if unixTimestamp, ok := filter.Equals.(int64); ok {
+			filter.Equals = time.Unix(unixTimestamp, 0)
+		}
 		rangeParams = append(rangeParams, filter.Equals)
 		return equality, rangeParams
 	}
@@ -707,14 +710,23 @@ func (c *CassandraOnlineStore) rangeFilterToCQL(filter *model.SortKeyFilter) (st
 		} else {
 			rangeStart = fmt.Sprintf(`"%s" > ?`, filter.SortKeyName)
 		}
+		// Convert timestamp if needed
+		if unixTimestamp, ok := filter.RangeStart.(int64); ok {
+			filter.RangeStart = time.Unix(unixTimestamp, 0)
+		}
 		rangeParams = append(rangeParams, filter.RangeStart)
 	}
+
 	rangeEnd := ""
 	if filter.RangeEnd != nil {
 		if filter.EndInclusive {
 			rangeEnd = fmt.Sprintf(`"%s" <= ?`, filter.SortKeyName)
 		} else {
 			rangeEnd = fmt.Sprintf(`"%s" < ?`, filter.SortKeyName)
+		}
+		// Convert timestamp if needed
+		if unixTimestamp, ok := filter.RangeEnd.(int64); ok {
+			filter.RangeEnd = time.Unix(unixTimestamp, 0)
 		}
 		rangeParams = append(rangeParams, filter.RangeEnd)
 	}
@@ -813,6 +825,8 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, entityKeys [
 			queryParams := append([]interface{}{serEntityKey}, rangeParams...)
 			iter := c.session.Query(cqlStatement, queryParams...).WithContext(ctx).Iter()
 			rowIdx := serializedEntityKeyToIndex[serializedEntityKey.(string)]
+
+			log.Debug().Msgf("CQL Query: %s, Params: %v", cqlStatement, queryParams)
 
 			// fill the row with nulls if not found
 			if iter.NumRows() == 0 {
