@@ -198,7 +198,7 @@ func (r *Registry) ListEntities(project string) ([]*model.Entity, error) {
 	r.mu.RLock()
 	cachedEntities, ok := r.cachedEntities[project]
 	r.mu.RUnlock()
-	if !ok {
+	if !ok && r.registryStore.HasFallback() {
 		entities := r.registryStore.(*HttpRegistryStore).loadAndListEntities(r.cachedRegistry)
 		for _, entityProto := range entities {
 			cachedEntities[entityProto.Spec.Name] = entityProto
@@ -223,7 +223,7 @@ func (r *Registry) ListFeatureViews(project string) ([]*model.FeatureView, error
 	r.mu.RLock()
 	cachedFeatureViews, ok := r.cachedFeatureViews[project]
 	r.mu.RUnlock()
-	if !ok {
+	if !ok && r.registryStore.HasFallback() {
 		featureViews := r.registryStore.(*HttpRegistryStore).loadAndListFeatureViews(r.cachedRegistry)
 		for _, featureViewProto := range featureViews {
 			cachedFeatureViews[featureViewProto.Spec.Name] = featureViewProto
@@ -248,7 +248,7 @@ func (r *Registry) ListSortedFeatureViews(project string) ([]*model.SortedFeatur
 	r.mu.RLock()
 	cachedSortedFeatureViews, ok := r.cachedSortedFeatureViews[project]
 	r.mu.RUnlock()
-	if !ok {
+	if !ok && r.registryStore.HasFallback() {
 		sortedFeatureViews := r.registryStore.(*HttpRegistryStore).loadAndListSortedFeatureViews(r.cachedRegistry)
 		for _, sortedFeatureViewProto := range sortedFeatureViews {
 			cachedSortedFeatureViews[sortedFeatureViewProto.Spec.Name] = sortedFeatureViewProto
@@ -315,7 +315,7 @@ func (r *Registry) ListOnDemandFeatureViews(project string) ([]*model.OnDemandFe
 	r.mu.RLock()
 	cachedOnDemandFeatureViews, ok := r.cachedOnDemandFeatureViews[project]
 	r.mu.RUnlock()
-	if !ok {
+	if !ok && r.registryStore.HasFallback() {
 		onDemandFeatureViews := r.registryStore.(*HttpRegistryStore).loadAndListOnDemandFeatureViews(r.cachedRegistry)
 		for _, onDemandFeatureViewProto := range onDemandFeatureViews {
 			cachedOnDemandFeatureViews[onDemandFeatureViewProto.Spec.Name] = onDemandFeatureViewProto
@@ -349,13 +349,15 @@ func (r *Registry) GetFeatureView(project, featureViewName string) (*model.Featu
 	r.mu.RLock()
 	cachedFeatureViews, ok := r.cachedFeatureViews[project]
 	r.mu.RUnlock()
-	if !ok {
+	if !ok && r.registryStore.HasFallback() {
 		return r.GetFeatureViewFromRegistry(featureViewName, project)
 	}
 
 	featureViewProto, ok := cachedFeatureViews[featureViewName]
-	if !ok {
+	if !ok && r.registryStore.HasFallback() {
 		return r.GetFeatureViewFromRegistry(featureViewName, project)
+	} else if !ok {
+		return nil, fmt.Errorf("no cached feature view %s found for project %s", featureViewName, project)
 	}
 	return model.NewFeatureViewFromProto(featureViewProto), nil
 }
@@ -373,13 +375,15 @@ func (r *Registry) GetSortedFeatureView(project, sortedFeatureViewName string) (
 	r.mu.RLock()
 	cachedSortedFeatureViews, ok := r.cachedSortedFeatureViews[project]
 	r.mu.RUnlock()
-	if !ok {
+	if !ok && r.registryStore.HasFallback() {
 		return r.GetSortedFeatureViewFromRegistry(sortedFeatureViewName, project)
 	}
 
 	sortedFeatureViewProto, protoOk := cachedSortedFeatureViews[sortedFeatureViewName]
-	if !protoOk {
+	if !protoOk && r.registryStore.HasFallback() {
 		return r.GetSortedFeatureViewFromRegistry(sortedFeatureViewName, project)
+	} else if !protoOk {
+		return nil, fmt.Errorf("no cached sorted feature view %s found for project %s", sortedFeatureViewName, project)
 	}
 	return model.NewSortedFeatureViewFromProto(sortedFeatureViewProto), nil
 }

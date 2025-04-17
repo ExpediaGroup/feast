@@ -291,3 +291,7 @@ func (r *HttpRegistryStore) UpdateRegistryProto(rp *core.Registry) error {
 func (r *HttpRegistryStore) Teardown() error {
 	return &NotImplementedError{FunctionName: "Teardown"}
 }
+
+func (r *HttpRegistryStore) HasFallback() bool {
+	return true
+}
