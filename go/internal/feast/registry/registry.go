@@ -351,6 +351,8 @@ func (r *Registry) GetFeatureView(project, featureViewName string) (*model.Featu
 	r.mu.RUnlock()
 	if !ok && r.registryStore.HasFallback() {
 		return r.GetFeatureViewFromRegistry(featureViewName, project)
+	} else if !ok {
+		return nil, fmt.Errorf("no cached feature views found for project %s", project)
 	}
 
 	featureViewProto, ok := cachedFeatureViews[featureViewName]
@@ -377,6 +379,8 @@ func (r *Registry) GetSortedFeatureView(project, sortedFeatureViewName string) (
 	r.mu.RUnlock()
 	if !ok && r.registryStore.HasFallback() {
 		return r.GetSortedFeatureViewFromRegistry(sortedFeatureViewName, project)
+	} else if !ok {
+		return nil, fmt.Errorf("no cached sorted feature views found for project %s", project)
 	}
 
 	sortedFeatureViewProto, protoOk := cachedSortedFeatureViews[sortedFeatureViewName]
