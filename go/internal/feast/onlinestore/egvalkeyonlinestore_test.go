@@ -1,6 +1,7 @@
 package onlinestore
 
 import (
+	"os"
 	"testing"
 
 	"github.com/feast-dev/feast/go/internal/feast/registry"
@@ -125,5 +126,179 @@ func TestBuildValkeyKeys(t *testing.T) {
 		entityKeys := []*types.EntityKey{&error_entity_key1}
 		_, err := r.buildValkeyKeys(entityKeys)
 		assert.NotNil(t, err)
+	})
+}
+func TestParseConnectionString(t *testing.T) {
+	t.Run("Default connection string", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{}
+		clientOption, err := parseConnectionString(onlineStoreConfig)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"localhost:6379"}, clientOption.InitAddress)
+		assert.True(t, clientOption.ReplicaOnly)
+	})
+
+	t.Run("Valid connection string with multiple addresses", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"connection_string": "127.0.0.1:6379,192.168.1.1:6380",
+		}
+		clientOption, err := parseConnectionString(onlineStoreConfig)
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"127.0.0.1:6379", "192.168.1.1:6380"}, clientOption.InitAddress)
+	})
+
+	t.Run("Connection string with password", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"connection_string": "127.0.0.1:6379,password=secret",
+		}
+		clientOption, err := parseConnectionString(onlineStoreConfig)
+		assert.NoError(t, err)
+		assert.Equal(t, "secret", clientOption.Password)
+	})
+
+	t.Run("Connection string with SSL enabled", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"connection_string": "127.0.0.1:6379,ssl=true",
+		}
+		clientOption, err := parseConnectionString(onlineStoreConfig)
+		assert.NoError(t, err)
+		assert.NotNil(t, clientOption.TLSConfig)
+	})
+
+	t.Run("Connection string with database selection", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"connection_string": "127.0.0.1:6379,db=1",
+		}
+		clientOption, err := parseConnectionString(onlineStoreConfig)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, clientOption.SelectDB)
+	})
+
+	t.Run("Invalid connection string format", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"connection_string": "127.0.0.1:6379,invalid_option",
+		}
+		_, err := parseConnectionString(onlineStoreConfig)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unable to parse part of connection_string")
+	})
+
+	t.Run("Unrecognized option in connection string", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"connection_string": "127.0.0.1:6379,unknown=option",
+		}
+		_, err := parseConnectionString(onlineStoreConfig)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "unrecognized option in connection_string")
+	})
+
+	t.Run("Invalid SSL value", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"connection_string": "127.0.0.1:6379,ssl=invalid",
+		}
+		_, err := parseConnectionString(onlineStoreConfig)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid syntax")
+	})
+
+	t.Run("Invalid database value", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"connection_string": "127.0.0.1:6379,db=invalid",
+		}
+		_, err := parseConnectionString(onlineStoreConfig)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid syntax")
+	})
+
+	t.Run("Invalid connection_string type", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"connection_string": 12345,
+		}
+		_, err := parseConnectionString(onlineStoreConfig)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to convert connection_string to string")
+	})
+}
+func TestGetValkeyType(t *testing.T) {
+	t.Run("Default valkey type", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{}
+		valkeyType, err := getValkeyType(onlineStoreConfig)
+		assert.NoError(t, err)
+		assert.Equal(t, valkeyNode, valkeyType)
+	})
+
+	t.Run("Valid valkey type: valkey", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"valkey_type": "valkey",
+		}
+		valkeyType, err := getValkeyType(onlineStoreConfig)
+		assert.NoError(t, err)
+		assert.Equal(t, valkeyNode, valkeyType)
+	})
+
+	t.Run("Valid valkey type: valkey_cluster", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"valkey_type": "valkey_cluster",
+		}
+		valkeyType, err := getValkeyType(onlineStoreConfig)
+		assert.NoError(t, err)
+		assert.Equal(t, valkeyCluster, valkeyType)
+	})
+
+	t.Run("Invalid valkey type string", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"valkey_type": "invalid_type",
+		}
+		_, err := getValkeyType(onlineStoreConfig)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to convert valkey_type to enum")
+	})
+
+	t.Run("Invalid valkey type format", func(t *testing.T) {
+		onlineStoreConfig := map[string]interface{}{
+			"valkey_type": 12345,
+		}
+		_, err := getValkeyType(onlineStoreConfig)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to convert valkey_type to string")
+	})
+}
+func TestGetValkeyTraceServiceName(t *testing.T) {
+	t.Run("Default service name when DD_SERVICE is not set", func(t *testing.T) {
+		// Clear the DD_SERVICE environment variable
+		os.Unsetenv("DD_SERVICE")
+
+		// Call the function
+		serviceName := getValkeyTraceServiceName()
+
+		// Assert the default service name
+		assert.Equal(t, "valkey.client", serviceName)
+	})
+
+	t.Run("Custom service name when DD_SERVICE is set", func(t *testing.T) {
+		// Set the DD_SERVICE environment variable
+		os.Setenv("DD_SERVICE", "custom-service")
+
+		// Call the function
+		serviceName := getValkeyTraceServiceName()
+
+		// Assert the custom service name
+		assert.Equal(t, "custom-service-valkey", serviceName)
+
+		// Clean up the environment variable
+		os.Unsetenv("DD_SERVICE")
+	})
+
+	t.Run("Empty DD_SERVICE results in default service name", func(t *testing.T) {
+		// Set the DD_SERVICE environment variable to an empty string
+		os.Setenv("DD_SERVICE", "")
+
+		// Call the function
+		serviceName := getValkeyTraceServiceName()
+
+		// Assert the default service name
+		assert.Equal(t, "valkey.client", serviceName)
+
+		// Clean up the environment variable
+		os.Unsetenv("DD_SERVICE")
 	})
 }
