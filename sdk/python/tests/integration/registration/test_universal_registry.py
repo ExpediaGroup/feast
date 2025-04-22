@@ -40,6 +40,10 @@ from feast.infra.registry.base_registry import BaseRegistry
 from feast.infra.registry.registry import Registry
 from feast.infra.registry.remote import RemoteRegistry, RemoteRegistryConfig
 from feast.infra.registry.sql import SqlRegistry, SqlRegistryConfig
+from feast.infra.registry.sql_fallback import (
+    SqlFallbackRegistry,
+    SqlFallbackRegistryConfig,
+)
 from feast.on_demand_feature_view import on_demand_feature_view
 from feast.permissions.action import AuthzedAction
 from feast.permissions.permission import Permission
@@ -277,6 +281,28 @@ def sqlite_registry():
 
     yield SqlRegistry(registry_config, "project", None)
 
+@pytest.fixture(scope="function")
+def mysql_fallback_registry(mysql_server):
+    db_name = "".join(random.choices(string.ascii_lowercase, k=10))
+
+    _create_mysql_database(mysql_server, db_name)
+
+    connection_url = (
+            "/".join(mysql_server.get_connection_url().split("/")[:-1]) + f"/{db_name}"
+    )
+
+    registry_config = SqlFallbackRegistryConfig(
+        registry_type="sql-fallback",
+        path=connection_url,
+        cache_ttl_seconds=2,
+        cache_mode="sync",
+        sqlalchemy_config_kwargs={"echo": False, "pool_pre_ping": True},
+        thread_pool_executor_worker_count=0,
+        purge_feast_metadata=False,
+    )
+
+    yield SqlFallbackRegistry(registry_config, "project", None)
+
 
 class GrpcMockChannel:
     def __init__(self, service, servicer):
@@ -345,6 +371,10 @@ else:
         ),
         lazy_fixture("sqlite_registry"),
         lazy_fixture("mock_remote_registry"),
+        pytest.param(
+            lazy_fixture("mysql_fallback_registry"),
+            marks=pytest.mark.xdist_group(name="mysql_fallback_registry"),
+        ),
     ]
 
 sql_fixtures = [
@@ -356,6 +386,10 @@ sql_fixtures = [
         marks=pytest.mark.xdist_group(name="mysql_registry"),
     ),
     lazy_fixture("sqlite_registry"),
+    pytest.param(
+        lazy_fixture("mysql_fallback_registry"),
+        marks=pytest.mark.xdist_group(name="mysql_fallback_registry"),
+    ),
 ]
 
 async_sql_fixtures = [
