@@ -181,7 +181,7 @@ func TestLoadEntities(t *testing.T) {
 	registry := &core.Registry{}
 
 	// Call the method under test
-	err := store.loadEntities(registry)
+	err := store.loadEntities(registry, true)
 
 	// Assert that there was no error and that the registry now contains the entity
 	assert.Nil(t, err)
@@ -219,7 +219,7 @@ func TestLoadDatasources(t *testing.T) {
 	registry := &core.Registry{}
 
 	// Call the method under test
-	err := store.loadDatasources(registry)
+	err := store.loadDatasources(registry, true)
 
 	// Assert that there was no error and that the registry now contains the datasource
 	assert.Nil(t, err)
@@ -257,7 +257,7 @@ func TestLoadFeatureViews(t *testing.T) {
 	registry := &core.Registry{}
 
 	// Call the method under test
-	err := store.loadFeatureViews(registry)
+	err := store.loadFeatureViews(registry, true)
 
 	// Assert that there was no error and that the registry now contains the feature view
 	assert.Nil(t, err)
@@ -295,7 +295,7 @@ func TestLoadOnDemandFeatureViews(t *testing.T) {
 	registry := &core.Registry{}
 
 	// Call the method under test
-	err := store.loadOnDemandFeatureViews(registry)
+	err := store.loadOnDemandFeatureViews(registry, true)
 
 	// Assert that there was no error and that the registry now contains the on-demand feature view
 	assert.Nil(t, err)
@@ -333,7 +333,7 @@ func TestLoadFeatureServices(t *testing.T) {
 	registry := &core.Registry{}
 
 	// Call the method under test
-	err := store.loadFeatureServices(registry)
+	err := store.loadFeatureServices(registry, true)
 
 	// Assert that there was no error and that the registry now contains the feature service
 	assert.Nil(t, err)

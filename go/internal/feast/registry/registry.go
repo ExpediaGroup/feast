@@ -224,7 +224,7 @@ func (r *Registry) ListFeatureViews(project string) ([]*model.FeatureView, error
 	cachedFeatureViews, ok := r.cachedFeatureViews[project]
 	r.mu.RUnlock()
 	if !ok && r.registryStore.HasFallback() {
-		featureViews := r.registryStore.(*HttpRegistryStore).loadAndListFeatureViews(r.cachedRegistry)
+		featureViews := r.registryStore.(*HttpRegistryStore).loadAndListFeatureViews(r.cachedRegistry, true)
 		for _, featureViewProto := range featureViews {
 			cachedFeatureViews[featureViewProto.Spec.Name] = featureViewProto
 		}
@@ -365,7 +365,7 @@ func (r *Registry) GetFeatureView(project, featureViewName string) (*model.Featu
 }
 
 func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project string) (*model.FeatureView, error) {
-	featureViewProto, err := r.registryStore.(*HttpRegistryStore).getFeatureView(r.cachedRegistry, featureViewName)
+	featureViewProto, err := r.registryStore.(*HttpRegistryStore).getFeatureView(r.cachedRegistry, featureViewName, true)
 	if err != nil {
 		return nil, fmt.Errorf("no feature view %s found in project %s", featureViewName, project)
 	}
@@ -393,7 +393,7 @@ func (r *Registry) GetSortedFeatureView(project, sortedFeatureViewName string) (
 }
 
 func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string, project string) (*model.SortedFeatureView, error) {
-	sortedFeatureViewProto, err := r.registryStore.(*HttpRegistryStore).getSortedFeatureView(r.cachedRegistry, sortedFeatureViewName)
+	sortedFeatureViewProto, err := r.registryStore.(*HttpRegistryStore).getSortedFeatureView(r.cachedRegistry, sortedFeatureViewName, true)
 	if err != nil {
 		return nil, fmt.Errorf("no sorted feature view %s found in project %s", sortedFeatureViewName, project)
 	}
