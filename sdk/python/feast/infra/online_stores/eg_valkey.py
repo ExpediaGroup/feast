@@ -58,7 +58,7 @@ class EGValkeyType(str, Enum):
 
 
 class EGValkeyOnlineStoreConfig(FeastConfigBaseModel):
-    """Online store config for Redis store"""
+    """Online store config for Valkey store"""
 
     type: Literal["eg-valkey"] = "eg-valkey"
     """Online store type selector"""
@@ -82,7 +82,7 @@ class EGValkeyOnlineStoreConfig(FeastConfigBaseModel):
 
 class EGValkeyOnlineStore(OnlineStore):
     """
-    Valkey implementation of the online store interface.
+    Valkey implementation of the online store interface. Implementation is similar to Redis online store.
 
     See https://github.com/feast-dev/feast/blob/master/docs/specs/online_store_format.md#redis-online-store-format
     for more details about the data model for this implementation.
@@ -123,8 +123,8 @@ class EGValkeyOnlineStore(OnlineStore):
         deleted_count = 0
         prefix = _redis_key_prefix(table.join_keys)
 
-        redis_hash_keys = [_mmh3(f"{table.name}:{f.name}") for f in table.features]
-        redis_hash_keys.append(bytes(f"_ts:{table.name}", "utf8"))
+        valkey_hash_keys = [_mmh3(f"{table.name}:{f.name}") for f in table.features]
+        valkey_hash_keys.append(bytes(f"_ts:{table.name}", "utf8"))
 
         with client.pipeline(transaction=False) as pipe:
             for _k in client.scan_iter(
@@ -138,7 +138,7 @@ class EGValkeyOnlineStore(OnlineStore):
                 if len(_tables) == 1:
                     pipe.delete(_k)
                 else:
-                    pipe.hdel(_k, *redis_hash_keys)
+                    pipe.hdel(_k, *valkey_hash_keys)
                 deleted_count += 1
             pipe.execute()
 
@@ -179,7 +179,7 @@ class EGValkeyOnlineStore(OnlineStore):
         entities: Sequence[Entity],
     ):
         """
-        We delete the keys in redis for tables/views being removed.
+        We delete the keys in valkey for tables/views being removed.
         """
         join_keys_to_delete = set(tuple(table.join_keys) for table in tables)
 
@@ -286,24 +286,24 @@ class EGValkeyOnlineStore(OnlineStore):
         feature_view = table.name
         ts_key = f"_ts:{feature_view}"
         keys = []
-        # redis pipelining optimization: send multiple commands to redis server without waiting for every reply
+        # pipelining optimization: send multiple commands to valkey server without waiting for every reply
         with client.pipeline(transaction=False) as pipe:
             # check if a previous record under the key bin exists
             # TODO: investigate if check and set is a better approach rather than pulling all entity ts and then setting
             # it may be significantly slower but avoids potential (rare) race conditions
             for entity_key, _, _, _ in data:
-                redis_key_bin = _redis_key(
+                valkey_key_bin = _redis_key(
                     project,
                     entity_key,
                     entity_key_serialization_version=config.entity_key_serialization_version,
                 )
-                keys.append(redis_key_bin)
-                pipe.hmget(redis_key_bin, ts_key)
+                keys.append(valkey_key_bin)
+                pipe.hmget(valkey_key_bin, ts_key)
             prev_event_timestamps = pipe.execute()
             # flattening the list of lists. `hmget` does the lookup assuming a list of keys in the key bin
             prev_event_timestamps = [i[0] for i in prev_event_timestamps]
 
-            for redis_key_bin, prev_event_time, (_, values, timestamp, _) in zip(
+            for valkey_key_bin, prev_event_time, (_, values, timestamp, _) in zip(
                 keys, prev_event_timestamps, data
             ):
                 event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
@@ -327,26 +327,26 @@ class EGValkeyOnlineStore(OnlineStore):
                     f_key = _mmh3(f"{feature_view}:{feature_name}")
                     entity_hset[f_key] = val.SerializeToString()
 
-                pipe.hset(redis_key_bin, mapping=entity_hset)
+                pipe.hset(valkey_key_bin, mapping=entity_hset)
 
                 ttl = online_store_config.key_ttl_seconds
                 if ttl:
-                    pipe.expire(name=redis_key_bin, time=ttl)
+                    pipe.expire(name=valkey_key_bin, time=ttl)
             results = pipe.execute()
             if progress:
                 progress(len(results))
 
-    def _generate_redis_keys_for_entities(
+    def _generate_valkey_keys_for_entities(
         self, config: RepoConfig, entity_keys: List[EntityKeyProto]
     ) -> List[bytes]:
         keys = []
         for entity_key in entity_keys:
-            redis_key_bin = _redis_key(
+            valkey_key_bin = _redis_key(
                 config.project,
                 entity_key,
                 entity_key_serialization_version=config.entity_key_serialization_version,
             )
-            keys.append(redis_key_bin)
+            keys.append(valkey_key_bin)
         return keys
 
     def _generate_hset_keys_for_features(
@@ -365,14 +365,14 @@ class EGValkeyOnlineStore(OnlineStore):
 
         return requested_features, hset_keys
 
-    def _convert_redis_values_to_protobuf(
+    def _convert_valkey_values_to_protobuf(
         self,
-        redis_values: List[List[ByteString]],
+        valkey_values: List[List[ByteString]],
         feature_view: str,
         requested_features: List[str],
     ):
         result: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
-        for values in redis_values:
+        for values in valkey_values:
             features = self._get_features_for_entity(
                 values, feature_view, requested_features
             )
@@ -395,16 +395,16 @@ class EGValkeyOnlineStore(OnlineStore):
         requested_features, hset_keys = self._generate_hset_keys_for_features(
             feature_view, requested_features
         )
-        keys = self._generate_redis_keys_for_entities(config, entity_keys)
+        keys = self._generate_valkey_keys_for_entities(config, entity_keys)
 
         with client.pipeline(transaction=False) as pipe:
-            for redis_key_bin in keys:
-                pipe.hmget(redis_key_bin, hset_keys)
+            for valkey_key_bin in keys:
+                pipe.hmget(valkey_key_bin, hset_keys)
 
-            redis_values = pipe.execute()
+            valkey_values = pipe.execute()
 
-        return self._convert_redis_values_to_protobuf(
-            redis_values, feature_view.name, requested_features
+        return self._convert_valkey_values_to_protobuf(
+            valkey_values, feature_view.name, requested_features
         )
 
     async def online_read_async(
@@ -423,15 +423,15 @@ class EGValkeyOnlineStore(OnlineStore):
         requested_features, hset_keys = self._generate_hset_keys_for_features(
             feature_view, requested_features
         )
-        keys = self._generate_redis_keys_for_entities(config, entity_keys)
+        keys = self._generate_valkey_keys_for_entities(config, entity_keys)
 
         async with client.pipeline(transaction=False) as pipe:
-            for redis_key_bin in keys:
-                pipe.hmget(redis_key_bin, hset_keys)
-            redis_values = await pipe.execute()
+            for valkey_key_bin in keys:
+                pipe.hmget(valkey_key_bin, hset_keys)
+            valkey_values = await pipe.execute()
 
-        return self._convert_redis_values_to_protobuf(
-            redis_values, feature_view.name, requested_features
+        return self._convert_valkey_values_to_protobuf(
+            valkey_values, feature_view.name, requested_features
         )
 
     def _get_features_for_entity(

@@ -134,7 +134,6 @@ func TestParseConnectionString(t *testing.T) {
 		clientOption, err := parseConnectionString(onlineStoreConfig)
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"localhost:6379"}, clientOption.InitAddress)
-		assert.True(t, clientOption.ReplicaOnly)
 	})
 
 	t.Run("Valid connection string with multiple addresses", func(t *testing.T) {

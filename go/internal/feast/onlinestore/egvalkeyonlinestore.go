@@ -49,100 +49,106 @@ type ValkeyOnlineStore struct {
 }
 
 func parseConnectionString(onlineStoreConfig map[string]interface{}) (valkey.ClientOption, error) {
-    var clientOption valkey.ClientOption
-    clientOption.ReplicaOnly = true // Default to ReplicaOnly
+	var clientOption valkey.ClientOption
 
-    valkeyConnJson, ok := onlineStoreConfig["connection_string"]
-    if !ok {
-        valkeyConnJson = "localhost:6379" // Default connection string
-    }
+	clientOption.SendToReplicas = func(cmd valkey.Completed) bool {
+		return cmd.IsReadOnly()
+	}
 
-    valkeyConnStr, ok := valkeyConnJson.(string)
-    if !ok {
-        return clientOption, fmt.Errorf("failed to convert connection_string to string: %+v", valkeyConnJson)
-    }
+	valkeyConnJson, ok := onlineStoreConfig["connection_string"]
+	if !ok {
+		valkeyConnJson = "localhost:6379" // Default connection string
+	}
 
-    parts := strings.Split(valkeyConnStr, ",")
-    for _, part := range parts {
-        if strings.Contains(part, ":") {
-            clientOption.InitAddress = append(clientOption.InitAddress, part)
-        } else if strings.Contains(part, "=") {
-            kv := strings.SplitN(part, "=", 2)
-            switch kv[0] {
-            case "password":
-                clientOption.Password = kv[1]
-            case "ssl":
-                result, err := strconv.ParseBool(kv[1])
-                if err != nil {
-                    return clientOption, err
-                }
-                if result {
-                    clientOption.TLSConfig = &tls.Config{}
-                }
-            case "db":
-                db, err := strconv.Atoi(kv[1])
-                if err != nil {
-                    return clientOption, err
-                }
-                clientOption.SelectDB = db
-            default:
-                return clientOption, fmt.Errorf("unrecognized option in connection_string: %s", kv[0])
-            }
-        } else {
-            return clientOption, fmt.Errorf("unable to parse part of connection_string: %s", part)
-        }
-    }
-    return clientOption, nil
+	valkeyConnStr, ok := valkeyConnJson.(string)
+	if !ok {
+		return clientOption, fmt.Errorf("failed to convert connection_string to string: %+v", valkeyConnJson)
+	}
+
+	parts := strings.Split(valkeyConnStr, ",")
+	for _, part := range parts {
+		if strings.Contains(part, ":") {
+			clientOption.InitAddress = append(clientOption.InitAddress, part)
+		} else if strings.Contains(part, "=") {
+			kv := strings.SplitN(part, "=", 2)
+			switch kv[0] {
+			case "password":
+				clientOption.Password = kv[1]
+			case "ssl":
+				result, err := strconv.ParseBool(kv[1])
+				if err != nil {
+					return clientOption, err
+				}
+				if result {
+					clientOption.TLSConfig = &tls.Config{}
+				}
+			case "db":
+				db, err := strconv.Atoi(kv[1])
+				if err != nil {
+					return clientOption, err
+				}
+				clientOption.SelectDB = db
+			default:
+				return clientOption, fmt.Errorf("unrecognized option in connection_string: %s", kv[0])
+			}
+		} else {
+			return clientOption, fmt.Errorf("unable to parse part of connection_string: %s", part)
+		}
+	}
+	return clientOption, nil
 }
 
 func getValkeyTraceServiceName() string {
 	datadogServiceName := os.Getenv("DD_SERVICE")
 	var valkeyTraceServiceName string
 	if datadogServiceName != "" {
-    valkeyTraceServiceName = datadogServiceName + "-valkey"
+		valkeyTraceServiceName = datadogServiceName + "-valkey"
 	} else {
-        valkeyTraceServiceName = "valkey.client" // Default service name
-    }
-    return valkeyTraceServiceName
+		valkeyTraceServiceName = "valkey.client" // Default service name
+	}
+	return valkeyTraceServiceName
 }
 
 func initializeValkeyClient(clientOption valkey.ClientOption, serviceName string) (valkey.Client, error) {
-    if strings.ToLower(os.Getenv("ENABLE_ONLINE_STORE_TRACING")) == "true" {
+	if strings.ToLower(os.Getenv("ENABLE_ONLINE_STORE_TRACING")) == "true" {
 		// TODO: Configure once Datadog starts supporting valkey-go
 		log.Warn().Msg("Valkey tracing is not enabled")
-        // return valkeytrace.NewClient(clientOption, valkeytrace.WithServiceName(serviceName))
-    }
+		// return valkeytrace.NewClient(clientOption, valkeytrace.WithServiceName(serviceName))
+	}
 
-    return valkey.NewClient(clientOption)
+	// TODO: Validate requests are routed to Replicas
+	// without Reader endpoint specified for Standalone clusters
+
+	return valkey.NewClient(clientOption)
 }
 
 func NewValkeyOnlineStore(project string, config *registry.RepoConfig, onlineStoreConfig map[string]interface{}) (*ValkeyOnlineStore, error) {
-    store := ValkeyOnlineStore{
-        project: project,
-        config:  config,
-    }
+	store := ValkeyOnlineStore{
+		project: project,
+		config:  config,
+	}
 
-    // Parse Valkey type
-    valkeyStoreType, err := getValkeyType(onlineStoreConfig)
-    if err != nil {
-        return nil, err
-    }
-    store.t = valkeyStoreType
+	// Parse Valkey type
+	valkeyStoreType, err := getValkeyType(onlineStoreConfig)
+	if err != nil {
+		return nil, err
+	}
+	store.t = valkeyStoreType
 
-    // Parse connection string
-    clientOption, err := parseConnectionString(onlineStoreConfig)
-    if err != nil {
-        return nil, err
-    }
+	// Parse connection string
+	clientOption, err := parseConnectionString(onlineStoreConfig)
+	if err != nil {
+		return nil, err
+	}
 
-    // Initialize Valkey client
-    store.client, err = initializeValkeyClient(clientOption, getValkeyTraceServiceName())
-    if err != nil {
-        return nil, err
-    }
+	// Initialize Valkey client
+	store.client, err = initializeValkeyClient(clientOption, getValkeyTraceServiceName())
+	if err != nil {
+		return nil, err
+	}
 
-    log.Info().Msgf("Using Valkey: %s", clientOption.InitAddress)
-    return &store, nil
+	log.Info().Msgf("Using Valkey: %s", clientOption.InitAddress)
+	return &store, nil
 }
 
 func getValkeyType(onlineStoreConfig map[string]interface{}) (valkeyType, error) {

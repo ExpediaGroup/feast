@@ -125,7 +125,7 @@ func NewRedisOnlineStore(project string, config *registry.RepoConfig, onlineStor
 			TLSConfig: tlsConfig,
 		})
 		if (strings.ToLower(os.Getenv("ENABLE_DATADOG_REDIS_TRACING")) == "true") || (strings.ToLower(os.Getenv("ENABLE_ONLINE_STORE_TRACING")) == "true") {
-			if (strings.ToLower(os.Getenv("ENABLE_DATADOG_REDIS_TRACING")) == "true") {
+			if strings.ToLower(os.Getenv("ENABLE_DATADOG_REDIS_TRACING")) == "true" {
 				log.Warn().Msg("ENABLE_DATADOG_REDIS_TRACING is deprecated. Use ENABLE_ONLINE_STORE_TRACING instead.")
 			}
 
