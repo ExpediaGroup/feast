@@ -324,9 +324,6 @@ class TestCassandraOnlineStore:
         self,
         online_store: CassandraOnlineStore,
     ):
-        """
-        Test the _create_table method of CassandraOnlineStore for sorted feature view
-        """
 
         ttl = online_store._get_ttl(
             True,
@@ -340,9 +337,6 @@ class TestCassandraOnlineStore:
         self,
         online_store: CassandraOnlineStore,
     ):
-        """
-        Test the _create_table method of CassandraOnlineStore for sorted feature view
-        """
 
         ttl = online_store._get_ttl(
             False,
