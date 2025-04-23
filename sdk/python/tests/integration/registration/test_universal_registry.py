@@ -281,6 +281,7 @@ def sqlite_registry():
 
     yield SqlRegistry(registry_config, "project", None)
 
+
 @pytest.fixture(scope="function")
 def mysql_fallback_registry(mysql_server):
     db_name = "".join(random.choices(string.ascii_lowercase, k=10))
@@ -288,7 +289,7 @@ def mysql_fallback_registry(mysql_server):
     _create_mysql_database(mysql_server, db_name)
 
     connection_url = (
-            "/".join(mysql_server.get_connection_url().split("/")[:-1]) + f"/{db_name}"
+        "/".join(mysql_server.get_connection_url().split("/")[:-1]) + f"/{db_name}"
     )
 
     registry_config = SqlFallbackRegistryConfig(
