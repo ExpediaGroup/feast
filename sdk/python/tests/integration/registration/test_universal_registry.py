@@ -1923,12 +1923,8 @@ def test_registry_cache_overwrite(test_registry):
     test_registry.apply_feature_view(fv1, project)
     assert len(test_registry.cached_registry_proto.feature_views) == 0
     assert len(test_registry.cached_registry_proto.data_sources) == 0
-    registry_feature_views = test_registry.list_feature_views(
-        project, allow_cache=True
-    )
-    registry_data_sources = test_registry.list_data_sources(
-        project, allow_cache=True
-    )
+    registry_feature_views = test_registry.list_feature_views(project, allow_cache=True)
+    registry_data_sources = test_registry.list_data_sources(project, allow_cache=True)
     # Not refreshed cache, so fallback retrieves data and sets cache
     assert len(registry_feature_views) == 1
     assert len(registry_data_sources) == 1

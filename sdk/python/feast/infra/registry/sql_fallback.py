@@ -66,9 +66,9 @@ class SqlFallbackRegistry(SqlRegistry):
         protos = [_obj_to_proto_with_project_name(obj, project) for obj in objects]
         with self._refresh_lock:
             self.cached_registry_proto.ClearField(registry_proto_field_name)  # type: ignore[arg-type]
-            self.cached_registry_proto.__getattribute__(registry_proto_field_name).extend(
-                protos
-            )
+            self.cached_registry_proto.__getattribute__(
+                registry_proto_field_name
+            ).extend(protos)
         return objects
 
     def list_data_sources(
