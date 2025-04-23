@@ -48,11 +48,33 @@ type ValkeyOnlineStore struct {
 	config *registry.RepoConfig
 }
 
-func parseConnectionString(onlineStoreConfig map[string]interface{}) (valkey.ClientOption, error) {
+func parseConnectionString(onlineStoreConfig map[string]interface{}, valkeyStoreType valkeyType) (valkey.ClientOption, error) {
 	var clientOption valkey.ClientOption
 
 	clientOption.SendToReplicas = func(cmd valkey.Completed) bool {
 		return cmd.IsReadOnly()
+	}
+
+	if valkeyStoreType == valkeyNode {
+
+		replicaAddressJson, ok := onlineStoreConfig["replica_address"]
+		if !ok {
+			log.Warn().Msg("define replica_address or reader endpoint to read from cluster replicas")
+		} else {
+			replicaAddress, ok := replicaAddressJson.(string)
+			if !ok {
+				return clientOption, fmt.Errorf("failed to convert replica_address to string: %+v", replicaAddressJson)
+			}
+
+			parts := strings.Split(replicaAddress, ",")
+			for _, part := range parts {
+				if strings.Contains(part, ":") {
+					clientOption.Standalone.ReplicaAddress = append(clientOption.Standalone.ReplicaAddress, part)
+				} else {
+					return clientOption, fmt.Errorf("unable to parse part of replica_address: %s", part)
+				}
+			}
+		}
 	}
 
 	valkeyConnJson, ok := onlineStoreConfig["connection_string"]
@@ -136,7 +158,7 @@ func NewValkeyOnlineStore(project string, config *registry.RepoConfig, onlineSto
 	store.t = valkeyStoreType
 
 	// Parse connection string
-	clientOption, err := parseConnectionString(onlineStoreConfig)
+	clientOption, err := parseConnectionString(onlineStoreConfig, valkeyStoreType)
 	if err != nil {
 		return nil, err
 	}
