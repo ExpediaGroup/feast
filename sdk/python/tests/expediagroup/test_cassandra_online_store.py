@@ -324,7 +324,6 @@ class TestCassandraOnlineStore:
         self,
         online_store: CassandraOnlineStore,
     ):
-
         ttl = online_store._get_ttl(
             True,
             timedelta(seconds=10),
@@ -337,7 +336,6 @@ class TestCassandraOnlineStore:
         self,
         online_store: CassandraOnlineStore,
     ):
-
         ttl = online_store._get_ttl(
             False,
             timedelta(0),
