@@ -404,6 +404,24 @@ async_sql_fixtures = [
     ),
 ]
 
+sql_cache_fixtures = [
+    pytest.param(
+        lazy_fixture("pg_registry"), marks=pytest.mark.xdist_group(name="pg_registry")
+    ),
+    pytest.param(
+        lazy_fixture("mysql_registry"),
+        marks=pytest.mark.xdist_group(name="mysql_registry"),
+    ),
+    lazy_fixture("sqlite_registry"),
+]
+
+sql_fallback_fixtures = [
+    pytest.param(
+        lazy_fixture("mysql_fallback_registry"),
+        marks=pytest.mark.xdist_group(name="mysql_fallback_registry"),
+    ),
+]
+
 
 @pytest.mark.integration
 @pytest.mark.parametrize("test_registry", all_fixtures)
@@ -1096,7 +1114,7 @@ def test_update_infra(test_registry):
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "test_registry",
-    sql_fixtures,
+    sql_cache_fixtures,
 )
 def test_registry_cache(test_registry):
     # Create Feature Views
@@ -1862,4 +1880,63 @@ def test_apply_entity_to_sql_registry_and_reinitialize_sql_registry(test_registr
     assert len(entities) == 0
 
     updated_test_registry.teardown()
+    test_registry.teardown()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "test_registry",
+    sql_fallback_fixtures,
+)
+def test_registry_cache_overwrite(test_registry):
+    # Create Feature Views
+    batch_source = FileSource(
+        name="test_source",
+        file_format=ParquetFormat(),
+        path="file://feast/*",
+        timestamp_field="ts_col",
+        created_timestamp_column="timestamp",
+        tags={"team": "matchmaking"},
+    )
+
+    entity = Entity(name="fs1_my_entity_1", join_keys=["test"])
+
+    fv1 = FeatureView(
+        name="my_feature_view_1",
+        schema=[
+            Field(name="test", dtype=Int64),
+            Field(name="fs1_my_feature_1", dtype=Int64),
+            Field(name="fs1_my_feature_2", dtype=String),
+            Field(name="fs1_my_feature_3", dtype=Array(String)),
+            Field(name="fs1_my_feature_4", dtype=Array(Bytes)),
+        ],
+        entities=[entity],
+        tags={"team": "matchmaking"},
+        source=batch_source,
+        ttl=timedelta(minutes=5),
+    )
+
+    project = "project"
+
+    # Register data source and feature view
+    test_registry.apply_data_source(batch_source, project)
+    test_registry.apply_feature_view(fv1, project)
+    assert len(test_registry.cached_registry_proto.feature_views) == 0
+    assert len(test_registry.cached_registry_proto.data_sources) == 0
+    registry_feature_views = test_registry.list_feature_views(
+        project, allow_cache=True
+    )
+    registry_data_sources = test_registry.list_data_sources(
+        project, allow_cache=True
+    )
+    # Not refreshed cache, so fallback retrieves data and sets cache
+    assert len(registry_feature_views) == 1
+    assert len(registry_data_sources) == 1
+    assert len(test_registry.cached_registry_proto.feature_views) == 1
+    assert len(test_registry.cached_registry_proto.data_sources) == 1
+    registry_feature_view = registry_feature_views[0]
+    assert registry_feature_view.batch_source == batch_source
+    registry_data_source = registry_data_sources[0]
+    assert registry_data_source == batch_source
+
     test_registry.teardown()
