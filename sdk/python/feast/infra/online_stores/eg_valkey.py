@@ -73,7 +73,7 @@ class EGValkeyOnlineStoreConfig(FeastConfigBaseModel):
     """Connection string containing the host, port, and configuration parameters for Valkey
      format: host:port,parameter1,parameter2 eg. valkey:6379,db=0 """
 
-    replica_address: StrictStr = None
+    replica_address: Optional[StrictStr] = None
     """
     (Optional) Address of the replica node used for read operations.
     If not provided, the master node will be used for both read and write operations.
