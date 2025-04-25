@@ -27,6 +27,8 @@ import (
 	// valkeytrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/valkey-go"
 )
 
+const defaultConnectionString = "localhost:6379"
+
 type valkeyType int
 
 const (
@@ -56,14 +58,13 @@ func parseConnectionString(onlineStoreConfig map[string]interface{}, valkeyStore
 	}
 
 	if valkeyStoreType == valkeyNode {
-
-		replicaAddressJson, ok := onlineStoreConfig["replica_address"]
+		replicaAddressJsonValue, ok := onlineStoreConfig["replica_address"]
 		if !ok {
 			log.Warn().Msg("define replica_address or reader endpoint to read from cluster replicas")
 		} else {
-			replicaAddress, ok := replicaAddressJson.(string)
+			replicaAddress, ok := replicaAddressJsonValue.(string)
 			if !ok {
-				return clientOption, fmt.Errorf("failed to convert replica_address to string: %+v", replicaAddressJson)
+				return clientOption, fmt.Errorf("failed to convert replica_address to string: %+v", replicaAddressJsonValue)
 			}
 
 			parts := strings.Split(replicaAddress, ",")
@@ -77,14 +78,14 @@ func parseConnectionString(onlineStoreConfig map[string]interface{}, valkeyStore
 		}
 	}
 
-	valkeyConnJson, ok := onlineStoreConfig["connection_string"]
+	valkeyConnJsonValue, ok := onlineStoreConfig["connection_string"]
 	if !ok {
-		valkeyConnJson = "localhost:6379" // Default connection string
+		valkeyConnJsonValue = defaultConnectionString
 	}
 
-	valkeyConnStr, ok := valkeyConnJson.(string)
+	valkeyConnStr, ok := valkeyConnJsonValue.(string)
 	if !ok {
-		return clientOption, fmt.Errorf("failed to convert connection_string to string: %+v", valkeyConnJson)
+		return clientOption, fmt.Errorf("failed to convert connection_string to string: %+v", valkeyConnJsonValue)
 	}
 
 	parts := strings.Split(valkeyConnStr, ",")
@@ -176,12 +177,12 @@ func NewValkeyOnlineStore(project string, config *registry.RepoConfig, onlineSto
 func getValkeyType(onlineStoreConfig map[string]interface{}) (valkeyType, error) {
 	var t valkeyType
 
-	valkeyTypeJson, ok := onlineStoreConfig["valkey_type"]
+	valkeyTypeJsonValue, ok := onlineStoreConfig["valkey_type"]
 	if !ok {
 		// Default to "valkey"
-		valkeyTypeJson = "valkey"
-	} else if valkeyTypeStr, ok := valkeyTypeJson.(string); !ok {
-		return -1, fmt.Errorf("failed to convert valkey_type to string: %+v", valkeyTypeJson)
+		valkeyTypeJsonValue = "valkey"
+	} else if valkeyTypeStr, ok := valkeyTypeJsonValue.(string); !ok {
+		return -1, fmt.Errorf("failed to convert valkey_type to string: %+v", valkeyTypeJsonValue)
 	} else {
 		if valkeyTypeStr == "valkey" {
 			t = valkeyNode
