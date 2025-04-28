@@ -365,7 +365,7 @@ func (c *CassandraOnlineStore) buildCassandraEntityKeys(entityKeys []*types.Enti
 	cassandraKeys := make([]any, len(entityKeys))
 	cassandraKeyToEntityIndex := make(map[string]int)
 	for i := 0; i < len(entityKeys); i++ {
-		var key, err = utils.SerializeEntityKey(entityKeys[i], 2)
+		var key, err = utils.SerializeEntityKey(entityKeys[i], c.config.EntityKeySerializationVersion)
 		if err != nil {
 			return nil, nil, err
 		}
