@@ -834,6 +834,7 @@ func (c *CassandraOnlineStore) OnlineReadRange(
 	sortKeyFilters []*model.SortKeyFilter,
 	limit int32,
 ) ([][]RangeFeatureData, error) {
+	// TODO: Check if the Sort Key Order is reverse the default sort key order, if so, use UnbatchedKeysOnlineReadRange.
 	if c.keyBatchSize == 1 {
 		return c.UnbatchedKeysOnlineReadRange(ctx, entityKeys, featureViewNames, featureNames, sortKeyFilters, limit)
 	} else {
