@@ -19,6 +19,17 @@ from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.project_metadata import ProjectMetadata
+from feast.protos.feast.core.DataSource_pb2 import DataSourceList as DataSourceProtoList
+from feast.protos.feast.core.Entity_pb2 import EntityList as EntityProtoList
+from feast.protos.feast.core.FeatureService_pb2 import (
+    FeatureServiceList as FeatureServiceProtoList,
+)
+from feast.protos.feast.core.FeatureView_pb2 import (
+    FeatureViewList as FeatureViewProtoList,
+)
+from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
+    OnDemandFeatureViewList as OnDemandFeatureViewProtoList,
+)
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.saved_dataset import SavedDataset, ValidationReference
 from feast.sorted_feature_view import SortedFeatureView
@@ -510,3 +521,100 @@ class CachingRegistry(BaseRegistry):
 
     def _exit_handler(self):
         self.registry_refresh_thread.cancel()
+
+    # Methods to improve the registry calls
+
+    @abstractmethod
+    def _list_feature_views_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> FeatureViewProtoList:
+        pass
+
+    def list_feature_views_proto(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
+    ) -> FeatureViewProtoList:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            return proto_registry_utils.list_feature_views_proto(
+                self.cached_registry_proto, project, tags
+            )
+        return self._list_feature_views_proto(project, tags)
+
+    @abstractmethod
+    def _list_entities_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> EntityProtoList:
+        pass
+
+    def list_entities_proto(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
+    ) -> EntityProtoList:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            return proto_registry_utils.list_entities_proto(
+                self.cached_registry_proto, project, tags
+            )
+        return self._list_entities_proto(project, tags)
+
+    @abstractmethod
+    def _list_data_sources_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> DataSourceProtoList:
+        pass
+
+    def list_data_sources_proto(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
+    ) -> DataSourceProtoList:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            return proto_registry_utils.list_data_sources_proto(
+                self.cached_registry_proto, project, tags
+            )
+        return self._list_data_sources_proto(project, tags)
+
+    @abstractmethod
+    def _list_on_demand_feature_views_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> OnDemandFeatureViewProtoList:
+        pass
+
+    def list_on_demand_feature_views_proto(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
+    ) -> OnDemandFeatureViewProtoList:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            return proto_registry_utils.list_on_demand_feature_views_proto(
+                self.cached_registry_proto, project, tags
+            )
+        return self._list_on_demand_feature_views_proto(project, tags)
+
+    @abstractmethod
+    def _list_feature_services_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> FeatureServiceProtoList:
+        pass
+
+    def list_feature_services_proto(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        tags: Optional[dict[str, str]] = None,
+    ) -> FeatureServiceProtoList:
+        if allow_cache:
+            self._refresh_cached_registry_if_necessary()
+            return proto_registry_utils.list_feature_services_proto(
+                self.cached_registry_proto, project, tags
+            )
+        return self._list_feature_services_proto(project, tags)
