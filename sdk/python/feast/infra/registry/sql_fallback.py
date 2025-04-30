@@ -81,11 +81,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_data_sources(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "data_sources", self._list_data_sources, project, tags
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "data_sources", self._list_data_sources, project, tags
@@ -101,11 +97,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_entities(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "entities", self._list_entities, project, tags
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "entities", self._list_entities, project, tags
@@ -153,11 +145,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_feature_views(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "feature_views", self._list_feature_views, project, tags
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "feature_views", self._list_feature_views, project, tags
@@ -173,14 +161,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_on_demand_feature_views(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "on_demand_feature_views",
-                    self._list_on_demand_feature_views,
-                    project,
-                    tags,
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "on_demand_feature_views", self._list_on_demand_feature_views, project, tags
@@ -196,14 +177,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_stream_feature_views(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "stream_feature_views",
-                    self._list_stream_feature_views,
-                    project,
-                    tags,
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "stream_feature_views", self._list_stream_feature_views, project, tags
@@ -219,14 +193,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_sorted_feature_views(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "sorted_feature_views",
-                    self._list_sorted_feature_views,
-                    project,
-                    tags,
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "sorted_feature_views", self._list_sorted_feature_views, project, tags
@@ -242,11 +209,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_feature_services(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "feature_services", self._list_feature_services, project, tags
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "feature_services", self._list_feature_services, project, tags
@@ -262,11 +225,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_saved_datasets(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "saved_datasets", self._list_saved_datasets, project, tags
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "saved_datasets", self._list_saved_datasets, project, tags
@@ -282,14 +241,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_validation_references(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "validation_references",
-                    self._list_validation_references,
-                    project,
-                    tags,
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "validation_references", self._list_validation_references, project, tags
@@ -305,11 +257,7 @@ class SqlFallbackRegistry(SqlRegistry):
             result = proto_registry_utils.list_permissions(
                 self.cached_registry_proto, project, tags
             )
-            if len(result) == 0:
-                return self._get_and_cache_objects(
-                    "permissions", self._list_permissions, project, tags
-                )
-            else:
+            if len(result) > 0:
                 return result
         return self._get_and_cache_objects(
             "permissions", self._list_permissions, project, tags
