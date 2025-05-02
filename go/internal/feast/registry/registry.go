@@ -126,20 +126,33 @@ func expireCachedModels[T any](cachedModels map[string]map[string]*model.ModelTT
 	}
 }
 
-func (r *Registry) load(registry *core.Registry) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.cachedRegistry = registry
+func (r *Registry) clearCache() {
 	r.cachedFeatureServices = make(map[string]map[string]*model.ModelTTL[*model.FeatureService])
 	r.cachedEntities = make(map[string]map[string]*model.ModelTTL[*model.Entity])
 	r.cachedFeatureViews = make(map[string]map[string]*model.ModelTTL[*model.FeatureView])
 	r.cachedSortedFeatureViews = make(map[string]map[string]*model.ModelTTL[*model.SortedFeatureView])
 	r.cachedOnDemandFeatureViews = make(map[string]map[string]*model.ModelTTL[*model.OnDemandFeatureView])
-	loadModels(registry.FeatureServices, r.cachedFeatureServices, model.NewFeatureServiceFromProto, r.project, r.cachedRegistryProtoTtl)
-	loadModels(registry.Entities, r.cachedEntities, model.NewEntityFromProto, r.project, r.cachedRegistryProtoTtl)
-	loadModels(registry.FeatureViews, r.cachedFeatureViews, model.NewFeatureViewFromProto, r.project, r.cachedRegistryProtoTtl)
-	loadModels(registry.SortedFeatureViews, r.cachedSortedFeatureViews, model.NewSortedFeatureViewFromProto, r.project, r.cachedRegistryProtoTtl)
-	loadModels(registry.OnDemandFeatureViews, r.cachedOnDemandFeatureViews, model.NewOnDemandFeatureViewFromProto, r.project, r.cachedRegistryProtoTtl)
+}
+
+func (r *Registry) SetModels(
+	featureServices []*core.FeatureService,
+	entities []*core.Entity,
+	fvs []*core.FeatureView,
+	sfvs []*core.SortedFeatureView,
+	odfvs []*core.OnDemandFeatureView) {
+	r.clearCache()
+	loadModels(featureServices, r.cachedFeatureServices, model.NewFeatureServiceFromProto, r.project, r.cachedRegistryProtoTtl)
+	loadModels(entities, r.cachedEntities, model.NewEntityFromProto, r.project, r.cachedRegistryProtoTtl)
+	loadModels(fvs, r.cachedFeatureViews, model.NewFeatureViewFromProto, r.project, r.cachedRegistryProtoTtl)
+	loadModels(sfvs, r.cachedSortedFeatureViews, model.NewSortedFeatureViewFromProto, r.project, r.cachedRegistryProtoTtl)
+	loadModels(odfvs, r.cachedOnDemandFeatureViews, model.NewOnDemandFeatureViewFromProto, r.project, r.cachedRegistryProtoTtl)
+}
+
+func (r *Registry) load(registry *core.Registry) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cachedRegistry = registry
+	r.SetModels(registry.FeatureServices, registry.Entities, registry.FeatureViews, registry.SortedFeatureViews, registry.OnDemandFeatureViews)
 }
 
 func loadModels[U any, T any](protoList []U, cachedModels map[string]map[string]*model.ModelTTL[T], modelFactory func(proto U) T, project string, ttl time.Duration) {
@@ -303,24 +316,4 @@ func getRegistryStoreFromType(registryStoreType string, registryConfig *Registry
 		return NewHttpRegistryStore(registryConfig, project)
 	}
 	return nil, errors.New("only FileRegistryStore or HttpRegistryStore as a RegistryStore is supported at this moment")
-}
-
-// Inject models into cache for testing purposes
-
-func (r *Registry) SetModels(
-	featureServices []*core.FeatureService,
-	entities []*core.Entity,
-	fvs []*core.FeatureView,
-	sfvs []*core.SortedFeatureView,
-	odfvs []*core.OnDemandFeatureView) {
-	r.cachedFeatureServices = make(map[string]map[string]*model.ModelTTL[*model.FeatureService])
-	r.cachedEntities = make(map[string]map[string]*model.ModelTTL[*model.Entity])
-	r.cachedFeatureViews = make(map[string]map[string]*model.ModelTTL[*model.FeatureView])
-	r.cachedSortedFeatureViews = make(map[string]map[string]*model.ModelTTL[*model.SortedFeatureView])
-	r.cachedOnDemandFeatureViews = make(map[string]map[string]*model.ModelTTL[*model.OnDemandFeatureView])
-	loadModels(featureServices, r.cachedFeatureServices, model.NewFeatureServiceFromProto, r.project, r.cachedRegistryProtoTtl)
-	loadModels(entities, r.cachedEntities, model.NewEntityFromProto, r.project, r.cachedRegistryProtoTtl)
-	loadModels(fvs, r.cachedFeatureViews, model.NewFeatureViewFromProto, r.project, r.cachedRegistryProtoTtl)
-	loadModels(sfvs, r.cachedSortedFeatureViews, model.NewSortedFeatureViewFromProto, r.project, r.cachedRegistryProtoTtl)
-	loadModels(odfvs, r.cachedOnDemandFeatureViews, model.NewOnDemandFeatureViewFromProto, r.project, r.cachedRegistryProtoTtl)
 }
