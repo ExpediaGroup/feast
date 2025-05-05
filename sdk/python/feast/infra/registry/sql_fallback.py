@@ -1,6 +1,9 @@
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from pydantic import StrictStr
 
@@ -9,14 +12,28 @@ from feast import (
     FeatureService,
     FeatureView,
     OnDemandFeatureView,
+    Project,
     SortedFeatureView,
     StreamFeatureView,
 )
 from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource
-from feast.infra.registry import proto_registry_utils
+from feast.errors import (
+    DataSourceObjectNotFoundException,
+    EntityNotFoundException,
+    FeastObjectNotFoundException,
+    FeatureServiceNotFoundException,
+    FeatureViewNotFoundException,
+    OnDemandFeatureViewNotFoundException,
+    PermissionObjectNotFoundException,
+    ProjectObjectNotFoundException,
+    SavedDatasetNotFound,
+    SortedFeatureViewNotFoundException,
+    ValidationReferenceNotFound,
+)
 from feast.infra.registry.sql import SqlRegistry, SqlRegistryConfig
 from feast.permissions.permission import Permission
+from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.saved_dataset import SavedDataset, ValidationReference
 
 logger = logging.getLogger(__name__)
@@ -25,15 +42,6 @@ logger = logging.getLogger(__name__)
 class SqlFallbackRegistryConfig(SqlRegistryConfig):
     registry_type: StrictStr = "sql-fallback"
     """ str: Provider name or a class name that implements Registry."""
-
-
-def _obj_to_proto_with_project_name(obj, project: str):
-    proto = obj.to_proto()
-    if "spec" in proto.DESCRIPTOR.fields_by_name:
-        proto.spec.project = project
-    else:
-        proto.project = project
-    return proto
 
 
 class SqlFallbackRegistry(SqlRegistry):
@@ -47,29 +55,405 @@ class SqlFallbackRegistry(SqlRegistry):
             registry_config, SqlFallbackRegistryConfig
         ), "SqlFallbackRegistry needs a valid registry_config"
 
+        self.cached_project_map: Dict[str, Tuple[Project, datetime | None]] = {}
+        self.cached_data_source_map: Dict[
+            str, Dict[str, Tuple[DataSource, datetime | None]]
+        ] = {}
+        self.cached_entity_map: Dict[
+            str, Dict[str, Tuple[Entity, datetime | None]]
+        ] = {}
+        self.cached_feature_service_map: Dict[
+            str, Dict[str, Tuple[FeatureService, datetime | None]]
+        ] = {}
+        self.cached_feature_view_map: Dict[
+            str, Dict[str, Tuple[FeatureView, datetime | None]]
+        ] = {}
+        self.cached_on_demand_feature_view_map: Dict[
+            str, Dict[str, Tuple[OnDemandFeatureView, datetime | None]]
+        ] = {}
+        self.cached_permission_map: Dict[
+            str, Dict[str, Tuple[Permission, datetime | None]]
+        ] = {}
+        self.cached_saved_dataset_map: Dict[
+            str, Dict[str, Tuple[SavedDataset, datetime | None]]
+        ] = {}
+        self.cached_sorted_feature_view_map: Dict[
+            str, Dict[str, Tuple[SortedFeatureView, datetime | None]]
+        ] = {}
+        self.cached_stream_feature_view_map: Dict[
+            str, Dict[str, Tuple[StreamFeatureView, datetime | None]]
+        ] = {}
+        self.cached_validation_reference_map: Dict[
+            str, Dict[str, Tuple[ValidationReference, datetime | None]]
+        ] = {}
+
+        self.cache_process_list = [
+            (self.cached_data_source_map, self._get_data_source),
+            (self.cached_entity_map, self._get_entity),
+            (self.cached_feature_service_map, self._get_feature_service),
+            (self.cached_feature_view_map, self._get_feature_view),
+            (self.cached_on_demand_feature_view_map, self._get_on_demand_feature_view),
+            (self.cached_sorted_feature_view_map, self._get_sorted_feature_view),
+            (self.cached_stream_feature_view_map, self._get_stream_feature_view),
+            (self.cached_saved_dataset_map, self._get_saved_dataset),
+            (self.cached_validation_reference_map, self._get_validation_reference),
+            (self.cached_permission_map, self._get_permission),
+        ]
+
         super().__init__(registry_config, project, repo_path)
 
-    def _get_and_cache_objects(
+    def proto(self) -> RegistryProto:
+        # proto() is called during the refresh cycle, this implementation only refreshes cached items
+        for project_name, project_ttl in self.cached_project_map.items():
+            if (
+                project_name in self.cached_project_map
+                and self.cached_project_map[project_name][1] is not None
+                and self.cached_project_map[project_name][1] <= datetime.now()  # type: ignore
+            ):
+                try:
+                    project_obj = self._get_project(project_name)
+                    if project_obj:
+                        self.cached_project_map[project_name] = (
+                            project_obj,
+                            datetime.now() + self.cached_registry_proto_ttl,
+                        )
+                    else:
+                        del self.cached_project_map[project_name]
+                except ProjectObjectNotFoundException:
+                    del self.cached_project_map[project_name]
+
+        def process_expiration(cache_map, get_fn):
+            for project, items in cache_map.items():
+                for name, (obj, ttl) in items.items():
+                    if ttl and ttl <= datetime.now():
+                        try:
+                            obj = get_fn(name, project)
+                            cache_map[project][name] = (
+                                obj,
+                                datetime.now() + self.cached_registry_proto_ttl,
+                            )
+                        except FeastObjectNotFoundException:
+                            del cache_map[project][name]
+
+        if self.thread_pool_executor_worker_count == 0:
+            logger.info("Starting timer for single threaded self.proto()")
+            start = time.time()
+            for cache_map, get_fn in self.cache_process_list:
+                process_expiration(cache_map, get_fn)
+            logger.info(
+                f"Finished processing cache expiration and refresh in {time.time() - start} seconds"
+            )
+        else:
+            logger.info("Starting timer for multi threaded self.proto()")
+            start = time.time()
+
+            with ThreadPoolExecutor(
+                max_workers=min(
+                    self.thread_pool_executor_worker_count, len(self.cache_process_list)
+                )
+            ) as executor:
+                executor.map(
+                    lambda args: process_expiration(*args), self.cache_process_list
+                )
+
+            logger.info(
+                f"Multi threaded self.proto() took {time.time() - start} seconds to process cache expiration and refresh"
+            )
+        return self.cached_registry_proto
+
+    def _cache_obj_with_ttl(
         self,
-        registry_proto_field_name: str,
-        get_fn: Callable,
+        cache_map: Dict[str, Dict[str, Tuple[Any, datetime | None]]],
+        name: str,
         project: str,
-        tags: Optional[dict[str, str]],
+        obj: Any,
     ):
-        objects = get_fn(project, tags)
-        if len(objects) == 0:
-            return []
-        # Do not add to cache if the list was filtered by tags or the project is exempt from caching
-        elif tags is not None or project in self.cache_exempt_projects:
-            return objects
-        # Clear and reset the cache with the new list of objects
-        protos = [_obj_to_proto_with_project_name(obj, project) for obj in objects]
-        with self._refresh_lock:
-            self.cached_registry_proto.ClearField(registry_proto_field_name)  # type: ignore[arg-type]
-            self.cached_registry_proto.__getattribute__(
-                registry_proto_field_name
-            ).extend(protos)
-        return objects
+        ttl = None
+        if project not in cache_map:
+            cache_map[project] = {}
+
+        if self.cached_registry_proto_ttl:
+            ttl = datetime.now() + self.cached_registry_proto_ttl
+        cache_map[project][name] = (obj, ttl)
+
+    def _get_and_cache_object(
+        self,
+        cache_map: Dict[str, Dict[str, Tuple[Any, datetime | None]]],
+        get_fn: Callable,
+        name: str,
+        project: str,
+        not_found_exception: Optional[Callable],
+    ) -> Any:
+        obj = get_fn(name, project)
+        if obj is None:
+            if not_found_exception:
+                if project in cache_map and name in cache_map[project]:
+                    del cache_map[project][name]
+                raise not_found_exception(name, project)
+            return None
+
+        if project in self.cache_exempt_projects:
+            return obj
+
+        self._cache_obj_with_ttl(cache_map, name, project, obj)
+        return obj
+
+    def get_project(
+        self,
+        name: str,
+        allow_cache: bool = False,
+    ) -> Project:
+        if allow_cache:
+            if name in self.cached_project_map:
+                return self.cached_project_map[name][0]
+
+        project = self._get_project(name)
+        if project is None:
+            raise ProjectObjectNotFoundException(name)
+
+        if name in self.cache_exempt_projects:
+            return project
+
+        ttl = None
+        if self.cached_registry_proto_ttl:
+            ttl = datetime.now() + self.cached_registry_proto_ttl
+
+        self.cached_project_map[name] = (project, ttl)
+        for cache_map, _ in self.cache_process_list:
+            if name not in cache_map:  # type: ignore
+                cache_map[name] = {}  # type: ignore
+        return project
+
+    def get_any_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> BaseFeatureView:
+        if allow_cache:
+            if (
+                project in self.cached_feature_view_map
+                and name in self.cached_feature_view_map[project]
+            ):
+                return self.cached_feature_view_map[project][name][0]
+            if (
+                project in self.cached_on_demand_feature_view_map
+                and name in self.cached_on_demand_feature_view_map[project]
+            ):
+                return self.cached_on_demand_feature_view_map[project][name][0]
+            if (
+                project in self.cached_sorted_feature_view_map
+                and name in self.cached_sorted_feature_view_map[project]
+            ):
+                return self.cached_sorted_feature_view_map[project][name][0]
+            if (
+                project in self.cached_stream_feature_view_map
+                and name in self.cached_stream_feature_view_map[project]
+            ):
+                return self.cached_stream_feature_view_map[project][name][0]
+
+        # if allow_cache=False or failed to find any feature view in the cache, fetch from the registry
+        feature_view = self._get_any_feature_view(name, project)
+        if feature_view is None:
+            raise FeatureViewNotFoundException(
+                f"Feature view {name} not found in project {project}"
+            )
+
+        if project in self.cache_exempt_projects:
+            return feature_view
+
+        if isinstance(feature_view, SortedFeatureView):
+            self._cache_obj_with_ttl(
+                self.cached_feature_view_map, name, project, feature_view
+            )
+        elif isinstance(feature_view, StreamFeatureView):
+            self._cache_obj_with_ttl(
+                self.cached_stream_feature_view_map, name, project, feature_view
+            )
+        elif isinstance(feature_view, OnDemandFeatureView):
+            self._cache_obj_with_ttl(
+                self.cached_on_demand_feature_view_map, name, project, feature_view
+            )
+        else:
+            self._cache_obj_with_ttl(
+                self.cached_feature_view_map, name, project, feature_view
+            )
+        return feature_view
+
+    def get_data_source(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> DataSource:
+        if allow_cache:
+            if (
+                project in self.cached_data_source_map
+                and name in self.cached_data_source_map[project]
+            ):
+                return self.cached_data_source_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_data_source_map,
+            self._get_data_source,
+            name,
+            project,
+            DataSourceObjectNotFoundException,
+        )
+
+    def get_entity(self, name: str, project: str, allow_cache: bool = False) -> Entity:
+        if allow_cache:
+            if (
+                project in self.cached_entity_map
+                and name in self.cached_entity_map[project]
+            ):
+                return self.cached_entity_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_entity_map,
+            self._get_entity,
+            name,
+            project,
+            EntityNotFoundException,
+        )
+
+    def get_feature_service(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> FeatureService:
+        if allow_cache:
+            if (
+                project in self.cached_feature_service_map
+                and name in self.cached_feature_service_map[project]
+            ):
+                return self.cached_feature_service_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_feature_service_map,
+            self._get_feature_service,
+            name,
+            project,
+            FeatureServiceNotFoundException,
+        )
+
+    def get_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> FeatureView:
+        if allow_cache:
+            if (
+                project in self.cached_feature_view_map
+                and name in self.cached_feature_view_map[project]
+            ):
+                return self.cached_feature_view_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_feature_view_map,
+            self._get_feature_view,
+            name,
+            project,
+            FeatureViewNotFoundException,
+        )
+
+    def get_on_demand_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> OnDemandFeatureView:
+        if allow_cache:
+            if (
+                project in self.cached_on_demand_feature_view_map
+                and name in self.cached_on_demand_feature_view_map[project]
+            ):
+                return self.cached_on_demand_feature_view_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_on_demand_feature_view_map,
+            self._get_on_demand_feature_view,
+            name,
+            project,
+            OnDemandFeatureViewNotFoundException,
+        )
+
+    def get_sorted_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> SortedFeatureView:
+        if allow_cache:
+            if (
+                project in self.cached_sorted_feature_view_map
+                and name in self.cached_sorted_feature_view_map[project]
+            ):
+                return self.cached_sorted_feature_view_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_sorted_feature_view_map,
+            self._get_sorted_feature_view,
+            name,
+            project,
+            SortedFeatureViewNotFoundException,
+        )
+
+    def get_stream_feature_view(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> StreamFeatureView:
+        if allow_cache:
+            if (
+                project in self.cached_stream_feature_view_map
+                and name in self.cached_stream_feature_view_map[project]
+            ):
+                return self.cached_stream_feature_view_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_stream_feature_view_map,
+            self._get_stream_feature_view,
+            name,
+            project,
+            FeatureViewNotFoundException,
+        )
+
+    def get_saved_dataset(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> SavedDataset:
+        if allow_cache:
+            if (
+                project in self.cached_saved_dataset_map
+                and name in self.cached_saved_dataset_map[project]
+            ):
+                return self.cached_saved_dataset_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_saved_dataset_map,
+            self._get_saved_dataset,
+            name,
+            project,
+            SavedDatasetNotFound,
+        )
+
+    def get_validation_reference(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> ValidationReference:
+        if allow_cache:
+            if (
+                project in self.cached_validation_reference_map
+                and name in self.cached_validation_reference_map[project]
+            ):
+                return self.cached_validation_reference_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_validation_reference_map,
+            self._get_validation_reference,
+            name,
+            project,
+            ValidationReferenceNotFound,
+        )
+
+    def get_permission(
+        self, name: str, project: str, allow_cache: bool = False
+    ) -> Permission:
+        if allow_cache:
+            if (
+                project in self.cached_permission_map
+                and name in self.cached_permission_map[project]
+            ):
+                return self.cached_permission_map[project][name][0]
+
+        return self._get_and_cache_object(
+            self.cached_permission_map,
+            self._get_permission,
+            name,
+            project,
+            PermissionObjectNotFoundException,
+        )
 
     def list_data_sources(
         self,
@@ -77,15 +461,7 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[DataSource]:
-        if allow_cache:
-            result = proto_registry_utils.list_data_sources(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "data_sources", self._list_data_sources, project, tags
-        )
+        return self._list_data_sources(project, tags)
 
     def list_entities(
         self,
@@ -93,15 +469,7 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[Entity]:
-        if allow_cache:
-            result = proto_registry_utils.list_entities(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "entities", self._list_entities, project, tags
-        )
+        return self._list_entities(project, tags)
 
     def list_all_feature_views(
         self,
@@ -109,25 +477,10 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[BaseFeatureView]:
-        if allow_cache:
-            result = proto_registry_utils.list_all_feature_views(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        # If allow_cache=False or failed to find any feature views in the cache, fetch from the registry
-        feature_views = self._get_and_cache_objects(
-            "feature_views", self._list_feature_views, project, tags
-        )
-        on_demand_feature_views = self._get_and_cache_objects(
-            "on_demand_feature_views", self._list_on_demand_feature_views, project, tags
-        )
-        stream_feature_views = self._get_and_cache_objects(
-            "stream_feature_views", self._list_stream_feature_views, project, tags
-        )
-        sorted_feature_views = self._get_and_cache_objects(
-            "sorted_feature_views", self._list_sorted_feature_views, project, tags
-        )
+        feature_views = self._list_feature_views(project, tags)
+        on_demand_feature_views = self._list_on_demand_feature_views(project, tags)
+        stream_feature_views = self._list_stream_feature_views(project, tags)
+        sorted_feature_views = self._list_sorted_feature_views(project, tags)
         return (
             cast(list[BaseFeatureView], feature_views)
             + cast(list[BaseFeatureView], on_demand_feature_views)
@@ -141,15 +494,7 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[FeatureView]:
-        if allow_cache:
-            result = proto_registry_utils.list_feature_views(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "feature_views", self._list_feature_views, project, tags
-        )
+        return self._list_feature_views(project, tags)
 
     def list_on_demand_feature_views(
         self,
@@ -157,15 +502,7 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[OnDemandFeatureView]:
-        if allow_cache:
-            result = proto_registry_utils.list_on_demand_feature_views(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "on_demand_feature_views", self._list_on_demand_feature_views, project, tags
-        )
+        return self._list_on_demand_feature_views(project, tags)
 
     def list_stream_feature_views(
         self,
@@ -173,15 +510,7 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[StreamFeatureView]:
-        if allow_cache:
-            result = proto_registry_utils.list_stream_feature_views(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "stream_feature_views", self._list_stream_feature_views, project, tags
-        )
+        return self._list_stream_feature_views(project, tags)
 
     def list_sorted_feature_views(
         self,
@@ -189,15 +518,7 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[SortedFeatureView]:
-        if allow_cache:
-            result = proto_registry_utils.list_sorted_feature_views(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "sorted_feature_views", self._list_sorted_feature_views, project, tags
-        )
+        return self._list_sorted_feature_views(project, tags)
 
     def list_feature_services(
         self,
@@ -205,15 +526,7 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[FeatureService]:
-        if allow_cache:
-            result = proto_registry_utils.list_feature_services(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "feature_services", self._list_feature_services, project, tags
-        )
+        return self._list_feature_services(project, tags)
 
     def list_saved_datasets(
         self,
@@ -221,15 +534,7 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[SavedDataset]:
-        if allow_cache:
-            result = proto_registry_utils.list_saved_datasets(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "saved_datasets", self._list_saved_datasets, project, tags
-        )
+        return self._list_saved_datasets(project, tags)
 
     def list_validation_references(
         self,
@@ -237,15 +542,7 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[ValidationReference]:
-        if allow_cache:
-            result = proto_registry_utils.list_validation_references(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "validation_references", self._list_validation_references, project, tags
-        )
+        return self._list_validation_references(project, tags)
 
     def list_permissions(
         self,
@@ -253,12 +550,4 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[Permission]:
-        if allow_cache:
-            result = proto_registry_utils.list_permissions(
-                self.cached_registry_proto, project, tags
-            )
-            if len(result) > 0:
-                return result
-        return self._get_and_cache_objects(
-            "permissions", self._list_permissions, project, tags
-        )
+        return self._list_permissions(project, tags)

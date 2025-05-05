@@ -1921,18 +1921,36 @@ def test_registry_cache_overwrite(test_registry):
     # Register data source and feature view
     test_registry.apply_data_source(batch_source, project)
     test_registry.apply_feature_view(fv1, project)
-    assert len(test_registry.cached_registry_proto.feature_views) == 0
-    assert len(test_registry.cached_registry_proto.data_sources) == 0
-    registry_feature_views = test_registry.list_feature_views(project, allow_cache=True)
-    registry_data_sources = test_registry.list_data_sources(project, allow_cache=True)
-    # Not refreshed cache, so fallback retrieves data and sets cache
-    assert len(registry_feature_views) == 1
-    assert len(registry_data_sources) == 1
-    assert len(test_registry.cached_registry_proto.feature_views) == 1
-    assert len(test_registry.cached_registry_proto.data_sources) == 1
-    registry_feature_view = registry_feature_views[0]
-    assert registry_feature_view.batch_source == batch_source
-    registry_data_source = registry_data_sources[0]
-    assert registry_data_source == batch_source
+    # during apply_* methods, get_project is called which creates the project in the all cache maps
+    assert len(test_registry.cached_feature_view_map) == 1
+    assert len(test_registry.cached_data_source_map) == 1
+    assert project in test_registry.cached_feature_view_map
+    assert project in test_registry.cached_data_source_map
+    assert len(test_registry.cached_feature_view_map[project]) == 0
+    assert len(test_registry.cached_data_source_map[project]) == 0
+
+    registry_feature_view = test_registry.get_feature_view(
+        fv1.name, project, allow_cache=True
+    )
+    registry_data_source = test_registry.get_data_source(
+        batch_source.name, project, allow_cache=True
+    )
+
+    assert registry_feature_view is not None
+    assert registry_data_source is not None
+    assert len(test_registry.cached_feature_view_map) == 1
+    assert len(test_registry.cached_data_source_map) == 1
+    assert project in test_registry.cached_feature_view_map
+    assert project in test_registry.cached_data_source_map
+    assert len(test_registry.cached_feature_view_map[project]) == 1
+    assert len(test_registry.cached_data_source_map[project]) == 1
+    assert fv1.name in test_registry.cached_feature_view_map[project]
+    assert batch_source.name in test_registry.cached_data_source_map[project]
+
+    assert test_registry.cached_feature_view_map[project][fv1.name][0] == fv1
+    assert (
+        test_registry.cached_data_source_map[project][batch_source.name][0]
+        == batch_source
+    )
 
     test_registry.teardown()
