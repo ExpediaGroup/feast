@@ -86,26 +86,27 @@ class SqlFallbackRegistry(SqlRegistry):
         ] = {}
 
         self.cache_process_list = [
-            (self.cached_data_source_map, self._get_data_source),
-            (self.cached_entity_map, self._get_entity),
-            (self.cached_feature_service_map, self._get_feature_service),
-            (self.cached_feature_view_map, self._get_feature_view),
-            (self.cached_on_demand_feature_view_map, self._get_on_demand_feature_view),
-            (self.cached_sorted_feature_view_map, self._get_sorted_feature_view),
-            (self.cached_stream_feature_view_map, self._get_stream_feature_view),
-            (self.cached_saved_dataset_map, self._get_saved_dataset),
-            (self.cached_validation_reference_map, self._get_validation_reference),
-            (self.cached_permission_map, self._get_permission),
+            (self.cached_data_source_map, self._get_data_source, "data_sources"),
+            (self.cached_entity_map, self._get_entity, "entities"),
+            (self.cached_feature_service_map, self._get_feature_service, "feature_services"),
+            (self.cached_feature_view_map, self._get_feature_view, "feature_views"),
+            (self.cached_on_demand_feature_view_map, self._get_on_demand_feature_view, "on_demand_feature_views"),
+            (self.cached_sorted_feature_view_map, self._get_sorted_feature_view, "sorted_feature_views"),
+            (self.cached_stream_feature_view_map, self._get_stream_feature_view, "stream_feature_views"),
+            (self.cached_saved_dataset_map, self._get_saved_dataset, "saved_datasets"),
+            (self.cached_validation_reference_map, self._get_validation_reference, "validation_references"),
+            (self.cached_permission_map, self._get_permission, "permissions"),
         ]
 
         super().__init__(registry_config, project, repo_path)
 
     def proto(self) -> RegistryProto:
         # proto() is called during the refresh cycle, this implementation only refreshes cached items
+        projects_refreshed = 0
         for project_name, project_ttl in self.cached_project_map.items():
             if (
-                project_name in self.cached_project_map
-                and self.cached_project_map[project_name][1] <= datetime.now()  # type: ignore
+                    project_name in self.cached_project_map
+                    and self.cached_project_map[project_name][1] <= datetime.now()  # type: ignore
             ):
                 try:
                     project_obj = self._get_project(project_name)
@@ -118,8 +119,12 @@ class SqlFallbackRegistry(SqlRegistry):
                         del self.cached_project_map[project_name]
                 except ProjectObjectNotFoundException:
                     del self.cached_project_map[project_name]
+                finally:
+                    projects_refreshed += 1
+        logger.info(f"Refreshed {projects_refreshed} projects in cache")
 
-        def process_expiration(cache_map, get_fn):
+        def process_expiration(cache_map, get_fn, cache_name):
+            obj_refreshed = 0
             for project, items in cache_map.items():
                 for name, (obj, ttl) in items.items():
                     if ttl <= datetime.now():
@@ -131,12 +136,15 @@ class SqlFallbackRegistry(SqlRegistry):
                             )
                         except FeastObjectNotFoundException:
                             del cache_map[project][name]
+                        finally:
+                            obj_refreshed += 1
+            logger.info(f"Refreshed {obj_refreshed} objects in {cache_name} cache")
 
         if self.thread_pool_executor_worker_count == 0:
             logger.info("Starting timer for single threaded self.proto()")
             start = time.time()
-            for cache_map, get_fn in self.cache_process_list:
-                process_expiration(cache_map, get_fn)
+            for cache_map, get_fn, cache_name in self.cache_process_list:
+                process_expiration(cache_map, get_fn, cache_name)
             logger.info(
                 f"Finished processing cache expiration and refresh in {time.time() - start} seconds"
             )
@@ -212,7 +220,7 @@ class SqlFallbackRegistry(SqlRegistry):
         ttl = datetime.now() + self.cached_registry_proto_ttl
 
         self.cached_project_map[name] = (project, ttl)
-        for cache_map, _ in self.cache_process_list:
+        for cache_map, _, _ in self.cache_process_list:
             if name not in cache_map:  # type: ignore
                 cache_map[name] = {}  # type: ignore
         return project
