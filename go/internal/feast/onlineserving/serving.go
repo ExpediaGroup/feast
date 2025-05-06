@@ -14,6 +14,7 @@ import (
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/feast-dev/feast/go/types"
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -123,7 +124,7 @@ func GetFeatureViewsToUseByService(
 		// Create copies of FeatureView that may contains the same *FeatureView but
 		// each differentiated by a *FeatureViewProjection
 		featureViewName := featureProjection.Name
-		if fv, err := registry.GetFeatureView(projectName, featureViewName); err == nil {
+		if fv, fvErr := registry.GetFeatureView(projectName, featureViewName); fvErr == nil {
 			base, err := fv.Base.WithProjection(featureProjection)
 			if err != nil {
 				return nil, nil, nil, err
@@ -141,7 +142,7 @@ func GetFeatureViewsToUseByService(
 						feature.Name)
 			}
 
-		} else if sortedFv, err := registry.GetSortedFeatureView(projectName, featureViewName); err == nil {
+		} else if sortedFv, sortedFvErr := registry.GetSortedFeatureView(projectName, featureViewName); sortedFvErr == nil {
 			base, err := sortedFv.Base.WithProjection(featureProjection)
 			if err != nil {
 				return nil, nil, nil, err
@@ -158,7 +159,7 @@ func GetFeatureViewsToUseByService(
 					addStringIfNotContains(viewNameToSortedViewAndRefs[featureProjection.NameToUse()].FeatureRefs,
 						feature.Name)
 			}
-		} else if odFv, err := registry.GetOnDemandFeatureView(projectName, featureViewName); err == nil {
+		} else if odFv, odFvErr := registry.GetOnDemandFeatureView(projectName, featureViewName); odFvErr == nil {
 			projectedOdFv, err := odFv.NewWithProjection(featureProjection)
 			if err != nil {
 				return nil, nil, nil, err
@@ -173,6 +174,7 @@ func GetFeatureViewsToUseByService(
 				return nil, nil, nil, err
 			}
 		} else {
+			log.Error().Errs("any feature view", []error{fvErr, sortedFvErr, odFvErr}).Msgf("Feature view %s not found", featureViewName)
 			return nil, nil, nil, fmt.Errorf("the provided feature service %s contains a reference to a feature View"+
 				"%s which doesn't exist, please make sure that you have created the feature View"+
 				"%s and that you have registered it by running \"apply\"", featureService.Name, featureViewName, featureViewName)
