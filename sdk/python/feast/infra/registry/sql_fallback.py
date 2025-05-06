@@ -3,7 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union, cast
 
 from pydantic import StrictStr
 from sqlalchemy import Table
@@ -233,10 +233,10 @@ class SqlFallbackRegistry(SqlRegistry):
         deleted_rows = super()._delete_object(
             table, name, project, id_field_name, not_found_exception
         )
-        cache_map = None
+        cache_map: Union[Dict[str, Dict[str, Tuple[Any, datetime]]] | None] = None
         for cm, _, cache_name in self.cache_process_list:
             if cache_name == table.name:
-                cache_map = cm
+                cache_map = cm  # type: ignore
                 break
         if (
             cache_map is not None
@@ -277,8 +277,8 @@ class SqlFallbackRegistry(SqlRegistry):
             if name in self.cached_project_map:
                 del self.cached_project_map[name]
             for cache_map, _, _ in self.cache_process_list:
-                if name in cache_map:
-                    del cache_map[name]
+                if name in cache_map:  # type: ignore
+                    del cache_map[name]  # type: ignore
 
     def get_any_feature_view(
         self, name: str, project: str, allow_cache: bool = False
