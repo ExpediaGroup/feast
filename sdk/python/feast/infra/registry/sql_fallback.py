@@ -55,36 +55,36 @@ class SqlFallbackRegistry(SqlRegistry):
             registry_config, SqlFallbackRegistryConfig
         ), "SqlFallbackRegistry needs a valid registry_config"
 
-        self.cached_project_map: Dict[str, Tuple[Project, datetime | None]] = {}
+        self.cached_project_map: Dict[str, Tuple[Project, datetime]] = {}
         self.cached_data_source_map: Dict[
-            str, Dict[str, Tuple[DataSource, datetime | None]]
+            str, Dict[str, Tuple[DataSource, datetime]]
         ] = {}
         self.cached_entity_map: Dict[
-            str, Dict[str, Tuple[Entity, datetime | None]]
+            str, Dict[str, Tuple[Entity, datetime]]
         ] = {}
         self.cached_feature_service_map: Dict[
-            str, Dict[str, Tuple[FeatureService, datetime | None]]
+            str, Dict[str, Tuple[FeatureService, datetime]]
         ] = {}
         self.cached_feature_view_map: Dict[
-            str, Dict[str, Tuple[FeatureView, datetime | None]]
+            str, Dict[str, Tuple[FeatureView, datetime]]
         ] = {}
         self.cached_on_demand_feature_view_map: Dict[
-            str, Dict[str, Tuple[OnDemandFeatureView, datetime | None]]
+            str, Dict[str, Tuple[OnDemandFeatureView, datetime]]
         ] = {}
         self.cached_permission_map: Dict[
-            str, Dict[str, Tuple[Permission, datetime | None]]
+            str, Dict[str, Tuple[Permission, datetime]]
         ] = {}
         self.cached_saved_dataset_map: Dict[
-            str, Dict[str, Tuple[SavedDataset, datetime | None]]
+            str, Dict[str, Tuple[SavedDataset, datetime]]
         ] = {}
         self.cached_sorted_feature_view_map: Dict[
-            str, Dict[str, Tuple[SortedFeatureView, datetime | None]]
+            str, Dict[str, Tuple[SortedFeatureView, datetime]]
         ] = {}
         self.cached_stream_feature_view_map: Dict[
-            str, Dict[str, Tuple[StreamFeatureView, datetime | None]]
+            str, Dict[str, Tuple[StreamFeatureView, datetime]]
         ] = {}
         self.cached_validation_reference_map: Dict[
-            str, Dict[str, Tuple[ValidationReference, datetime | None]]
+            str, Dict[str, Tuple[ValidationReference, datetime]]
         ] = {}
 
         self.cache_process_list = [
@@ -107,7 +107,6 @@ class SqlFallbackRegistry(SqlRegistry):
         for project_name, project_ttl in self.cached_project_map.items():
             if (
                 project_name in self.cached_project_map
-                and self.cached_project_map[project_name][1] is not None
                 and self.cached_project_map[project_name][1] <= datetime.now()  # type: ignore
             ):
                 try:
@@ -125,7 +124,7 @@ class SqlFallbackRegistry(SqlRegistry):
         def process_expiration(cache_map, get_fn):
             for project, items in cache_map.items():
                 for name, (obj, ttl) in items.items():
-                    if ttl and ttl <= datetime.now():
+                    if ttl <= datetime.now():
                         try:
                             obj = get_fn(name, project)
                             cache_map[project][name] = (
@@ -163,22 +162,20 @@ class SqlFallbackRegistry(SqlRegistry):
 
     def _cache_obj_with_ttl(
         self,
-        cache_map: Dict[str, Dict[str, Tuple[Any, datetime | None]]],
+        cache_map: Dict[str, Dict[str, Tuple[Any, datetime]]],
         name: str,
         project: str,
         obj: Any,
     ):
-        ttl = None
         if project not in cache_map:
             cache_map[project] = {}
 
-        if self.cached_registry_proto_ttl:
-            ttl = datetime.now() + self.cached_registry_proto_ttl
+        ttl = datetime.now() + self.cached_registry_proto_ttl
         cache_map[project][name] = (obj, ttl)
 
     def _get_and_cache_object(
         self,
-        cache_map: Dict[str, Dict[str, Tuple[Any, datetime | None]]],
+        cache_map: Dict[str, Dict[str, Tuple[Any, datetime]]],
         get_fn: Callable,
         name: str,
         project: str,
@@ -214,9 +211,7 @@ class SqlFallbackRegistry(SqlRegistry):
         if name in self.cache_exempt_projects:
             return project
 
-        ttl = None
-        if self.cached_registry_proto_ttl:
-            ttl = datetime.now() + self.cached_registry_proto_ttl
+        ttl = datetime.now() + self.cached_registry_proto_ttl
 
         self.cached_project_map[name] = (project, ttl)
         for cache_map, _ in self.cache_process_list:
