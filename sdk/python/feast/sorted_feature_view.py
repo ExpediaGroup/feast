@@ -13,7 +13,7 @@ from feast.feature_view import FeatureView
 from feast.feature_view_projection import FeatureViewProjection
 from feast.field import Field
 from feast.protos.feast.core.SortedFeatureView_pb2 import (
-    SortedFeatureView as SortedFeatureViewProto,
+    SortedFeatureView as SortedFeatureViewProto, SortOrder,
 )
 from feast.protos.feast.core.SortedFeatureView_pb2 import (
     SortedFeatureViewSpec as SortedFeatureViewSpecProto,
@@ -121,7 +121,13 @@ class SortedFeatureView(FeatureView):
                 "SortedFeatureView must have at least one sort key defined."
             )
 
+        seen_sort_keys = set()
         for sort_key in self.sort_keys:
+            # Check for duplicate sort keys
+            if sort_key.name in seen_sort_keys:
+                raise ValueError(f"Duplicate sort key found: '{sort_key.name}'.")
+            seen_sort_keys.add(sort_key.name)
+
             # Sort keys should not conflict with entity names.
             if sort_key.name in self.entities:
                 raise ValueError(
