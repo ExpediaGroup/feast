@@ -473,7 +473,9 @@ def test_sorted_feature_view_invalid_sort_key_order_int():
     Test that a SortedFeatureView fails validation if default_sort_order is incorrect.
     """
 
-    with pytest.raises(ValueError, match="default_sort_order must be SortOrder.ASC or SortOrder.DESC"):
+    with pytest.raises(
+        ValueError, match="default_sort_order must be SortOrder.ASC or SortOrder.DESC"
+    ):
         SortKey(
             name="dup_field",
             value_type=ValueType.INT64,

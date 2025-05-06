@@ -30,7 +30,7 @@ class SortKey:
         self,
         name: str,
         value_type: ValueType,
-        default_sort_order: Union[str, int] = SortOrder.ASC,
+        default_sort_order: Union[str, SortOrder.Enum.ValueType] = SortOrder.ASC,
         tags: Optional[Dict[str, str]] = None,
         description: str = "",
     ):
@@ -40,7 +40,9 @@ class SortKey:
             except ValueError:
                 raise ValueError("default_sort_order must be 'ASC' or 'DESC'")
         if default_sort_order not in (SortOrder.ASC, SortOrder.DESC):
-            raise ValueError("default_sort_order must be SortOrder.ASC or SortOrder.DESC")
+            raise ValueError(
+                "default_sort_order must be SortOrder.ASC or SortOrder.DESC"
+            )
         self.name = name
         # TODO: Handle ValueType conversion, user should be able to pass in a dtype instead of ValueType
         self.value_type = value_type

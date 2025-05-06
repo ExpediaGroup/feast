@@ -13,7 +13,7 @@ from feast.feature_view import FeatureView
 from feast.feature_view_projection import FeatureViewProjection
 from feast.field import Field
 from feast.protos.feast.core.SortedFeatureView_pb2 import (
-    SortedFeatureView as SortedFeatureViewProto, SortOrder,
+    SortedFeatureView as SortedFeatureViewProto,
 )
 from feast.protos.feast.core.SortedFeatureView_pb2 import (
     SortedFeatureViewSpec as SortedFeatureViewSpecProto,
