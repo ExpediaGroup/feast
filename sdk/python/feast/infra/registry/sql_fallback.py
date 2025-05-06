@@ -59,9 +59,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self.cached_data_source_map: Dict[
             str, Dict[str, Tuple[DataSource, datetime]]
         ] = {}
-        self.cached_entity_map: Dict[
-            str, Dict[str, Tuple[Entity, datetime]]
-        ] = {}
+        self.cached_entity_map: Dict[str, Dict[str, Tuple[Entity, datetime]]] = {}
         self.cached_feature_service_map: Dict[
             str, Dict[str, Tuple[FeatureService, datetime]]
         ] = {}
