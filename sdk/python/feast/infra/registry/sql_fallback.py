@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from pydantic import StrictStr
+from sqlalchemy import Table
 
 from feast import (
     Entity,
@@ -88,13 +89,33 @@ class SqlFallbackRegistry(SqlRegistry):
         self.cache_process_list = [
             (self.cached_data_source_map, self._get_data_source, "data_sources"),
             (self.cached_entity_map, self._get_entity, "entities"),
-            (self.cached_feature_service_map, self._get_feature_service, "feature_services"),
+            (
+                self.cached_feature_service_map,
+                self._get_feature_service,
+                "feature_services",
+            ),
             (self.cached_feature_view_map, self._get_feature_view, "feature_views"),
-            (self.cached_on_demand_feature_view_map, self._get_on_demand_feature_view, "on_demand_feature_views"),
-            (self.cached_sorted_feature_view_map, self._get_sorted_feature_view, "sorted_feature_views"),
-            (self.cached_stream_feature_view_map, self._get_stream_feature_view, "stream_feature_views"),
+            (
+                self.cached_on_demand_feature_view_map,
+                self._get_on_demand_feature_view,
+                "on_demand_feature_views",
+            ),
+            (
+                self.cached_sorted_feature_view_map,
+                self._get_sorted_feature_view,
+                "sorted_feature_views",
+            ),
+            (
+                self.cached_stream_feature_view_map,
+                self._get_stream_feature_view,
+                "stream_feature_views",
+            ),
             (self.cached_saved_dataset_map, self._get_saved_dataset, "saved_datasets"),
-            (self.cached_validation_reference_map, self._get_validation_reference, "validation_references"),
+            (
+                self.cached_validation_reference_map,
+                self._get_validation_reference,
+                "validation_references",
+            ),
             (self.cached_permission_map, self._get_permission, "permissions"),
         ]
 
@@ -105,8 +126,8 @@ class SqlFallbackRegistry(SqlRegistry):
         projects_refreshed = 0
         for project_name, project_ttl in self.cached_project_map.items():
             if (
-                    project_name in self.cached_project_map
-                    and self.cached_project_map[project_name][1] <= datetime.now()  # type: ignore
+                project_name in self.cached_project_map
+                and self.cached_project_map[project_name][1] <= datetime.now()  # type: ignore
             ):
                 try:
                     project_obj = self._get_project(project_name)
@@ -201,6 +222,30 @@ class SqlFallbackRegistry(SqlRegistry):
         self._cache_obj_with_ttl(cache_map, name, project, obj)
         return obj
 
+    def _delete_object(
+        self,
+        table: Table,
+        name: str,
+        project: str,
+        id_field_name: str,
+        not_found_exception: Optional[Callable],
+    ):
+        deleted_rows = super()._delete_object(
+            table, name, project, id_field_name, not_found_exception
+        )
+        cache_map = None
+        for cm, _, cache_name in self.cache_process_list:
+            if cache_name == table.name:
+                cache_map = cm
+                break
+        if (
+            cache_map is not None
+            and project in cache_map
+            and name in cache_map[project]
+        ):
+            del cache_map[project][name]
+        return deleted_rows
+
     def get_project(
         self,
         name: str,
@@ -224,6 +269,16 @@ class SqlFallbackRegistry(SqlRegistry):
             if name not in cache_map:  # type: ignore
                 cache_map[name] = {}  # type: ignore
         return project
+
+    def delete_project(self, name: str, commit: bool = True):
+        super().delete_project(name, commit)
+        if commit:
+            # Clear the cache for the deleted project
+            if name in self.cached_project_map:
+                del self.cached_project_map[name]
+            for cache_map, _, _ in self.cache_process_list:
+                if name in cache_map:
+                    del cache_map[name]
 
     def get_any_feature_view(
         self, name: str, project: str, allow_cache: bool = False
