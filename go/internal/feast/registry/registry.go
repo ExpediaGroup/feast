@@ -177,13 +177,17 @@ func (r *Registry) GetEntity(project string, entityName string) (*model.Entity, 
 	r.mu.RUnlock()
 	if !ok && r.registryStore.HasFallback() {
 		return r.GetEntityFromRegistry(entityName, project)
-	} else {
-		if cachedEntity, ok := cachedEntities[entityName]; !ok {
-			return nil, fmt.Errorf("no cached entity %s found for project %s", entityName, project)
-		} else {
-			return cachedEntity.Model, nil
-		}
+	} else if !ok {
+		return nil, fmt.Errorf("no cached entities found for project %s", project)
 	}
+
+	cachedEntity, modelOk := cachedEntities[entityName]
+	if !modelOk && r.registryStore.HasFallback() {
+		return r.GetEntityFromRegistry(entityName, project)
+	} else if !ok {
+		return nil, fmt.Errorf("no cached entity %s found for project %s", entityName, project)
+	}
+	return cachedEntity.Model, nil
 }
 
 func (r *Registry) GetEntityFromRegistry(entityName string, project string) (*model.Entity, error) {
@@ -233,10 +237,10 @@ func (r *Registry) GetSortedFeatureView(project string, sortedFeatureViewName st
 		return nil, fmt.Errorf("no cached sorted feature views found for project %s", project)
 	}
 
-	cachedSortedFeatureView, protoOk := cachedSortedFeatureViews[sortedFeatureViewName]
-	if !protoOk && r.registryStore.HasFallback() {
+	cachedSortedFeatureView, modelOk := cachedSortedFeatureViews[sortedFeatureViewName]
+	if !modelOk && r.registryStore.HasFallback() {
 		return r.GetSortedFeatureViewFromRegistry(sortedFeatureViewName, project)
-	} else if !protoOk {
+	} else if !modelOk {
 		return nil, fmt.Errorf("no cached sorted feature view %s found for project %s", sortedFeatureViewName, project)
 	}
 	return cachedSortedFeatureView.Model, nil
@@ -253,16 +257,21 @@ func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string
 
 func (r *Registry) GetFeatureService(project string, featureServiceName string) (*model.FeatureService, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if cachedFeatureServices, ok := r.cachedFeatureServices[project]; !ok {
+	cachedFeatureServices, ok := r.cachedFeatureServices[project]
+	r.mu.RUnlock()
+	if !ok && r.registryStore.HasFallback() {
+		return r.GetFeatureServiceFromRegistry(featureServiceName, project)
+	} else if !ok {
 		return nil, fmt.Errorf("no cached feature services found for project %s", project)
-	} else {
-		if cachedFeatureService, ok := cachedFeatureServices[featureServiceName]; !ok {
-			return nil, fmt.Errorf("no cached feature service %s found for project %s", featureServiceName, project)
-		} else {
-			return cachedFeatureService.Model, nil
-		}
 	}
+
+	cachedFeatureService, modelOk := cachedFeatureServices[featureServiceName]
+	if !modelOk && r.registryStore.HasFallback() {
+		return r.GetFeatureServiceFromRegistry(featureServiceName, project)
+	} else if !modelOk {
+		return nil, fmt.Errorf("no cached feature service %s found for project %s", featureServiceName, project)
+	}
+	return cachedFeatureService.Model, nil
 }
 
 func (r *Registry) GetFeatureServiceFromRegistry(featureServiceName string, project string) (*model.FeatureService, error) {
