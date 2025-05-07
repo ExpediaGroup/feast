@@ -190,10 +190,12 @@ func (r *Registry) GetEntity(project string, entityName string) (*model.Entity, 
 	}
 
 	cachedEntity, modelOk := cachedEntities[entityName]
-	if !modelOk && r.registryStore.HasFallback() {
-		return r.GetEntityFromRegistry(entityName, project)
-	} else if !ok {
-		return nil, fmt.Errorf("no cached entity %s found for project %s", entityName, project)
+	if !modelOk {
+		if r.registryStore.HasFallback() {
+			return r.GetEntityFromRegistry(entityName, project)
+		} else {
+			return nil, fmt.Errorf("no cached entity %s found for project %s", entityName, project)
+		}
 	}
 	return cachedEntity.Model, nil
 }
@@ -218,11 +220,13 @@ func (r *Registry) GetFeatureView(project string, featureViewName string) (*mode
 		return nil, fmt.Errorf("no cached feature views found for project %s", project)
 	}
 
-	cachedFeatureView, ok := cachedFeatureViews[featureViewName]
-	if !ok && r.registryStore.HasFallback() {
-		return r.GetFeatureViewFromRegistry(featureViewName, project)
-	} else if !ok {
-		return nil, fmt.Errorf("no cached feature view %s found for project %s", featureViewName, project)
+	cachedFeatureView, modelOk := cachedFeatureViews[featureViewName]
+	if !modelOk {
+		if r.registryStore.HasFallback() {
+			return r.GetFeatureViewFromRegistry(featureViewName, project)
+		} else {
+			return nil, fmt.Errorf("no cached feature view %s found for project %s", featureViewName, project)
+		}
 	}
 	return cachedFeatureView.Model, nil
 }
@@ -248,10 +252,12 @@ func (r *Registry) GetSortedFeatureView(project string, sortedFeatureViewName st
 	}
 
 	cachedSortedFeatureView, modelOk := cachedSortedFeatureViews[sortedFeatureViewName]
-	if !modelOk && r.registryStore.HasFallback() {
-		return r.GetSortedFeatureViewFromRegistry(sortedFeatureViewName, project)
-	} else if !modelOk {
-		return nil, fmt.Errorf("no cached sorted feature view %s found for project %s", sortedFeatureViewName, project)
+	if !modelOk {
+		if r.registryStore.HasFallback() {
+			return r.GetSortedFeatureViewFromRegistry(sortedFeatureViewName, project)
+		} else {
+			return nil, fmt.Errorf("no cached sorted feature view %s found for project %s", sortedFeatureViewName, project)
+		}
 	}
 	return cachedSortedFeatureView.Model, nil
 }
@@ -277,10 +283,12 @@ func (r *Registry) GetFeatureService(project string, featureServiceName string) 
 	}
 
 	cachedFeatureService, modelOk := cachedFeatureServices[featureServiceName]
-	if !modelOk && r.registryStore.HasFallback() {
-		return r.GetFeatureServiceFromRegistry(featureServiceName, project)
-	} else if !modelOk {
-		return nil, fmt.Errorf("no cached feature service %s found for project %s", featureServiceName, project)
+	if !modelOk {
+		if r.registryStore.HasFallback() {
+			return r.GetFeatureServiceFromRegistry(featureServiceName, project)
+		} else {
+			return nil, fmt.Errorf("no cached feature service %s found for project %s", featureServiceName, project)
+		}
 	}
 	return cachedFeatureService.Model, nil
 }
@@ -297,16 +305,23 @@ func (r *Registry) GetFeatureServiceFromRegistry(featureServiceName string, proj
 
 func (r *Registry) GetOnDemandFeatureView(project string, onDemandFeatureViewName string) (*model.OnDemandFeatureView, error) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if cachedOnDemandFeatureViews, ok := r.cachedOnDemandFeatureViews[project]; !ok {
+	cachedOnDemandFeatureViews, ok := r.cachedOnDemandFeatureViews[project]
+	r.mu.RUnlock()
+	if !ok && r.registryStore.HasFallback() {
+		return r.GetOnDemandFeatureViewFromRegistry(onDemandFeatureViewName, project)
+	} else if !ok {
 		return nil, fmt.Errorf("no cached on demand feature views found for project %s", project)
-	} else {
-		if cachedOnDemandFeatureView, ok := cachedOnDemandFeatureViews[onDemandFeatureViewName]; !ok {
-			return nil, fmt.Errorf("no cached on demand feature view %s found for project %s", onDemandFeatureViewName, project)
+	}
+
+	cachedOnDemandFeatureView, modelOk := cachedOnDemandFeatureViews[onDemandFeatureViewName]
+	if !modelOk {
+		if r.registryStore.HasFallback() {
+			return r.GetOnDemandFeatureViewFromRegistry(onDemandFeatureViewName, project)
 		} else {
-			return cachedOnDemandFeatureView.Model, nil
+			return nil, fmt.Errorf("no cached on demand feature view %s found for project %s", onDemandFeatureViewName, project)
 		}
 	}
+	return cachedOnDemandFeatureView.Model, nil
 }
 
 func (r *Registry) GetOnDemandFeatureViewFromRegistry(onDemandFeatureViewName string, project string) (*model.OnDemandFeatureView, error) {

@@ -156,22 +156,6 @@ func (r *HttpRegistryStore) getFeatureView(name string, allowCache bool) (*core.
 	return featureView, nil
 }
 
-func (r *HttpRegistryStore) getStreamFeatureView(name string, allowCache bool) (*core.StreamFeatureView, error) {
-	url := fmt.Sprintf("%s/projects/%s/stream_feature_views/%s?allow_cache=%t", r.endpoint, r.project, name, allowCache)
-	streamFeatureView := &core.StreamFeatureView{}
-	err := r.loadProtobufMessages(url, func(data []byte) error {
-		if err := proto.Unmarshal(data, streamFeatureView); err != nil {
-			return err
-		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-	return streamFeatureView, nil
-}
-
 func (r *HttpRegistryStore) getOnDemandFeatureView(name string, allowCache bool) (*core.OnDemandFeatureView, error) {
 	url := fmt.Sprintf("%s/projects/%s/on_demand_feature_views/%s?allow_cache=%t", r.endpoint, r.project, name, allowCache)
 	onDemandFeatureView := &core.OnDemandFeatureView{}
