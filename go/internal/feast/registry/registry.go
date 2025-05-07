@@ -113,7 +113,7 @@ func (r *Registry) refresh() error {
 func expireCachedModels[T any](cachedModels map[string]map[string]*model.ModelTTL[T], ttl time.Duration, getModel func(string, string) (T, error), r *Registry) {
 	r.mu.Lock()
 	tempCacheMap := make(map[string]map[string]*model.ModelTTL[T])
-	maps.Copy(cachedModels, tempCacheMap)
+	maps.Copy(tempCacheMap, cachedModels)
 	r.mu.Unlock()
 
 	for project, cache := range tempCacheMap {
@@ -130,7 +130,7 @@ func expireCachedModels[T any](cachedModels map[string]map[string]*model.ModelTT
 	}
 
 	r.mu.Lock()
-	maps.Copy(tempCacheMap, cachedModels)
+	maps.Copy(cachedModels, tempCacheMap)
 	r.mu.Unlock()
 }
 
