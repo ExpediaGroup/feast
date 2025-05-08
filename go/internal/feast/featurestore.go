@@ -373,49 +373,6 @@ func checkEntitylessCase(views interface{}) bool {
 	return false
 }
 
-func (fs *FeatureStore) ListFeatureViews() ([]*model.FeatureView, error) {
-	featureViews, err := fs.registry.ListFeatureViews(fs.config.Project)
-	if err != nil {
-		return featureViews, err
-	}
-	return featureViews, nil
-}
-
-func (fs *FeatureStore) ListSortedFeatureViews() ([]*model.SortedFeatureView, error) {
-	sortedFeatureViews, err := fs.registry.ListSortedFeatureViews(fs.config.Project)
-	if err != nil {
-		return sortedFeatureViews, err
-	}
-	return sortedFeatureViews, nil
-}
-
-func (fs *FeatureStore) ListStreamFeatureViews() ([]*model.FeatureView, error) {
-	streamFeatureViews, err := fs.registry.ListStreamFeatureViews(fs.config.Project)
-	if err != nil {
-		return streamFeatureViews, err
-	}
-	return streamFeatureViews, nil
-}
-
-func (fs *FeatureStore) ListEntities(hideDummyEntity bool) ([]*model.Entity, error) {
-
-	allEntities, err := fs.registry.ListEntities(fs.config.Project)
-	if err != nil {
-		return allEntities, err
-	}
-	entities := make([]*model.Entity, 0)
-	for _, entity := range allEntities {
-		if entity.Name != model.DUMMY_ENTITY_NAME || !hideDummyEntity {
-			entities = append(entities, entity)
-		}
-	}
-	return entities, nil
-}
-
-func (fs *FeatureStore) ListOnDemandFeatureViews() ([]*model.OnDemandFeatureView, error) {
-	return fs.registry.ListOnDemandFeatureViews(fs.config.Project)
-}
-
 /*
 Group feature views that share the same set of join keys. For each group, we store only unique rows and save indices to retrieve those
 rows for each requested feature
