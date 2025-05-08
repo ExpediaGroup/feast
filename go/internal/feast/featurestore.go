@@ -373,6 +373,49 @@ func checkEntitylessCase(views interface{}) bool {
 	return false
 }
 
+func (fs *FeatureStore) ListFeatureViews() ([]*model.FeatureView, error) {
+	featureViews, err := fs.registry.ListFeatureViews(fs.config.Project)
+	if err != nil {
+		return featureViews, err
+	}
+	return featureViews, nil
+}
+
+func (fs *FeatureStore) ListSortedFeatureViews() ([]*model.SortedFeatureView, error) {
+	sortedFeatureViews, err := fs.registry.ListSortedFeatureViews(fs.config.Project)
+	if err != nil {
+		return sortedFeatureViews, err
+	}
+	return sortedFeatureViews, nil
+}
+
+func (fs *FeatureStore) ListStreamFeatureViews() ([]*model.FeatureView, error) {
+	streamFeatureViews, err := fs.registry.ListStreamFeatureViews(fs.config.Project)
+	if err != nil {
+		return streamFeatureViews, err
+	}
+	return streamFeatureViews, nil
+}
+
+func (fs *FeatureStore) ListEntities(hideDummyEntity bool) ([]*model.Entity, error) {
+
+	allEntities, err := fs.registry.ListEntities(fs.config.Project)
+	if err != nil {
+		return allEntities, err
+	}
+	entities := make([]*model.Entity, 0)
+	for _, entity := range allEntities {
+		if entity.Name != model.DUMMY_ENTITY_NAME || !hideDummyEntity {
+			entities = append(entities, entity)
+		}
+	}
+	return entities, nil
+}
+
+func (fs *FeatureStore) ListOnDemandFeatureViews() ([]*model.OnDemandFeatureView, error) {
+	return fs.registry.ListOnDemandFeatureViews(fs.config.Project)
+}
+
 /*
 Group feature views that share the same set of join keys. For each group, we store only unique rows and save indices to retrieve those
 rows for each requested feature
@@ -438,83 +481,46 @@ func getFullFeatureName(featureViewName string, featureName string) string {
 	return fmt.Sprintf("%s__%s", featureViewName, featureName)
 }
 
-func (fs *FeatureStore) GetFcosMap(featureServiceName string) ([]string, []string, []string, map[string]prototypes.ValueType_Enum, map[string]prototypes.ValueType_Enum, map[string]prototypes.ValueType_Enum, error) {
+func (fs *FeatureStore) GetFcosMap(featureServiceName string) (*model.FeatureService, map[string]*model.Entity, map[string]*model.FeatureView, map[string]*model.SortedFeatureView, map[string]*model.OnDemandFeatureView, error) {
 	featureService, err := fs.GetFeatureService(featureServiceName)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 
-	joinKeys := make([]string, 0)
-	features := make([]string, 0)
-	requestData := make([]string, 0)
-
-	joinKeysSet := make(map[string]interface{})
-
-	entityJoinKeyToType := make(map[string]prototypes.ValueType_Enum)
-	allFeatureTypes := make(map[string]prototypes.ValueType_Enum)
-	requestDataTypes := make(map[string]prototypes.ValueType_Enum)
+	fvMap := make(map[string]*model.FeatureView)
+	sortedFvMap := make(map[string]*model.SortedFeatureView)
+	odfvMap := make(map[string]*model.OnDemandFeatureView)
+	entityNames := make(map[string]bool)
+	entityMap := make(map[string]*model.Entity)
 
 	for _, featureProjection := range featureService.Projections {
 		// Create copies of FeatureView that may contains the same *FeatureView but
 		// each differentiated by a *FeatureViewProjection
 		featureViewName := featureProjection.Name
 		if fv, ok := fs.registry.GetFeatureView(fs.config.Project, featureViewName); ok == nil {
-			for _, f := range featureProjection.Features {
-				fullFeatureName := getFullFeatureName(featureProjection.NameToUse(), f.Name)
-				features = append(features, fullFeatureName)
-				allFeatureTypes[fullFeatureName] = f.Dtype
-			}
-			for _, entityColumn := range fv.EntityColumns {
-				var joinKey string
-				if joinKeyAlias, ok := featureProjection.JoinKeyMap[entityColumn.Name]; ok {
-					joinKey = joinKeyAlias
-				} else {
-					joinKey = entityColumn.Name
-				}
+			fvMap[fv.Base.Name] = fv
 
-				if _, ok := joinKeysSet[joinKey]; !ok {
-					joinKeys = append(joinKeys, joinKey)
-				}
-
-				joinKeysSet[joinKey] = nil
-				entityJoinKeyToType[joinKey] = entityColumn.Dtype
+			for _, e := range fv.EntityNames {
+				entityMap[e] = nil
 			}
 		} else if sortedFv, ok := fs.registry.GetSortedFeatureView(fs.config.Project, featureViewName); ok == nil {
-			for _, f := range featureProjection.Features {
-				fullFeatureName := getFullFeatureName(featureProjection.NameToUse(), f.Name)
-				features = append(features, fullFeatureName)
-				allFeatureTypes[fullFeatureName] = f.Dtype
-			}
-			for _, entityColumn := range sortedFv.EntityColumns {
-				var joinKey string
-				if joinKeyAlias, ok := featureProjection.JoinKeyMap[entityColumn.Name]; ok {
-					joinKey = joinKeyAlias
-				} else {
-					joinKey = entityColumn.Name
-				}
+			sortedFvMap[sortedFv.Base.Name] = sortedFv
 
-				if _, ok := joinKeysSet[joinKey]; !ok {
-					joinKeys = append(joinKeys, joinKey)
-				}
-
-				joinKeysSet[joinKey] = nil
-				entityJoinKeyToType[joinKey] = entityColumn.Dtype
+			for _, e := range fv.EntityNames {
+				entityMap[e] = nil
 			}
-		} else if odFv, ok := fs.registry.GetOnDemandFeatureView(fs.config.Project, featureViewName); ok == nil {
-			for _, f := range featureProjection.Features {
-				fullFeatureName := getFullFeatureName(featureProjection.NameToUse(), f.Name)
-				features = append(features, fullFeatureName)
-				allFeatureTypes[fullFeatureName] = f.Dtype
-			}
-			for paramName, paramType := range odFv.GetRequestDataSchema() {
-				requestData = append(requestData, paramName)
-				requestDataTypes[paramName] = paramType
-			}
-		} else {
-			return nil, nil, nil, nil, nil, nil, fmt.Errorf("no such feature view %s found (referenced from feature service %s)",
-				featureViewName, featureService.Name)
+		} else if odFv, err := fs.registry.GetOnDemandFeatureView(fs.config.Project, featureViewName); err == nil {
+			odfvMap[odFv.Base.Name] = odFv
 		}
 	}
 
-	return joinKeys, features, requestData, entityJoinKeyToType, allFeatureTypes, requestDataTypes, nil
+	for entityName := range entityNames {
+		if entity, err := fs.registry.GetEntity(fs.config.Project, entityName); err != nil {
+			entityMap[entityName] = entity
+		} else {
+			delete(entityMap, entityName)
+		}
+	}
+
+	return featureService, entityMap, fvMap, sortedFvMap, odfvMap, nil
 }

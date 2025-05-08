@@ -3,7 +3,6 @@ package registry
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"net/url"
 	"reflect"
 	"sync"
@@ -110,10 +109,20 @@ func (r *Registry) refresh() error {
 	return nil
 }
 
+func deepCopy[T any](src map[string]map[string]*model.ModelTTL[T]) map[string]map[string]*model.ModelTTL[T] {
+	dest := make(map[string]map[string]*model.ModelTTL[T])
+	for k, vmap := range src {
+		dest[k] = make(map[string]*model.ModelTTL[T])
+		for l, m := range vmap {
+			dest[k][l] = m.Copy()
+		}
+	}
+	return dest
+}
+
 func expireCachedModels[T any](cachedModels map[string]map[string]*model.ModelTTL[T], ttl time.Duration, getModel func(string, string) (T, error), r *Registry) {
 	r.mu.Lock()
-	tempCacheMap := make(map[string]map[string]*model.ModelTTL[T])
-	maps.Copy(tempCacheMap, cachedModels)
+	tempCacheMap := deepCopy(cachedModels)
 	r.mu.Unlock()
 
 	for project, cache := range tempCacheMap {
@@ -130,7 +139,7 @@ func expireCachedModels[T any](cachedModels map[string]map[string]*model.ModelTT
 	}
 
 	r.mu.Lock()
-	maps.Copy(cachedModels, tempCacheMap)
+	cachedModels = deepCopy(tempCacheMap)
 	r.mu.Unlock()
 }
 

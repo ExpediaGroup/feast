@@ -14,8 +14,8 @@ func (m *ModelTTL[T]) IsExpired() bool {
 	return time.Now().After(m.ttl)
 }
 
-func NewModelTTL[T any](model T) *ModelTTL[T] {
-	return &ModelTTL[T]{Model: model}
+func (m *ModelTTL[T]) Copy() *ModelTTL[T] {
+	return &ModelTTL[T]{Model: m.Model, ttl: m.ttl}
 }
 
 func NewModelTTLWithExpiration[T any](model T, ttl time.Duration) *ModelTTL[T] {

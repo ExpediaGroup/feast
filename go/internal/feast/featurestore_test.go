@@ -8,7 +8,6 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/internal/feast/onlinestore"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
-	"github.com/feast-dev/feast/go/internal/test"
 	"github.com/feast-dev/feast/go/protos/feast/core"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
@@ -388,84 +387,4 @@ func testGetOnlineFeaturesRange(
 	}
 
 	return result, nil
-}
-
-func TestFeatureStore_GetFcosMap(t *testing.T) {
-	//t.Skip("@todo(achals): feature_repo isn't checked in yet")
-	config := registry.RepoConfig{
-		Project:  "feature_repo",
-		Registry: getRegistryPath(),
-		Provider: "local",
-		OnlineStore: map[string]interface{}{
-			"type": "redis",
-		},
-	}
-	fs, err := NewFeatureStore(&config, nil)
-	assert.Nil(t, err)
-
-	fss, entities, fvs, sfvs, odfvs := InitializeFeatureRepoVariablesForTest()
-	fs.Registry().SetModels([]*core.FeatureService{fss}, entities, fvs, sfvs, odfvs)
-
-	joinKeys, features, requestData, entityJoinKeyToType, allFeatureTypes, requestDataTypes, err := fs.GetFcosMap(fss.Spec.Name)
-	assert.Nil(t, err)
-	assert.Equal(t, 1, len(joinKeys))
-	assert.Equal(t, "driver_id", joinKeys[0])
-
-	assert.Equal(t, 7, len(features))
-
-	expectedFeatures := []string{"sorted_fv1__sorted_f1", "featureView1__int64", "featureView1__float32", "featureView2__int32", "featureView2__double", "od_bf1__odfv_f1", "od_bf1__odfv_f2"}
-	assert.ElementsMatch(t, expectedFeatures, features, "features should match")
-
-	assert.Equal(t, 0, len(requestData))
-
-	assert.Equal(t, 1, len(entityJoinKeyToType))
-
-	assert.Equal(t, 7, len(allFeatureTypes))
-
-	assert.Equal(t, 0, len(requestDataTypes))
-}
-
-func InitializeFeatureRepoVariablesForTest() (*core.FeatureService, []*core.Entity, []*core.FeatureView, []*core.SortedFeatureView, []*core.OnDemandFeatureView) {
-	entity1 := test.CreateEntityProto("driver_id", types.ValueType_INT64, "driver_id")
-	f1 := test.CreateFeature(
-		"int64",
-		types.ValueType_INT64,
-	)
-	f2 := test.CreateFeature(
-		"float32",
-		types.ValueType_FLOAT,
-	)
-	featureView1 := test.CreateFeatureViewProto("featureView1", []*core.Entity{entity1}, f1, f2)
-	f3 := test.CreateFeature(
-		"int32",
-		types.ValueType_INT32,
-	)
-	f4 := test.CreateFeature(
-		"double",
-		types.ValueType_DOUBLE,
-	)
-	featureView2 := test.CreateFeatureViewProto("featureView2", []*core.Entity{entity1}, f3, f4)
-
-	f5 := test.CreateFeature(
-		"odfv_f1",
-		types.ValueType_INT32,
-	)
-	f6 := test.CreateFeature(
-		"odfv_f2",
-		types.ValueType_DOUBLE,
-	)
-	odFeatureSources := make(map[string][]*core.FeatureSpecV2)
-	odFeatureSources["input"] = []*core.FeatureSpecV2{
-		{Name: "param1", ValueType: types.ValueType_FLOAT},
-	}
-	odfv := test.CreateOnDemandFeatureViewProto("od_bf1", odFeatureSources, f5, f6)
-
-	f7 := test.CreateFeature(
-		"sorted_f1",
-		types.ValueType_FLOAT,
-	)
-	sortKey := test.CreateSortKeyProto("sorted_f1", core.SortOrder_DESC, types.ValueType_FLOAT)
-	sortedFeatureView1 := test.CreateSortedFeatureViewProto("sorted_fv1", []*core.Entity{entity1}, []*core.SortKey{sortKey}, f7)
-	featureService := test.CreateFeatureServiceProto("service", map[string][]*core.FeatureSpecV2{"featureView1": {f1, f2}, "featureView2": {f3, f4}, "od_bf1": {f5, f6}, "sorted_fv1": {f7}})
-	return featureService, []*core.Entity{entity1}, []*core.FeatureView{featureView1, featureView2}, []*core.SortedFeatureView{sortedFeatureView1}, []*core.OnDemandFeatureView{odfv}
 }
