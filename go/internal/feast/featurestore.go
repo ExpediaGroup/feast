@@ -434,10 +434,6 @@ func (fs *FeatureStore) readRangeFromOnlineStore(
 		limit)
 }
 
-func getFullFeatureName(featureViewName string, featureName string) string {
-	return fmt.Sprintf("%s__%s", featureViewName, featureName)
-}
-
 func (fs *FeatureStore) GetFcosMap(featureServiceName string) (*model.FeatureService, map[string]*model.Entity, map[string]*model.FeatureView, map[string]*model.SortedFeatureView, map[string]*model.OnDemandFeatureView, error) {
 	featureService, err := fs.GetFeatureService(featureServiceName)
 	if err != nil {
@@ -475,7 +471,7 @@ func (fs *FeatureStore) GetFcosMap(featureServiceName string) (*model.FeatureSer
 		if entity, err := fs.registry.GetEntity(fs.config.Project, entityName); err != nil {
 			entityMap[entityName] = entity
 		} else {
-			delete(entityMap, entityName)
+			return nil, nil, nil, nil, nil, fmt.Errorf("entity %s not found in registry", entityName)
 		}
 	}
 
