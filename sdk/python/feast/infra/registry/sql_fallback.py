@@ -32,7 +32,20 @@ from feast.errors import (
     SortedFeatureViewNotFoundException,
     ValidationReferenceNotFound,
 )
-from feast.infra.registry.sql import SqlRegistry, SqlRegistryConfig
+from feast.infra.registry.sql import (
+    SqlRegistry,
+    SqlRegistryConfig,
+    data_sources,
+    entities,
+    feature_services,
+    feature_views,
+    on_demand_feature_views,
+    permissions,
+    saved_datasets,
+    sorted_feature_views,
+    stream_feature_views,
+    validation_references,
+)
 from feast.permissions.permission import Permission
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.saved_dataset import SavedDataset, ValidationReference
@@ -87,36 +100,40 @@ class SqlFallbackRegistry(SqlRegistry):
         ] = {}
 
         self.cache_process_list = [
-            (self.cached_data_source_map, self._get_data_source, "data_sources"),
-            (self.cached_entity_map, self._get_entity, "entities"),
+            (self.cached_data_source_map, self._get_data_source, data_sources.name),
+            (self.cached_entity_map, self._get_entity, entities.name),
             (
                 self.cached_feature_service_map,
                 self._get_feature_service,
-                "feature_services",
+                feature_services.name,
             ),
-            (self.cached_feature_view_map, self._get_feature_view, "feature_views"),
+            (self.cached_feature_view_map, self._get_feature_view, feature_views.name),
             (
                 self.cached_on_demand_feature_view_map,
                 self._get_on_demand_feature_view,
-                "on_demand_feature_views",
+                on_demand_feature_views.name,
             ),
             (
                 self.cached_sorted_feature_view_map,
                 self._get_sorted_feature_view,
-                "sorted_feature_views",
+                sorted_feature_views.name,
             ),
             (
                 self.cached_stream_feature_view_map,
                 self._get_stream_feature_view,
-                "stream_feature_views",
+                stream_feature_views.name,
             ),
-            (self.cached_saved_dataset_map, self._get_saved_dataset, "saved_datasets"),
+            (
+                self.cached_saved_dataset_map,
+                self._get_saved_dataset,
+                saved_datasets.name,
+            ),
             (
                 self.cached_validation_reference_map,
                 self._get_validation_reference,
-                "validation_references",
+                validation_references.name,
             ),
-            (self.cached_permission_map, self._get_permission, "permissions"),
+            (self.cached_permission_map, self._get_permission, permissions.name),
         ]
 
         super().__init__(registry_config, project, repo_path)
@@ -533,15 +550,15 @@ class SqlFallbackRegistry(SqlRegistry):
         allow_cache: bool = False,
         tags: Optional[dict[str, str]] = None,
     ) -> List[BaseFeatureView]:
-        feature_views = self._list_feature_views(project, tags)
-        on_demand_feature_views = self._list_on_demand_feature_views(project, tags)
-        stream_feature_views = self._list_stream_feature_views(project, tags)
-        sorted_feature_views = self._list_sorted_feature_views(project, tags)
+        fvs = self._list_feature_views(project, tags)
+        od_fvs = self._list_on_demand_feature_views(project, tags)
+        stream_fvs = self._list_stream_feature_views(project, tags)
+        sorted_fvs = self._list_sorted_feature_views(project, tags)
         return (
-            cast(list[BaseFeatureView], feature_views)
-            + cast(list[BaseFeatureView], on_demand_feature_views)
-            + cast(list[BaseFeatureView], stream_feature_views)
-            + cast(list[BaseFeatureView], sorted_feature_views)
+            cast(list[BaseFeatureView], fvs)
+            + cast(list[BaseFeatureView], od_fvs)
+            + cast(list[BaseFeatureView], stream_fvs)
+            + cast(list[BaseFeatureView], sorted_fvs)
         )
 
     def list_feature_views(
