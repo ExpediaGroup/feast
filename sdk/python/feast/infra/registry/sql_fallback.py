@@ -187,21 +187,29 @@ class SqlFallbackRegistry(SqlRegistry):
                 f"Finished processing cache expiration and refresh in {time.time() - start} seconds"
             )
         else:
-            logger.info("Starting timer for multi threaded self.proto()")
-            start = time.time()
+            try:
+                logger.info("Starting timer for multi threaded self.proto()")
+                start = time.time()
 
-            with ThreadPoolExecutor(
-                max_workers=min(
-                    self.thread_pool_executor_worker_count, len(self.cache_process_list)
-                )
-            ) as executor:
-                executor.map(
-                    lambda args: process_expiration(*args), self.cache_process_list
-                )
+                with ThreadPoolExecutor(
+                    max_workers=min(
+                        self.thread_pool_executor_worker_count,
+                        len(self.cache_process_list),
+                    )
+                ) as executor:
+                    executor.map(
+                        lambda args: process_expiration(*args), self.cache_process_list
+                    )
 
-            logger.info(
-                f"Multi threaded self.proto() took {time.time() - start} seconds to process cache expiration and refresh"
-            )
+                logger.info(
+                    f"Multi threaded self.proto() took {time.time() - start} seconds to process cache expiration and refresh"
+                )
+            except RuntimeError as e:
+                logger.error(
+                    f"Resetting cache due to error during multi-threaded cache processing: {e}"
+                )
+                for cache_map, _, _ in self.cache_process_list:
+                    cache_map.clear()
         return self.cached_registry_proto
 
     def _cache_obj_with_ttl(
