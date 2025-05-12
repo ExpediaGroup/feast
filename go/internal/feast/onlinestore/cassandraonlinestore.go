@@ -365,7 +365,7 @@ func (c *CassandraOnlineStore) buildCassandraEntityKeys(entityKeys []*types.Enti
 	cassandraKeys := make([]any, len(entityKeys))
 	cassandraKeyToEntityIndex := make(map[string]int)
 	for i := 0; i < len(entityKeys); i++ {
-		var key, err = utils.SerializeEntityKey(entityKeys[i], c.config.EntityKeySerializationVersion)
+		var key, err = utils.SerializeEntityKey(entityKeys[i], 2)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -847,6 +847,15 @@ func (c *CassandraOnlineStore) prepareOnlineRangeRead(
 	}, nil
 }
 
+func hasUnspecifiedOrder(filters []*model.SortKeyFilter) bool {
+	for _, f := range filters {
+		if f != nil && f.Order == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *CassandraOnlineStore) OnlineReadRange(
 	ctx context.Context,
 	entityKeys []*types.EntityKey,
@@ -855,8 +864,8 @@ func (c *CassandraOnlineStore) OnlineReadRange(
 	sortKeyFilters []*model.SortKeyFilter,
 	limit int32,
 ) ([][]RangeFeatureData, error) {
-	// TODO: Check if the Sort Key Order is reverse the default sort key order, if so, use UnbatchedKeysOnlineReadRange.
-	if c.keyBatchSize == 1 {
+	// If SortKeyFilters are not specified or if keyBatchSize is 1, use unbatched read
+	if c.keyBatchSize == 1 || hasUnspecifiedOrder(sortKeyFilters) {
 		return c.UnbatchedKeysOnlineReadRange(ctx, entityKeys, featureViewNames, featureNames, sortKeyFilters, limit)
 	} else {
 		return c.BatchedKeysOnlineReadRange(ctx, entityKeys, featureViewNames, featureNames, sortKeyFilters, limit)
