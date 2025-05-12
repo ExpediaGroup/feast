@@ -49,6 +49,7 @@ from feast.infra.registry.sql import (
 from feast.permissions.permission import Permission
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.saved_dataset import SavedDataset, ValidationReference
+from feast.utils import _utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -144,14 +145,14 @@ class SqlFallbackRegistry(SqlRegistry):
         for project_name, project_ttl in self.cached_project_map.items():
             if (
                 project_name in self.cached_project_map
-                and self.cached_project_map[project_name][1] <= datetime.now()  # type: ignore
+                and self.cached_project_map[project_name][1] <= _utc_now()  # type: ignore
             ):
                 try:
                     project_obj = self._get_project(project_name)
                     if project_obj:
                         self.cached_project_map[project_name] = (
                             project_obj,
-                            datetime.now() + self.cached_registry_proto_ttl,
+                            _utc_now() + self.cached_registry_proto_ttl,
                         )
                     else:
                         del self.cached_project_map[project_name]
@@ -165,12 +166,12 @@ class SqlFallbackRegistry(SqlRegistry):
             obj_refreshed = 0
             for project, items in cache_map.items():
                 for name, (obj, ttl) in items.items():
-                    if ttl <= datetime.now():
+                    if ttl <= _utc_now():
                         try:
                             obj = get_fn(name, project)
                             cache_map[project][name] = (
                                 obj,
-                                datetime.now() + self.cached_registry_proto_ttl,
+                                _utc_now() + self.cached_registry_proto_ttl,
                             )
                         except FeastObjectNotFoundException:
                             del cache_map[project][name]
@@ -222,7 +223,7 @@ class SqlFallbackRegistry(SqlRegistry):
         if project not in cache_map:
             cache_map[project] = {}
 
-        ttl = datetime.now() + self.cached_registry_proto_ttl
+        ttl = _utc_now() + self.cached_registry_proto_ttl
         cache_map[project][name] = (obj, ttl)
 
     def _get_and_cache_object(
@@ -287,7 +288,7 @@ class SqlFallbackRegistry(SqlRegistry):
         if name in self.cache_exempt_projects:
             return project
 
-        ttl = datetime.now() + self.cached_registry_proto_ttl
+        ttl = _utc_now() + self.cached_registry_proto_ttl
 
         self.cached_project_map[name] = (project, ttl)
         for cache_map, _, _ in self.cache_process_list:
