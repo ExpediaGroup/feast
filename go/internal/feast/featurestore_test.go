@@ -162,8 +162,9 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 			},
 		},
 	}
+	asc := core.SortOrder_ASC
 	sortKeyFilterModels := []*model.SortKeyFilter{
-		model.NewSortKeyFilterFromProto(sortKeyFilters[0], core.SortOrder_ASC),
+		model.NewSortKeyFilterFromProto(sortKeyFilters[0], &asc),
 	}
 
 	mockRangeFeatureData := [][]onlinestore.RangeFeatureData{
