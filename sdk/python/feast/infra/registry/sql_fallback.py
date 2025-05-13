@@ -21,17 +21,9 @@ from feast import (
 from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource
 from feast.errors import (
-    DataSourceObjectNotFoundException,
-    EntityNotFoundException,
     FeastObjectNotFoundException,
-    FeatureServiceNotFoundException,
     FeatureViewNotFoundException,
-    OnDemandFeatureViewNotFoundException,
-    PermissionObjectNotFoundException,
     ProjectObjectNotFoundException,
-    SavedDatasetNotFound,
-    SortedFeatureViewNotFoundException,
-    ValidationReferenceNotFound,
 )
 from feast.infra.registry.sql import (
     SqlRegistry,
@@ -75,22 +67,6 @@ class SqlFallbackCacheMap:
             else:
                 return None
 
-    def get_and_cache_object(
-        self,
-        name: str,
-        project: str,
-        not_found_exception: Optional[Callable],
-    ) -> Any:
-        obj = self.get_fn(name, project)
-        if obj is None:
-            if not_found_exception:
-                self.delete(project, name)
-                raise not_found_exception(name, project)
-            return None
-
-        self.set(project, name, obj)
-        return obj
-
     def set(self, project: str, name: str, obj: Any):
         with self.lock:
             if project not in self.cache_map:
@@ -116,14 +92,13 @@ class SqlFallbackCacheMap:
                         obj_refreshed += 1
         logger.info(f"Refreshed {obj_refreshed} objects in {self.name} cache")
 
-    def clear_project(self, project: str):
+    def clear(self, project: Optional[str] = None):
         with self.lock:
-            if project in self.cache_map:
-                del self.cache_map[project]
-
-    def clear(self):
-        with self.lock:
-            self.cache_map.clear()
+            if project:
+                if project in self.cache_map:
+                    del self.cache_map[project]
+            else:
+                self.cache_map.clear()
 
 
 class SqlFallbackRegistryConfig(SqlRegistryConfig):
@@ -313,7 +288,7 @@ class SqlFallbackRegistry(SqlRegistry):
                     del self.cached_projects[name]
 
             for cache_map in self.cache_process_list:
-                cache_map.clear_project(name)
+                cache_map.clear(name)
 
     def get_any_feature_view(
         self, name: str, project: str, allow_cache: bool = False
@@ -360,14 +335,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if data_source:
                 return data_source
 
+        data_source = self._get_data_source(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_data_source(name, project)
+            return data_source
 
-        return self.cached_data_sources.get_and_cache_object(
-            name,
-            project,
-            DataSourceObjectNotFoundException,
-        )
+        self.cached_data_sources.set(project, name, data_source)
+        return data_source
 
     def get_entity(self, name: str, project: str, allow_cache: bool = False) -> Entity:
         if allow_cache:
@@ -375,14 +348,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if entity:
                 return entity
 
+        entity = self._get_entity(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_entity(name, project)
+            return entity
 
-        return self.cached_entities.get_and_cache_object(
-            name,
-            project,
-            EntityNotFoundException,
-        )
+        self.cached_entities.set(project, name, entity)
+        return entity
 
     def get_feature_service(
         self, name: str, project: str, allow_cache: bool = False
@@ -392,14 +363,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if feature_service:
                 return feature_service
 
+        feature_service = self._get_feature_service(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_feature_service(name, project)
+            return feature_service
 
-        return self.cached_feature_services.get_and_cache_object(
-            name,
-            project,
-            FeatureServiceNotFoundException,
-        )
+        self.cached_feature_services.set(project, name, feature_service)
+        return feature_service
 
     def get_feature_view(
         self, name: str, project: str, allow_cache: bool = False
@@ -409,14 +378,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if feature_view:
                 return feature_view
 
+        feature_view = self._get_feature_view(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_feature_view(name, project)
+            return feature_view
 
-        return self.cached_feature_views.get_and_cache_object(
-            name,
-            project,
-            FeatureViewNotFoundException,
-        )
+        self.cached_feature_views.set(project, name, feature_view)
+        return feature_view
 
     def get_on_demand_feature_view(
         self, name: str, project: str, allow_cache: bool = False
@@ -426,14 +393,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if od_feature_view:
                 return od_feature_view
 
+        od_feature_view = self._get_on_demand_feature_view(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_on_demand_feature_view(name, project)
+            return od_feature_view
 
-        return self.cached_on_demand_feature_views.get_and_cache_object(
-            name,
-            project,
-            OnDemandFeatureViewNotFoundException,
-        )
+        self.cached_on_demand_feature_views.set(project, name, od_feature_view)
+        return od_feature_view
 
     def get_sorted_feature_view(
         self, name: str, project: str, allow_cache: bool = False
@@ -443,14 +408,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if sorted_feature_view:
                 return sorted_feature_view
 
+        sorted_feature_view = self._get_sorted_feature_view(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_sorted_feature_view(name, project)
+            return sorted_feature_view
 
-        return self.cached_sorted_feature_views.get_and_cache_object(
-            name,
-            project,
-            SortedFeatureViewNotFoundException,
-        )
+        self.cached_sorted_feature_views.set(project, name, sorted_feature_view)
+        return sorted_feature_view
 
     def get_stream_feature_view(
         self, name: str, project: str, allow_cache: bool = False
@@ -460,14 +423,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if stream_feature_view:
                 return stream_feature_view
 
+        stream_feature_view = self._get_stream_feature_view(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_stream_feature_view(name, project)
+            return stream_feature_view
 
-        return self.cached_stream_feature_views.get_and_cache_object(
-            name,
-            project,
-            FeatureViewNotFoundException,
-        )
+        self.cached_stream_feature_views.set(project, name, stream_feature_view)
+        return stream_feature_view
 
     def get_saved_dataset(
         self, name: str, project: str, allow_cache: bool = False
@@ -477,14 +438,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if saved_dataset:
                 return saved_dataset
 
+        saved_dataset = self._get_saved_dataset(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_saved_dataset(name, project)
+            return saved_dataset
 
-        return self.cached_saved_datasets.get_and_cache_object(
-            name,
-            project,
-            SavedDatasetNotFound,
-        )
+        self.cached_saved_datasets.set(project, name, saved_dataset)
+        return saved_dataset
 
     def get_validation_reference(
         self, name: str, project: str, allow_cache: bool = False
@@ -494,14 +453,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if validation_reference:
                 return validation_reference
 
+        validation_reference = self._get_validation_reference(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_validation_reference(name, project)
+            return validation_reference
 
-        return self.cached_validation_references.get_and_cache_object(
-            name,
-            project,
-            ValidationReferenceNotFound,
-        )
+        self.cached_validation_references.set(project, name, validation_reference)
+        return validation_reference
 
     def get_permission(
         self, name: str, project: str, allow_cache: bool = False
@@ -511,14 +468,12 @@ class SqlFallbackRegistry(SqlRegistry):
             if permission:
                 return permission
 
+        permission = self._get_permission(name, project)
         if project in self.cache_exempt_projects:
-            return self._get_permission(name, project)
+            return permission
 
-        return self.cached_permissions.get_and_cache_object(
-            name,
-            project,
-            PermissionObjectNotFoundException,
-        )
+        self.cached_permissions.set(project, name, permission)
+        return permission
 
     def list_data_sources(
         self,
