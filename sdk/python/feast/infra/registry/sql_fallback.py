@@ -304,7 +304,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> BaseFeatureView:
         if allow_cache:
-            fv = self.cached_feature_views.get(name, project)
+            fv = self.cached_feature_views.get(project, name)
             if fv:
                 return fv
             odfv = self.cached_on_demand_feature_views.get(project, name)
@@ -349,7 +349,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> DataSource:
         if allow_cache:
-            data_source = self.cached_data_sources.get(name, project)
+            data_source = self.cached_data_sources.get(project, name)
             if data_source:
                 return data_source
 
@@ -383,7 +383,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> FeatureService:
         if allow_cache:
-            feature_service = self.cached_feature_services.get(name, project)
+            feature_service = self.cached_feature_services.get(project, name)
             if feature_service:
                 return feature_service
 
@@ -401,7 +401,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> FeatureView:
         if allow_cache:
-            feature_view = self.cached_feature_views.get(name, project)
+            feature_view = self.cached_feature_views.get(project, name)
             if feature_view:
                 return feature_view
 
@@ -419,7 +419,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> OnDemandFeatureView:
         if allow_cache:
-            od_feature_view = self.cached_on_demand_feature_views.get(name, project)
+            od_feature_view = self.cached_on_demand_feature_views.get(project, name)
             if od_feature_view:
                 return od_feature_view
 
@@ -437,7 +437,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> SortedFeatureView:
         if allow_cache:
-            sorted_feature_view = self.cached_sorted_feature_views.get(name, project)
+            sorted_feature_view = self.cached_sorted_feature_views.get(project, name)
             if sorted_feature_view:
                 return sorted_feature_view
 
@@ -455,7 +455,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> StreamFeatureView:
         if allow_cache:
-            stream_feature_view = self.cached_stream_feature_views.get(name, project)
+            stream_feature_view = self.cached_stream_feature_views.get(project, name)
             if stream_feature_view:
                 return stream_feature_view
 
@@ -473,7 +473,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> SavedDataset:
         if allow_cache:
-            saved_dataset = self.cached_saved_datasets.get(name, project)
+            saved_dataset = self.cached_saved_datasets.get(project, name)
             if saved_dataset:
                 return saved_dataset
 
@@ -491,7 +491,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> ValidationReference:
         if allow_cache:
-            validation_reference = self.cached_validation_references.get(name, project)
+            validation_reference = self.cached_validation_references.get(project, name)
             if validation_reference:
                 return validation_reference
 
@@ -509,7 +509,7 @@ class SqlFallbackRegistry(SqlRegistry):
         self, name: str, project: str, allow_cache: bool = False
     ) -> Permission:
         if allow_cache:
-            permission = self.cached_permissions.get(name, project)
+            permission = self.cached_permissions.get(project, name)
             if permission:
                 return permission
 
