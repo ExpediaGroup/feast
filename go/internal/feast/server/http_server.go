@@ -134,6 +134,85 @@ func parseValueFromJSON(data json.RawMessage) (*prototypes.Value, error) {
 	return nil, fmt.Errorf("could not parse JSON value: %s", string(data))
 }
 
+func processFeatureVectors(vectors []*onlineserving.RangeFeatureVector, status bool) ([]string, []map[string]interface{}) {
+	featureNames := make([]string, len(vectors))
+	results := make([]map[string]interface{}, len(vectors))
+
+	for i, vector := range vectors {
+		featureNames[i] = vector.Name
+		result := make(map[string]interface{})
+
+		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
+		if err != nil {
+			result["values"] = []interface{}{}
+			results[i] = result
+			continue
+		}
+
+		simplifiedValues := make([]interface{}, len(rangeValues))
+		for j, repeatedValue := range rangeValues {
+			if repeatedValue == nil || len(repeatedValue.Val) == 0 {
+				simplifiedValues[j] = []interface{}{nil}
+				continue
+			}
+
+			entityValues := make([]interface{}, len(repeatedValue.Val))
+			for k, val := range repeatedValue.Val {
+				if j < len(vector.RangeStatuses) && k < len(vector.RangeStatuses[j]) {
+					statusCode := vector.RangeStatuses[j][k]
+					if statusCode == serving.FieldStatus_NOT_FOUND ||
+						statusCode == serving.FieldStatus_NULL_VALUE {
+						entityValues[k] = nil
+						continue
+					}
+				}
+
+				if val == nil {
+					entityValues[k] = nil
+				} else {
+					entityValues[k] = types.ValueTypeToGoType(val)
+				}
+			}
+
+			simplifiedValues[j] = []interface{}{entityValues}
+		}
+
+		result["values"] = simplifiedValues
+
+		if status {
+			if len(vector.RangeStatuses) > 0 {
+				statusValues := make([][]string, len(vector.RangeStatuses))
+				for j, entityStatuses := range vector.RangeStatuses {
+					statusValues[j] = make([]string, len(entityStatuses))
+					for k, stat := range entityStatuses {
+						statusValues[j][k] = stat.String()
+					}
+				}
+				result["statuses"] = statusValues
+			} else {
+				result["statuses"] = [][]string{}
+			}
+
+			if len(vector.RangeTimestamps) > 0 {
+				timestampValues := make([][]string, len(vector.RangeTimestamps))
+				for j, entityTimestamps := range vector.RangeTimestamps {
+					timestampValues[j] = make([]string, len(entityTimestamps))
+					for k, ts := range entityTimestamps {
+						timestampValues[j][k] = ts.AsTime().Format(time.RFC3339)
+					}
+				}
+				result["event_timestamps"] = timestampValues
+			} else {
+				result["event_timestamps"] = [][]string{}
+			}
+		}
+
+		results[i] = result
+	}
+
+	return featureNames, results
+}
+
 func (u *repeatedValue) ToProto() *prototypes.RepeatedValue {
 	proto := new(prototypes.RepeatedValue)
 	if u.stringVal != nil {
@@ -491,45 +570,7 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	featureNames := make([]string, 0, len(rangeFeatureVectors))
-	results := make([]map[string]interface{}, 0, len(rangeFeatureVectors))
-
-	for _, vector := range rangeFeatureVectors {
-		featureNames = append(featureNames, vector.Name)
-		result := make(map[string]interface{})
-		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
-		if err != nil {
-			logSpanContext.Error().Err(err).Msg("Error converting Arrow range values to proto values")
-			writeJSONError(w, fmt.Errorf("error converting Arrow range values to proto values: %w", err), http.StatusInternalServerError)
-			return
-		}
-		simplifiedValues := make([]interface{}, len(rangeValues))
-		for i, repeatedValue := range rangeValues {
-			simplifiedValues[i] = extractSimpleValues(repeatedValue)
-		}
-		result["values"] = simplifiedValues
-
-		if status {
-			statuses := make([][]string, len(vector.RangeStatuses))
-			for i, entityStatuses := range vector.RangeStatuses {
-				statuses[i] = make([]string, len(entityStatuses))
-				for j, stat := range entityStatuses {
-					statuses[i][j] = stat.String()
-				}
-			}
-			result["statuses"] = statuses
-			timestamps := make([][]string, len(vector.RangeTimestamps))
-			for i, entityTimestamps := range vector.RangeTimestamps {
-				timestamps[i] = make([]string, len(entityTimestamps))
-				for j, ts := range entityTimestamps {
-					timestamps[i][j] = ts.AsTime().Format(time.RFC3339)
-				}
-			}
-			result["event_timestamps"] = timestamps
-		}
-
-		results = append(results, result)
-	}
+	featureNames, results := processFeatureVectors(rangeFeatureVectors, status)
 
 	response := map[string]interface{}{
 		"metadata": map[string]interface{}{
@@ -546,18 +587,6 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, fmt.Errorf("error encoding response: %w", err), http.StatusInternalServerError)
 		return
 	}
-}
-
-func extractSimpleValues(repeatedValue *prototypes.RepeatedValue) interface{} {
-	if repeatedValue == nil || repeatedValue.Val == nil {
-		return []interface{}{}
-	}
-
-	values := make([]interface{}, len(repeatedValue.Val))
-	for i, val := range repeatedValue.Val {
-		values[i] = types.ValueTypeToGoType(val)
-	}
-	return []interface{}{values}
 }
 
 func releaseCGOMemory(featureVectors []*onlineserving.FeatureVector) {
