@@ -79,7 +79,7 @@ class SqlFallbackCacheMap:
         name: str,
         ttl_offset: timedelta,
         not_found_exception: Optional[Callable],
-    ) -> Optional[Any]:
+    ) -> Any:
         obj = self.get_fn(name, project)
         if obj is None:
             if not_found_exception:
@@ -296,9 +296,9 @@ class SqlFallbackRegistry(SqlRegistry):
             with self.cached_project_lock:
                 if name in self.cached_projects:
                     del self.cached_projects[name]
-                for cache_map, _, _ in self.cache_process_list:
-                    if name in cache_map:  # type: ignore
-                        del cache_map[name]  # type: ignore
+
+            for cache_map in self.cache_process_list:
+                cache_map.clear_project(name)
 
     def get_any_feature_view(
         self, name: str, project: str, allow_cache: bool = False
@@ -307,13 +307,13 @@ class SqlFallbackRegistry(SqlRegistry):
             fv = self.cached_feature_views.get(name, project)
             if fv:
                 return fv
-            odfv = self.cached_on_demand_feature_views[project][name][0]
+            odfv = self.cached_on_demand_feature_views.get(project, name)
             if odfv:
                 return odfv
-            sorted_fv = self.cached_sorted_feature_views[project][name][0]
+            sorted_fv = self.cached_sorted_feature_views.get(project, name)
             if sorted_fv:
                 return sorted_fv
-            stream_fv = self.cached_stream_feature_views[project][name][0]
+            stream_fv = self.cached_stream_feature_views.get(project, name)
             if stream_fv:
                 return stream_fv
 
