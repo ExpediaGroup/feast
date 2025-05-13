@@ -1938,20 +1938,16 @@ def test_registry_cache_overwrite(test_registry):
 
     assert registry_feature_view is not None
     assert registry_data_source is not None
-    assert len(test_registry.cached_feature_view_map) == 1
-    assert len(test_registry.cached_data_source_map) == 1
-    assert project in test_registry.cached_feature_view_map
-    assert project in test_registry.cached_data_source_map
-    assert len(test_registry.cached_feature_view_map[project]) == 1
-    assert len(test_registry.cached_data_source_map[project]) == 1
-    assert fv1.name in test_registry.cached_feature_view_map[project]
-    assert batch_source.name in test_registry.cached_data_source_map[project]
-
-    assert test_registry.cached_feature_view_map[project][fv1.name][0] == fv1
-    assert (
-        test_registry.cached_data_source_map[project][batch_source.name][0]
-        == batch_source
+    assert len(test_registry.cached_feature_views.cache_map) == 1
+    assert len(test_registry.cached_data_sources.cache_map) == 1
+    cached_fv = test_registry.cached_feature_views.get(project, fv1.name)
+    assert cached_fv is not None
+    assert cached_fv == fv1
+    cached_batch_source = test_registry.cached_data_sources.get(
+        project, batch_source.name
     )
+    assert cached_batch_source is not None
+    assert cached_batch_source == batch_source
 
     test_registry.teardown()
 
@@ -2003,14 +1999,16 @@ def test_registry_cache_expiration(test_registry):
 
     assert registry_feature_view is not None
     assert registry_data_source is not None
-    assert len(test_registry.cached_feature_view_map) == 1
-    assert len(test_registry.cached_data_source_map) == 1
-    assert project in test_registry.cached_feature_view_map
-    assert project in test_registry.cached_data_source_map
-    assert len(test_registry.cached_feature_view_map[project]) == 1
-    assert len(test_registry.cached_data_source_map[project]) == 1
-    assert fv1.name in test_registry.cached_feature_view_map[project]
-    assert batch_source.name in test_registry.cached_data_source_map[project]
+    assert len(test_registry.cached_feature_views.cache_map) == 1
+    assert len(test_registry.cached_data_sources.cache_map) == 1
+    cached_fv = test_registry.cached_feature_views.get(project, fv1.name)
+    assert cached_fv is not None
+    assert cached_fv.name == fv1.name
+    cached_batch_source = test_registry.cached_data_sources.get(
+        project, batch_source.name
+    )
+    assert cached_batch_source is not None
+    assert cached_batch_source.name == batch_source.name
 
     batch_source.description = "new description"
     test_registry.apply_data_source(batch_source, project)
@@ -2020,17 +2018,13 @@ def test_registry_cache_expiration(test_registry):
     # Deleted feature view is removed from cache
     test_registry.delete_feature_view(fv1.name, project)
 
-    assert len(test_registry.cached_feature_view_map) == 1
-    assert len(test_registry.cached_data_source_map) == 1
-    assert project in test_registry.cached_feature_view_map
-    assert project in test_registry.cached_data_source_map
-    assert fv1.name not in test_registry.cached_feature_view_map[project]
-    assert batch_source.name in test_registry.cached_data_source_map[project]
+    assert len(test_registry.cached_feature_views.cache_map) == 1
+    assert len(test_registry.cached_data_sources.cache_map) == 1
+    assert test_registry.cached_feature_views.get(project, fv1.name) is None
+    assert test_registry.cached_data_sources.get(project, batch_source.name) is not None
     assert (
         batch_source.description
-        == test_registry.cached_data_source_map[project][batch_source.name][
-            0
-        ].description
+        == test_registry.cached_data_sources.get(project, batch_source.name).description
     )
 
     test_registry.teardown()
