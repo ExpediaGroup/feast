@@ -60,10 +60,12 @@ class SqlFallbackCacheMap:
         self,
         name: str,
         get_fn: Callable,
+        ttl_offset: timedelta,
     ):
         self.lock = Lock()
         self.name = name
         self.get_fn = get_fn
+        self.ttl_offset = ttl_offset
         self.cache_map: Dict[str, Dict[str, Tuple[Any, datetime]]] = {}
 
     def get(self, project: str, name: str) -> Optional[Any]:
@@ -75,9 +77,8 @@ class SqlFallbackCacheMap:
 
     def get_and_cache_object(
         self,
-        project: str,
         name: str,
-        ttl_offset: timedelta,
+        project: str,
         not_found_exception: Optional[Callable],
     ) -> Any:
         obj = self.get_fn(name, project)
@@ -87,28 +88,28 @@ class SqlFallbackCacheMap:
                 raise not_found_exception(name, project)
             return None
 
-        self.set(project, name, obj, _utc_now() + ttl_offset)
+        self.set(project, name, obj)
         return obj
 
-    def set(self, project: str, name: str, obj: Any, ttl: datetime):
+    def set(self, project: str, name: str, obj: Any):
         with self.lock:
             if project not in self.cache_map:
                 self.cache_map[project] = {}
-            self.cache_map[project][name] = (obj, ttl)
+            self.cache_map[project][name] = (obj, _utc_now() + self.ttl_offset)
 
     def delete(self, project: str, name: str):
         with self.lock:
             if project in self.cache_map and name in self.cache_map[project]:
                 del self.cache_map[project][name]
 
-    def expire(self, ttl_offset: timedelta):
+    def refresh(self):
         obj_refreshed = 0
         for project, items in self.cache_map.items():
             for name, (obj, ttl) in items.items():
                 if ttl <= _utc_now():
                     try:
                         obj = self.get_fn(name, project)
-                        self.set(project, name, obj, _utc_now() + ttl_offset)
+                        self.set(project, name, obj)
                     except FeastObjectNotFoundException:
                         self.delete(project, name)
                     finally:
@@ -143,34 +144,51 @@ class SqlFallbackRegistry(SqlRegistry):
 
         self.cached_projects: Dict[str, Tuple[Project, datetime]] = {}
         self.cached_project_lock = Lock()
+        self.cached_registry_proto_ttl = timedelta(
+            seconds=registry_config.cache_ttl_seconds
+            if registry_config.cache_ttl_seconds is not None
+            else 0
+        )
 
         self.cached_data_sources = SqlFallbackCacheMap(
-            data_sources.name, self._get_data_source
+            data_sources.name, self._get_data_source, self.cached_registry_proto_ttl
         )
-        self.cached_entities = SqlFallbackCacheMap(entities.name, self._get_entity)
+        self.cached_entities = SqlFallbackCacheMap(
+            entities.name, self._get_entity, self.cached_registry_proto_ttl
+        )
         self.cached_feature_services = SqlFallbackCacheMap(
-            feature_services.name, self._get_feature_service
+            feature_services.name,
+            self._get_feature_service,
+            self.cached_registry_proto_ttl,
         )
         self.cached_feature_views = SqlFallbackCacheMap(
-            feature_views.name, self._get_feature_view
+            feature_views.name, self._get_feature_view, self.cached_registry_proto_ttl
         )
         self.cached_on_demand_feature_views = SqlFallbackCacheMap(
-            on_demand_feature_views.name, self._get_on_demand_feature_view
+            on_demand_feature_views.name,
+            self._get_on_demand_feature_view,
+            self.cached_registry_proto_ttl,
         )
         self.cached_permissions = SqlFallbackCacheMap(
-            permissions.name, self._get_permission
+            permissions.name, self._get_permission, self.cached_registry_proto_ttl
         )
         self.cached_saved_datasets = SqlFallbackCacheMap(
-            saved_datasets.name, self._get_saved_dataset
+            saved_datasets.name, self._get_saved_dataset, self.cached_registry_proto_ttl
         )
         self.cached_sorted_feature_views = SqlFallbackCacheMap(
-            sorted_feature_views.name, self._get_sorted_feature_view
+            sorted_feature_views.name,
+            self._get_sorted_feature_view,
+            self.cached_registry_proto_ttl,
         )
         self.cached_stream_feature_views = SqlFallbackCacheMap(
-            stream_feature_views.name, self._get_stream_feature_view
+            stream_feature_views.name,
+            self._get_stream_feature_view,
+            self.cached_registry_proto_ttl,
         )
         self.cached_validation_references = SqlFallbackCacheMap(
-            validation_references.name, self._get_validation_reference
+            validation_references.name,
+            self._get_validation_reference,
+            self.cached_registry_proto_ttl,
         )
 
         self.cache_process_list = [
@@ -215,7 +233,7 @@ class SqlFallbackRegistry(SqlRegistry):
             logger.info("Starting timer for single threaded self.proto()")
             start = time.time()
             for cache_map in self.cache_process_list:
-                cache_map.expire(self.cached_registry_proto_ttl)
+                cache_map.refresh()
             logger.info(
                 f"Finished processing cache expiration and refresh in {time.time() - start} seconds"
             )
@@ -230,10 +248,7 @@ class SqlFallbackRegistry(SqlRegistry):
                         len(self.cache_process_list),
                     )
                 ) as executor:
-                    ttl_offset = self.cached_registry_proto_ttl
-                    executor.map(
-                        lambda cache: cache.expire(ttl_offset), self.cache_process_list
-                    )
+                    executor.map(lambda cache: cache.refresh(), self.cache_process_list)
 
                 logger.info(
                     f"Multi threaded self.proto() took {time.time() - start} seconds to process cache expiration and refresh"
@@ -328,21 +343,13 @@ class SqlFallbackRegistry(SqlRegistry):
             return feature_view
 
         if isinstance(feature_view, SortedFeatureView):
-            self.cached_feature_views.set(
-                project, name, feature_view, _utc_now() + self.cached_registry_proto_ttl
-            )
+            self.cached_feature_views.set(project, name, feature_view)
         elif isinstance(feature_view, StreamFeatureView):
-            self.cached_stream_feature_views.set(
-                project, name, feature_view, _utc_now() + self.cached_registry_proto_ttl
-            )
+            self.cached_stream_feature_views.set(project, name, feature_view)
         elif isinstance(feature_view, OnDemandFeatureView):
-            self.cached_on_demand_feature_views.set(
-                project, name, feature_view, _utc_now() + self.cached_registry_proto_ttl
-            )
+            self.cached_on_demand_feature_views.set(project, name, feature_view)
         else:
-            self.cached_feature_views.set(
-                project, name, feature_view, _utc_now() + self.cached_registry_proto_ttl
-            )
+            self.cached_feature_views.set(project, name, feature_view)
         return feature_view
 
     def get_data_source(
@@ -357,9 +364,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_data_source(name, project)
 
         return self.cached_data_sources.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             DataSourceObjectNotFoundException,
         )
 
@@ -373,9 +379,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_entity(name, project)
 
         return self.cached_entities.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             EntityNotFoundException,
         )
 
@@ -391,9 +396,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_feature_service(name, project)
 
         return self.cached_feature_services.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             FeatureServiceNotFoundException,
         )
 
@@ -409,9 +413,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_feature_view(name, project)
 
         return self.cached_feature_views.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             FeatureViewNotFoundException,
         )
 
@@ -427,9 +430,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_on_demand_feature_view(name, project)
 
         return self.cached_on_demand_feature_views.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             OnDemandFeatureViewNotFoundException,
         )
 
@@ -445,9 +447,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_sorted_feature_view(name, project)
 
         return self.cached_sorted_feature_views.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             SortedFeatureViewNotFoundException,
         )
 
@@ -463,9 +464,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_stream_feature_view(name, project)
 
         return self.cached_stream_feature_views.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             FeatureViewNotFoundException,
         )
 
@@ -481,9 +481,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_saved_dataset(name, project)
 
         return self.cached_saved_datasets.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             SavedDatasetNotFound,
         )
 
@@ -499,9 +498,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_validation_reference(name, project)
 
         return self.cached_validation_references.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             ValidationReferenceNotFound,
         )
 
@@ -517,9 +515,8 @@ class SqlFallbackRegistry(SqlRegistry):
             return self._get_permission(name, project)
 
         return self.cached_permissions.get_and_cache_object(
-            project,
             name,
-            self.cached_registry_proto_ttl,
+            project,
             PermissionObjectNotFoundException,
         )
 
