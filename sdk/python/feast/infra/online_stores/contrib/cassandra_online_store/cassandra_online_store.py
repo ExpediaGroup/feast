@@ -108,6 +108,7 @@ CREATE_TABLE_CQL_TEMPLATE = """
 
 DROP_TABLE_CQL_TEMPLATE = "DROP TABLE IF EXISTS {fqtable};"
 
+
 # op_name -> (cql template string, prepare boolean)
 CQL_TEMPLATE_MAP = {
     # Queries/DML, statements to be prepared
@@ -375,6 +376,13 @@ class CassandraOnlineStore(OnlineStore):
             if not self._cluster.is_shutdown:
                 self._cluster.shutdown()
 
+    def divide(self, a=1, y=0):
+        try:
+            return a / y
+
+        except ZeroDivisionError as e:
+            print("defe")
+
     def online_write_batch(
         self,
         config: RepoConfig,
@@ -398,20 +406,28 @@ class CassandraOnlineStore(OnlineStore):
                       rows is written to the online store. Can be used to
                       display progress.
         """
-
+        is_error = False
+        error_message = ""
+        ex: Exception
         def on_success(result, concurrent_queue):
+            print("Removing from queue on success")
             concurrent_queue.get_nowait()
 
         def on_failure(exc, concurrent_queue):
+            nonlocal is_error
+            is_error = True
             concurrent_queue.get_nowait()
             logger.exception(f"Error writing a batch: {exc}")
             raise Exception("Exception raised while writing a batch") from exc
 
         online_store_config = config.online_store
 
+
+
         project = config.project
 
         ttl_feature_view = table.ttl or timedelta(seconds=0)
+
         ttl_online_store_config = online_store_config.key_ttl_seconds or 0
         write_concurrency = online_store_config.write_concurrency
         write_rate_limit = online_store_config.write_rate_limit
@@ -519,6 +535,7 @@ class CassandraOnlineStore(OnlineStore):
                                 params_str=params_str,
                             )
                             batch.add(insert_cql, feature_values)
+
                     CassandraOnlineStore._apply_batch(
                         rate_limiter,
                         batch,
@@ -526,7 +543,7 @@ class CassandraOnlineStore(OnlineStore):
                         session,
                         concurrent_queue,
                         on_success,
-                        on_failure,
+                        on_failure
                     )
             else:
                 for entity_key_bin, batch_to_write in entity_dict.items():
@@ -574,7 +591,7 @@ class CassandraOnlineStore(OnlineStore):
                         session,
                         concurrent_queue,
                         on_success,
-                        on_failure,
+                        on_failure
                     )
         else:
             insert_cql = self._get_cql_statement(
@@ -607,7 +624,7 @@ class CassandraOnlineStore(OnlineStore):
                     session,
                     concurrent_queue,
                     on_success,
-                    on_failure,
+                    on_failure
                 )
 
         if not concurrent_queue.empty():
@@ -618,6 +635,11 @@ class CassandraOnlineStore(OnlineStore):
                 time.sleep(0.001)
             # Spark materialization engine doesn't log info messages
             # so we print the message to stdout
+            print("IS ERROR VALUE")
+            print(is_error)
+            if(is_error):
+                raise ex
+            print(error_message)
             print("Completed writing all futures.")
 
             # correction for the last missing call to `progress`:
@@ -968,8 +990,9 @@ class CassandraOnlineStore(OnlineStore):
         session: Session,
         concurrent_queue: Queue,
         on_success,
-        on_failure,
+        on_failure
     ):
+        print("applying batch")
         # Wait until the rate limiter allows
         if not rate_limiter.acquire():
             while not rate_limiter.acquire():
@@ -977,6 +1000,7 @@ class CassandraOnlineStore(OnlineStore):
 
         future = session.execute_async(batch)
         concurrent_queue.put(future)
+        print("Adding to queue")
         future.add_callbacks(
             partial(
                 on_success,
@@ -984,7 +1008,7 @@ class CassandraOnlineStore(OnlineStore):
             ),
             partial(
                 on_failure,
-                concurrent_queue=concurrent_queue,
+                concurrent_queue=concurrent_queue
             ),
         )
 
