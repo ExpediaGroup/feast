@@ -415,7 +415,11 @@ class CassandraOnlineStore(OnlineStore):
 
         def on_failure(exc, concurrent_queue):
             nonlocal is_error
+            nonlocal error_message
+            nonlocal ex
             is_error = True
+            ex = exc
+            error_message = str(exc)
             concurrent_queue.get_nowait()
             logger.exception(f"Error writing a batch: {exc}")
             raise Exception("Exception raised while writing a batch") from exc
