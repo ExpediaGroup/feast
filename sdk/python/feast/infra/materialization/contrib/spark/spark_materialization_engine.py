@@ -215,6 +215,9 @@ class SparkMaterializationEngine(BatchMaterializationEngine):
                 job_id=job_id, status=MaterializationJobStatus.SUCCEEDED
             )
         except BaseException as e:
+            print(
+                f"Exception occurred in engine"
+            )
             return SparkMaterializationJob(
                 job_id=job_id, status=MaterializationJobStatus.ERROR, error=e
             )

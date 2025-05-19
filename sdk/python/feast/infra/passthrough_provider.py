@@ -346,6 +346,9 @@ class PassthroughProvider(Provider):
         )
         jobs = self.batch_engine.materialize(registry, [task])
         assert len(jobs) == 1
+        logger.info(
+            f"Materialization Job Status ERROR {jobs[0].status()}"
+        )
         if jobs[0].status() == MaterializationJobStatus.ERROR and jobs[0].error():
             e = jobs[0].error()
             assert e

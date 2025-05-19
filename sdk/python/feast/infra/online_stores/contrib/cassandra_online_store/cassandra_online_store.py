@@ -407,22 +407,19 @@ class CassandraOnlineStore(OnlineStore):
                       display progress.
         """
         is_error = False
-        error_message = ""
-        ex: Exception
+        ex: BaseException
         def on_success(result, concurrent_queue):
             print("Removing from queue on success")
             concurrent_queue.get_nowait()
 
         def on_failure(exc, concurrent_queue):
             nonlocal is_error
-            nonlocal error_message
             nonlocal ex
             is_error = True
             ex = exc
-            error_message = str(exc)
             concurrent_queue.get_nowait()
+            logger.exception(f"Value of ex: {ex}")
             logger.exception(f"Error writing a batch: {exc}")
-            raise Exception("Exception raised while writing a batch") from exc
 
         online_store_config = config.online_store
 
@@ -641,9 +638,12 @@ class CassandraOnlineStore(OnlineStore):
             # so we print the message to stdout
             print("IS ERROR VALUE")
             print(is_error)
+
             if(is_error):
+                logger.warning(
+                    f"Raised exception in online store"
+                )
                 raise ex
-            print(error_message)
             print("Completed writing all futures.")
 
             # correction for the last missing call to `progress`:

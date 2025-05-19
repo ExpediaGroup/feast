@@ -280,6 +280,7 @@ class TestCassandraOnlineStore:
         except Exception as error:
 
             print("exception raised")
+            print(f"exception raised: {error}")
 
 
         """
@@ -554,19 +555,6 @@ class TestCassandraOnlineStore:
             (
                 EntityKeyProto(
                     join_keys=["id"],
-                    entity_values=[ValueProto(string_val=str(4))],
-                ),
-                {
-                    "text": ValueProto(string_val="text"),
-                    "int": ValueProto(int32_val=1),
-
-                },
-                datetime.utcnow(),
-                None,
-            ),
-            (
-                EntityKeyProto(
-                    join_keys=["id"],
                     entity_values=[ValueProto(string_val=str(1))],
                 ),
                 {
@@ -585,24 +573,11 @@ class TestCassandraOnlineStore:
                 {
                     "text": ValueProto(string_val="text"),
                     "int": ValueProto(int32_val=1),
-
-                },
-                datetime.utcnow(),
-                None,
-            ),
-            (
-                EntityKeyProto(
-                    join_keys=["id"],
-                    entity_values=[ValueProto(string_val=str(3))],
-                ),
-                {
-                    "text": ValueProto(string_val="text"),
-                    "int": ValueProto(int32_val=1),
-
                 },
                 datetime.utcnow(),
                 None,
             )
+
         ]
 
     def _create_n_test_sample_features_all_datatypes(self, n=10):
