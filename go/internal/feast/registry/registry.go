@@ -46,8 +46,13 @@ func NewRegistry(registryConfig *RegistryConfig, repoPath string, project string
 	registryStoreType := registryConfig.RegistryStoreType
 	registryPath := registryConfig.Path
 	r := &Registry{
-		project:                project,
-		cachedRegistryProtoTtl: time.Duration(registryConfig.CacheTtlSeconds) * time.Second,
+		project:                    project,
+		cachedRegistryProtoTtl:     time.Duration(registryConfig.CacheTtlSeconds) * time.Second,
+		cachedFeatureServices:      make(map[string]map[string]*model.ModelTTL[*model.FeatureService]),
+		cachedEntities:             make(map[string]map[string]*model.ModelTTL[*model.Entity]),
+		cachedFeatureViews:         make(map[string]map[string]*model.ModelTTL[*model.FeatureView]),
+		cachedSortedFeatureViews:   make(map[string]map[string]*model.ModelTTL[*model.SortedFeatureView]),
+		cachedOnDemandFeatureViews: make(map[string]map[string]*model.ModelTTL[*model.OnDemandFeatureView]),
 	}
 
 	if len(registryStoreType) == 0 {
@@ -77,6 +82,8 @@ func (r *Registry) InitializeRegistry() error {
 		registryProto := &core.Registry{RegistrySchemaVersion: REGISTRY_SCHEMA_VERSION}
 		r.registryStore.UpdateRegistryProto(registryProto)
 	}
+	// initialize the project in cache maps
+	r.clearCache()
 	r.cachedRegistry = registryProto
 	go r.RefreshRegistryOnInterval()
 	return nil
@@ -144,11 +151,11 @@ func expireCachedModels[T any](cachedModels map[string]map[string]*model.ModelTT
 }
 
 func (r *Registry) clearCache() {
-	r.cachedFeatureServices = make(map[string]map[string]*model.ModelTTL[*model.FeatureService])
-	r.cachedEntities = make(map[string]map[string]*model.ModelTTL[*model.Entity])
-	r.cachedFeatureViews = make(map[string]map[string]*model.ModelTTL[*model.FeatureView])
-	r.cachedSortedFeatureViews = make(map[string]map[string]*model.ModelTTL[*model.SortedFeatureView])
-	r.cachedOnDemandFeatureViews = make(map[string]map[string]*model.ModelTTL[*model.OnDemandFeatureView])
+	r.cachedFeatureServices = map[string]map[string]*model.ModelTTL[*model.FeatureService]{r.project: make(map[string]*model.ModelTTL[*model.FeatureService])}
+	r.cachedEntities = map[string]map[string]*model.ModelTTL[*model.Entity]{r.project: make(map[string]*model.ModelTTL[*model.Entity])}
+	r.cachedFeatureViews = map[string]map[string]*model.ModelTTL[*model.FeatureView]{r.project: make(map[string]*model.ModelTTL[*model.FeatureView])}
+	r.cachedSortedFeatureViews = map[string]map[string]*model.ModelTTL[*model.SortedFeatureView]{r.project: make(map[string]*model.ModelTTL[*model.SortedFeatureView])}
+	r.cachedOnDemandFeatureViews = map[string]map[string]*model.ModelTTL[*model.OnDemandFeatureView]{r.project: make(map[string]*model.ModelTTL[*model.OnDemandFeatureView])}
 }
 
 func (r *Registry) SetModels(
@@ -185,7 +192,6 @@ func loadModels[U any, T any](protoList []U, cachedModels map[string]map[string]
 		objName := nameField.Interface().(string)
 		cachedModels[project][objName] = model.NewModelTTLWithExpiration(obj, ttl)
 	}
-
 }
 
 func (r *Registry) GetEntity(project string, entityName string) (*model.Entity, error) {
@@ -214,6 +220,9 @@ func (r *Registry) GetEntityFromRegistry(entityName string, project string) (*mo
 	if err != nil {
 		log.Error().Err(err).Msgf("no entity %s found in project %s", entityName, project)
 		return nil, fmt.Errorf("no entity %s found in project %s", entityName, project)
+	}
+	if _, exists := r.cachedEntities[project]; !exists {
+		r.cachedEntities[project] = make(map[string]*model.ModelTTL[*model.Entity])
 	}
 	r.cachedEntities[project][entityName] = model.NewModelTTLWithExpiration(model.NewEntityFromProto(entityProto), r.cachedRegistryProtoTtl)
 	return model.NewEntityFromProto(entityProto), nil
@@ -246,6 +255,9 @@ func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project st
 		log.Error().Err(err).Msgf("no feature view %s found in project %s", featureViewName, project)
 		return nil, fmt.Errorf("no feature view %s found in project %s", featureViewName, project)
 	}
+	if _, exists := r.cachedFeatureViews[project]; !exists {
+		r.cachedFeatureViews[project] = make(map[string]*model.ModelTTL[*model.FeatureView])
+	}
 	r.cachedFeatureViews[project][featureViewName] = model.NewModelTTLWithExpiration(model.NewFeatureViewFromProto(featureViewProto), r.cachedRegistryProtoTtl)
 	return model.NewFeatureViewFromProto(featureViewProto), nil
 }
@@ -276,6 +288,9 @@ func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string
 	if err != nil {
 		log.Error().Err(err).Msgf("no sorted feature view %s found in project %s", sortedFeatureViewName, project)
 		return nil, fmt.Errorf("no sorted feature view %s found in project %s", sortedFeatureViewName, project)
+	}
+	if _, exists := r.cachedSortedFeatureViews[project]; !exists {
+		r.cachedSortedFeatureViews[project] = make(map[string]*model.ModelTTL[*model.SortedFeatureView])
 	}
 	r.cachedSortedFeatureViews[project][sortedFeatureViewName] = model.NewModelTTLWithExpiration(model.NewSortedFeatureViewFromProto(sortedFeatureViewProto), r.cachedRegistryProtoTtl)
 	return model.NewSortedFeatureViewFromProto(sortedFeatureViewProto), nil
@@ -308,6 +323,9 @@ func (r *Registry) GetFeatureServiceFromRegistry(featureServiceName string, proj
 		log.Error().Err(err).Msgf("no feature service %s found in project %s", featureServiceName, project)
 		return nil, fmt.Errorf("no feature service %s found in project %s", featureServiceName, project)
 	}
+	if _, exists := r.cachedFeatureServices[project]; !exists {
+		r.cachedFeatureServices[project] = make(map[string]*model.ModelTTL[*model.FeatureService])
+	}
 	r.cachedFeatureServices[project][featureServiceName] = model.NewModelTTLWithExpiration(model.NewFeatureServiceFromProto(featureServiceProto), r.cachedRegistryProtoTtl)
 	return model.NewFeatureServiceFromProto(featureServiceProto), nil
 }
@@ -338,6 +356,9 @@ func (r *Registry) GetOnDemandFeatureViewFromRegistry(onDemandFeatureViewName st
 	if err != nil {
 		log.Error().Err(err).Msgf("no on demand feature view %s found in project %s", onDemandFeatureViewName, project)
 		return nil, fmt.Errorf("no on demand feature view %s found in project %s", onDemandFeatureViewName, project)
+	}
+	if _, exists := r.cachedOnDemandFeatureViews[project]; !exists {
+		r.cachedOnDemandFeatureViews[project] = make(map[string]*model.ModelTTL[*model.OnDemandFeatureView])
 	}
 	r.cachedOnDemandFeatureViews[project][onDemandFeatureViewName] = model.NewModelTTLWithExpiration(model.NewOnDemandFeatureViewFromProto(onDemandFeatureViewProto), r.cachedRegistryProtoTtl)
 	return model.NewOnDemandFeatureViewFromProto(onDemandFeatureViewProto), nil
