@@ -82,8 +82,6 @@ func (r *Registry) InitializeRegistry() error {
 		registryProto := &core.Registry{RegistrySchemaVersion: REGISTRY_SCHEMA_VERSION}
 		r.registryStore.UpdateRegistryProto(registryProto)
 	}
-	// initialize the project in cache maps
-	r.clearCache()
 	r.cachedRegistry = registryProto
 	go r.RefreshRegistryOnInterval()
 	return nil
