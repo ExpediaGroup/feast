@@ -53,13 +53,13 @@ func (m *cacheMap[T]) get(project string, key string) (T, bool) {
 
 func (m *cacheMap[T]) getOrLoad(project string, key string, load func(string, string) (T, error)) (T, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	if cache, ok := m.cache[project]; ok {
 		if item, ok := cache[key]; ok {
+			m.mu.RUnlock()
 			return item.Model, nil
 		}
 	}
-
+	m.mu.RUnlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.cache[project]; !ok {
