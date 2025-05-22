@@ -68,8 +68,7 @@ func (m *cacheMap[T]) getOrLoad(project string, key string, load func(string, st
 		if item, ok := cache[key]; ok {
 			return item.Model, nil
 		}
-	}
-	if _, ok := m.cache[project]; !ok {
+	} else {
 		m.cache[project] = make(map[string]*model.ModelTTL[T])
 	}
 	item, err := load(key, project)
@@ -140,7 +139,6 @@ type Registry struct {
 	cachedOnDemandFeatureViews *cacheMap[*model.OnDemandFeatureView]
 	cachedRegistry             *core.Registry
 	cachedRegistryProtoTtl     time.Duration
-	mu                         sync.RWMutex
 }
 
 func NewRegistry(registryConfig *RegistryConfig, repoPath string, project string) (*Registry, error) {
@@ -238,8 +236,6 @@ func (r *Registry) SetModels(
 }
 
 func (r *Registry) load(registry *core.Registry) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.cachedRegistry = registry
 	r.SetModels(registry.FeatureServices, registry.Entities, registry.FeatureViews, registry.SortedFeatureViews, registry.OnDemandFeatureViews)
 }
