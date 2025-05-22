@@ -201,20 +201,20 @@ func (filter sortKeyFilter) ToProto() (*serving.SortKeyFilter, error) {
 	}
 
 	rangeQuery := &serving.SortKeyFilter_RangeQuery{
-		StartInclusive: filter.StartInclusive,
-		EndInclusive:   filter.EndInclusive,
+		StartInclusive: filter.Range.StartInclusive,
+		EndInclusive:   filter.Range.EndInclusive,
 	}
 
-	if filter.RangeStart != nil {
-		value, err := parseValueFromJSON(filter.RangeStart)
+	if filter.Range.RangeStart != nil {
+		value, err := parseValueFromJSON(filter.Range.RangeStart)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing range_start: %w", err)
 		}
 		rangeQuery.RangeStart = value
 	}
 
-	if filter.RangeEnd != nil {
-		value, err := parseValueFromJSON(filter.RangeEnd)
+	if filter.Range.RangeEnd != nil {
+		value, err := parseValueFromJSON(filter.Range.RangeEnd)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing range_end: %w", err)
 		}
@@ -401,10 +401,14 @@ type getOnlineFeaturesRangeRequest struct {
 }
 
 type sortKeyFilter struct {
-	SortKeyName    string          `json:"sort_key_name"`
+	SortKeyName string          `json:"sort_key_name"`
+	Range       rangeQuery      `json:"range"`
+	Equals      json.RawMessage `json:"equals"`
+}
+
+type rangeQuery struct {
 	RangeStart     json.RawMessage `json:"range_start"`
 	RangeEnd       json.RawMessage `json:"range_end"`
-	Equals         json.RawMessage `json:"equals"`
 	StartInclusive bool            `json:"start_inclusive"`
 	EndInclusive   bool            `json:"end_inclusive"`
 }
