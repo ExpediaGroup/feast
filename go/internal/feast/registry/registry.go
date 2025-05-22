@@ -60,8 +60,15 @@ func (m *cacheMap[T]) getOrLoad(project string, key string, load func(string, st
 		}
 	}
 	m.mu.RUnlock()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Double check if the item is already in the cache after acquiring the exclusive lock
+	if cache, ok := m.cache[project]; ok {
+		if item, ok := cache[key]; ok {
+			return item.Model, nil
+		}
+	}
 	if _, ok := m.cache[project]; !ok {
 		m.cache[project] = make(map[string]*model.ModelTTL[T])
 	}
@@ -258,7 +265,7 @@ func (r *Registry) GetEntity(project string, entityName string) (*model.Entity, 
 		return entity, nil
 	}
 
-	return nil, fmt.Errorf("no cached entities found for project %s", project)
+	return nil, fmt.Errorf("no cached entity %s found for project %s", entityName, project)
 }
 
 func (r *Registry) GetEntityFromRegistry(entityName string, project string) (*model.Entity, error) {
@@ -280,7 +287,7 @@ func (r *Registry) GetFeatureView(project string, featureViewName string) (*mode
 		return cachedFeatureView, nil
 	}
 
-	return nil, fmt.Errorf("no cached feature views found for project %s", project)
+	return nil, fmt.Errorf("no cached feature view %s found for project %s", featureViewName, project)
 }
 
 func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project string) (*model.FeatureView, error) {
@@ -302,7 +309,7 @@ func (r *Registry) GetSortedFeatureView(project string, sortedFeatureViewName st
 		return cachedSortedFeatureView, nil
 	}
 
-	return nil, fmt.Errorf("no cached sorted feature views found for project %s", project)
+	return nil, fmt.Errorf("no cached sorted feature view %s found for project %s", sortedFeatureViewName, project)
 }
 
 func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string, project string) (*model.SortedFeatureView, error) {
@@ -324,7 +331,7 @@ func (r *Registry) GetFeatureService(project string, featureServiceName string) 
 		return cachedFeatureService, nil
 	}
 
-	return nil, fmt.Errorf("no cached feature services found for project %s", project)
+	return nil, fmt.Errorf("no cached feature service %s found for project %s", featureServiceName, project)
 }
 
 func (r *Registry) GetFeatureServiceFromRegistry(featureServiceName string, project string) (*model.FeatureService, error) {
@@ -346,7 +353,7 @@ func (r *Registry) GetOnDemandFeatureView(project string, onDemandFeatureViewNam
 		return cachedOnDemandFeatureView, nil
 	}
 
-	return nil, fmt.Errorf("no cached on demand feature views found for project %s", project)
+	return nil, fmt.Errorf("no cached on demand feature view %s found for project %s", onDemandFeatureViewName, project)
 }
 
 func (r *Registry) GetOnDemandFeatureViewFromRegistry(onDemandFeatureViewName string, project string) (*model.OnDemandFeatureView, error) {
