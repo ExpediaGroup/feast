@@ -154,7 +154,7 @@ func TestUnmarshalRangeRequestJSON_InvalidSortKeyFilter(t *testing.T) {
 	decoder := json.NewDecoder(strings.NewReader(jsonData))
 	err := decoder.Decode(&request)
 	assert.Error(t, err, "Should return an error unmarshalling JSON")
-	assert.Equal(t, "json: cannot unmarshal object into Go struct field sort_key_filters.sort_key_name of type string", err.Error())
+	assert.Equal(t, "json: cannot unmarshal object into Go struct field sortKeyFilter.sort_key_filters.sort_key_name of type string", err.Error())
 }
 
 func TestSortKeyFilterToProto_WithBothEqualsAndRange(t *testing.T) {
