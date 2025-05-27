@@ -99,7 +99,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		}
 
 		if request.status {
-			featureVector.status = vector.Statuses
+			featureVector.Statuses = vector.Statuses
 			featureVector.EventTimestamps = vector.Timestamps
 		}
 
@@ -206,12 +206,12 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 			timeValues[j] = &prototypes.RepeatedValue{Val: timestampValues}
 		}
 
-		featureVector := &serving.GetOnlineFeaturesResponse_FeatureVector{
+		featureVector := &serving.GetOnlineFeaturesRangeResponse_RangeFeatureVector{
 			Values: rangeValues,
 		}
 
 		if request.status {
-			featureVector.status = vector.RangeStatuses
+			featureVector.Statuses = vector.RangeStatuses
 			featureVector.EventTimestamps = vector.RangeTimestamps
 		}
 
