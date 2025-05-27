@@ -58,12 +58,13 @@ public class Row {
   }
 
   public Row set(String fieldName, Object value) {
-    return this.set(fieldName, value, FieldStatus.PRESENT);
-  }
-
-  public Row set(String fieldName, Object value, FieldStatus status) {
     fields.put(fieldName, RequestUtil.objectToValue(value));
-    fieldStatuses.put(fieldName, status);
+    return this;
+}
+
+  public Row setWithStatus(String fieldName, Object value, FieldStatus status) {
+    fields.put(fieldName, RequestUtil.objectToValue(value));
+    this.setStatus(fieldName, status);
     return this;
   }
 
