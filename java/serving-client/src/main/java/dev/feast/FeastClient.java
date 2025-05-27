@@ -18,6 +18,7 @@ package dev.feast;
 
 import com.google.common.collect.Lists;
 import feast.proto.serving.ServingAPIProto;
+import feast.proto.serving.ServingAPIProto.FieldStatus;
 import feast.proto.serving.ServingAPIProto.GetFeastServingInfoRequest;
 import feast.proto.serving.ServingAPIProto.GetFeastServingInfoResponse;
 import feast.proto.serving.ServingAPIProto.GetOnlineFeaturesRangeRequest;
@@ -76,7 +77,7 @@ public class FeastClient implements AutoCloseable {
   public static FeastClient create(String host, int port, long requestTimeout) {
     // configure client with no security config.
     return FeastClient.createSecure(
-        host, port, SecurityConfig.newBuilder().build(), requestTimeout, Optional.empty(), false);
+        host, port, SecurityConfig.newBuilder().build(), requestTimeout, Optional.empty());
   }
 
   /**
@@ -89,7 +90,7 @@ public class FeastClient implements AutoCloseable {
    * @return {@link FeastClient}
    */
   public static FeastClient createSecure(String host, int port, SecurityConfig securityConfig) {
-    return FeastClient.createSecure(host, port, securityConfig, 0, Optional.empty(), false);
+    return FeastClient.createSecure(host, port, securityConfig, 0, Optional.empty());
   }
 
   /**
@@ -239,25 +240,24 @@ public class FeastClient implements AutoCloseable {
     return resp;
   }
 
-  public List<Row> getOnlineFeatures(GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities) {
-    if (getOnlineFeatures.getFeatureService.isEmpty() && getOnlineFeatures.getFeatures().getValCount() == 0) {
+  public List<Row> getOnlineFeatures(
+      GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities) {
+    if (getOnlineFeaturesRequest.getFeatureService().isEmpty()
+        && getOnlineFeaturesRequest.getFeatures().getValCount() == 0) {
       logger.info(
-        "Neither a featureService or featureRef was present in the request with request: {}, entities: {}",
-        getOnlineFeatures.toString(),
-        entities
-      );
+          "Neither a featureService or featureRef was present in the request with request: {}, entities: {}",
+          getOnlineFeaturesRequest.toString(),
+          entities);
 
       return Collections.emptyList();
     }
 
-    requestBuilder.putAllEntities(getEntityValuesMap(entities));
-
-    List<Row> resp = fetchOnlineFeatures(requestBuilder, entities);
+    List<Row> resp = fetchOnlineFeatures(getOnlineFeaturesRequest, entities);
 
     if (resp.size() == 0) {
       logger.info(
-          "Result was empty for getOnlineFeatures call with featureRefs: {}, entities: {}",
-          featureRefs,
+          "Result was empty for getOnlineFeatures call with getOnlineFeaturesRequest: {}, entities: {}",
+          getOnlineFeaturesRequest.toString(),
           entities);
     }
 
@@ -280,30 +280,29 @@ public class FeastClient implements AutoCloseable {
     for (int rowIdx = 0; rowIdx < response.getResults(0).getValuesCount(); rowIdx++) {
       Row row = Row.create();
       for (int featureIdx = 0; featureIdx < response.getResultsCount(); featureIdx++) {
-        if (getOnlineFeaturesRequest.hasStatus()) { 
+        if (getOnlineFeaturesRequest.getStatus()) {
           row.set(
               response.getMetadata().getFeatureNames().getVal(featureIdx),
-              response.getResults(featureIdx).getValues(rowIdx)
-            );
-          } else {
+              response.getResults(featureIdx).getValues(rowIdx));
+        } else {
           row.setWithStatus(
-            response.getMetadata().getFeatureNames().getVal(featureIdx),
-            response.getResults(featureIdx).getValues(rowIdx),
-            response.getResults(featureIdx).getStatuses(rowIdx));
+              response.getMetadata().getFeatureNames().getVal(featureIdx),
+              response.getResults(featureIdx).getValues(rowIdx),
+              response.getResults(featureIdx).getStatuses(rowIdx));
 
           row.setEntityTimestamp(
-            Instant.ofEpochSecond(
-                response.getResults(featureIdx).getEventTimestamps(rowIdx).getSeconds()));
+              Instant.ofEpochSecond(
+                  response.getResults(featureIdx).getEventTimestamps(rowIdx).getSeconds()));
         }
       }
 
       for (Map.Entry<String, ValueProto.Value> entry :
           entities.get(rowIdx).getFields().entrySet()) {
-            if (response.hasStatus()) {
-              row.set(entry.getKey(), entry.getValue());
-          } else {
-              row.setWithStatus(entry.getKey(), entry.getValue(), FieldStatus.PRESENT);
-          }
+        if (response.getStatus()) {
+          row.set(entry.getKey(), entry.getValue());
+        } else {
+          row.setWithStatus(entry.getKey(), entry.getValue(), FieldStatus.PRESENT);
+        }
       }
 
       results.add(row);
@@ -354,8 +353,6 @@ public class FeastClient implements AutoCloseable {
     return getOnlineFeatures(featureRefs, rows);
   }
 
-
-
   /**
    * Get online features from Feast given a feature service name. Internally feature service calls
    * resolve featureViews via a call to the feature registry.
@@ -382,14 +379,14 @@ public class FeastClient implements AutoCloseable {
     return getOnlineFeatures(featureService, rows);
   }
 
-
   /**
-   * Get online features from Feast given a getOnlineFeaturesRequest proto object. 
-   * 
-   * @param getOnlineFeaturesRequest getOnlineFeaturesRequest as defined within {@link }
+   * Get online features from Feast given a getOnlineFeaturesRequest proto object.
+   *
+   * @param getOnlineFeaturesRequest getOnlineFeaturesRequest proto object
+   * @return list of {@link Row} containing retrieved data fields.
    */
-  public List<Row> getOnlineFeatures(GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> rows, String project) {
-    return getOnlineFeatures(getOnlineFeaturesRequest, rows);
+  public List<Row> getOnlineFeatures(GetOnlineFeaturesRequest getOnlineFeaturesRequest) {
+    return getOnlineFeatures(getOnlineFeaturesRequest);
   }
 
   /**
@@ -411,9 +408,10 @@ public class FeastClient implements AutoCloseable {
       List<Row> entities,
       List<SortKeyFilterModel> sortKeyFilters,
       int limit,
-      boolean reverseSortOrder) {
+      boolean reverseSortOrder,
+      boolean status) {
     GetOnlineFeaturesRangeRequest.Builder requestBuilder =
-        GetOnlineFeaturesRangeRequest.newBuilder();
+        GetOnlineFeaturesRangeRequest.newBuilder().setStatus(status);
 
     requestBuilder.setFeatures(
         ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build());
@@ -445,15 +443,21 @@ public class FeastClient implements AutoCloseable {
     for (int rowIdx = 0; rowIdx < response.getResults(0).getValuesCount(); rowIdx++) {
       RangeRow row = RangeRow.create();
       for (int featureIdx = 0; featureIdx < response.getResultsCount(); featureIdx++) {
-        row.setWithValues(
-            response.getMetadata().getFeatureNames().getVal(featureIdx),
-            response.getResults(featureIdx).getValues(rowIdx).getValList(),
-            response.getResults(featureIdx).getStatuses(rowIdx).getStatusList());
+        if (status) {
+          row.setWithValues(
+              response.getMetadata().getFeatureNames().getVal(featureIdx),
+              response.getResults(featureIdx).getValues(rowIdx).getValList());
+        } else {
+          row.setWithValuesWithStatus(
+              response.getMetadata().getFeatureNames().getVal(featureIdx),
+              response.getResults(featureIdx).getValues(rowIdx).getValList(),
+              response.getResults(featureIdx).getStatuses(rowIdx).getStatusList());
 
-        row.setEntityTimestamp(
-            response.getResults(featureIdx).getEventTimestamps(rowIdx).getValList().stream()
-                .map(v -> Instant.ofEpochSecond(v.getUnixTimestampVal()))
-                .collect(Collectors.toList()));
+          row.setEntityTimestamp(
+              response.getResults(featureIdx).getEventTimestamps(rowIdx).getValList().stream()
+                  .map(v -> Instant.ofEpochSecond(v.getUnixTimestampVal()))
+                  .collect(Collectors.toList()));
+        }
       }
       for (Map.Entry<String, ValueProto.Value> entry :
           entities.get(rowIdx).getFields().entrySet()) {
@@ -472,7 +476,20 @@ public class FeastClient implements AutoCloseable {
       int limit,
       boolean reverseSortOrder,
       String project) {
-    return getOnlineFeaturesRange(featureRefs, rows, sortKeyFilters, limit, reverseSortOrder);
+    return getOnlineFeaturesRange(
+        featureRefs, rows, sortKeyFilters, limit, reverseSortOrder, false);
+  }
+
+  public List<RangeRow> getOnlineFeaturesRange(
+      List<String> featureRefs,
+      List<Row> rows,
+      List<SortKeyFilterModel> sortKeyFilters,
+      int limit,
+      boolean reverseSortOrder,
+      String project,
+      boolean status) {
+    return getOnlineFeaturesRange(
+        featureRefs, rows, sortKeyFilters, limit, reverseSortOrder, status);
   }
 
   protected FeastClient(ManagedChannel channel, Optional<CallCredentials> credentials) {

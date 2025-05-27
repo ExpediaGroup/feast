@@ -60,11 +60,11 @@ public class Row {
   public Row set(String fieldName, Object value) {
     fields.put(fieldName, RequestUtil.objectToValue(value));
     return this;
-}
+  }
 
   public Row setWithStatus(String fieldName, Object value, FieldStatus status) {
     fields.put(fieldName, RequestUtil.objectToValue(value));
-    this.setStatus(fieldName, status);
+    this.fieldStatuses.put(fieldName, status);
     return this;
   }
 
