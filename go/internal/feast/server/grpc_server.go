@@ -98,7 +98,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 			Values: values,
 		}
 
-		if request.GetStatus() {
+		if !request.GetStatus() {
 			featureVector.Statuses = vector.Statuses
 			featureVector.EventTimestamps = vector.Timestamps
 		}
