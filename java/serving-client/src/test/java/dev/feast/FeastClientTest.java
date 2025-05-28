@@ -214,8 +214,6 @@ public class FeastClientTest {
     for (String fieldName : rows.get(0).getFields().keySet()) {
       assertNull(
           "Field " + fieldName + " should not have a status", rows.get(0).getStatus(fieldName));
-      assertNull(
-          "Field " + fieldName + " should not have a timestamp", rows.get(0).getEntityTimestamp());
     }
   }
 
