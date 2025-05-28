@@ -95,7 +95,7 @@ message GetOnlineFeaturesRequest {
     map<string, feast.types.RepeatedValue> request_context = 5;
 
     // Used to omit the timestamp/status from the response
-    bool status = 6;
+    bool omit_status = 6;
 }
 
 message GetOnlineFeaturesResponse {
@@ -187,7 +187,7 @@ message GetOnlineFeaturesRangeRequest {
     map<string, feast.types.RepeatedValue> request_context = 8;
 
     // Used to omit the timestamp/status from the response
-    bool status = 9;
+    bool omit_status = 9;
 }
 
 message GetOnlineFeaturesRangeResponse {

@@ -86,7 +86,7 @@ public class RangeRow {
     return this;
   }
 
-  public RangeRow setWithValuesWithStatus(
+  public RangeRow setWithValuesWithFieldStatus(
       String fieldName, List<Value> values, List<FieldStatus> statuses) {
     fields.put(fieldName, values);
     fieldStatuses.put(fieldName, statuses);

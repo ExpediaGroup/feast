@@ -62,7 +62,7 @@ public class Row {
     return this;
   }
 
-  public Row setWithStatus(String fieldName, Object value, FieldStatus status) {
+  public Row setWithFieldStatus(String fieldName, Object value, FieldStatus status) {
     fields.put(fieldName, RequestUtil.objectToValue(value));
     this.fieldStatuses.put(fieldName, status);
     return this;

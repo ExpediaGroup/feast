@@ -280,12 +280,12 @@ public class FeastClient implements AutoCloseable {
     for (int rowIdx = 0; rowIdx < response.getResults(0).getValuesCount(); rowIdx++) {
       Row row = Row.create();
       for (int featureIdx = 0; featureIdx < response.getResultsCount(); featureIdx++) {
-        if (getOnlineFeaturesRequest.getStatus()) {
+        if (getOnlineFeaturesRequest.getOmitStatus()) {
           row.set(
               response.getMetadata().getFeatureNames().getVal(featureIdx),
               response.getResults(featureIdx).getValues(rowIdx));
         } else {
-          row.setWithStatus(
+          row.setWithFieldStatus(
               response.getMetadata().getFeatureNames().getVal(featureIdx),
               response.getResults(featureIdx).getValues(rowIdx),
               response.getResults(featureIdx).getStatuses(rowIdx));
@@ -298,10 +298,10 @@ public class FeastClient implements AutoCloseable {
 
       for (Map.Entry<String, ValueProto.Value> entry :
           entities.get(rowIdx).getFields().entrySet()) {
-        if (response.getStatus()) {
+        if (getOnlineFeaturesRequest.getOmitStatus()) {
           row.set(entry.getKey(), entry.getValue());
         } else {
-          row.setWithStatus(entry.getKey(), entry.getValue(), FieldStatus.PRESENT);
+          row.setWithFieldStatus(entry.getKey(), entry.getValue(), FieldStatus.PRESENT);
         }
       }
 
@@ -385,8 +385,9 @@ public class FeastClient implements AutoCloseable {
    * @param getOnlineFeaturesRequest getOnlineFeaturesRequest proto object
    * @return list of {@link Row} containing retrieved data fields.
    */
-  public List<Row> getOnlineFeatures(GetOnlineFeaturesRequest getOnlineFeaturesRequest) {
-    return getOnlineFeatures(getOnlineFeaturesRequest);
+  public List<Row> getOnlineFeatures(
+      GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities, String project) {
+    return getOnlineFeatures(getOnlineFeaturesRequest, entities);
   }
 
   /**
@@ -409,9 +410,9 @@ public class FeastClient implements AutoCloseable {
       List<SortKeyFilterModel> sortKeyFilters,
       int limit,
       boolean reverseSortOrder,
-      boolean status) {
+      boolean omit_status) {
     GetOnlineFeaturesRangeRequest.Builder requestBuilder =
-        GetOnlineFeaturesRangeRequest.newBuilder().setStatus(status);
+        GetOnlineFeaturesRangeRequest.newBuilder().setOmitStatus(omit_status);
 
     requestBuilder.setFeatures(
         ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build());
@@ -443,12 +444,12 @@ public class FeastClient implements AutoCloseable {
     for (int rowIdx = 0; rowIdx < response.getResults(0).getValuesCount(); rowIdx++) {
       RangeRow row = RangeRow.create();
       for (int featureIdx = 0; featureIdx < response.getResultsCount(); featureIdx++) {
-        if (status) {
+        if (omit_status) {
           row.setWithValues(
               response.getMetadata().getFeatureNames().getVal(featureIdx),
               response.getResults(featureIdx).getValues(rowIdx).getValList());
         } else {
-          row.setWithValuesWithStatus(
+          row.setWithValuesWithFieldStatus(
               response.getMetadata().getFeatureNames().getVal(featureIdx),
               response.getResults(featureIdx).getValues(rowIdx).getValList(),
               response.getResults(featureIdx).getStatuses(rowIdx).getStatusList());
@@ -487,9 +488,9 @@ public class FeastClient implements AutoCloseable {
       int limit,
       boolean reverseSortOrder,
       String project,
-      boolean status) {
+      boolean omit_status) {
     return getOnlineFeaturesRange(
-        featureRefs, rows, sortKeyFilters, limit, reverseSortOrder, status);
+        featureRefs, rows, sortKeyFilters, limit, reverseSortOrder, omit_status);
   }
 
   protected FeastClient(ManagedChannel channel, Optional<CallCredentials> credentials) {
