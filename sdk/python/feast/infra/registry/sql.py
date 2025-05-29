@@ -37,7 +37,8 @@ from feast.errors import (
     ProjectNotFoundException,
     ProjectObjectNotFoundException,
     SavedDatasetNotFound,
-    ValidationReferenceNotFound, SortedFeatureViewNotFoundException,
+    SortedFeatureViewNotFoundException,
+    ValidationReferenceNotFound,
 )
 from feast.expediagroup.pydantic_models.project_metadata_model import (
     ProjectMetadataModel,
