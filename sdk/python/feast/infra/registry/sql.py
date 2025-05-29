@@ -37,7 +37,7 @@ from feast.errors import (
     ProjectNotFoundException,
     ProjectObjectNotFoundException,
     SavedDatasetNotFound,
-    ValidationReferenceNotFound,
+    ValidationReferenceNotFound, SortedFeatureViewNotFoundException,
 )
 from feast.expediagroup.pydantic_models.project_metadata_model import (
     ProjectMetadataModel,
@@ -380,7 +380,7 @@ class SqlRegistry(CachingRegistry):
             python_class=SortedFeatureView,
             id_field_name="feature_view_name",
             proto_field_name="feature_view_proto",
-            not_found_exception=FeatureViewNotFoundException,
+            not_found_exception=SortedFeatureViewNotFoundException,
         )
 
     def _list_stream_feature_views(
