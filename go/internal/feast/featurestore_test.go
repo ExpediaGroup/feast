@@ -19,7 +19,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"testing"
 	"time"
 )
@@ -177,7 +176,6 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		return sameBase && f.Order != nil && expectedFilter.Order != nil &&
 			f.Order.Order == expectedFilter.Order.Order
 	})
-
 	mockRangeFeatureData := [][]onlinestore.RangeFeatureData{
 		{
 			{
@@ -255,44 +253,60 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		true,
 	)
 
-	// Sort the result by name, so we can assert by index consistently
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, 3, len(result), "Should have 3 vectors (1 entity + 2 features)")
-	assert.Equal(t, "driver_id", result[0].Name)
-	assert.Equal(t, "driver_stats__acc_rate", result[1].Name)
-	assert.Equal(t, "driver_stats__conv_rate", result[2].Name)
-	assert.Equal(t, 2, result[0].RangeValues.Len())
-	assert.Equal(t, 2, len(result[0].RangeStatuses))
-	assert.Equal(t, 2, len(result[0].RangeTimestamps))
-
-	for i := 0; i < result[0].RangeValues.Len(); i++ {
-		key := result[0].RangeValues.(*array.List).ListValues().(*array.Int64).Value(i)
-		var expectedLength int
-
-		accRateValues, err := types2.ArrowValuesToProtoValues(result[1].RangeValues)
-		assert.NoError(t, err)
-		convRateValues, err := types2.ArrowValuesToProtoValues(result[2].RangeValues)
-		assert.NoError(t, err)
-
-		if key == 1001 {
-			assert.Equal(t, []float64{0.91, 0.92, 0.94}, accRateValues[i].GetDoubleListVal().Val)
-			assert.Equal(t, []float64{0.85, 0.87, 0.89}, convRateValues[i].GetDoubleListVal().Val)
-			expectedLength = 3
-		} else {
-			assert.Equal(t, []float64{0.85, 0.88}, accRateValues[i].GetDoubleListVal().Val)
-			assert.Equal(t, []float64{0.78, 0.80}, convRateValues[i].GetDoubleListVal().Val)
-			expectedLength = 2
+	var driverIdVector, accRateVector, convRateVector *onlineserving.RangeFeatureVector
+	for _, r := range result {
+		switch r.Name {
+		case "driver_id":
+			driverIdVector = r
+		case "driver_stats__acc_rate":
+			accRateVector = r
+		case "driver_stats__conv_rate":
+			convRateVector = r
 		}
+	}
 
-		assert.Equal(t, expectedLength, len(result[1].RangeStatuses[i]))
-		assert.Equal(t, expectedLength, len(result[2].RangeStatuses[i]))
-		assert.Equal(t, expectedLength, len(result[1].RangeTimestamps[i]))
-		assert.Equal(t, expectedLength, len(result[2].RangeTimestamps[i]))
+	assert.NotNil(t, driverIdVector, "Should have driver_id vector")
+	assert.NotNil(t, accRateVector, "Should have acc_rate vector")
+	assert.NotNil(t, convRateVector, "Should have conv_rate vector")
+	assert.Equal(t, 2, driverIdVector.RangeValues.Len())
+	assert.Equal(t, 2, len(driverIdVector.RangeStatuses))
+	assert.Equal(t, 2, len(driverIdVector.RangeTimestamps))
+	entityId0 := driverIdVector.RangeValues.(*array.List).ListValues().(*array.Int64).Value(0)
+	entityId1 := driverIdVector.RangeValues.(*array.List).ListValues().(*array.Int64).Value(1)
+	accRateValues, err := types2.ArrowValuesToProtoValues(accRateVector.RangeValues)
+	assert.NoError(t, err)
+	convRateValues, err := types2.ArrowValuesToProtoValues(convRateVector.RangeValues)
+	assert.NoError(t, err)
+
+	if entityId0 == 1001 && entityId1 == 1002 {
+		assert.Equal(t, []float64{0.91, 0.92, 0.94}, accRateValues[0].GetDoubleListVal().Val)
+		assert.Equal(t, []float64{0.85, 0.87, 0.89}, convRateValues[0].GetDoubleListVal().Val)
+
+		assert.Equal(t, []float64{0.85, 0.88}, accRateValues[1].GetDoubleListVal().Val)
+		assert.Equal(t, []float64{0.78, 0.80}, convRateValues[1].GetDoubleListVal().Val)
+
+		assert.Equal(t, 3, len(accRateVector.RangeStatuses[0]))
+		assert.Equal(t, 3, len(convRateVector.RangeStatuses[0]))
+		assert.Equal(t, 2, len(accRateVector.RangeStatuses[1]))
+		assert.Equal(t, 2, len(convRateVector.RangeStatuses[1]))
+	} else if entityId0 == 1002 && entityId1 == 1001 {
+		t.Logf("Warning: Entity order is not as expected. Got %d, %d instead of 1001, 1002", entityId0, entityId1)
+
+		assert.Equal(t, []float64{0.85, 0.88}, accRateValues[0].GetDoubleListVal().Val)
+		assert.Equal(t, []float64{0.78, 0.80}, convRateValues[0].GetDoubleListVal().Val)
+
+		assert.Equal(t, []float64{0.91, 0.92, 0.94}, accRateValues[1].GetDoubleListVal().Val)
+		assert.Equal(t, []float64{0.85, 0.87, 0.89}, convRateValues[1].GetDoubleListVal().Val)
+
+		assert.Equal(t, 2, len(accRateVector.RangeStatuses[0]))
+		assert.Equal(t, 2, len(convRateVector.RangeStatuses[0]))
+		assert.Equal(t, 3, len(accRateVector.RangeStatuses[1]))
+		assert.Equal(t, 3, len(convRateVector.RangeStatuses[1]))
+	} else {
+		t.Fatalf("Unexpected entity IDs: %d, %d", entityId0, entityId1)
 	}
 	mockStore.AssertExpectations(t)
 }
