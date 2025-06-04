@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/feast-dev/feast/go/types"
 	"os"
 	"strings"
 
@@ -76,6 +77,75 @@ func NewFeatureStore(config *registry.RepoConfig, callback transformation.Transf
 	}, nil
 }
 
+func entityTypeConversion(entityMap map[string]*prototypes.RepeatedValue, entityColumns map[string]*model.Field) (map[string]*prototypes.RepeatedValue, error) {
+	for entityName, entityValue := range entityMap {
+		if entityColumn, ok := entityColumns[entityName]; ok {
+			newEntityValue := &prototypes.RepeatedValue{}
+			for _, value := range entityValue.Val {
+				newVal, err := types.ConvertToValueType(value, entityColumn.Dtype)
+				if err != nil {
+					return nil, fmt.Errorf("error converting entity value for %s: %w", entityName, err)
+				}
+				newEntityValue.Val = append(newEntityValue.Val, newVal)
+			}
+			entityMap[entityName] = newEntityValue
+		} else {
+			return nil, fmt.Errorf("entity %s not found in entity columns", entityName)
+		}
+	}
+	return entityMap, nil
+}
+
+func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKeys map[string]*model.SortKey) ([]*serving.SortKeyFilter, error) {
+	newFilters := make([]*serving.SortKeyFilter, len(sortKeyFilters))
+	for i, filter := range sortKeyFilters {
+		if sk, ok := sortKeys[filter.SortKeyName]; ok {
+			if sk.FieldName == filter.GetSortKeyName() {
+				if filter.GetEquals() != nil {
+					equals, err := types.ConvertToValueType(filter.GetEquals(), sk.ValueType)
+					if err != nil {
+						return nil, fmt.Errorf("error converting sort key filter equals for %s: %w", sk.FieldName, err)
+					}
+					newFilters[i] = &serving.SortKeyFilter{
+						SortKeyName: sk.FieldName,
+						Query:       &serving.SortKeyFilter_Equals{Equals: equals},
+					}
+					continue
+				}
+				var err error
+				var rangeStart *prototypes.Value
+				if filter.GetRange().GetRangeStart() != nil {
+					rangeStart, err = types.ConvertToValueType(filter.GetRange().GetRangeStart(), sk.ValueType)
+					if err != nil {
+						return nil, fmt.Errorf("error converting sort key filter range start for %s: %w", sk.FieldName, err)
+					}
+				}
+				var rangeEnd *prototypes.Value
+				if filter.GetRange().GetRangeEnd() != nil {
+					rangeEnd, err = types.ConvertToValueType(filter.GetRange().GetRangeEnd(), sk.ValueType)
+					if err != nil {
+						return nil, fmt.Errorf("error converting sort key filter range end for %s: %w", sk.FieldName, err)
+					}
+				}
+				newFilters[i] = &serving.SortKeyFilter{
+					SortKeyName: sk.FieldName,
+					Query: &serving.SortKeyFilter_Range{
+						Range: &serving.SortKeyFilter_RangeQuery{
+							RangeStart:     rangeStart,
+							RangeEnd:       rangeEnd,
+							StartInclusive: filter.GetRange().GetStartInclusive(),
+							EndInclusive:   filter.GetRange().GetEndInclusive(),
+						},
+					},
+				}
+			}
+		} else {
+			return nil, fmt.Errorf("sort key %s not found in sort keys", filter.SortKeyName)
+		}
+	}
+	return newFilters, nil
+}
+
 // TODO: Review all functions that use ODFV and Request FV since these have not been tested
 // ToDo: Split GetOnlineFeatures interface into two: GetOnlinFeaturesByFeatureService and GetOnlineFeaturesByFeatureRefs
 func (fs *FeatureStore) GetOnlineFeatures(
@@ -97,6 +167,17 @@ func (fs *FeatureStore) GetOnlineFeatures(
 		requestedFeatureViews, _, requestedOnDemandFeatureViews, err =
 			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fs.registry, fs.config.Project)
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	entityColumnMap := make(map[string]*model.Field)
+	for _, featuresAndView := range requestedFeatureViews {
+		for _, entityColumn := range featuresAndView.View.EntityColumns {
+			entityColumnMap[entityColumn.Name] = entityColumn
+		}
+	}
+	joinKeyToEntityValues, err = entityTypeConversion(joinKeyToEntityValues, entityColumnMap)
 	if err != nil {
 		return nil, err
 	}
@@ -219,6 +300,25 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	}
 
 	// Note: We're ignoring on-demand feature views for now.
+
+	entityColumnMap := make(map[string]*model.Field)
+	sortKeyMap := make(map[string]*model.SortKey)
+	for _, featuresAndView := range requestedSortedFeatureViews {
+		for _, entityColumn := range featuresAndView.View.EntityColumns {
+			entityColumnMap[entityColumn.Name] = entityColumn
+		}
+		for _, sk := range featuresAndView.View.SortKeys {
+			sortKeyMap[sk.FieldName] = sk
+		}
+	}
+	joinKeyToEntityValues, err = entityTypeConversion(joinKeyToEntityValues, entityColumnMap)
+	if err != nil {
+		return nil, err
+	}
+	sortKeyFilters, err = sortKeyFilterTypeConversion(sortKeyFilters, sortKeyMap)
+	if err != nil {
+		return nil, err
+	}
 
 	entityNameToJoinKeyMap, expectedJoinKeysSet, err := onlineserving.GetEntityMapsForSortedViews(
 		requestedSortedFeatureViews, fs.registry, fs.config.Project)
