@@ -375,14 +375,56 @@ class CassandraOnlineStore(OnlineStore):
             if not self._cluster.is_shutdown:
                 self._cluster.shutdown()
 
+    def _get_existing_columns(
+            self,
+            config: RepoConfig,
+            project: str,
+            table: FeatureView
+    ) -> List[str]:
+        """
+        Retrieve the current list of column names for a given table in ScyllaDB/Cassandra.
+
+        Args:
+            config: Feast RepoConfig.
+            project: Feast project name.
+            table: SortedFeatureView table name.
+
+        Returns:
+            List of column names as strings.
+        """
+        session: Session = self._get_session(config)
+        keyspace: str = self._keyspace
+        table_name_version = config.online_store.table_name_format_version
+
+        fqtable = CassandraOnlineStore._fq_table_name(keyspace, project, table, table_name_version)
+
+        # Extract unquoted table name from fqtable, e.g. "keyspace"."project_table"
+        _, quoted_table_name = fqtable.split(".")
+        table_name = quoted_table_name.replace('"', '')
+
+        table_metadata = session.cluster.metadata.keyspaces[keyspace].tables.get(table_name)
+        if not table_metadata:
+            raise ValueError(f"Table '{table_name}' not found in keyspace '{keyspace}'.")
+
+        return list(table_metadata.columns.keys())
+
+    def _sync_table_schema(self, session, fqtable, feature_view: SortedFeatureView):
+        existing_columns = self._get_existing_columns(session, fqtable)
+        for feature in feature_view.features:
+            if feature.name not in existing_columns:
+                cql_type = CassandraOnlineStore._get_cql_type(feature.dtype)
+                alter_stmt = f'ALTER TABLE {fqtable} ADD {feature.name} {cql_type};'
+                logger.info(f"Altering table {fqtable}: {alter_stmt}")
+                session.execute(alter_stmt)
+
     def online_write_batch(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        data: List[
-            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-        ],
-        progress: Optional[Callable[[int], Any]],
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            data: List[
+                Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+            ],
+            progress: Optional[Callable[[int], Any]],
     ) -> None:
         """
         Write a batch of features of several entities to the database.
@@ -439,6 +481,8 @@ class CassandraOnlineStore(OnlineStore):
         )
 
         if isinstance(table, SortedFeatureView):
+            # If the table is a SortedFeatureView, we need to ensure that the schema is in sync with any updates
+            self._sync_table_schema(session, fqtable, table)
             # Split the data in to multiple batches, with each batch having the same entity key (partition key).
             # NOTE: It is not a good practice to have data from multiple partitions in the same batch.
             # Doing so can affect write latency and also data loss among other things.
@@ -632,11 +676,11 @@ class CassandraOnlineStore(OnlineStore):
             progress(1)
 
     def online_read(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        entity_keys: List[EntityKeyProto],
-        requested_features: Optional[List[str]] = None,
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            entity_keys: List[EntityKeyProto],
+            requested_features: Optional[List[str]] = None,
     ) -> List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]]:
         """
         Read feature values pertaining to the requested entities from
@@ -674,8 +718,8 @@ class CassandraOnlineStore(OnlineStore):
             if feature_rows:
                 for feature_row in feature_rows:
                     if (
-                        requested_features is None
-                        or feature_row.feature_name in requested_features
+                            requested_features is None
+                            or feature_row.feature_name in requested_features
                     ):
                         val = ValueProto()
                         val.ParseFromString(feature_row.value)
@@ -688,13 +732,13 @@ class CassandraOnlineStore(OnlineStore):
         return result
 
     def update(
-        self,
-        config: RepoConfig,
-        tables_to_delete: Sequence[FeatureView],
-        tables_to_keep: Sequence[FeatureView],
-        entities_to_delete: Sequence[Entity],
-        entities_to_keep: Sequence[Entity],
-        partial: bool,
+            self,
+            config: RepoConfig,
+            tables_to_delete: Sequence[FeatureView],
+            tables_to_keep: Sequence[FeatureView],
+            entities_to_delete: Sequence[Entity],
+            entities_to_keep: Sequence[Entity],
+            partial: bool,
     ):
         """
         Update schema on DB, by creating and destroying tables accordingly.
@@ -712,10 +756,10 @@ class CassandraOnlineStore(OnlineStore):
             self._drop_table(config, project, table)
 
     def teardown(
-        self,
-        config: RepoConfig,
-        tables: Sequence[FeatureView],
-        entities: Sequence[Entity],
+            self,
+            config: RepoConfig,
+            tables: Sequence[FeatureView],
+            entities: Sequence[Entity],
     ):
         """
         Delete tables from the database.
@@ -770,8 +814,8 @@ class CassandraOnlineStore(OnlineStore):
             truncated_project = project[:prj_prefix_maxlen]
             truncated_fv = feature_view_name[:fv_prefix_maxlen]
 
-            project_to_hash = project[len(truncated_project) :]
-            fv_to_hash = feature_view_name[len(truncated_fv) :]
+            project_to_hash = project[len(truncated_project):]
+            fv_to_hash = feature_view_name[len(truncated_fv):]
 
             project_hash = base62encode(hashlib.md5(project_to_hash.encode()).digest())
             fv_hash = base62encode(hashlib.md5(fv_to_hash.encode()).digest())
@@ -784,7 +828,7 @@ class CassandraOnlineStore(OnlineStore):
 
     @staticmethod
     def _fq_table_name(
-        keyspace: str, project: str, table: FeatureView, table_name_version: int
+            keyspace: str, project: str, table: FeatureView, table_name_version: int
     ) -> str:
         """
         Generate a fully-qualified table name,
@@ -803,12 +847,12 @@ class CassandraOnlineStore(OnlineStore):
             raise ValueError(f"Unknown table name format version: {table_name_version}")
 
     def _read_rows_by_entity_keys(
-        self,
-        config: RepoConfig,
-        project: str,
-        table: FeatureView,
-        entity_key_bins: List[str],
-        columns: Optional[List[str]] = None,
+            self,
+            config: RepoConfig,
+            project: str,
+            table: FeatureView,
+            entity_key_bins: List[str],
+            columns: Optional[List[str]] = None,
     ) -> ResultSet:
         """
         Handle the CQL (low-level) reading of feature values from a table.
@@ -847,10 +891,10 @@ class CassandraOnlineStore(OnlineStore):
         return returned_sequence
 
     def _drop_table(
-        self,
-        config: RepoConfig,
-        project: str,
-        table: FeatureView,
+            self,
+            config: RepoConfig,
+            project: str,
+            table: FeatureView,
     ):
         """Handle the CQL (low-level) deletion of a table."""
         session: Session = self._get_session(config)
@@ -864,10 +908,10 @@ class CassandraOnlineStore(OnlineStore):
         session.execute(drop_cql)
 
     def _create_table(
-        self,
-        config: RepoConfig,
-        project: str,
-        table: Union[FeatureView, SortedFeatureView],
+            self,
+            config: RepoConfig,
+            project: str,
+            table: Union[FeatureView, SortedFeatureView],
     ):
         """Handle the CQL (low-level) creation of a table."""
         session: Session = self._get_session(config)
@@ -892,7 +936,7 @@ class CassandraOnlineStore(OnlineStore):
         session.execute(create_cql)
 
     def _build_sorted_table_cql(
-        self, project: str, table: SortedFeatureView, fqtable: str
+            self, project: str, table: SortedFeatureView, fqtable: str
     ) -> str:
         """
         Build the CQL statement for creating a SortedFeatureView table with custom
@@ -925,7 +969,7 @@ class CassandraOnlineStore(OnlineStore):
         return create_cql.strip()
 
     def _get_cql_statement(
-        self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
+            self, config: RepoConfig, op_name: str, fqtable: str, **kwargs
     ):
         """
         Resolve an 'op_name' (create, insert4, etc) into a CQL statement
@@ -969,13 +1013,13 @@ class CassandraOnlineStore(OnlineStore):
 
     @staticmethod
     def _apply_batch(
-        rate_limiter: SlidingWindowRateLimiter,
-        batch: BatchStatement,
-        progress: Optional[Callable[[int], Any]],
-        session: Session,
-        concurrent_queue: Queue,
-        on_success,
-        on_failure,
+            rate_limiter: SlidingWindowRateLimiter,
+            batch: BatchStatement,
+            progress: Optional[Callable[[int], Any]],
+            session: Session,
+            concurrent_queue: Queue,
+            on_success,
+            on_failure,
     ):
         # Wait until the rate limiter allows
         if not rate_limiter.acquire():
@@ -1001,10 +1045,10 @@ class CassandraOnlineStore(OnlineStore):
 
     @staticmethod
     def _get_ttl(
-        apply_ttl_on_write: bool,
-        ttl_feature_view: timedelta,
-        ttl_online_store_config: timedelta,
-        timestamp: datetime,
+            apply_ttl_on_write: bool,
+            ttl_feature_view: timedelta,
+            ttl_online_store_config: timedelta,
+            timestamp: datetime,
     ) -> int:
         """
         Calculate TTL based on different settings (like apply_ttl_on_write and ttl settings in feature view and online store config)
@@ -1034,7 +1078,7 @@ class CassandraOnlineStore(OnlineStore):
         return ttl
 
     def _get_cql_type(
-        self, value_type: Union[ComplexFeastType, PrimitiveFeastType]
+            self, value_type: Union[ComplexFeastType, PrimitiveFeastType]
     ) -> str:
         """Map Feast value types to Cassandra CQL data types."""
         scalar_mapping = {
