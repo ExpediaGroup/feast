@@ -675,7 +675,7 @@ func TestConvertToValueType_UnixTimestampList(t *testing.T) {
 	for _, tc := range testCases {
 		result, err := ConvertToValueType(tc.input, types.ValueType_UNIX_TIMESTAMP_LIST)
 		assert.NoErrorf(t, err, "Error converting value: %v", tc.input)
-		assert.IsType(t, &types.Value_Int64ListVal{}, result.GetVal())
+		assert.IsType(t, &types.Value_UnixTimestampListVal{}, result.GetVal())
 		assert.ElementsMatch(t, tc.expected, result.GetUnixTimestampListVal().GetVal())
 	}
 }
