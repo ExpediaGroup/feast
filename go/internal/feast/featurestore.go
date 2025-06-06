@@ -129,44 +129,42 @@ func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKe
 	newFilters := make([]*serving.SortKeyFilter, len(sortKeyFilters))
 	for i, filter := range sortKeyFilters {
 		if sk, ok := sortKeys[filter.SortKeyName]; ok {
-			if sk.FieldName == filter.GetSortKeyName() {
-				if filter.GetEquals() != nil {
-					equals, err := types.ConvertToValueType(filter.GetEquals(), sk.ValueType)
-					if err != nil {
-						return nil, fmt.Errorf("error converting sort key filter equals for %s: %w", sk.FieldName, err)
-					}
-					newFilters[i] = &serving.SortKeyFilter{
-						SortKeyName: sk.FieldName,
-						Query:       &serving.SortKeyFilter_Equals{Equals: equals},
-					}
-					continue
-				}
-				var err error
-				var rangeStart *prototypes.Value
-				if filter.GetRange().GetRangeStart() != nil {
-					rangeStart, err = types.ConvertToValueType(filter.GetRange().GetRangeStart(), sk.ValueType)
-					if err != nil {
-						return nil, fmt.Errorf("error converting sort key filter range start for %s: %w", sk.FieldName, err)
-					}
-				}
-				var rangeEnd *prototypes.Value
-				if filter.GetRange().GetRangeEnd() != nil {
-					rangeEnd, err = types.ConvertToValueType(filter.GetRange().GetRangeEnd(), sk.ValueType)
-					if err != nil {
-						return nil, fmt.Errorf("error converting sort key filter range end for %s: %w", sk.FieldName, err)
-					}
+			if filter.GetEquals() != nil {
+				equals, err := types.ConvertToValueType(filter.GetEquals(), sk.ValueType)
+				if err != nil {
+					return nil, fmt.Errorf("error converting sort key filter equals for %s: %w", sk.FieldName, err)
 				}
 				newFilters[i] = &serving.SortKeyFilter{
 					SortKeyName: sk.FieldName,
-					Query: &serving.SortKeyFilter_Range{
-						Range: &serving.SortKeyFilter_RangeQuery{
-							RangeStart:     rangeStart,
-							RangeEnd:       rangeEnd,
-							StartInclusive: filter.GetRange().GetStartInclusive(),
-							EndInclusive:   filter.GetRange().GetEndInclusive(),
-						},
-					},
+					Query:       &serving.SortKeyFilter_Equals{Equals: equals},
 				}
+				continue
+			}
+			var err error
+			var rangeStart *prototypes.Value
+			if filter.GetRange().GetRangeStart() != nil {
+				rangeStart, err = types.ConvertToValueType(filter.GetRange().GetRangeStart(), sk.ValueType)
+				if err != nil {
+					return nil, fmt.Errorf("error converting sort key filter range start for %s: %w", sk.FieldName, err)
+				}
+			}
+			var rangeEnd *prototypes.Value
+			if filter.GetRange().GetRangeEnd() != nil {
+				rangeEnd, err = types.ConvertToValueType(filter.GetRange().GetRangeEnd(), sk.ValueType)
+				if err != nil {
+					return nil, fmt.Errorf("error converting sort key filter range end for %s: %w", sk.FieldName, err)
+				}
+			}
+			newFilters[i] = &serving.SortKeyFilter{
+				SortKeyName: sk.FieldName,
+				Query: &serving.SortKeyFilter_Range{
+					Range: &serving.SortKeyFilter_RangeQuery{
+						RangeStart:     rangeStart,
+						RangeEnd:       rangeEnd,
+						StartInclusive: filter.GetRange().GetStartInclusive(),
+						EndInclusive:   filter.GetRange().GetEndInclusive(),
+					},
+				},
 			}
 		} else {
 			return nil, fmt.Errorf("sort key %s not found in sort keys", filter.SortKeyName)

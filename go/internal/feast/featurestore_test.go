@@ -409,21 +409,30 @@ func assertValueTypes(t *testing.T, actualValues []*types.Value, expectedType st
 
 func TestEntityTypeConversion_WithValidValues(t *testing.T) {
 	entityMap := map[string]*types.RepeatedValue{
-		"int32": {Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1002}}, {Val: &types.Value_Int64Val{Int64Val: 1001}}}},
-		"float": {Val: []*types.Value{{Val: &types.Value_FloatVal{FloatVal: 1.23}}, {Val: &types.Value_DoubleVal{DoubleVal: 4.56}}}},
-		"bytes": {Val: []*types.Value{{Val: &types.Value_BytesVal{BytesVal: []byte("test")}}, {Val: &types.Value_StringVal{StringVal: "test2"}}}},
+		"int32":         {Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1002}}, {Val: &types.Value_Int32Val{Int32Val: 2003}}}},
+		"int64>int32":   {Val: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 1001}}, {Val: &types.Value_Int64Val{Int64Val: 2002}}}},
+		"float":         {Val: []*types.Value{{Val: &types.Value_FloatVal{FloatVal: 1.23}}, {Val: &types.Value_FloatVal{FloatVal: 4.56}}}},
+		"float64>float": {Val: []*types.Value{{Val: &types.Value_DoubleVal{DoubleVal: 10.32}}, {Val: &types.Value_DoubleVal{DoubleVal: 20.64}}}},
+		"bytes":         {Val: []*types.Value{{Val: &types.Value_BytesVal{BytesVal: []byte("test")}}, {Val: &types.Value_BytesVal{BytesVal: []byte("data")}}}},
+		"string>bytes":  {Val: []*types.Value{{Val: &types.Value_StringVal{StringVal: "test"}}, {Val: &types.Value_StringVal{StringVal: "data"}}}},
 	}
 	entityColumns := map[string]*model.Field{
-		"int32": {Name: "int32", Dtype: types.ValueType_INT32},
-		"float": {Name: "float", Dtype: types.ValueType_FLOAT},
-		"bytes": {Name: "bytes", Dtype: types.ValueType_BYTES},
+		"int32":         {Name: "int32", Dtype: types.ValueType_INT32},
+		"int64>int32":   {Name: "int64>int32", Dtype: types.ValueType_INT32},
+		"float":         {Name: "float", Dtype: types.ValueType_FLOAT},
+		"float64>float": {Name: "float64>float", Dtype: types.ValueType_FLOAT},
+		"bytes":         {Name: "bytes", Dtype: types.ValueType_BYTES},
+		"string>bytes":  {Name: "string>bytes", Dtype: types.ValueType_BYTES},
 	}
 
 	err := entityTypeConversion(entityMap, entityColumns)
 	assert.NoError(t, err)
 	assertValueTypes(t, entityMap["int32"].Val, "*types.Value_Int32Val")
+	assertValueTypes(t, entityMap["int64>int32"].Val, "*types.Value_Int32Val")
 	assertValueTypes(t, entityMap["float"].Val, "*types.Value_FloatVal")
+	assertValueTypes(t, entityMap["float64>float"].Val, "*types.Value_FloatVal")
 	assertValueTypes(t, entityMap["bytes"].Val, "*types.Value_BytesVal")
+	assertValueTypes(t, entityMap["string>bytes"].Val, "*types.Value_BytesVal")
 }
 
 func TestEntityTypeConversion_WithInvalidValues(t *testing.T) {
