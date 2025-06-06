@@ -77,23 +77,52 @@ func NewFeatureStore(config *registry.RepoConfig, callback transformation.Transf
 	}, nil
 }
 
-func entityTypeConversion(entityMap map[string]*prototypes.RepeatedValue, entityColumns map[string]*model.Field) (map[string]*prototypes.RepeatedValue, error) {
+func isRepeatedValueOfType(repeatingValue *prototypes.RepeatedValue, valueType prototypes.ValueType_Enum) bool {
+	if repeatingValue == nil {
+		return false
+	}
+	if len(repeatingValue.Val) > 1 {
+		switch repeatingValue.Val[0].Val.(type) {
+		case *prototypes.Value_StringVal:
+			return valueType == prototypes.ValueType_STRING
+		case *prototypes.Value_BytesVal:
+			return valueType == prototypes.ValueType_BYTES
+		case *prototypes.Value_Int32Val:
+			return valueType == prototypes.ValueType_INT32
+		case *prototypes.Value_Int64Val:
+			return valueType == prototypes.ValueType_INT64
+		case *prototypes.Value_FloatVal:
+			return valueType == prototypes.ValueType_FLOAT
+		case *prototypes.Value_DoubleVal:
+			return valueType == prototypes.ValueType_DOUBLE
+		case *prototypes.Value_BoolVal:
+			return valueType == prototypes.ValueType_BOOL
+		case *prototypes.Value_UnixTimestampVal:
+			return valueType == prototypes.ValueType_UNIX_TIMESTAMP
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func entityTypeConversion(entityMap map[string]*prototypes.RepeatedValue, entityColumns map[string]*model.Field) error {
 	for entityName, entityValue := range entityMap {
 		if entityColumn, ok := entityColumns[entityName]; ok {
 			newEntityValue := &prototypes.RepeatedValue{}
-			for _, value := range entityValue.Val {
-				newVal, err := types.ConvertToValueType(value, entityColumn.Dtype)
-				if err != nil {
-					return nil, fmt.Errorf("error converting entity value for %s: %w", entityName, err)
+			if isRepeatedValueOfType(entityValue, entityColumn.Dtype) {
+				for _, value := range entityValue.Val {
+					newVal, err := types.ConvertToValueType(value, entityColumn.Dtype)
+					if err != nil {
+						return fmt.Errorf("error converting entity value for %s: %w", entityName, err)
+					}
+					newEntityValue.Val = append(newEntityValue.Val, newVal)
 				}
-				newEntityValue.Val = append(newEntityValue.Val, newVal)
+				entityMap[entityName] = newEntityValue
 			}
-			entityMap[entityName] = newEntityValue
-		} else {
-			return nil, fmt.Errorf("entity %s not found in entity columns", entityName)
 		}
 	}
-	return entityMap, nil
+	return nil
 }
 
 func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKeys map[string]*model.SortKey) ([]*serving.SortKeyFilter, error) {
@@ -177,7 +206,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 			entityColumnMap[entityColumn.Name] = entityColumn
 		}
 	}
-	joinKeyToEntityValues, err = entityTypeConversion(joinKeyToEntityValues, entityColumnMap)
+	err = entityTypeConversion(joinKeyToEntityValues, entityColumnMap)
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +340,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 			sortKeyMap[sk.FieldName] = sk
 		}
 	}
-	joinKeyToEntityValues, err = entityTypeConversion(joinKeyToEntityValues, entityColumnMap)
+	err = entityTypeConversion(joinKeyToEntityValues, entityColumnMap)
 	if err != nil {
 		return nil, err
 	}

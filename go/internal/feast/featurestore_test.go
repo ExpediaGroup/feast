@@ -419,11 +419,11 @@ func TestEntityTypeConversion_WithValidValues(t *testing.T) {
 		"bytes": {Name: "bytes", Dtype: types.ValueType_BYTES},
 	}
 
-	entities, err := entityTypeConversion(entityMap, entityColumns)
+	err := entityTypeConversion(entityMap, entityColumns)
 	assert.NoError(t, err)
-	assertValueTypes(t, entities["int32"].Val, "*types.Value_Int32Val")
-	assertValueTypes(t, entities["float"].Val, "*types.Value_FloatVal")
-	assertValueTypes(t, entities["bytes"].Val, "*types.Value_BytesVal")
+	assertValueTypes(t, entityMap["int32"].Val, "*types.Value_Int32Val")
+	assertValueTypes(t, entityMap["float"].Val, "*types.Value_FloatVal")
+	assertValueTypes(t, entityMap["bytes"].Val, "*types.Value_BytesVal")
 }
 
 func TestEntityTypeConversion_WithInvalidValues(t *testing.T) {
@@ -444,10 +444,9 @@ func TestEntityTypeConversion_WithInvalidValues(t *testing.T) {
 	}
 
 	for i, entityMap := range entityMaps {
-		entities, err := entityTypeConversion(entityMap, entityColumns[i])
+		err := entityTypeConversion(entityMap, entityColumns[i])
 		assert.Error(t, err)
 		assert.Equal(t, expectedErrors[i], err.Error())
-		assert.Nil(t, entities)
 	}
 }
 
