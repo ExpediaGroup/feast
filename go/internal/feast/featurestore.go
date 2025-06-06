@@ -110,7 +110,7 @@ func entityTypeConversion(entityMap map[string]*prototypes.RepeatedValue, entity
 	for entityName, entityValue := range entityMap {
 		if entityColumn, ok := entityColumns[entityName]; ok {
 			newEntityValue := &prototypes.RepeatedValue{}
-			if isRepeatedValueOfType(entityValue, entityColumn.Dtype) {
+			if !isRepeatedValueOfType(entityValue, entityColumn.Dtype) {
 				for _, value := range entityValue.Val {
 					newVal, err := types.ConvertToValueType(value, entityColumn.Dtype)
 					if err != nil {
