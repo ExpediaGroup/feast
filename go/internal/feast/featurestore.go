@@ -81,7 +81,7 @@ func isRepeatedValueOfType(repeatingValue *prototypes.RepeatedValue, valueType p
 	if repeatingValue == nil {
 		return false
 	}
-	if len(repeatingValue.Val) > 1 {
+	if len(repeatingValue.Val) > 0 {
 		switch repeatingValue.Val[0].Val.(type) {
 		case *prototypes.Value_StringVal:
 			return valueType == prototypes.ValueType_STRING
@@ -119,6 +119,8 @@ func entityTypeConversion(entityMap map[string]*prototypes.RepeatedValue, entity
 					newEntityValue.Val = append(newEntityValue.Val, newVal)
 				}
 				entityMap[entityName] = newEntityValue
+			} else {
+				entityMap[entityName] = entityValue
 			}
 		}
 	}
