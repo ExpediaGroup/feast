@@ -205,8 +205,8 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 			readKeyBatchSize = legacyBatchSize
 			log.Warn().Msg("key_batch_size is deprecated, please use read_key_batch_size instead")
 		} else {
-			readKeyBatchSize = 10.0
-			log.Warn().Msg("read_key_batch_size not specified, defaulting to batches of size 10")
+			readKeyBatchSize = 100.0
+			log.Warn().Msg("read_key_batch_size not specified, defaulting to batches of size 100")
 		}
 	}
 	cassandraConfig.readKeyBatchSize = int(readKeyBatchSize.(float64))
@@ -261,7 +261,7 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	store.session = createdSession
 
 	if cassandraConfig.readKeyBatchSize <= 0 || cassandraConfig.readKeyBatchSize > 100 {
-		return nil, fmt.Errorf("read_key_batch_size must be greater than zero and less than 100")
+		return nil, fmt.Errorf("read_key_batch_size must be greater than zero and less than or equal to 100")
 	} else if cassandraConfig.readKeyBatchSize == 1 {
 		log.Info().Msg("key batching is disabled")
 	} else {

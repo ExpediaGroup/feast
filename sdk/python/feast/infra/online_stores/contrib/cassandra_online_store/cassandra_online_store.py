@@ -185,10 +185,10 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     key_batch_size: Optional[StrictInt] = 10
     """DEPRECATED: In Go Feature Server, this configuration is used to query tables with multiple keys at a time using IN clause based on the size specified. Value 1 means key batching is disabled. Valid values are 1 to 100."""
 
-    read_key_batch_size: Optional[StrictInt] = 10
+    read_key_batch_size: Optional[StrictInt] = 100
     """In Go Feature Server, this configuration is used to query tables with multiple keys at a time using IN clause based on the size specified. Value 1 means key batching is disabled. Valid values are 1 to 100."""
 
-    write_key_batch_size: Optional[StrictInt] = 10
+    write_key_batch_size: Optional[StrictInt] = 100
     """In Materialization, this configuration is used to write multiple keys at a time as a batched insert. Value 1 means key batching is disabled. Valid values are 1 to 100."""
 
     class CassandraLoadBalancingPolicy(FeastConfigBaseModel):
@@ -572,7 +572,8 @@ class CassandraOnlineStore(OnlineStore):
                         timestamp,
                     )
                     batch.add(insert_cql, params)
-                    batch_count += 1
+                # increment batch count per key which accounts for an insert statement per feature
+                batch_count += 1
 
                 if (
                     online_store_config.write_key_batch_size is None
