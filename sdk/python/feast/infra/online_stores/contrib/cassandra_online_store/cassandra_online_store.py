@@ -185,11 +185,11 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     key_batch_size: Optional[StrictInt] = 10
     """DEPRECATED: In Go Feature Server, this configuration is used to query tables with multiple keys at a time using IN clause based on the size specified. Value 1 means key batching is disabled. Valid values are 1 to 100."""
 
-    read_key_batch_size: Optional[StrictInt] = 100
+    read_batch_size: Optional[StrictInt] = 100
     """In Go Feature Server, this configuration is used to query tables with multiple keys at a time using IN clause based on the size specified. Value 1 means key batching is disabled. Valid values are 1 to 100."""
 
-    write_key_batch_size: Optional[StrictInt] = 100
-    """In Materialization, this configuration is used to write multiple keys at a time as a batched insert. Value 1 means key batching is disabled. Valid values are 1 to 100."""
+    write_batch_size: Optional[StrictInt] = 100
+    """In Materialization, this configuration is used to write multiple rows at a time as a batched insert. Value 1 means batching is disabled. Valid values are 1 to 100."""
 
     class CassandraLoadBalancingPolicy(FeastConfigBaseModel):
         """
@@ -483,10 +483,10 @@ class CassandraOnlineStore(OnlineStore):
             timestamp_field_name = table.batch_source.timestamp_field
             sort_key_names = [sort_key.name for sort_key in table.sort_keys]
             is_timestamp_sort_key = timestamp_field_name in sort_key_names
-            batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-            batch_count = 0
 
             for entity_key_bin, batch_to_write in entity_dict.items():
+                batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                batch_count = 0
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
                     ttl = CassandraOnlineStore._get_ttl(
                         online_store_config.apply_ttl_on_write,
@@ -532,10 +532,23 @@ class CassandraOnlineStore(OnlineStore):
                     batch.add(insert_cql, feature_values)
                     batch_count += 1
 
-                if (
-                    online_store_config.write_key_batch_size is None
-                    or batch_count >= online_store_config.write_key_batch_size
-                ):
+                    if (
+                        online_store_config.write_batch_size is None
+                        or batch_count >= online_store_config.write_batch_size
+                    ):
+                        CassandraOnlineStore._apply_batch(
+                            rate_limiter,
+                            batch,
+                            progress,
+                            session,
+                            concurrent_queue,
+                            on_success,
+                            on_failure,
+                        )
+                        batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                        batch_count = 0
+
+                if batch_count > 0:
                     CassandraOnlineStore._apply_batch(
                         rate_limiter,
                         batch,
@@ -545,8 +558,6 @@ class CassandraOnlineStore(OnlineStore):
                         on_success,
                         on_failure,
                     )
-                    batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-                    batch_count = 0
         else:
             insert_cql = self._get_cql_statement(
                 config,
@@ -556,10 +567,9 @@ class CassandraOnlineStore(OnlineStore):
                 session=session,
             )
 
-            batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-            batch_count = 0
-
             for entity_key, values, timestamp, created_ts in data:
+                batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                batch_count = 0
                 entity_key_bin = serialize_entity_key(
                     entity_key,
                     entity_key_serialization_version=config.entity_key_serialization_version,
@@ -572,13 +582,24 @@ class CassandraOnlineStore(OnlineStore):
                         timestamp,
                     )
                     batch.add(insert_cql, params)
-                # increment batch count per key which accounts for an insert statement per feature
-                batch_count += 1
 
-                if (
-                    online_store_config.write_key_batch_size is None
-                    or batch_count >= online_store_config.write_key_batch_size
-                ):
+                    if (
+                        online_store_config.write_batch_size is None
+                        or batch_count >= online_store_config.write_batch_size
+                    ):
+                        CassandraOnlineStore._apply_batch(
+                            rate_limiter,
+                            batch,
+                            progress,
+                            session,
+                            concurrent_queue,
+                            on_success,
+                            on_failure,
+                        )
+                        batch = BatchStatement(batch_type=BatchType.UNLOGGED)
+                        batch_count = 0
+
+                if batch_count > 0:
                     CassandraOnlineStore._apply_batch(
                         rate_limiter,
                         batch,
@@ -588,8 +609,6 @@ class CassandraOnlineStore(OnlineStore):
                         on_success,
                         on_failure,
                     )
-                    batch = BatchStatement(batch_type=BatchType.UNLOGGED)
-                    batch_count = 0
 
         if ex:
             raise ex

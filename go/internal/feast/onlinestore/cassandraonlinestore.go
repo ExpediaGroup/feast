@@ -56,7 +56,7 @@ type CassandraConfig struct {
 	loadBalancingPolicy     gocql.HostSelectionPolicy
 	connectionTimeoutMillis int64
 	requestTimeoutMillis    int64
-	readKeyBatchSize        int
+	readBatchSize           int
 }
 
 const (
@@ -199,17 +199,17 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 	}
 	cassandraConfig.requestTimeoutMillis = int64(requestTimeoutMillis.(float64))
 
-	readKeyBatchSize, ok := onlineStoreConfig["read_key_batch_size"]
+	readBatchSize, ok := onlineStoreConfig["read_batch_size"]
 	if !ok {
 		if legacyBatchSize, ok := onlineStoreConfig["key_batch_size"]; ok {
-			readKeyBatchSize = legacyBatchSize
-			log.Warn().Msg("key_batch_size is deprecated, please use read_key_batch_size instead")
+			readBatchSize = legacyBatchSize
+			log.Warn().Msg("key_batch_size is deprecated, please use read_batch_size instead")
 		} else {
-			readKeyBatchSize = 100.0
-			log.Warn().Msg("read_key_batch_size not specified, defaulting to batches of size 100")
+			readBatchSize = 100.0
+			log.Warn().Msg("read_batch_size not specified, defaulting to batches of size 100")
 		}
 	}
-	cassandraConfig.readKeyBatchSize = int(readKeyBatchSize.(float64))
+	cassandraConfig.readBatchSize = int(readBatchSize.(float64))
 
 	return &cassandraConfig, nil
 }
@@ -260,14 +260,14 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	}
 	store.session = createdSession
 
-	if cassandraConfig.readKeyBatchSize <= 0 || cassandraConfig.readKeyBatchSize > 100 {
-		return nil, fmt.Errorf("read_key_batch_size must be greater than zero and less than or equal to 100")
-	} else if cassandraConfig.readKeyBatchSize == 1 {
+	if cassandraConfig.readBatchSize <= 0 || cassandraConfig.readBatchSize > 100 {
+		return nil, fmt.Errorf("read_batch_size must be greater than zero and less than or equal to 100")
+	} else if cassandraConfig.readBatchSize == 1 {
 		log.Info().Msg("key batching is disabled")
 	} else {
-		log.Info().Msgf("key batching is enabled with a batch size of %d", cassandraConfig.readKeyBatchSize)
+		log.Info().Msgf("key batching is enabled with a batch size of %d", cassandraConfig.readBatchSize)
 	}
-	store.KeyBatchSize = cassandraConfig.readKeyBatchSize
+	store.KeyBatchSize = cassandraConfig.readBatchSize
 
 	// parse tableNameFormatVersion
 	tableNameFormatVersion, ok := onlineStoreConfig["table_name_format_version"]
@@ -872,7 +872,7 @@ func (c *CassandraOnlineStore) OnlineReadRange(
 	sortKeyFilters []*model.SortKeyFilter,
 	limit int32,
 ) ([][]RangeFeatureData, error) {
-	// If SortKeyFilters are not specified or if readKeyBatchSize is 1, use unbatched read
+	// If SortKeyFilters are not specified or if readBatchSize is 1, use unbatched read
 	if c.KeyBatchSize == 1 || hasUnspecifiedOrder(sortKeyFilters) {
 		return c.UnbatchedKeysOnlineReadRange(ctx, entityKeys, featureViewNames, featureNames, sortKeyFilters, limit)
 	} else {
