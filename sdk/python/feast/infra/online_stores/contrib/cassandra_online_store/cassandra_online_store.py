@@ -494,8 +494,11 @@ class CassandraOnlineStore(OnlineStore):
                         ttl_online_store_config,
                         timestamp,
                     )
-                    feature_values: tuple = ()
+                    if ttl < 0:
+                        # The ttl is negative when the timestamp-adjusted ttl is in the past in which case skip inserting the row
+                        continue
 
+                    feature_values: tuple = ()
                     for feature_name, valProto in feat_dict.items():
                         # When the event timestamp is added as a feature, it is converted in to UNIX_TIMESTAMP
                         # feast type. Hence, its value must be reassigned before inserting in to online store
