@@ -172,6 +172,8 @@ def test_parse_repo():
 
 def test_parse_repo_with_future_annotations():
     "Test to ensure that the repo is parsed correctly when using future annotations"
+    import sys
+
     runner = CliRunner()
     with tempfile.TemporaryDirectory(dir=os.getcwd()) as temp_dir:
         # Make sure the path is absolute by resolving any symlinks
@@ -186,7 +188,11 @@ def test_parse_repo_with_future_annotations():
         with open(repo_path / "example_repo.py", "w") as f:
             f.write("from __future__ import annotations" + "\n" + existing_content)
 
-        repo_contents = parse_repo(repo_path)
+        sys.path.insert(0, str(repo_path.parent))
+        try:
+            repo_contents = parse_repo(repo_path)
+        finally:
+            sys.path.pop(0)
 
         assert len(repo_contents.data_sources) == 3
         assert len(repo_contents.feature_views) == 2

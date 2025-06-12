@@ -1,6 +1,7 @@
 import textwrap
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from cassandra.cluster import Cluster
@@ -11,6 +12,7 @@ from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_s
     CassandraOnlineStore,
     CassandraOnlineStoreConfig,
 )
+from feast.infra.registry.registry import Registry
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import (
@@ -23,6 +25,8 @@ from feast.protos.feast.types.Value_pb2 import (
     StringList,
 )
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
+from feast.repo_config import RegistryConfig
+from feast.repo_operations import apply_total_with_repo_instance
 from feast.sorted_feature_view import SortedFeatureView, SortKey
 from feast.types import (
     Array,
@@ -138,6 +142,30 @@ class TestCassandraOnlineStore:
         Test the _create_table method of CassandraOnlineStore for sorted feature view
         """
         session, keyspace = cassandra_session
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir_str:
+            temp_dir = Path(temp_dir_str)
+
+            registry_file = temp_dir / "registry.db"
+            registry_cfg = RegistryConfig(
+                path=str(registry_file),
+                cache_ttl_seconds=600,
+            )
+
+            registry_1 = Registry(
+                project=repo_config.project,
+                registry_config=registry_cfg,
+                repo_path=None,
+            )
+
+            apply_total_with_repo_instance(
+                registry=registry_1,
+                repo=repo_config,
+                project_name="cassandra_project",
+                store=online_store,
+                skip_source_validation=True,
+            )
 
         sorted_feature_view = SortedFeatureView(
             name="test_sorted_feature_view",
