@@ -1025,7 +1025,11 @@ class CassandraOnlineStore(OnlineStore):
             ttl_remaining = timestamp - datetime.now(UTC) + ttl_offset
             return math.ceil(ttl_remaining.total_seconds())
 
-        return online_store_config.key_ttl_seconds
+        return (
+            online_store_config.key_ttl_seconds
+            if online_store_config.key_ttl_seconds is not None
+            else 0
+        )
 
     def _get_cql_type(
         self, value_type: Union[ComplexFeastType, PrimitiveFeastType]

@@ -398,6 +398,18 @@ class TestCassandraOnlineStore:
         )
         assert ttl == 30
 
+    def test_ttl_when_use_write_time_for_ttl_false_ttl_none(
+        self,
+        online_store: CassandraOnlineStore,
+    ):
+        config = CassandraOnlineStoreConfig(use_write_time_for_ttl=False)
+        ttl = online_store._get_ttl(
+            timedelta(seconds=15),
+            config,
+            datetime.now(UTC) - timedelta(seconds=10),
+        )
+        assert ttl == 0
+
     def test_cassandra_online_write_batch_all_datatypes(
         self,
         cassandra_session,
