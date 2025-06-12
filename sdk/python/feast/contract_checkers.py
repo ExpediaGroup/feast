@@ -44,7 +44,6 @@ class FeatureViewContractChecker(ContractChecker[FeatureView]):
         self.reasons.clear()
         self._check_entities()
         self._check_fields()
-        self._check_ttl()
         return not self.reasons
 
     def _check_entities(self) -> None:
@@ -74,16 +73,6 @@ class FeatureViewContractChecker(ContractChecker[FeatureView]):
                     f"feature '{fname}' type changed ({old_dtype} to {new_fields[fname]}) not allowed"
                 )
 
-    def _check_ttl(self) -> None:
-        cur_ttl, upd_ttl = self.current.ttl, self.updated.ttl
-        if cur_ttl and upd_ttl:
-            if upd_ttl < cur_ttl:
-                self.reasons.append(
-                    "ttl may stay the same or increase, but not decrease"
-                )
-        elif cur_ttl and not upd_ttl:
-            self.reasons.append("ttl cannot be removed once defined")
-
 
 class SortedFeatureViewContractChecker(
     FeatureViewContractChecker, ContractChecker[SortedFeatureView]
@@ -94,10 +83,7 @@ class SortedFeatureViewContractChecker(
 
     def _run_all_checks(self) -> bool:
         self.reasons.clear()
-        fv_checker = FeatureViewContractChecker(self.updated, self.current)
-        fv_checker._check_entities()
-        fv_checker._check_ttl()
-        self.reasons.extend(fv_checker.reasons)
+        self._check_entities()
         self._check_fields()
         self._check_sort_keys()
         return not self.reasons
@@ -108,7 +94,7 @@ class SortedFeatureViewContractChecker(
 
         removed = old_fields.keys() - new_fields.keys()
         entity_keys = set(self.current.entities)
-        sort_key_names = {key.name for key in self.current.sort_keys}  # type: ignore[attr-defined]  # type: ignore[attr-defined]
+        sort_key_names = {key.name for key in self.current.sort_keys}  # type: ignore[attr-defined]
 
         for fname in sorted(removed):
             if fname in entity_keys:
