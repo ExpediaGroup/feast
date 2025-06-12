@@ -172,7 +172,6 @@ def test_parse_repo():
 
 def test_parse_repo_with_future_annotations():
     "Test to ensure that the repo is parsed correctly when using future annotations"
-
     runner = CliRunner()
     with tempfile.TemporaryDirectory(dir=os.getcwd()) as temp_dir:
         # Make sure the path is absolute by resolving any symlinks
