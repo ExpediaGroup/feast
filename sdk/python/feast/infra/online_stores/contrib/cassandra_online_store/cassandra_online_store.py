@@ -536,8 +536,8 @@ class CassandraOnlineStore(OnlineStore):
                     batch_count += 1
 
                     if (
-                        online_store_config.write_batch_size is None
-                        or batch_count >= online_store_config.write_batch_size
+                        online_store_config.write_batch_size is not None
+                        and 0 < online_store_config.write_batch_size <= batch_count
                     ):
                         CassandraOnlineStore._apply_batch(
                             rate_limiter,
@@ -587,8 +587,8 @@ class CassandraOnlineStore(OnlineStore):
                     batch.add(insert_cql, params)
 
                     if (
-                        online_store_config.write_batch_size is None
-                        or batch_count >= online_store_config.write_batch_size
+                        online_store_config.write_batch_size is not None
+                        and 0 < online_store_config.write_batch_size <= batch_count
                     ):
                         CassandraOnlineStore._apply_batch(
                             rate_limiter,
