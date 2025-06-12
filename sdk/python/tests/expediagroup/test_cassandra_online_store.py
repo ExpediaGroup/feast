@@ -345,56 +345,37 @@ class TestCassandraOnlineStore:
         # Number of records should be 0 as they were expired
         assert count[0] == 0
 
-    def test_ttl_when_use_write_time_for_ttl_true(
-        self,
-        online_store: CassandraOnlineStore,
-    ):
-        # given an event timestamp 10 seconds in the past and a ttl of 30 seconds, the offset ttl should be 20 seconds
-        config = CassandraOnlineStoreConfig(use_write_time_for_ttl=True)
-        ttl = online_store._get_ttl(
-            timedelta(seconds=30),
-            config,
-            datetime.now(UTC) - timedelta(seconds=10),
-        )
-        assert ttl == 20
-
-    def test_ttl_when_use_write_time_for_ttl_true_no_fv_ttl(
-        self,
-        online_store: CassandraOnlineStore,
-    ):
-        config = CassandraOnlineStoreConfig(
-            use_write_time_for_ttl=True, key_ttl_seconds=30
-        )
-        ttl = online_store._get_ttl(
-            timedelta(0),
-            config,
-            datetime.now(UTC) - timedelta(seconds=15),
-        )
-        assert ttl == 15
-
-    def test_ttl_when_use_write_time_for_ttl_true_no_ttl(
-        self,
-        online_store: CassandraOnlineStore,
-    ):
-        config = CassandraOnlineStoreConfig(use_write_time_for_ttl=True)
-        ttl = online_store._get_ttl(
-            timedelta(0),
-            config,
-            datetime.now(UTC) - timedelta(seconds=15),
-        )
-        assert ttl == 0
-
     def test_ttl_when_use_write_time_for_ttl_false(
         self,
         online_store: CassandraOnlineStore,
     ):
-        config = CassandraOnlineStoreConfig(
-            use_write_time_for_ttl=False, key_ttl_seconds=30
-        )
+        # given an event timestamp 10 seconds in the past and a ttl of 30 seconds, the offset ttl should be 20 seconds
         ttl = online_store._get_ttl(
-            timedelta(seconds=15),
-            config,
+            timedelta(seconds=30),
+            False,
             datetime.now(UTC) - timedelta(seconds=10),
+        )
+        assert ttl == 20
+
+    def test_ttl_when_use_write_time_for_ttl_false_fv_ttl_0(
+        self,
+        online_store: CassandraOnlineStore,
+    ):
+        ttl = online_store._get_ttl(
+            timedelta(0),
+            False,
+            datetime.now(UTC) - timedelta(seconds=15),
+        )
+        assert ttl == 0
+
+    def test_ttl_when_use_write_time_for_ttl_false_fv_ttl(
+        self,
+        online_store: CassandraOnlineStore,
+    ):
+        ttl = online_store._get_ttl(
+            timedelta(30),
+            False,
+            datetime.now(UTC) - timedelta(seconds=15),
         )
         assert ttl == 30
 
@@ -402,10 +383,9 @@ class TestCassandraOnlineStore:
         self,
         online_store: CassandraOnlineStore,
     ):
-        config = CassandraOnlineStoreConfig(use_write_time_for_ttl=False)
         ttl = online_store._get_ttl(
             timedelta(seconds=15),
-            config,
+            True,
             datetime.now(UTC) - timedelta(seconds=10),
         )
         assert ttl == 0

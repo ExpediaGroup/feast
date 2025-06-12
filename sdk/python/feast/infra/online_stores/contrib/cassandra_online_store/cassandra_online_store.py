@@ -489,9 +489,10 @@ class CassandraOnlineStore(OnlineStore):
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                 batch_count = 0
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
+                    # TODO: move use_write_time_for_ttl config to SortedFeatureView level
                     ttl = CassandraOnlineStore._get_ttl(
                         ttl_feature_view,
-                        online_store_config,
+                        online_store_config.use_write_time_for_ttl,
                         timestamp,
                     )
                     if ttl < 0:
@@ -1005,31 +1006,21 @@ class CassandraOnlineStore(OnlineStore):
     @staticmethod
     def _get_ttl(
         ttl_feature_view: timedelta,
-        online_store_config: CassandraOnlineStoreConfig,
+        use_write_time_for_ttl: bool,
         timestamp: datetime,
     ) -> int:
         """
         Calculate TTL based on different settings (like apply_ttl_on_write and ttl settings in feature view and online store config)
         """
-        # When use_write_time_for_ttl is True, feature view ttl has priority. If feature view ttl is 0, then key_ttl_seconds is used.
-        # TODO: TTL from online store config should be either deprecated later or be used for only for backward compatibility if not deprecated.
-        if online_store_config.use_write_time_for_ttl:
+        if not use_write_time_for_ttl:
             if ttl_feature_view > timedelta():
                 ttl_offset = ttl_feature_view
-            elif online_store_config.key_ttl_seconds is not None:
-                ttl_offset = timedelta(seconds=online_store_config.key_ttl_seconds)
             else:
-                return 0
-            if ttl_offset <= timedelta():
                 return 0
             ttl_remaining = timestamp - datetime.now(UTC) + ttl_offset
             return math.ceil(ttl_remaining.total_seconds())
 
-        return (
-            online_store_config.key_ttl_seconds
-            if online_store_config.key_ttl_seconds is not None
-            else 0
-        )
+        return int(ttl_feature_view.total_seconds())
 
     def _get_cql_type(
         self, value_type: Union[ComplexFeastType, PrimitiveFeastType]
