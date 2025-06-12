@@ -1,6 +1,6 @@
 import textwrap
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 
 import pytest
 from cassandra import InvalidRequest
@@ -345,29 +345,54 @@ class TestCassandraOnlineStore:
         # Number of records should be 0 as they were expired
         assert count[0] == 0
 
-    def test_ttl_when_apply_ttl_on_write_true(
+    def test_ttl_when_use_write_time_for_ttl_true(
         self,
         online_store: CassandraOnlineStore,
     ):
+        # given an event timestamp 10 seconds in the past and a ttl of 30 seconds, the offset ttl should be 20 seconds
+        config = CassandraOnlineStoreConfig(use_write_time_for_ttl=True)
         ttl = online_store._get_ttl(
-            True,
-            timedelta(seconds=10),
-            15,
-            datetime.utcnow() - timedelta(seconds=300),
+            timedelta(seconds=30),
+            config,
+            datetime.now(UTC) - timedelta(seconds=10),
         )
-        assert ttl == 10
+        assert ttl == 20
 
-    def test_only_ttl_online_store_config_is_configured(
+    def test_ttl_when_use_write_time_for_ttl_true_no_fv_ttl(
         self,
         online_store: CassandraOnlineStore,
     ):
+        config = CassandraOnlineStoreConfig(use_write_time_for_ttl=True, key_ttl_seconds=30)
         ttl = online_store._get_ttl(
-            False,
             timedelta(0),
-            30,
-            datetime.utcnow() - timedelta(seconds=15),
+            config,
+            datetime.now(UTC) - timedelta(seconds=15),
         )
         assert ttl == 15
+
+    def test_ttl_when_use_write_time_for_ttl_true_no_ttl(
+            self,
+            online_store: CassandraOnlineStore,
+    ):
+        config = CassandraOnlineStoreConfig(use_write_time_for_ttl=True)
+        ttl = online_store._get_ttl(
+            timedelta(0),
+            config,
+            datetime.now(UTC) - timedelta(seconds=15),
+            )
+        assert ttl == 0
+
+    def test_ttl_when_use_write_time_for_ttl_false(
+            self,
+            online_store: CassandraOnlineStore,
+    ):
+        config = CassandraOnlineStoreConfig(use_write_time_for_ttl=False, key_ttl_seconds=30)
+        ttl = online_store._get_ttl(
+            timedelta(seconds=15),
+            config,
+            datetime.now(UTC) - timedelta(seconds=10),
+            )
+        assert ttl == 30
 
     def test_cassandra_online_write_batch_all_datatypes(
         self,

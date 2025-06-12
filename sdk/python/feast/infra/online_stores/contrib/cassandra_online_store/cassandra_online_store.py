@@ -20,10 +20,11 @@ Cassandra/Astra DB online store for Feast.
 
 import hashlib
 import logging
+import math
 import string
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from functools import partial
 from queue import Queue
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
@@ -241,7 +242,7 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     Table names should be quoted to make them case sensitive.
     """
 
-    apply_ttl_on_write: Optional[bool] = False
+    use_write_time_for_ttl: Optional[bool] = False
     """
     If True, the expiration time is always calculated as now() on the Coordinator + TTL where, now() is the wall clock during the corresponding write operation.
     """
@@ -489,9 +490,8 @@ class CassandraOnlineStore(OnlineStore):
                 batch_count = 0
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
                     ttl = CassandraOnlineStore._get_ttl(
-                        online_store_config.apply_ttl_on_write,
                         ttl_feature_view,
-                        ttl_online_store_config,
+                        online_store_config,
                         timestamp,
                     )
                     if ttl < 0:
@@ -527,7 +527,7 @@ class CassandraOnlineStore(OnlineStore):
                         config,
                         "insert_sorted_features",
                         fqtable=fqtable,
-                        ttl=int(ttl),
+                        ttl=ttl,
                         session=session,
                         feature_names_str=feature_names_str,
                         params_str=params_str,
@@ -1004,37 +1004,28 @@ class CassandraOnlineStore(OnlineStore):
 
     @staticmethod
     def _get_ttl(
-        apply_ttl_on_write: bool,
         ttl_feature_view: timedelta,
-        ttl_online_store_config: int,
+        online_store_config: CassandraOnlineStoreConfig,
         timestamp: datetime,
     ) -> int:
         """
         Calculate TTL based on different settings (like apply_ttl_on_write and ttl settings in feature view and online store config)
         """
-        ttl_feature_view_in_secs = int(ttl_feature_view.total_seconds())
-        ttl_online_store_config_in_secs = ttl_online_store_config
-
-        # If ttl is configured in both online store config and feature view, feature view ttl is considered.
-        # Otherwise, which ever is configured is considered.
-        # If ttl is configured neither in online store config or feature view, then it will be 0 which means there is no expiry.
+        # When use_write_time_for_ttl is True, feature view ttl has priority. If feature view ttl is 0, then key_ttl_seconds is used.
         # TODO: TTL from online store config should be either deprecated later or be used for only for backward compatibility if not deprecated.
-        ttl_configured = (
-            ttl_feature_view_in_secs
-            if ttl_feature_view_in_secs != 0
-            else ttl_online_store_config_in_secs
-        )
-
-        if apply_ttl_on_write:
-            ttl = ttl_configured
-        else:
-            if ttl_configured == 0:
-                ttl = 0
+        if online_store_config.use_write_time_for_ttl:
+            if ttl_feature_view > timedelta():
+                ttl_offset = ttl_feature_view
+            elif online_store_config.key_ttl_seconds is not None:
+                ttl_offset = timedelta(seconds=online_store_config.key_ttl_seconds)
             else:
-                ttl_elapsed = datetime.utcnow() - timestamp
-                ttl_remaining = ttl_configured - int(ttl_elapsed.total_seconds())
-                ttl = ttl_remaining if ttl_remaining > 0 else -1
-        return ttl
+                return 0
+            if ttl_offset <= timedelta():
+                return 0
+            ttl_remaining = timestamp - datetime.now(UTC) + ttl_offset
+            return math.ceil(ttl_remaining.total_seconds())
+
+        return online_store_config.key_ttl_seconds
 
     def _get_cql_type(
         self, value_type: Union[ComplexFeastType, PrimitiveFeastType]
