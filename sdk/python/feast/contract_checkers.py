@@ -89,7 +89,7 @@ class SortedFeatureViewContractChecker(
     FeatureViewContractChecker, ContractChecker[SortedFeatureView]
 ):
     """
-    Extends FeatureViewContractChecker with sorted-specific checks
+    Extends FeatureViewContractChecker with sort key checks
     """
 
     def _run_all_checks(self) -> bool:
