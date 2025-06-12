@@ -24,7 +24,7 @@ import math
 import string
 import time
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import partial
 from queue import Queue
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
@@ -42,7 +42,7 @@ from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
 from cassandra.query import BatchStatement, BatchType, PreparedStatement
 from pydantic import StrictFloat, StrictInt, StrictStr
 
-from feast import Entity, FeatureView, RepoConfig
+from feast import Entity, FeatureView, RepoConfig, utils
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
@@ -1017,7 +1017,9 @@ class CassandraOnlineStore(OnlineStore):
                 ttl_offset = ttl_feature_view
             else:
                 return 0
-            ttl_remaining = timestamp - datetime.now(UTC) + ttl_offset
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            ttl_remaining = timestamp - utils._utc_now() + ttl_offset
             return math.ceil(ttl_remaining.total_seconds())
 
         return int(ttl_feature_view.total_seconds())

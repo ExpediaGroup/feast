@@ -1,12 +1,12 @@
 import textwrap
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from cassandra import InvalidRequest
 from cassandra.cluster import Cluster
 
-from feast import Entity, Field, FileSource, RepoConfig, ValueType
+from feast import Entity, Field, FileSource, RepoConfig, ValueType, utils
 from feast.infra.offline_stores.dask import DaskOfflineStoreConfig
 from feast.infra.online_stores.contrib.cassandra_online_store.cassandra_online_store import (
     CassandraOnlineStore,
@@ -353,9 +353,21 @@ class TestCassandraOnlineStore:
         ttl = online_store._get_ttl(
             timedelta(seconds=30),
             False,
-            datetime.now(UTC) - timedelta(seconds=10),
+            utils._utc_now() - timedelta(seconds=10),
         )
         assert ttl == 20
+
+    def test_ttl_when_use_write_time_for_ttl_false_negative_ttl(
+        self,
+        online_store: CassandraOnlineStore,
+    ):
+        # given an event timestamp 100 seconds in the past and a ttl of 30 seconds, the offset ttl should be -70 seconds
+        ttl = online_store._get_ttl(
+            timedelta(seconds=30),
+            False,
+            utils._utc_now() - timedelta(seconds=100),
+        )
+        assert ttl == -70
 
     def test_ttl_when_use_write_time_for_ttl_false_fv_ttl_0(
         self,
@@ -364,29 +376,29 @@ class TestCassandraOnlineStore:
         ttl = online_store._get_ttl(
             timedelta(0),
             False,
-            datetime.now(UTC) - timedelta(seconds=15),
+            utils._utc_now() - timedelta(seconds=15),
         )
         assert ttl == 0
 
-    def test_ttl_when_use_write_time_for_ttl_false_fv_ttl(
+    def test_ttl_when_use_write_time_for_ttl_true_fv_ttl(
         self,
         online_store: CassandraOnlineStore,
     ):
         ttl = online_store._get_ttl(
-            timedelta(30),
-            False,
-            datetime.now(UTC) - timedelta(seconds=15),
+            timedelta(seconds=30),
+            True,
+            utils._utc_now() - timedelta(seconds=15),
         )
         assert ttl == 30
 
-    def test_ttl_when_use_write_time_for_ttl_false_ttl_none(
+    def test_ttl_when_use_write_time_for_ttl_true_ttl_0(
         self,
         online_store: CassandraOnlineStore,
     ):
         ttl = online_store._get_ttl(
-            timedelta(seconds=15),
+            timedelta(seconds=0),
             True,
-            datetime.now(UTC) - timedelta(seconds=10),
+            utils._utc_now() - timedelta(seconds=10),
         )
         assert ttl == 0
 
