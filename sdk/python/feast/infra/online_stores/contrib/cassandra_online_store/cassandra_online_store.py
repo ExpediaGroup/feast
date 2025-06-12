@@ -24,7 +24,7 @@ import math
 import string
 import time
 from collections import defaultdict
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from queue import Queue
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
