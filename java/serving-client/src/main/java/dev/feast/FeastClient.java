@@ -310,11 +310,6 @@ public class FeastClient implements AutoCloseable {
     return results;
   }
 
-  /**
-   * Utility method to transpose entities in Row format to a columnar format.
-   * @param entities
-   * @return Map<String, ValueProto.RepeatedValue> where the key is the entity field name and the value
-   */
   public Map<String, ValueProto.RepeatedValue> transposeEntitesOntoColumns(List<Row> entities) {
     Map<String, ValueProto.RepeatedValue.Builder> columnarEntities = new HashMap<>();
     for (Row row : entities) {
