@@ -209,9 +209,9 @@ class TestCassandraOnlineStore:
 
         for col, expected_type in expected_columns.items():
             assert col in actual_columns, f"Missing column: {col}"
-            assert (
-                actual_columns[col] == expected_type
-            ), f"Column '{col}' has type '{actual_columns[col]}' but expected '{expected_type}'"
+            assert actual_columns[col] == expected_type, (
+                f"Column '{col}' has type '{actual_columns[col]}' but expected '{expected_type}'"
+            )
 
     def test_cassandra_online_write_batch_with_timestamp_as_sortkey(
         self,
