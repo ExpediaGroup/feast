@@ -195,7 +195,7 @@ public class FeastClient implements AutoCloseable {
 
     requestBuilder.setFeatureService(featureService);
 
-    requestBuilder.putAllEntities(getEntityValuesMap(entities));
+    requestBuilder.putAllEntities(transposeEntitesOntoColumns(entities));
 
     List<Row> resp = fetchOnlineFeatures(requestBuilder.build(), entities);
 
@@ -226,7 +226,7 @@ public class FeastClient implements AutoCloseable {
     requestBuilder.setFeatures(
         ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build());
 
-    requestBuilder.putAllEntities(getEntityValuesMap(entities));
+    requestBuilder.putAllEntities(transposeEntitesOntoColumns(entities));
 
     List<Row> resp = fetchOnlineFeatures(requestBuilder.build(), entities);
 
@@ -310,7 +310,12 @@ public class FeastClient implements AutoCloseable {
     return results;
   }
 
-  private Map<String, ValueProto.RepeatedValue> getEntityValuesMap(List<Row> entities) {
+  /**
+   * Utility method to transpose entities in Row format to a columnar format.
+   * @param entities
+   * @return Map<String, ValueProto.RepeatedValue> where the key is the entity field name and the value
+   */
+  public Map<String, ValueProto.RepeatedValue> transposeEntitesOntoColumns(List<Row> entities) {
     Map<String, ValueProto.RepeatedValue.Builder> columnarEntities = new HashMap<>();
     for (Row row : entities) {
       for (Map.Entry<String, ValueProto.Value> field : row.getFields().entrySet()) {
@@ -417,7 +422,7 @@ public class FeastClient implements AutoCloseable {
     requestBuilder.setFeatures(
         ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build());
 
-    requestBuilder.putAllEntities(getEntityValuesMap(entities));
+    requestBuilder.putAllEntities(transposeEntitesOntoColumns(entities));
 
     requestBuilder.addAllSortKeyFilters(
         sortKeyFilters.stream().map(SortKeyFilterModel::toProto).collect(Collectors.toList()));
