@@ -711,6 +711,9 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 
 	batchSize := c.KeyBatchSize
 	if groupedRefs.IsReverseSortOrder {
+		if batchSize > 1 && len(prepCtx.serializedEntityKeys) > 1 {
+			log.Warn().Msg("Reverse sort order is enabled, overriding read batch size to 1. It is not recommended to use reverse sort order for common use cases.")
+		}
 		batchSize = 1 // Reverse order only supports a batch size of 1
 	}
 	nBatches := int(math.Ceil(float64(len(prepCtx.serializedEntityKeys)) / float64(batchSize)))
