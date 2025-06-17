@@ -588,7 +588,7 @@ func (c *CassandraOnlineStore) buildRangeQueryCQL(
 	numKeys int,
 	sortKeyFilters []*model.SortKeyFilter,
 	limit int32,
-	perPartitionLimit bool,
+	reverseSortOrder bool,
 ) (string, []interface{}) {
 	quotedFeatures := make([]string, len(featureNames))
 	for i, name := range featureNames {
@@ -624,19 +624,15 @@ func (c *CassandraOnlineStore) buildRangeQueryCQL(
 			whereClause = " AND " + strings.Join(rangeFilters, " AND ")
 		}
 
-		// Only add ORDER BY if single key and not using per partition limit
-		if len(orderBy) > 0 && numKeys == 1 && !perPartitionLimit {
+		// Only add ORDER BY if single key and using reverse sort order
+		if len(orderBy) > 0 && reverseSortOrder {
 			orderByClause = " ORDER BY " + strings.Join(orderBy, ", ")
 		}
 	}
 
 	limitClause := ""
 	if limit > 0 {
-		if perPartitionLimit {
-			limitClause = " PER PARTITION LIMIT ?"
-		} else {
-			limitClause = " LIMIT ?"
-		}
+		limitClause = " PER PARTITION LIMIT ?"
 		params = append(params, limit)
 	}
 
@@ -714,6 +710,9 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 	}
 
 	batchSize := c.KeyBatchSize
+	if groupedRefs.IsReverseSortOrder {
+		batchSize = 1 // Reverse order only supports a batch size of 1
+	}
 	nBatches := int(math.Ceil(float64(len(prepCtx.serializedEntityKeys)) / float64(batchSize)))
 
 	var waitGroup sync.WaitGroup
@@ -725,7 +724,7 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 		keyBatch := prepCtx.serializedEntityKeys[start:end]
 
 		cqlStatement, rangeParams := c.buildRangeQueryCQL(
-			prepCtx.tableName, groupedRefs.FeatureNames, len(keyBatch), groupedRefs.SortKeyFilters, groupedRefs.Limit, !groupedRefs.IsReverseSortOrder,
+			prepCtx.tableName, groupedRefs.FeatureNames, len(keyBatch), groupedRefs.SortKeyFilters, groupedRefs.Limit, groupedRefs.IsReverseSortOrder,
 		)
 
 		queryParams := append([]interface{}{}, keyBatch...)
