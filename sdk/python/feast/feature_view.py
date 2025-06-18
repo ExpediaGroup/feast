@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import copy
+import logging
 import warnings
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple, Type
@@ -52,6 +53,8 @@ DUMMY_ENTITY = Entity(
 )
 
 ONLINE_STORE_TAG_SUFFIX = "online_store_"
+
+logger = logging.getLogger(__name__)
 
 
 @typechecked
@@ -401,6 +404,40 @@ class FeatureView(BaseFeatureView):
             ttl_duration = Duration()
             ttl_duration.FromTimedelta(self.ttl)
         return ttl_duration
+
+    def is_update_compatible_with(self, updated) -> Tuple[bool, List[str]]:
+        """
+        Checks if updating this FeatureView to 'updated' is compatible.
+        Returns a tuple:
+            (True, []) if compatible;
+            (False, [reasons...]) otherwise.
+        """
+        reasons: List[str] = []
+
+        if set(updated.entities) != set(self.entities):
+            reasons.append("entity definitions cannot change")
+
+        old_fields = {f.name: f.dtype for f in self.schema}
+        new_fields = {f.name: f.dtype for f in updated.schema}
+
+        removed = old_fields.keys() - new_fields.keys()
+        for fname in sorted(removed):
+            if fname in self.entities:
+                reasons.append(
+                    f"feature '{fname}' removed from FeatureView '{self.name}' is an entity key and cannot be removed"
+                )
+            else:
+                logger.warning(
+                    "Feature '%s' removed from FeatureView '%s'.", fname, self.name
+                )
+
+        for fname, old_dtype in old_fields.items():
+            if fname in new_fields and new_fields[fname] != old_dtype:
+                reasons.append(
+                    f"feature '{fname}' type changed ({old_dtype} to {new_fields[fname]}) not allowed"
+                )
+
+        return len(reasons) == 0, reasons
 
     @classmethod
     def from_proto(cls, feature_view_proto: FeatureViewProto):
