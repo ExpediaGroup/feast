@@ -1,7 +1,8 @@
 import copy
+import logging
 import warnings
 from datetime import timedelta
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Tuple, Type
 
 from google.protobuf.message import Message
 from typeguard import typechecked
@@ -21,6 +22,7 @@ from feast.protos.feast.core.SortedFeatureView_pb2 import (
 from feast.sort_key import SortKey
 
 warnings.simplefilter("ignore", DeprecationWarning)
+logger = logging.getLogger(__name__)
 
 
 @typechecked
@@ -141,6 +143,28 @@ class SortedFeatureView(FeatureView):
                     f"Sort key '{sort_key.name}' has value type {sort_key.value_type} which does not match "
                     f"the expected feature value type {expected_value_type} for feature '{sort_key.name}'."
                 )
+
+    def is_update_compatible_with(self, updated) -> Tuple[bool, List[str]]:
+        """
+        Checks if updating this SortedFeatureView to `updated` is compatible.
+        Returns (True, []) if compatible; otherwise (False, [reasons...]).
+        """
+        reasons: List[str] = []
+
+        # Base FeatureView compatibility
+        base_ok, base_reasons = super().is_update_compatible_with(updated)  # type: ignore
+        if not base_ok:
+            reasons.extend(base_reasons)
+
+        # Sort key check
+        old_keys = [sk.name for sk in self.sort_keys]
+        new_keys = [sk.name for sk in updated.sort_keys]
+        if old_keys != new_keys:
+            reasons.append(
+                f"sort keys cannot change (old: {old_keys}, new: {new_keys})"
+            )
+
+        return len(reasons) == 0, reasons
 
     @property
     def proto_class(self) -> Type[Message]:

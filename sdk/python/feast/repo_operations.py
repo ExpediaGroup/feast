@@ -10,7 +10,7 @@ import tempfile
 from importlib.abc import Loader
 from importlib.machinery import ModuleSpec
 from pathlib import Path
-from typing import List, Optional, Set, Union
+from typing import List, Optional, Set, Union, cast
 
 import click
 from click.exceptions import BadParameter
@@ -33,9 +33,24 @@ from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.repo_config import RepoConfig
 from feast.repo_contents import RepoContents
+from feast.saved_dataset import ValidationReference
 from feast.stream_feature_view import StreamFeatureView
 
 logger = logging.getLogger(__name__)
+ApplyTarget = Union[
+    Project,
+    DataSource,
+    Entity,
+    FeatureView,
+    SortedFeatureView,
+    OnDemandFeatureView,
+    BatchFeatureView,
+    StreamFeatureView,
+    FeatureService,
+    ValidationReference,
+    Permission,
+    # List[FeastObject],
+]
 
 
 def py_path_to_module(path: Path) -> str:
@@ -341,6 +356,55 @@ def extract_objects_for_apply_delete(project, registry, repo):
     )
 
 
+def validate_objects_for_apply(
+    all_to_apply: List[ApplyTarget],
+    registry: BaseRegistry,
+    project_name: str,
+) -> List[ApplyTarget]:
+    """
+    Validates objects in `all_to_apply` against existing registry entries
+    by calling each object’s `is_update_compatible_with`, unpacking the
+    returned (ok, reasons). Collects every reason and raises one ValueError
+    if any incompatibility is found.
+    """
+    errors: List[str] = []
+    validated: List[ApplyTarget] = []
+
+    for obj in all_to_apply:
+        incompatible = False
+
+        if hasattr(obj, "is_update_compatible_with"):
+            try:
+                if isinstance(obj, SortedFeatureView):
+                    current = registry.get_sorted_feature_view(obj.name, project_name)
+                elif isinstance(obj, FeatureView):
+                    current = registry.get_feature_view(obj.name, project_name)  # type: ignore[assignment]
+                else:
+                    current = None
+            except Exception:
+                logger.warning(
+                    "'%s' not found in registry; treating as new object.",
+                    obj.name,
+                )
+                current = None
+
+            if current is not None:
+                ok, reasons = current.is_update_compatible_with(obj)
+                if not ok:
+                    for r in reasons:
+                        errors.append(f"'{obj.name}': {r}")
+                    incompatible = True
+
+        if not incompatible:
+            validated.append(obj)
+
+    # Fail with full report
+    if errors:
+        raise ValueError("Compatibility check failed for:\n" + "\n".join(errors))
+
+    return validated
+
+
 def apply_total_with_repo_instance(
     store: FeatureStore,
     project_name: str,
@@ -363,6 +427,10 @@ def apply_total_with_repo_instance(
         views_to_delete,
     ) = extract_objects_for_apply_delete(project_name, registry, repo)
 
+    validated_to_apply: List[ApplyTarget] = validate_objects_for_apply(
+        all_to_apply, registry, project_name
+    )
+
     if store._should_use_plan():
         registry_diff, infra_diff, new_infra = store.plan(repo)
         click.echo(registry_diff.to_string())
@@ -370,7 +438,11 @@ def apply_total_with_repo_instance(
         store._apply_diffs(registry_diff, infra_diff, new_infra)
         click.echo(infra_diff.to_string())
     else:
-        store.apply(all_to_apply, objects_to_delete=all_to_delete, partial=False)
+        store.apply(
+            objects=cast(ApplyTarget, validated_to_apply),
+            objects_to_delete=all_to_delete,
+            partial=False,
+        )
         log_infra_changes(views_to_keep, views_to_delete)
 
 
