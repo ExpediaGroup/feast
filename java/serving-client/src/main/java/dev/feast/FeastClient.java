@@ -220,13 +220,15 @@ public class FeastClient implements AutoCloseable {
    * @param entities list of {@link Row} to select the entities to retrieve the features for.
    * @return list of {@link Row} containing retrieved data fields.
    */
-  public List<Row> getOnlineFeatures(List<String> featureRefs, List<Row> entities) {
+  public List<Row> getOnlineFeatures(List<String> featureRefs, List<Row> entities, boolean includeMetadata) {
     GetOnlineFeaturesRequest.Builder requestBuilder = GetOnlineFeaturesRequest.newBuilder();
 
     requestBuilder.setFeatures(
         ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build());
 
     requestBuilder.putAllEntities(getEntityValuesMap(entities));
+
+    requestBuilder.setIncludeMetadata(includeMetadata);
 
     List<Row> resp = fetchOnlineFeatures(requestBuilder.build(), entities);
 
@@ -280,7 +282,7 @@ public class FeastClient implements AutoCloseable {
     for (int rowIdx = 0; rowIdx < response.getResults(0).getValuesCount(); rowIdx++) {
       Row row = Row.create();
       for (int featureIdx = 0; featureIdx < response.getResultsCount(); featureIdx++) {
-        if (getOnlineFeaturesRequest.getOmitStatus()) {
+        if (!getOnlineFeaturesRequest.getIncludeMetadata()) {
           row.set(
               response.getMetadata().getFeatureNames().getVal(featureIdx),
               response.getResults(featureIdx).getValues(rowIdx));
@@ -298,7 +300,7 @@ public class FeastClient implements AutoCloseable {
 
       for (Map.Entry<String, ValueProto.Value> entry :
           entities.get(rowIdx).getFields().entrySet()) {
-        if (getOnlineFeaturesRequest.getOmitStatus()) {
+        if (!getOnlineFeaturesRequest.getIncludeMetadata()) {
           row.set(entry.getKey(), entry.getValue());
         } else {
           row.setWithFieldStatus(entry.getKey(), entry.getValue(), FieldStatus.PRESENT);
@@ -350,7 +352,7 @@ public class FeastClient implements AutoCloseable {
    * @return list of {@link Row} containing retrieved data fields.
    */
   public List<Row> getOnlineFeatures(List<String> featureRefs, List<Row> rows, String project) {
-    return getOnlineFeatures(featureRefs, rows);
+    return getOnlineFeatures(featureRefs, rows, false);
   }
 
   /**
@@ -376,7 +378,7 @@ public class FeastClient implements AutoCloseable {
    * @return list of {@link Row} containing retrieved data fields.
    */
   public List<Row> getOnlineFeatures(String featureService, List<Row> rows, String project) {
-    return getOnlineFeatures(featureService, rows);
+    return getOnlineFeatures(featureService, rows, false);
   }
 
   /**
@@ -410,9 +412,9 @@ public class FeastClient implements AutoCloseable {
       List<SortKeyFilterModel> sortKeyFilters,
       int limit,
       boolean reverseSortOrder,
-      boolean omitStatus) {
+      boolean includeMetadata) {
     GetOnlineFeaturesRangeRequest.Builder requestBuilder =
-        GetOnlineFeaturesRangeRequest.newBuilder().setOmitStatus(omitStatus);
+          GetOnlineFeaturesRangeRequest.newBuilder().setIncludeMetadata(includeMetadata);
 
     requestBuilder.setFeatures(
         ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build());
@@ -444,7 +446,7 @@ public class FeastClient implements AutoCloseable {
     for (int rowIdx = 0; rowIdx < response.getResults(0).getValuesCount(); rowIdx++) {
       RangeRow row = RangeRow.create();
       for (int featureIdx = 0; featureIdx < response.getResultsCount(); featureIdx++) {
-        if (omitStatus) {
+        if (!includeMetadata) {
           row.setWithValues(
               response.getMetadata().getFeatureNames().getVal(featureIdx),
               response.getResults(featureIdx).getValues(rowIdx).getValList());
@@ -488,9 +490,9 @@ public class FeastClient implements AutoCloseable {
       int limit,
       boolean reverseSortOrder,
       String project,
-      boolean omitStatus) {
+      boolean includeMetadata) {
     return getOnlineFeaturesRange(
-        featureRefs, rows, sortKeyFilters, limit, reverseSortOrder, omitStatus);
+        featureRefs, rows, sortKeyFilters, limit, reverseSortOrder, includeMetadata);
   }
 
   protected FeastClient(ManagedChannel channel, Optional<CallCredentials> credentials) {
