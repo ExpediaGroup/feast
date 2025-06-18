@@ -220,7 +220,8 @@ public class FeastClient implements AutoCloseable {
    * @param entities list of {@link Row} to select the entities to retrieve the features for.
    * @return list of {@link Row} containing retrieved data fields.
    */
-  public List<Row> getOnlineFeatures(List<String> featureRefs, List<Row> entities, boolean includeMetadata) {
+  public List<Row> getOnlineFeatures(
+      List<String> featureRefs, List<Row> entities, boolean includeMetadata) {
     GetOnlineFeaturesRequest.Builder requestBuilder = GetOnlineFeaturesRequest.newBuilder();
 
     requestBuilder.setFeatures(
@@ -414,7 +415,7 @@ public class FeastClient implements AutoCloseable {
       boolean reverseSortOrder,
       boolean includeMetadata) {
     GetOnlineFeaturesRangeRequest.Builder requestBuilder =
-          GetOnlineFeaturesRangeRequest.newBuilder().setIncludeMetadata(includeMetadata);
+        GetOnlineFeaturesRangeRequest.newBuilder().setIncludeMetadata(includeMetadata);
 
     requestBuilder.setFeatures(
         ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build());
