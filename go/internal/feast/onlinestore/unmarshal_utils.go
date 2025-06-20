@@ -1,7 +1,7 @@
 package onlinestore
 
 import (
-	"errors"
+	"fmt"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"google.golang.org/protobuf/proto"
@@ -12,7 +12,7 @@ func UnmarshalStoredProto(valueStr []byte) (*types.Value, serving.FieldStatus, e
 	var message types.Value
 	null := &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
 	if err := proto.Unmarshal(valueStr, &message); err != nil {
-		return nil, serving.FieldStatus_INVALID, errors.New("error converting parsed online store Value to types.Value")
+		return nil, serving.FieldStatus_INVALID, fmt.Errorf("error converting parsed online store Value to types.Value: %w", err)
 	}
 	if message.Val == nil {
 		return null, serving.FieldStatus_NULL_VALUE, nil
