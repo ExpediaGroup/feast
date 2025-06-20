@@ -289,6 +289,7 @@ public class FeastClientTest {
     return GetOnlineFeaturesRequest.newBuilder()
         .setFeatureService("driver_service")
         .putEntities("driver_id", ValueProto.RepeatedValue.newBuilder().addVal(intValue(1)).build())
+        .setIncludeMetadata(true)
         .build();
   }
 
@@ -349,6 +350,7 @@ public class FeastClientTest {
                     .build()))
         .setLimit(10)
         .setReverseSortOrder(false)
+        .setIncludeMetadata(true)
         .build();
   }
 
