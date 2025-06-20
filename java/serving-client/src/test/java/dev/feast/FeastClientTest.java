@@ -63,43 +63,10 @@ public class FeastClientTest {
                 public void getOnlineFeatures(
                     GetOnlineFeaturesRequest request,
                     StreamObserver<GetOnlineFeaturesResponse> responseObserver) {
-
-                  GetOnlineFeaturesRequest expectedRef =
-                      FeastClientTest.getFakeOnlineFeaturesRefRequest();
-                  GetOnlineFeaturesRequest expectedService =
-                      FeastClientTest.getFakeOnlineFeaturesServiceRequest();
-                  GetOnlineFeaturesRequest expectedWithoutStatus =
-                      FeastClientTest.getFakeOnlineFeaturesRefRequestWithoutStatus();
-
-                  System.out.println("=== RECEIVED REQUEST ===");
-                  System.out.println(request);
-                  System.out.println("=== EXPECTED REF REQUEST ===");
-                  System.out.println(expectedRef);
-                  System.out.println("=== EXPECTED SERVICE REQUEST ===");
-                  System.out.println(expectedService);
-                  System.out.println("=== EXPECTED WITHOUT STATUS REQUEST ===");
-                  System.out.println(expectedWithoutStatus);
-
-                  System.out.println("=== COMPARISON DETAILS ===");
-                  System.out.println(
-                      "Request feature service: '" + request.getFeatureService() + "'");
-                  System.out.println("Request has features: " + request.hasFeatures());
-                  if (request.hasFeatures()) {
-                    System.out.println("Request features: " + request.getFeatures().getValList());
-                  }
-                  System.out.println("Request entities: " + request.getEntitiesMap());
-                  System.out.println("Request include metadata: " + request.getIncludeMetadata());
-
-                  boolean matchesRef = request.equals(expectedRef);
-                  boolean matchesService = request.equals(expectedService);
-                  boolean matchesWithoutStatus = request.equals(expectedWithoutStatus);
-
-                  System.out.println("Matches ref: " + matchesRef);
-                  System.out.println("Matches service: " + matchesService);
-                  System.out.println("Matches without status: " + matchesWithoutStatus);
-
-                  if (!matchesRef && !matchesService && !matchesWithoutStatus) {
-                    System.out.println("REJECTING REQUEST - NO MATCH FOUND");
+                  if (!request.equals(FeastClientTest.getFakeOnlineFeaturesRefRequest())
+                      && !request.equals(FeastClientTest.getFakeOnlineFeaturesServiceRequest())
+                      && !request.equals(
+                          FeastClientTest.getFakeOnlineFeaturesRefRequestWithoutStatus())) {
                     responseObserver.onError(Status.FAILED_PRECONDITION.asRuntimeException());
                     return;
                   }
@@ -112,30 +79,7 @@ public class FeastClientTest {
                 public void getOnlineFeaturesRange(
                     GetOnlineFeaturesRangeRequest request,
                     StreamObserver<GetOnlineFeaturesRangeResponse> responseObserver) {
-
-                  GetOnlineFeaturesRangeRequest expected =
-                      FeastClientTest.getFakeOnlineFeaturesRangeRequest();
-
-                  System.out.println("=== RECEIVED RANGE REQUEST ===");
-                  System.out.println(request);
-                  System.out.println("=== EXPECTED RANGE REQUEST ===");
-                  System.out.println(expected);
-
-                  System.out.println("=== RANGE COMPARISON DETAILS ===");
-                  System.out.println("Request features: " + request.getFeatures().getValList());
-                  System.out.println("Request entities: " + request.getEntitiesMap());
-                  System.out.println(
-                      "Request sort key filters count: " + request.getSortKeyFiltersCount());
-                  System.out.println("Request limit: " + request.getLimit());
-                  System.out.println(
-                      "Request reverse sort order: " + request.getReverseSortOrder());
-                  System.out.println("Request include metadata: " + request.getIncludeMetadata());
-
-                  boolean matches = request.equals(expected);
-                  System.out.println("Matches expected: " + matches);
-
-                  if (!matches) {
-                    System.out.println("REJECTING RANGE REQUEST - NO MATCH FOUND");
+                  if (!request.equals(FeastClientTest.getFakeOnlineFeaturesRangeRequest())) {
                     responseObserver.onError(Status.FAILED_PRECONDITION.asRuntimeException());
                     return;
                   }
