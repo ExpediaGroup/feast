@@ -266,6 +266,7 @@ public class FeastClientTest {
                 .addVal("driver:null_value")
                 .build())
         .putEntities("driver_id", ValueProto.RepeatedValue.newBuilder().addVal(intValue(1)).build())
+        .setIncludeMetadata(true)
         .build();
   }
 
@@ -279,7 +280,7 @@ public class FeastClientTest {
                 .addVal("driver:null_value")
                 .build())
         .putEntities("driver_id", ValueProto.RepeatedValue.newBuilder().addVal(intValue(1)).build())
-        .setOmitStatus(true)
+        .setIncludeMetadata(false)
         .build();
   }
 
