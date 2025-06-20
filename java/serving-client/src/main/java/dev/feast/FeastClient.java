@@ -223,7 +223,7 @@ public class FeastClient implements AutoCloseable {
     GetOnlineFeaturesRequest.Builder requestBuilder = GetOnlineFeaturesRequest.newBuilder();
 
     requestBuilder.setFeatureService(featureService);
-    requestBuilder.putAllEntities(getEntityValuesMap(entities));
+    requestBuilder.putAllEntities(transposeEntitiesOntoColumns(entities));
     requestBuilder.setIncludeMetadata(includeMetadata);
 
     List<Row> resp = fetchOnlineFeatures(requestBuilder.build(), entities);
