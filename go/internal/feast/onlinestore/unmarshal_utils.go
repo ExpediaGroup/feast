@@ -12,7 +12,7 @@ func UnmarshalStoredProto(valueStr []byte) (*types.Value, serving.FieldStatus, e
 	var message types.Value
 	null := &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
 	if err := proto.Unmarshal(valueStr, &message); err != nil {
-		return nil, serving.FieldStatus_INVALID, errors.New("error converting parsed Cassandra Value to types.Value")
+		return nil, serving.FieldStatus_INVALID, errors.New("error converting parsed online store Value to types.Value")
 	}
 	if message.Val == nil {
 		return null, serving.FieldStatus_NULL_VALUE, nil
