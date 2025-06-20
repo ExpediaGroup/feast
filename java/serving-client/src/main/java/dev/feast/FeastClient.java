@@ -211,30 +211,31 @@ public class FeastClient implements AutoCloseable {
 
   /**
    * Get online features from Feast with feature service, specifying includeMetadata
-
+   *
    * @param featureService string representing the name of the featureService to call. Internally
-      *     this results in a call to the registry which resolves the featureNames.
-      * @param entities list of {@link Row} to select the entities to retrieve the features for.
-      * @param includeMetadata boolean indicating whether to include metadata in the response.
-      * @return list of {@link Row} containing retrieved data fields.
+   *     this results in a call to the registry which resolves the featureNames.
+   * @param entities list of {@link Row} to select the entities to retrieve the features for.
+   * @param includeMetadata boolean indicating whether to include metadata in the response.
+   * @return list of {@link Row} containing retrieved data fields.
    */
-  public List<Row> getOnlineFeatures(String featureService, List<Row> entities, boolean includeMetadata) {
-      GetOnlineFeaturesRequest.Builder requestBuilder = GetOnlineFeaturesRequest.newBuilder();
+  public List<Row> getOnlineFeatures(
+      String featureService, List<Row> entities, boolean includeMetadata) {
+    GetOnlineFeaturesRequest.Builder requestBuilder = GetOnlineFeaturesRequest.newBuilder();
 
-      requestBuilder.setFeatureService(featureService);
-      requestBuilder.putAllEntities(getEntityValuesMap(entities));
-      requestBuilder.setIncludeMetadata(includeMetadata);
+    requestBuilder.setFeatureService(featureService);
+    requestBuilder.putAllEntities(getEntityValuesMap(entities));
+    requestBuilder.setIncludeMetadata(includeMetadata);
 
-      List<Row> resp = fetchOnlineFeatures(requestBuilder.build(), entities);
+    List<Row> resp = fetchOnlineFeatures(requestBuilder.build(), entities);
 
-      if (resp.size() == 0) {
-          logger.info(
-              "Result was empty for getOnlineFeatures call with feature service name: {}, entities: {}",
-              featureService,
-              entities);
-      }
+    if (resp.size() == 0) {
+      logger.info(
+          "Result was empty for getOnlineFeatures call with feature service name: {}, entities: {}",
+          featureService,
+          entities);
+    }
 
-      return resp;
+    return resp;
   }
 
   /**
@@ -439,24 +440,10 @@ public class FeastClient implements AutoCloseable {
   public List<RangeRow> getOnlineFeaturesRange(
       GetOnlineFeaturesRangeRequest request, List<Row> entities) {
 
-      ServingServiceGrpc.ServingServiceBlockingStub timedStub =
-          requestTimeout != 0 ? stub.withDeadlineAfter(requestTimeout, TimeUnit.MILLISECONDS) : stub;
-
-      GetOnlineFeaturesRangeResponse response = timedStub.getOnlineFeaturesRange(request);
-
-      List<RangeRow> results = Lists.newArrayList();
-      if (response.getResultsCount() == 0) {
-          logger.info(
-              "No results returned from Feast for getOnlineFeaturesRange with request: {}",
-              request);
-          return results;
-      }
-
     ServingServiceGrpc.ServingServiceBlockingStub timedStub =
         requestTimeout != 0 ? stub.withDeadlineAfter(requestTimeout, TimeUnit.MILLISECONDS) : stub;
 
-    GetOnlineFeaturesRangeResponse response =
-        timedStub.getOnlineFeaturesRange(requestBuilder.build());
+    GetOnlineFeaturesRangeResponse response = timedStub.getOnlineFeaturesRange(request);
 
     List<RangeRow> results = Lists.newArrayList();
     if (response.getResultsCount() == 0) {
@@ -466,6 +453,11 @@ public class FeastClient implements AutoCloseable {
           featureRefs);
       return results;
     }
+
+    List<String> featureRefs =
+        request.hasFeatures() ? request.getFeatures().getValList() : Collections.emptyList();
+
+    boolean includeMetadata = request.getIncludeMetadata();
 
     for (int rowIdx = 0; rowIdx < response.getResults(0).getValuesCount(); rowIdx++) {
       RangeRow row = RangeRow.create();

@@ -218,6 +218,12 @@ func (l *LoggerImpl) Log(joinKeyToEntityValues map[string]*types.RepeatedValue, 
 	}
 
 	numFeatures := len(l.schema.Features)
+
+	if len(featureVectors[0].Values) == 0 {
+		log.Printf("Warning: Feature vectors contain no values, skipping logging")
+		return nil
+	}
+
 	// Should be equivalent to how many entities there are(each feature row has (entity) number of features)
 	numRows := len(featureVectors[0].Values)
 
@@ -240,6 +246,15 @@ func (l *LoggerImpl) Log(joinKeyToEntityValues map[string]*types.RepeatedValue, 
 					return errors.Errorf("Missing feature %s in log data", featureName)
 				}
 			}
+
+			if featureIdx >= len(featureVectors) {
+				return errors.Errorf("Feature index %d out of range for feature vectors (length %d)", featureIdx, len(featureVectors))
+			}
+
+			if rowIdx >= len(featureVectors[featureIdx].Values) {
+				return errors.Errorf("Row index %d out of range for feature %s values (length %d)", rowIdx, featureName, len(featureVectors[featureIdx].Values))
+			}
+
 			featureValues[idx] = featureVectors[featureIdx].Values[rowIdx]
 			featureStatuses[idx] = featureVectors[featureIdx].Statuses[rowIdx]
 			eventTimestamps[idx] = featureVectors[featureIdx].EventTimestamps[rowIdx]
