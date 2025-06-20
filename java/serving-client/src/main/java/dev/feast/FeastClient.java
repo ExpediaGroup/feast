@@ -446,6 +446,12 @@ public class FeastClient implements AutoCloseable {
     GetOnlineFeaturesRangeResponse response = timedStub.getOnlineFeaturesRange(request);
 
     List<RangeRow> results = Lists.newArrayList();
+
+    List<String> featureRefs =
+        request.hasFeatures() ? request.getFeatures().getValList() : Collections.emptyList();
+
+    boolean includeMetadata = request.getIncludeMetadata();
+
     if (response.getResultsCount() == 0) {
       logger.info(
           "No results returned from Feast for getOnlineFeaturesRange with entities: {} and features: {}",
@@ -453,11 +459,6 @@ public class FeastClient implements AutoCloseable {
           featureRefs);
       return results;
     }
-
-    List<String> featureRefs =
-        request.hasFeatures() ? request.getFeatures().getValList() : Collections.emptyList();
-
-    boolean includeMetadata = request.getIncludeMetadata();
 
     for (int rowIdx = 0; rowIdx < response.getResults(0).getValuesCount(); rowIdx++) {
       RangeRow row = RangeRow.create();
