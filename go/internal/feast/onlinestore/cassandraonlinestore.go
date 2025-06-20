@@ -21,8 +21,6 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/gocql/gocql"
 	"github.com/rs/zerolog/log"
-	"google.golang.org/protobuf/proto"
-
 	"google.golang.org/protobuf/types/known/timestamppb"
 	gocqltrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/gocql/gocql"
 )
@@ -458,7 +456,7 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 			var featureName string
 			var eventTs time.Time
 			var valueStr []byte
-			var deserializedValue types.Value
+			var deserializedValue *types.Value
 			// key 1: entityKey - key 2: featureName
 			batchFeatures := make(map[string]map[string]*FeatureData)
 			for scanner.Next() {
@@ -467,8 +465,9 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 					errorsChannel <- errors.New("could not read row in query for (entity key, feature name, value, event ts)")
 					return
 				}
-				if err := proto.Unmarshal(valueStr, &deserializedValue); err != nil {
-					errorsChannel <- errors.New("error converting parsed Cassandra Value to types.Value")
+				deserializedValue, _, err = UnmarshalStoredProto(valueStr)
+				if err != nil {
+					errorsChannel <- err
 					return
 				}
 
@@ -589,7 +588,7 @@ func (c *CassandraOnlineStore) buildRangeQueryCQL(
 	numKeys int,
 	sortKeyFilters []*model.SortKeyFilter,
 	limit int32,
-	reverseSortOrder bool,
+	isReverseSortOrder bool,
 ) (string, []interface{}) {
 	quotedFeatures := make([]string, len(featureNames))
 	for i, name := range featureNames {
@@ -625,8 +624,8 @@ func (c *CassandraOnlineStore) buildRangeQueryCQL(
 			whereClause = " AND " + strings.Join(rangeFilters, " AND ")
 		}
 
-		// Only add ORDER BY if single key and using reverse sort order
-		if len(orderBy) > 0 && reverseSortOrder {
+		// Only add ORDER BY if IsReverseSortOrder is true
+		if isReverseSortOrder && len(orderBy) > 0 {
 			orderByClause = " ORDER BY " + strings.Join(orderBy, ", ")
 		}
 	}
@@ -755,16 +754,31 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 
 				for _, featName := range groupedRefs.FeatureNames {
 					idx := prepCtx.featureNamesToIdx[featName]
-					val, exists := readValues[featName]
-
+					var val interface{}
 					var status serving.FieldStatus
-					if !exists {
-						status = serving.FieldStatus_NOT_FOUND
-						val = nil
-					} else if val == nil {
-						status = serving.FieldStatus_NULL_VALUE
+
+					if _, isSortKey := groupedRefs.SortKeyNames[featName]; isSortKey {
+						var exists bool
+						val, exists = readValues[featName]
+						if !exists {
+							status = serving.FieldStatus_NOT_FOUND
+							val = nil
+						} else if val == nil {
+							status = serving.FieldStatus_NULL_VALUE
+						} else {
+							status = serving.FieldStatus_PRESENT
+						}
 					} else {
-						status = serving.FieldStatus_PRESENT
+						if valueStr, ok := readValues[featName]; ok {
+							val, status, err = UnmarshalStoredProto(valueStr.([]byte))
+							if err != nil {
+								errorsChannel <- err
+								return
+							}
+						} else {
+							val = nil
+							status = serving.FieldStatus_NOT_FOUND
+						}
 					}
 
 					appendRangeFeature(&rowData[idx], featName, prepCtx.featureViewName, val, status, eventTs)
