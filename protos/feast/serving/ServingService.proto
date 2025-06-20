@@ -95,7 +95,7 @@ message GetOnlineFeaturesRequest {
     map<string, feast.types.RepeatedValue> request_context = 5;
 
     // Whether to include the timestamp/status metadata in the response
-    bool include_metadata = 6;
+    bool include_metadata = 10;
 }
 
 message GetOnlineFeaturesResponse {

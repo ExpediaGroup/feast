@@ -210,6 +210,34 @@ public class FeastClient implements AutoCloseable {
   }
 
   /**
+   * Get online features from Feast with feature service, specifying includeMetadata
+
+   * @param featureService string representing the name of the featureService to call. Internally
+      *     this results in a call to the registry which resolves the featureNames.
+      * @param entities list of {@link Row} to select the entities to retrieve the features for.
+      * @param includeMetadata boolean indicating whether to include metadata in the response.
+      * @return list of {@link Row} containing retrieved data fields.
+   */
+  public List<Row> getOnlineFeatures(String featureService, List<Row> entities, boolean includeMetadata) {
+      GetOnlineFeaturesRequest.Builder requestBuilder = GetOnlineFeaturesRequest.newBuilder();
+
+      requestBuilder.setFeatureService(featureService);
+      requestBuilder.putAllEntities(getEntityValuesMap(entities));
+      requestBuilder.setIncludeMetadata(includeMetadata);
+
+      List<Row> resp = fetchOnlineFeatures(requestBuilder.build(), entities);
+
+      if (resp.size() == 0) {
+          logger.info(
+              "Result was empty for getOnlineFeatures call with feature service name: {}, entities: {}",
+              featureService,
+              entities);
+      }
+
+      return resp;
+  }
+
+  /**
    * Get online features from Feast, without indicating project, will use `default`.
    *
    * <p>See {@link #getOnlineFeatures(List, List, String)}
@@ -218,6 +246,7 @@ public class FeastClient implements AutoCloseable {
    *     featureTable:feature, where 'featureTable' and 'feature' refer to the FeatureTable and
    *     Feature names respectively. Only the Feature name is required.
    * @param entities list of {@link Row} to select the entities to retrieve the features for.
+   * @param includeMetadata boolean indicating whether to include metadata in the response.
    * @return list of {@link Row} containing retrieved data fields.
    */
   public List<Row> getOnlineFeatures(
@@ -408,26 +437,20 @@ public class FeastClient implements AutoCloseable {
    * @return list of {@link RangeRow} containing retrieved data fields.
    */
   public List<RangeRow> getOnlineFeaturesRange(
-      List<String> featureRefs,
-      List<Row> entities,
-      List<SortKeyFilterModel> sortKeyFilters,
-      int limit,
-      boolean reverseSortOrder,
-      boolean includeMetadata) {
-    GetOnlineFeaturesRangeRequest.Builder requestBuilder =
-        GetOnlineFeaturesRangeRequest.newBuilder().setIncludeMetadata(includeMetadata);
+      GetOnlineFeaturesRangeRequest request, List<Row> entities) {
 
-    requestBuilder.setFeatures(
-        ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build());
+      ServingServiceGrpc.ServingServiceBlockingStub timedStub =
+          requestTimeout != 0 ? stub.withDeadlineAfter(requestTimeout, TimeUnit.MILLISECONDS) : stub;
 
-    requestBuilder.putAllEntities(getEntityValuesMap(entities));
+      GetOnlineFeaturesRangeResponse response = timedStub.getOnlineFeaturesRange(request);
 
-    requestBuilder.addAllSortKeyFilters(
-        sortKeyFilters.stream().map(SortKeyFilterModel::toProto).collect(Collectors.toList()));
-
-    requestBuilder.setLimit(limit);
-
-    requestBuilder.setReverseSortOrder(reverseSortOrder);
+      List<RangeRow> results = Lists.newArrayList();
+      if (response.getResultsCount() == 0) {
+          logger.info(
+              "No results returned from Feast for getOnlineFeaturesRange with request: {}",
+              request);
+          return results;
+      }
 
     ServingServiceGrpc.ServingServiceBlockingStub timedStub =
         requestTimeout != 0 ? stub.withDeadlineAfter(requestTimeout, TimeUnit.MILLISECONDS) : stub;
