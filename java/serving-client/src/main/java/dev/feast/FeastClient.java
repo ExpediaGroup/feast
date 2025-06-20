@@ -496,8 +496,15 @@ public class FeastClient implements AutoCloseable {
       int limit,
       boolean reverseSortOrder,
       String project) {
-    return getOnlineFeaturesRange(
-        featureRefs, rows, sortKeyFilters, limit, reverseSortOrder, false);
+    GetOnlineFeaturesRangeRequest request =
+        GetOnlineFeaturesRangeRequest.newBuilder()
+            .setFeatures(FeatureList.newBuilder().addAllVal(featureRefs).build())
+            .addAllSortKeyFilters(sortKeyFilters)
+            .setLimit(limit)
+            .setReverseSortOrder(reverseSortOrder)
+            .setIncludeMetadata(false)
+            .build();
+    return getOnlineFeaturesRange(request, rows);
   }
 
   public List<RangeRow> getOnlineFeaturesRange(
@@ -508,8 +515,15 @@ public class FeastClient implements AutoCloseable {
       boolean reverseSortOrder,
       String project,
       boolean includeMetadata) {
-    return getOnlineFeaturesRange(
-        featureRefs, rows, sortKeyFilters, limit, reverseSortOrder, includeMetadata);
+    GetOnlineFeaturesRangeRequest request =
+        GetOnlineFeaturesRangeRequest.newBuilder()
+            .setFeatures(FeatureList.newBuilder().addAllVal(featureRefs).build())
+            .addAllSortKeyFilters(sortKeyFilters)
+            .setLimit(limit)
+            .setReverseSortOrder(reverseSortOrder)
+            .setIncludeMetadata(includeMetadata)
+            .build();
+    return getOnlineFeaturesRange(request, rows);
   }
 
   protected FeastClient(ManagedChannel channel, Optional<CallCredentials> credentials) {
