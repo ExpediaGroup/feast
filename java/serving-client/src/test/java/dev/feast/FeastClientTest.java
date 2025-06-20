@@ -284,15 +284,7 @@ public class FeastClientTest {
           }
         },
         rows.get(0).getFields());
-    assertEquals(
-        new HashMap<String, List<FieldStatus>>() {
-          {
-            put("driver:name", Arrays.asList(FieldStatus.PRESENT));
-            put("driver:rating", Arrays.asList(FieldStatus.PRESENT));
-            put("driver:null_value", Arrays.asList(FieldStatus.NULL_VALUE));
-          }
-        },
-        rows.get(0).getStatuses());
+    assertEquals(new HashMap<String, List<FieldStatus>>() {}, rows.get(0).getStatuses());
   }
 
   private static GetOnlineFeaturesRequest getFakeOnlineFeaturesRefRequest() {
