@@ -21,7 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.Mockito.mock;
 
-import com.google.protobuf.Timestamp;
 import feast.proto.serving.ServingAPIProto;
 import feast.proto.serving.ServingAPIProto.FieldStatus;
 import feast.proto.serving.ServingAPIProto.GetOnlineFeaturesRangeRequest;
@@ -206,16 +205,7 @@ public class FeastClientTest {
           }
         },
         rows.get(0).getFields());
-    assertEquals(
-        new HashMap<String, FieldStatus>() {
-          {
-            put("driver_id", FieldStatus.PRESENT);
-            put("driver:name", FieldStatus.PRESENT);
-            put("driver:rating", FieldStatus.PRESENT);
-            put("driver:null_value", FieldStatus.NULL_VALUE);
-          }
-        },
-        rows.get(0).getStatuses());
+    assertEquals(new HashMap<String, FieldStatus>() {}, rows.get(0).getStatuses());
   }
 
   private void shouldGetOnlineFeaturesFeatureService(FeastClient client) {
@@ -238,16 +228,7 @@ public class FeastClientTest {
           }
         },
         rows.get(0).getFields());
-    assertEquals(
-        new HashMap<String, FieldStatus>() {
-          {
-            put("driver_id", FieldStatus.PRESENT);
-            put("driver:name", FieldStatus.PRESENT);
-            put("driver:rating", FieldStatus.PRESENT);
-            put("driver:null_value", FieldStatus.NULL_VALUE);
-          }
-        },
-        rows.get(0).getStatuses());
+    assertEquals(new HashMap<String, FieldStatus>() {}, rows.get(0).getStatuses());
   }
 
   private void shouldGetOnlineFeaturesWithoutStatus(FeastClient client) {
@@ -324,7 +305,7 @@ public class FeastClientTest {
                 .addVal("driver:null_value")
                 .build())
         .putEntities("driver_id", ValueProto.RepeatedValue.newBuilder().addVal(intValue(1)).build())
-        .setIncludeMetadata(true)
+        .setIncludeMetadata(false)
         .build();
   }
 
@@ -347,7 +328,7 @@ public class FeastClientTest {
     return GetOnlineFeaturesRequest.newBuilder()
         .setFeatureService("driver_service")
         .putEntities("driver_id", ValueProto.RepeatedValue.newBuilder().addVal(intValue(1)).build())
-        .setIncludeMetadata(true)
+        .setIncludeMetadata(false)
         .build();
   }
 
@@ -356,20 +337,12 @@ public class FeastClientTest {
         .addResults(
             GetOnlineFeaturesResponse.FeatureVector.newBuilder()
                 .addValues(strValue("david"))
-                .addStatuses(FieldStatus.PRESENT)
-                .addEventTimestamps(Timestamp.newBuilder())
                 .build())
         .addResults(
-            GetOnlineFeaturesResponse.FeatureVector.newBuilder()
-                .addValues(intValue(3))
-                .addStatuses(FieldStatus.PRESENT)
-                .addEventTimestamps(Timestamp.newBuilder())
-                .build())
+            GetOnlineFeaturesResponse.FeatureVector.newBuilder().addValues(intValue(3)).build())
         .addResults(
             GetOnlineFeaturesResponse.FeatureVector.newBuilder()
                 .addValues(Value.newBuilder().build())
-                .addStatuses(FieldStatus.NULL_VALUE)
-                .addEventTimestamps(Timestamp.newBuilder())
                 .build())
         .setMetadata(
             ServingAPIProto.GetOnlineFeaturesResponseMetadata.newBuilder()
@@ -390,7 +363,6 @@ public class FeastClientTest {
                 .addVal("driver:rating")
                 .addVal("driver:null_value")
                 .build())
-        .putEntities("driver_id", ValueProto.RepeatedValue.newBuilder().addVal(intValue(1)).build())
         .addAllSortKeyFilters(
             Arrays.asList(
                 ServingAPIProto.SortKeyFilter.newBuilder()
@@ -408,7 +380,7 @@ public class FeastClientTest {
                     .build()))
         .setLimit(10)
         .setReverseSortOrder(false)
-        .setIncludeMetadata(true)
+        .setIncludeMetadata(false)
         .build();
   }
 
@@ -417,20 +389,14 @@ public class FeastClientTest {
         .addResults(
             GetOnlineFeaturesRangeResponse.RangeFeatureVector.newBuilder()
                 .addValues(repeatedValue(strValue("david")))
-                .addStatuses(repeatedStatus(FieldStatus.PRESENT))
-                .addEventTimestamps(repeatedValue(timestampValue(0)))
                 .build())
         .addResults(
             GetOnlineFeaturesRangeResponse.RangeFeatureVector.newBuilder()
                 .addValues(repeatedValue(intValue(3)))
-                .addStatuses(repeatedStatus(FieldStatus.PRESENT))
-                .addEventTimestamps(repeatedValue(timestampValue(0)))
                 .build())
         .addResults(
             GetOnlineFeaturesRangeResponse.RangeFeatureVector.newBuilder()
                 .addValues(repeatedValue(Value.newBuilder().build()))
-                .addStatuses(repeatedStatus(FieldStatus.NULL_VALUE))
-                .addEventTimestamps(repeatedValue(timestampValue(0)))
                 .build())
         .setMetadata(
             ServingAPIProto.GetOnlineFeaturesResponseMetadata.newBuilder()
