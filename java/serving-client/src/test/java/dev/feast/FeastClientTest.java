@@ -64,11 +64,46 @@ public class FeastClientTest {
                 public void getOnlineFeatures(
                     GetOnlineFeaturesRequest request,
                     StreamObserver<GetOnlineFeaturesResponse> responseObserver) {
-                  if (!request.equals(FeastClientTest.getFakeOnlineFeaturesRefRequest())
-                      && !request.equals(FeastClientTest.getFakeOnlineFeaturesServiceRequest())
-                      && !request.equals(
-                          FeastClientTest.getFakeOnlineFeaturesRefRequestWithoutStatus())) {
+
+                  GetOnlineFeaturesRequest expectedRef =
+                      FeastClientTest.getFakeOnlineFeaturesRefRequest();
+                  GetOnlineFeaturesRequest expectedService =
+                      FeastClientTest.getFakeOnlineFeaturesServiceRequest();
+                  GetOnlineFeaturesRequest expectedWithoutStatus =
+                      FeastClientTest.getFakeOnlineFeaturesRefRequestWithoutStatus();
+
+                  System.out.println("=== RECEIVED REQUEST ===");
+                  System.out.println(request);
+                  System.out.println("=== EXPECTED REF REQUEST ===");
+                  System.out.println(expectedRef);
+                  System.out.println("=== EXPECTED SERVICE REQUEST ===");
+                  System.out.println(expectedService);
+                  System.out.println("=== EXPECTED WITHOUT STATUS REQUEST ===");
+                  System.out.println(expectedWithoutStatus);
+
+                  System.out.println("=== COMPARISON DETAILS ===");
+                  System.out.println("Request has feature service: " + request.hasFeatureService());
+                  System.out.println("Request has features: " + request.hasFeatures());
+                  System.out.println("Request feature service: " + request.getFeatureService());
+                  if (request.hasFeatures()) {
+                    System.out.println("Request features: " + request.getFeatures().getValList());
+                  }
+                  System.out.println("Request entities: " + request.getEntitiesMap());
+                  System.out.println("Request include metadata: " + request.getIncludeMetadata());
+                  System.out.println("Request project: " + request.getProject());
+
+                  boolean matchesRef = request.equals(expectedRef);
+                  boolean matchesService = request.equals(expectedService);
+                  boolean matchesWithoutStatus = request.equals(expectedWithoutStatus);
+
+                  System.out.println("Matches ref: " + matchesRef);
+                  System.out.println("Matches service: " + matchesService);
+                  System.out.println("Matches without status: " + matchesWithoutStatus);
+
+                  if (!matchesRef && !matchesService && !matchesWithoutStatus) {
+                    System.out.println("REJECTING REQUEST - NO MATCH FOUND");
                     responseObserver.onError(Status.FAILED_PRECONDITION.asRuntimeException());
+                    return;
                   }
 
                   responseObserver.onNext(FeastClientTest.getFakeOnlineFeaturesResponse());
@@ -79,8 +114,33 @@ public class FeastClientTest {
                 public void getOnlineFeaturesRange(
                     GetOnlineFeaturesRangeRequest request,
                     StreamObserver<GetOnlineFeaturesRangeResponse> responseObserver) {
-                  if (!request.equals(FeastClientTest.getFakeOnlineFeaturesRangeRequest())) {
+
+                  GetOnlineFeaturesRangeRequest expected =
+                      FeastClientTest.getFakeOnlineFeaturesRangeRequest();
+
+                  System.out.println("=== RECEIVED RANGE REQUEST ===");
+                  System.out.println(request);
+                  System.out.println("=== EXPECTED RANGE REQUEST ===");
+                  System.out.println(expected);
+
+                  System.out.println("=== RANGE COMPARISON DETAILS ===");
+                  System.out.println("Request features: " + request.getFeatures().getValList());
+                  System.out.println("Request entities: " + request.getEntitiesMap());
+                  System.out.println(
+                      "Request sort key filters count: " + request.getSortKeyFiltersCount());
+                  System.out.println("Request limit: " + request.getLimit());
+                  System.out.println(
+                      "Request reverse sort order: " + request.getReverseSortOrder());
+                  System.out.println("Request include metadata: " + request.getIncludeMetadata());
+                  System.out.println("Request project: " + request.getProject());
+
+                  boolean matches = request.equals(expected);
+                  System.out.println("Matches expected: " + matches);
+
+                  if (!matches) {
+                    System.out.println("REJECTING RANGE REQUEST - NO MATCH FOUND");
                     responseObserver.onError(Status.FAILED_PRECONDITION.asRuntimeException());
+                    return;
                   }
 
                   responseObserver.onNext(FeastClientTest.getFakeOnlineFeaturesRangeResponse());
@@ -201,7 +261,6 @@ public class FeastClientTest {
             "driver_project");
 
     assertEquals(
-        rows.get(0).getFields(),
         new HashMap<String, Value>() {
           {
             put("driver_id", intValue(1));
@@ -209,7 +268,8 @@ public class FeastClientTest {
             put("driver:rating", intValue(3));
             put("driver:null_value", Value.newBuilder().build());
           }
-        });
+        },
+        rows.get(0).getFields());
 
     for (String fieldName : rows.get(0).getFields().keySet()) {
       assertNull(
@@ -230,30 +290,30 @@ public class FeastClientTest {
             "driver_project");
 
     assertEquals(
-        rows.get(0).getEntity(),
         new HashMap<String, Value>() {
           {
             put("driver_id", intValue(1));
           }
-        });
+        },
+        rows.get(0).getEntity());
     assertEquals(
-        rows.get(0).getFields(),
         new HashMap<String, List<Value>>() {
           {
             put("driver:name", Arrays.asList(strValue("david")));
             put("driver:rating", Arrays.asList(intValue(3)));
             put("driver:null_value", Arrays.asList(Value.newBuilder().build()));
           }
-        });
+        },
+        rows.get(0).getFields());
     assertEquals(
-        rows.get(0).getStatuses(),
         new HashMap<String, List<FieldStatus>>() {
           {
             put("driver:name", Arrays.asList(FieldStatus.PRESENT));
             put("driver:rating", Arrays.asList(FieldStatus.PRESENT));
             put("driver:null_value", Arrays.asList(FieldStatus.NULL_VALUE));
           }
-        });
+        },
+        rows.get(0).getStatuses());
   }
 
   private static GetOnlineFeaturesRequest getFakeOnlineFeaturesRefRequest() {
