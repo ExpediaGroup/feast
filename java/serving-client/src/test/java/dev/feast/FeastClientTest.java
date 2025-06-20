@@ -82,15 +82,14 @@ public class FeastClientTest {
                   System.out.println(expectedWithoutStatus);
 
                   System.out.println("=== COMPARISON DETAILS ===");
-                  System.out.println("Request has feature service: " + request.hasFeatureService());
+                  System.out.println(
+                      "Request feature service: '" + request.getFeatureService() + "'");
                   System.out.println("Request has features: " + request.hasFeatures());
-                  System.out.println("Request feature service: " + request.getFeatureService());
                   if (request.hasFeatures()) {
                     System.out.println("Request features: " + request.getFeatures().getValList());
                   }
                   System.out.println("Request entities: " + request.getEntitiesMap());
                   System.out.println("Request include metadata: " + request.getIncludeMetadata());
-                  System.out.println("Request project: " + request.getProject());
 
                   boolean matchesRef = request.equals(expectedRef);
                   boolean matchesService = request.equals(expectedService);
@@ -132,7 +131,6 @@ public class FeastClientTest {
                   System.out.println(
                       "Request reverse sort order: " + request.getReverseSortOrder());
                   System.out.println("Request include metadata: " + request.getIncludeMetadata());
-                  System.out.println("Request project: " + request.getProject());
 
                   boolean matches = request.equals(expected);
                   System.out.println("Matches expected: " + matches);
