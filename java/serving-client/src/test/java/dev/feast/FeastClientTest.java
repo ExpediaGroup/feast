@@ -139,7 +139,6 @@ public class FeastClientTest {
             "driver_project");
 
     assertEquals(
-        rows.get(0).getFields(),
         new HashMap<String, Value>() {
           {
             put("driver_id", intValue(1));
@@ -147,9 +146,9 @@ public class FeastClientTest {
             put("driver:rating", intValue(3));
             put("driver:null_value", Value.newBuilder().build());
           }
-        });
+        },
+        rows.get(0).getFields());
     assertEquals(
-        rows.get(0).getStatuses(),
         new HashMap<String, FieldStatus>() {
           {
             put("driver_id", FieldStatus.PRESENT);
@@ -157,7 +156,8 @@ public class FeastClientTest {
             put("driver:rating", FieldStatus.PRESENT);
             put("driver:null_value", FieldStatus.NULL_VALUE);
           }
-        });
+        },
+        rows.get(0).getStatuses());
   }
 
   private void shouldGetOnlineFeaturesFeatureService(FeastClient client) {
@@ -171,7 +171,6 @@ public class FeastClientTest {
             "driver_project");
 
     assertEquals(
-        rows.get(0).getFields(),
         new HashMap<String, Value>() {
           {
             put("driver_id", intValue(1));
@@ -179,9 +178,9 @@ public class FeastClientTest {
             put("driver:rating", intValue(3));
             put("driver:null_value", Value.newBuilder().build());
           }
-        });
+        },
+        rows.get(0).getFields());
     assertEquals(
-        rows.get(0).getStatuses(),
         new HashMap<String, FieldStatus>() {
           {
             put("driver_id", FieldStatus.PRESENT);
@@ -189,7 +188,8 @@ public class FeastClientTest {
             put("driver:rating", FieldStatus.PRESENT);
             put("driver:null_value", FieldStatus.NULL_VALUE);
           }
-        });
+        },
+        rows.get(0).getStatuses());
   }
 
   private void shouldGetOnlineFeaturesWithoutStatus(FeastClient client) {
