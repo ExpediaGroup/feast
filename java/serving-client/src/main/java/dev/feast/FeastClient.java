@@ -496,14 +496,13 @@ public class FeastClient implements AutoCloseable {
       int limit,
       boolean reverseSortOrder,
       String project) {
-    GetOnlineFeaturesRangeRequest request =
-        GetOnlineFeaturesRangeRequest.newBuilder()
-            .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
-            .addAllSortKeyFilters(sortKeyFilters)
-            .setLimit(limit)
-            .setReverseSortOrder(reverseSortOrder)
-            .setIncludeMetadata(false)
-            .build();
+    GetOnlineFeaturesRangeRequest request = GetOnlineFeaturesRangeRequest.newBuilder()
+        .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
+        .addAllSortKeyFilters(sortKeyFilters.stream().map(SortKeyFilterModel::toProto).collect(Collectors.toList()))
+        .setLimit(limit)
+        .setReverseSortOrder(reverseSortOrder)
+        .setIncludeMetadata(false)
+        .build();
     return getOnlineFeaturesRange(request, rows);
   }
 
@@ -515,14 +514,13 @@ public class FeastClient implements AutoCloseable {
       boolean reverseSortOrder,
       String project,
       boolean includeMetadata) {
-    GetOnlineFeaturesRangeRequest request =
-        GetOnlineFeaturesRangeRequest.newBuilder()
-            .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
-            .addAllSortKeyFilters(sortKeyFilters)
-            .setLimit(limit)
-            .setReverseSortOrder(reverseSortOrder)
-            .setIncludeMetadata(includeMetadata)
-            .build();
+    GetOnlineFeaturesRangeRequest request = GetOnlineFeaturesRangeRequest.newBuilder()
+        .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
+        .addAllSortKeyFilters(sortKeyFilters.stream().map(SortKeyFilterModel::toProto).collect(Collectors.toList()))
+        .setLimit(limit)
+        .setReverseSortOrder(reverseSortOrder)
+        .setIncludeMetadata(includeMetadata)
+        .build();
     return getOnlineFeaturesRange(request, rows);
   }
 
