@@ -498,7 +498,7 @@ public class FeastClient implements AutoCloseable {
       String project) {
     GetOnlineFeaturesRangeRequest request =
         GetOnlineFeaturesRangeRequest.newBuilder()
-            .setFeatures(FeatureList.newBuilder().addAllVal(featureRefs).build())
+            .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
             .addAllSortKeyFilters(sortKeyFilters)
             .setLimit(limit)
             .setReverseSortOrder(reverseSortOrder)
@@ -517,7 +517,7 @@ public class FeastClient implements AutoCloseable {
       boolean includeMetadata) {
     GetOnlineFeaturesRangeRequest request =
         GetOnlineFeaturesRangeRequest.newBuilder()
-            .setFeatures(FeatureList.newBuilder().addAllVal(featureRefs).build())
+            .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
             .addAllSortKeyFilters(sortKeyFilters)
             .setLimit(limit)
             .setReverseSortOrder(reverseSortOrder)
