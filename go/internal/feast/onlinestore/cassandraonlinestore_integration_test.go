@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	onlineStore, err = getCassandraOnlineStore(dir)
+	onlineStore, err = getCassandraOnlineStore()
 	if err != nil {
 		fmt.Printf("Failed to create CassandraOnlineStore: %v\n", err)
 		os.Exit(1)
@@ -49,7 +49,8 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-func getCassandraOnlineStore(dir string) (*CassandraOnlineStore, error) {
+func getCassandraOnlineStore() (*CassandraOnlineStore, error) {
+	dir := "../../../integration_tests/scylladb/"
 	config, err := loadRepoConfig(dir)
 	if err != nil {
 		fmt.Printf("Failed to load repo config: %v\n", err)
@@ -87,8 +88,8 @@ func TestCassandraOnlineStore_OnlineReadRange_withSingleEntityKey(t *testing.T) 
 		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
 	sortKeyFilters := []*model.SortKeyFilter{{
 		SortKeyName: "event_timestamp",
-		RangeStart:  time.Unix(1744769099, 0),
-		RangeEnd:    time.Unix(1744779099, 0),
+		RangeStart:  int64(1744769099919),
+		RangeEnd:    int64(1744779099919),
 	}}
 
 	groupedRefs := &model.GroupedRangeFeatureRefs{
@@ -103,7 +104,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withSingleEntityKey(t *testing.T) 
 
 	data, err := onlineStore.OnlineReadRange(ctx, groupedRefs)
 	require.NoError(t, err)
-	verifyResponseData(t, data, 1, time.Unix(1744769099, 0), time.Unix(1744779099, 0))
+	verifyResponseData(t, data, 1, int64(1744769099919), int64(1744779099919))
 }
 
 func TestCassandraOnlineStore_OnlineReadRange_withMultipleEntityKeys(t *testing.T) {
@@ -150,7 +151,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withMultipleEntityKeys(t *testing.
 
 	data, err := onlineStore.OnlineReadRange(ctx, groupedRefs)
 	require.NoError(t, err)
-	verifyResponseData(t, data, 3, time.Unix(1744769099, 0), time.Unix(17447690990, 0))
+	verifyResponseData(t, data, 3, int64(1744769099919), int64(1744769099919*10))
 }
 
 func TestCassandraOnlineStore_OnlineReadRange_withReverseSortOrder(t *testing.T) {
@@ -199,7 +200,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withReverseSortOrder(t *testing.T)
 
 	data, err := onlineStore.OnlineReadRange(ctx, groupedRefs)
 	require.NoError(t, err)
-	verifyResponseData(t, data, 3, time.Unix(1744769099, 0), time.Unix(17447690990, 0))
+	verifyResponseData(t, data, 3, int64(1744769099919), int64(1744769099919*10))
 }
 
 func TestCassandraOnlineStore_OnlineReadRange_withNoSortKeyFilters(t *testing.T) {
@@ -243,7 +244,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withNoSortKeyFilters(t *testing.T)
 
 	data, err := onlineStore.OnlineReadRange(ctx, groupedRefs)
 	require.NoError(t, err)
-	verifyResponseData(t, data, 3, time.Unix(0, 0), time.Unix(17447690990, 0))
+	verifyResponseData(t, data, 3, int64(0), int64(1744769099919*10))
 }
 
 func assertValueType(t *testing.T, actualValue interface{}, expectedType string) {
@@ -251,7 +252,7 @@ func assertValueType(t *testing.T, actualValue interface{}, expectedType string)
 	assert.Equal(t, expectedType, fmt.Sprintf("%T", actualValue.(*types.Value).GetVal()), expectedType)
 }
 
-func verifyResponseData(t *testing.T, data [][]RangeFeatureData, numEntityKeys int, start time.Time, end time.Time) {
+func verifyResponseData(t *testing.T, data [][]RangeFeatureData, numEntityKeys int, start int64, end int64) {
 	assert.Equal(t, numEntityKeys, len(data))
 
 	for i := 0; i < numEntityKeys; i++ {
@@ -406,8 +407,8 @@ func verifyResponseData(t *testing.T, data [][]RangeFeatureData, numEntityKeys i
 		assert.NotNil(t, data[i][32].Values[0])
 		assert.IsType(t, time.Time{}, data[i][32].Values[0])
 		for _, timestamp := range data[i][32].Values {
-			assert.GreaterOrEqual(t, timestamp.(time.Time).Unix(), start.Unix(), "Timestamp should be greater than or equal to %v", start)
-			assert.LessOrEqual(t, timestamp.(time.Time).Unix(), end.Unix(), "Timestamp should be less than or equal to %v", end)
+			assert.GreaterOrEqual(t, timestamp.(time.Time).UnixMilli(), start, "Timestamp should be greater than or equal to %d", start)
+			assert.LessOrEqual(t, timestamp.(time.Time).UnixMilli(), end, "Timestamp should be less than or equal to %d", end)
 		}
 	}
 }

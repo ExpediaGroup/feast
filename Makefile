@@ -449,11 +449,11 @@ test-go: compile-protos-go compile-protos-python install-feast-ci-locally
 	CGO_ENABLED=1 go test -tags=unit -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html
 
 test-go-integration: compile-protos-go compile-protos-python install-feast-ci-locally
-	docker compose -f go/internal/feast/integration_tests/valkey/docker-compose.yaml up -d
-	docker compose -f go/internal/feast/integration_tests/scylladb/docker-compose.yaml up -d
+	docker compose -f go/integration_tests/valkey/docker-compose.yaml up -d
+	docker compose -f go/integration_tests/scylladb/docker-compose.yaml up -d
 	go test -p 1 -tags=integration ./go/internal/...
-	docker compose -f go/internal/feast/integration_tests/valkey/docker-compose.yaml down
-	docker compose -f go/internal/feast/integration_tests/scylladb/docker-compose.yaml down
+	docker compose -f go/integration_tests/valkey/docker-compose.yaml down
+	docker compose -f go/integration_tests/scylladb/docker-compose.yaml down
 
 format-go:
 	gofmt -s -w go/
