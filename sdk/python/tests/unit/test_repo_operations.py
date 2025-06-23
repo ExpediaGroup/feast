@@ -114,7 +114,7 @@ def dummy_repo_contents_fv_updated(driver_entity, spark_source, file_source, ent
 
 @pytest.fixture
 def dummy_repo_contents_sfv(driver_entity, file_source, entity1):
-    key = SortKey(name="f1", value_type=ValueType.INT64, default_sort_order=0)
+    key = SortKey(name="f1", value_type=ValueType.INT64, default_sort_order=1)
     sfv = SortedFeatureView(
         name="sfv1",
         entities=[entity1],
@@ -177,7 +177,7 @@ def dummy_repo_contents_sfv_and_fv(driver_entity, file_source, entity1):
 
 @pytest.fixture
 def dummy_repo_contents_sfv_update(driver_entity, file_source, entity1):
-    key = SortKey(name="f1", value_type=ValueType.INT64, default_sort_order=0)
+    key = SortKey(name="f1", value_type=ValueType.INT64, default_sort_order=1)
     sfv = SortedFeatureView(
         name="sfv1",
         entities=[entity1],
@@ -405,7 +405,6 @@ def test_update_sorted_feature_view(
 
     store_mock.apply.reset_mock()
 
-    # Re-apply
     apply_total_with_repo_instance(
         store=store_mock,
         project_name="my_project",
