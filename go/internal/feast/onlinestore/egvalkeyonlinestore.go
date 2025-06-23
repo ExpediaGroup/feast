@@ -6,11 +6,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/feast-dev/feast/go/internal/feast/model"
 	"os"
 	"strconv"
 	"strings"
 
-	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/utils"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -276,7 +276,7 @@ func (r *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 			return nil, err
 		}
 
-		var value types.Value
+		var value *types.Value
 		var resString interface{}
 		timeStampMap := make(map[string]*timestamppb.Timestamp, 1)
 
@@ -287,7 +287,7 @@ func (r *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 
 			featureName := featureNamesWithTimeStamps[featureIndex]
 			featureViewName := featureViewNames[featureIndex]
-			value = types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
+			value = &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
 			resString = nil
 
 			if !featureValue.IsNil() {
@@ -301,7 +301,7 @@ func (r *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 					return nil, errors.New("error parsing Value from valkey")
 				}
 				resContainsNonNil = true
-				if err := proto.Unmarshal([]byte(valueString), &value); err != nil {
+				if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
 					return nil, errors.New("error converting parsed valkey Value to types.Value")
 				}
 			}
@@ -336,7 +336,7 @@ func (r *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 	return results, nil
 }
 
-func (r *ValkeyOnlineStore) OnlineReadRange(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string, sortKeyFilters []*model.SortKeyFilter, limit int32) ([][]RangeFeatureData, error) {
+func (r *ValkeyOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs *model.GroupedRangeFeatureRefs) ([][]RangeFeatureData, error) {
 	// TODO: Implement OnlineReadRange
 	return nil, errors.New("OnlineReadRange is not supported by ValkeyOnlineStore")
 }

@@ -80,31 +80,6 @@ type GroupedFeaturesPerEntitySet struct {
 }
 
 /*
-We group all features from a single request by entities they attached to.
-Thus, we will be able to call online range retrieval per entity and not per each feature View.
-In this struct we collect all features and views that belongs to a group.
-We store here projected entity keys (only ones that needed to retrieve these features)
-and indexes to map result of retrieval into output response.
-We also store range query parameters like sort key filters, reverse sort order and limit.
-*/
-type GroupedRangeFeatureRefs struct {
-	// A list of requested feature references of the form featureViewName:featureName that share this entity set
-	FeatureNames     []string
-	FeatureViewNames []string
-	// full feature references as they supposed to appear in response
-	AliasedFeatureNames []string
-	// Entity set as a list of EntityKeys to pass to OnlineReadRange
-	EntityKeys []*prototypes.EntityKey
-	// Reversed mapping to project result of retrieval from storage to response
-	Indices [][]int
-
-	// Sort key filters to pass to OnlineReadRange
-	SortKeyFilters []*model.SortKeyFilter
-	// Limit to pass to OnlineReadRange
-	Limit int32
-}
-
-/*
 Return
 
 	(1) requested feature views and features grouped per View
@@ -131,8 +106,10 @@ func GetFeatureViewsToUseByService(
 				return nil, nil, nil, err
 			}
 			if _, ok := viewNameToViewAndRefs[featureProjection.NameToUse()]; !ok {
+				view := fv.NewFeatureViewFromBase(base)
+				view.EntityColumns = fv.EntityColumns
 				viewNameToViewAndRefs[featureProjection.NameToUse()] = &FeatureViewAndRefs{
-					View:        fv.NewFeatureViewFromBase(base),
+					View:        view,
 					FeatureRefs: []string{},
 				}
 			}
@@ -149,8 +126,10 @@ func GetFeatureViewsToUseByService(
 				return nil, nil, nil, err
 			}
 			if _, ok := viewNameToSortedViewAndRefs[featureProjection.NameToUse()]; !ok {
+				view := sortedFv.NewSortedFeatureViewFromBase(base)
+				view.EntityColumns = sortedFv.EntityColumns
 				viewNameToSortedViewAndRefs[featureProjection.NameToUse()] = &SortedFeatureViewAndRefs{
-					View:        sortedFv.NewSortedFeatureViewFromBase(base),
+					View:        view,
 					FeatureRefs: []string{},
 				}
 			}
@@ -559,14 +538,14 @@ func isValueTypeCompatible(value *prototypes.Value, expectedType prototypes.Valu
 		return expectedType == prototypes.ValueType_FLOAT
 	case *prototypes.Value_DoubleVal:
 		return expectedType == prototypes.ValueType_DOUBLE
+	case *prototypes.Value_UnixTimestampVal:
+		return expectedType == prototypes.ValueType_UNIX_TIMESTAMP
 	case *prototypes.Value_StringVal:
 		return expectedType == prototypes.ValueType_STRING
 	case *prototypes.Value_BoolVal:
 		return expectedType == prototypes.ValueType_BOOL
 	case *prototypes.Value_BytesVal:
 		return expectedType == prototypes.ValueType_BYTES
-	case *prototypes.Value_UnixTimestampVal:
-		return expectedType == prototypes.ValueType_UNIX_TIMESTAMP
 	case *prototypes.Value_NullVal:
 		return canBeNull
 	default:
@@ -670,7 +649,7 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 
 func TransposeRangeFeatureRowsIntoColumns(
 	featureData2D [][]onlinestore.RangeFeatureData,
-	groupRef *GroupedRangeFeatureRefs,
+	groupRef *model.GroupedRangeFeatureRefs,
 	sortedViews []*SortedFeatureViewAndRefs,
 	arrowAllocator memory.Allocator,
 	numRows int) ([]*RangeFeatureVector, error) {
@@ -763,16 +742,26 @@ func processFeatureRowData(
 			return nil, nil, nil, fmt.Errorf("error converting value for feature %s: %v", featureData.FeatureName, err)
 		}
 
-		timestamp := getEventTimestamp(featureData.EventTimestamps, i)
+		// Explicitly set to nil if status is NOT_FOUND
+		if i < len(featureData.Statuses) &&
+			(featureData.Statuses[i] == serving.FieldStatus_NOT_FOUND ||
+				featureData.Statuses[i] == serving.FieldStatus_NULL_VALUE) {
+			rangeValues[i] = nil
+		} else {
+			rangeValues[i] = protoVal
+		}
+
+		eventTimestamp := getEventTimestamp(featureData.EventTimestamps, i)
 
 		status := serving.FieldStatus_PRESENT
-		if timestamp.GetSeconds() > 0 && checkOutsideTtl(timestamp, timestamppb.Now(), sfv.FeatureView.Ttl) {
+		if i < len(featureData.Statuses) {
+			status = featureData.Statuses[i]
+		} else if eventTimestamp.GetSeconds() > 0 && checkOutsideTtl(eventTimestamp, timestamppb.Now(), sfv.FeatureView.Ttl) {
 			status = serving.FieldStatus_OUTSIDE_MAX_AGE
 		}
 
-		rangeValues[i] = protoVal
 		rangeStatuses[i] = status
-		rangeTimestamps[i] = timestamp
+		rangeTimestamps[i] = eventTimestamp
 	}
 
 	return rangeValues, rangeStatuses, rangeTimestamps, nil
@@ -1024,9 +1013,9 @@ func GroupSortedFeatureRefs(
 	sortKeyFilters []*serving.SortKeyFilter,
 	reverseSortOrder bool,
 	limit int32,
-	fullFeatureNames bool) ([]*GroupedRangeFeatureRefs, error) {
+	fullFeatureNames bool) ([]*model.GroupedRangeFeatureRefs, error) {
 
-	groups := make(map[string]*GroupedRangeFeatureRefs)
+	groups := make(map[string]*model.GroupedRangeFeatureRefs)
 	sortKeyFilterMap := make(map[string]*serving.SortKeyFilter)
 	for _, sortKeyFilter := range sortKeyFilters {
 		sortKeyFilterMap[sortKeyFilter.SortKeyName] = sortKeyFilter
@@ -1085,31 +1074,28 @@ func GroupSortedFeatureRefs(
 		}
 
 		sortKeyFilterModels := make([]*model.SortKeyFilter, 0)
-		sortKeyOrderMap := make(map[string]model.SortOrder)
+		sortKeyNamesMap := make(map[string]bool)
 		for _, sortKey := range featuresAndView.View.SortKeys {
-			sortKeyOrderMap[sortKey.FieldName] = *sortKey.Order
-		}
-		for _, sortKey := range featuresAndView.View.SortKeys {
-			var sortOrder core.SortOrder_Enum
+			sortKeyNamesMap[sortKey.FieldName] = true
+			var sortOrder *core.SortOrder_Enum
 			if reverseSortOrder {
-				if *sortKey.Order.Order.Enum() == core.SortOrder_ASC {
-					sortOrder = core.SortOrder_DESC
-				} else {
-					sortOrder = core.SortOrder_ASC
+				flipped := core.SortOrder_DESC
+				if *sortKey.Order.Order.Enum() == core.SortOrder_DESC {
+					flipped = core.SortOrder_ASC
 				}
-			} else {
-				sortOrder = *sortKey.Order.Order.Enum()
+				sortOrder = &flipped // non-nil only when sort key order is reversed
 			}
+
 			var filterModel *model.SortKeyFilter
 			if filter, ok := sortKeyFilterMap[sortKey.FieldName]; ok {
 				filterModel = model.NewSortKeyFilterFromProto(filter, sortOrder)
-			} else {
-				// create empty filter model with only sort order
+			} else if reverseSortOrder {
 				filterModel = &model.SortKeyFilter{
 					SortKeyName: sortKey.FieldName,
-					Order:       model.NewSortOrderFromProto(sortOrder),
+					Order:       model.NewSortOrderFromProto(*sortOrder),
 				}
 			}
+
 			sortKeyFilterModels = append(sortKeyFilterModels, filterModel)
 		}
 
@@ -1120,7 +1106,7 @@ func GroupSortedFeatureRefs(
 				return nil, err
 			}
 
-			groups[groupKey] = &GroupedRangeFeatureRefs{
+			groups[groupKey] = &model.GroupedRangeFeatureRefs{
 				FeatureNames:        featureNames,
 				FeatureViewNames:    featureViewNames,
 				AliasedFeatureNames: aliasedFeatureNames,
@@ -1128,6 +1114,8 @@ func GroupSortedFeatureRefs(
 				EntityKeys:          uniqueEntityRows,
 				SortKeyFilters:      sortKeyFilterModels,
 				Limit:               limit,
+				IsReverseSortOrder:  reverseSortOrder,
+				SortKeyNames:        sortKeyNamesMap,
 			}
 
 		} else {
@@ -1137,7 +1125,7 @@ func GroupSortedFeatureRefs(
 		}
 	}
 
-	result := make([]*GroupedRangeFeatureRefs, 0, len(groups))
+	result := make([]*model.GroupedRangeFeatureRefs, 0, len(groups))
 	for _, group := range groups {
 		result = append(result, group)
 	}
@@ -1146,8 +1134,9 @@ func GroupSortedFeatureRefs(
 }
 
 func getUniqueEntityRows(joinKeysProto []*prototypes.EntityKey) ([]*prototypes.EntityKey, [][]int, error) {
-	uniqueValues := make(map[[sha256.Size]byte]*prototypes.EntityKey, 0)
-	positions := make(map[[sha256.Size]byte][]int, 0)
+	seen := make(map[[sha256.Size]byte]int)
+	uniqueEntityRows := make([]*prototypes.EntityKey, 0)
+	mappingIndices := make([][]int, 0)
 
 	for index, entityKey := range joinKeysProto {
 		serializedRow, err := proto.Marshal(entityKey)
@@ -1156,22 +1145,15 @@ func getUniqueEntityRows(joinKeysProto []*prototypes.EntityKey) ([]*prototypes.E
 		}
 
 		rowHash := sha256.Sum256(serializedRow)
-		if _, ok := uniqueValues[rowHash]; !ok {
-			uniqueValues[rowHash] = entityKey
-			positions[rowHash] = []int{index}
+		if existingIndex, exists := seen[rowHash]; exists {
+			mappingIndices[existingIndex] = append(mappingIndices[existingIndex], index)
 		} else {
-			positions[rowHash] = append(positions[rowHash], index)
+			seen[rowHash] = len(uniqueEntityRows)
+			uniqueEntityRows = append(uniqueEntityRows, entityKey)
+			mappingIndices = append(mappingIndices, []int{index})
 		}
 	}
 
-	mappingIndices := make([][]int, len(uniqueValues))
-	uniqueEntityRows := make([]*prototypes.EntityKey, 0)
-	for rowHash, row := range uniqueValues {
-		nextIdx := len(uniqueEntityRows)
-
-		mappingIndices[nextIdx] = positions[rowHash]
-		uniqueEntityRows = append(uniqueEntityRows, row)
-	}
 	return uniqueEntityRows, mappingIndices, nil
 }
 

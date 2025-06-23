@@ -49,7 +49,6 @@ ApplyTarget = Union[
     FeatureService,
     ValidationReference,
     Permission,
-    # List[FeastObject],
 ]
 
 

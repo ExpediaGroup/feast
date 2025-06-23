@@ -6,11 +6,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/feast-dev/feast/go/internal/feast/model"
 	"os"
 	"strconv"
 	"strings"
 
-	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/utils"
 
 	"github.com/feast-dev/feast/go/internal/feast/registry"
@@ -304,8 +304,8 @@ func (r *RedisOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.E
 				return nil, errors.New("error parsing Value from redis")
 			} else {
 				resContainsNonNil = true
-				var value types.Value
-				if err := proto.Unmarshal([]byte(valueString), &value); err != nil {
+				var value *types.Value
+				if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
 					return nil, errors.New("error converting parsed redis Value to types.Value")
 				} else {
 					featureName := featureNamesWithTimeStamps[featureIndex]
@@ -338,7 +338,7 @@ func (r *RedisOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.E
 	return results, nil
 }
 
-func (r *RedisOnlineStore) OnlineReadRange(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string, sortKeyFilters []*model.SortKeyFilter, limit int32) ([][]RangeFeatureData, error) {
+func (r *RedisOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs *model.GroupedRangeFeatureRefs) ([][]RangeFeatureData, error) {
 	// TODO: Implement OnlineReadRange
 	return nil, errors.New("OnlineReadRange is not supported by RedisOnlineStore")
 }

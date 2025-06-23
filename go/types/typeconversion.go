@@ -363,6 +363,10 @@ func ArrowValuesToRepeatedProtoValues(arr arrow.Array) ([]*types.RepeatedValue, 
 			values := make([]*types.Value, 0, int(offsets[i])-pos)
 
 			for j := pos; j < int(offsets[i]); j++ {
+				if listValues.IsNull(j) {
+					values = append(values, &types.Value{})
+					continue
+				}
 				var protoVal *types.Value
 
 				switch listValues.DataType() {
@@ -511,9 +515,9 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case bool:
 		protoVal.Val = &types.Value_BoolVal{BoolVal: v}
 	case time.Time:
-		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: v.Unix()}
+		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: v.UnixMilli()}
 	case *timestamppb.Timestamp:
-		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: v.GetSeconds()}
+		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: GetTimestampMillis(v)}
 
 	case [][]byte:
 		bytesList := &types.BytesList{Val: v}
@@ -531,6 +535,13 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case *types.StringList:
 		protoVal.Val = &types.Value_StringListVal{StringListVal: v}
 
+	case []int:
+		intList := make([]int32, len(v))
+		for i, num := range v {
+			intList[i] = int32(num)
+		}
+		int32List := &types.Int32List{Val: intList}
+		protoVal.Val = &types.Value_Int32ListVal{Int32ListVal: int32List}
 	case []int32:
 		int32List := &types.Int32List{Val: v}
 		protoVal.Val = &types.Value_Int32ListVal{Int32ListVal: int32List}
@@ -574,7 +585,7 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case []time.Time:
 		timestamps := make([]int64, len(v))
 		for j, t := range v {
-			timestamps[j] = t.Unix()
+			timestamps[j] = t.UnixMilli()
 		}
 		timestampList := &types.Int64List{Val: timestamps}
 		protoVal.Val = &types.Value_UnixTimestampListVal{UnixTimestampListVal: timestampList}
@@ -582,7 +593,7 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case []*timestamppb.Timestamp:
 		timestamps := make([]int64, len(v))
 		for j, t := range v {
-			timestamps[j] = t.GetSeconds()
+			timestamps[j] = GetTimestampMillis(t)
 		}
 		timestampList := &types.Int64List{Val: timestamps}
 		protoVal.Val = &types.Value_UnixTimestampListVal{UnixTimestampListVal: timestampList}
@@ -738,4 +749,163 @@ func ValueTypeToGoType(value *types.Value) interface{} {
 	default:
 		return nil
 	}
+}
+
+func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*types.Value, error) {
+	if valueType != types.ValueType_NULL {
+		if value == nil || value.Val == nil {
+			return nil, fmt.Errorf("value is nil, cannot convert to type %s", valueType)
+		}
+		switch value.Val.(type) {
+		case *types.Value_NullVal:
+			return nil, fmt.Errorf("value is nil, cannot convert to type %s", valueType)
+		}
+	}
+
+	err := fmt.Errorf("unsupported value type for conversion: %s for actual value type: %T", valueType, value.GetVal())
+
+	switch valueType {
+	case types.ValueType_STRING:
+		switch value.Val.(type) {
+		case *types.Value_StringVal:
+			return value, nil
+		}
+	case types.ValueType_BYTES:
+		switch value.Val.(type) {
+		case *types.Value_BytesVal:
+			return value, nil
+		case *types.Value_StringVal:
+			return &types.Value{Val: &types.Value_BytesVal{BytesVal: []byte(value.GetStringVal())}}, nil
+		}
+	case types.ValueType_INT32:
+		switch value.Val.(type) {
+		case *types.Value_Int32Val:
+			return value, nil
+		case *types.Value_Int64Val:
+			if value.GetInt64Val() < math.MinInt32 || value.GetInt64Val() > math.MaxInt32 {
+				return nil, fmt.Errorf("value %d is out of range for %s", value.GetInt64Val(), valueType)
+			}
+			return &types.Value{Val: &types.Value_Int32Val{Int32Val: int32(value.GetInt64Val())}}, nil
+		}
+	case types.ValueType_INT64:
+		switch value.Val.(type) {
+		case *types.Value_Int64Val:
+			return value, nil
+		}
+	case types.ValueType_FLOAT:
+		switch value.Val.(type) {
+		case *types.Value_FloatVal:
+			return value, nil
+		case *types.Value_DoubleVal:
+			if value.GetDoubleVal() < math.SmallestNonzeroFloat32 || value.GetDoubleVal() > math.MaxFloat32 {
+				return nil, fmt.Errorf("value %e is out of range for %s", value.GetDoubleVal(), valueType)
+			}
+			return &types.Value{Val: &types.Value_FloatVal{FloatVal: float32(value.GetDoubleVal())}}, nil
+		}
+	case types.ValueType_DOUBLE:
+		switch value.Val.(type) {
+		case *types.Value_DoubleVal:
+			return value, nil
+		}
+	case types.ValueType_UNIX_TIMESTAMP:
+		switch value.Val.(type) {
+		case *types.Value_UnixTimestampVal:
+			return value, nil
+		case *types.Value_Int64Val:
+			return &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: value.GetInt64Val()}}, nil
+		}
+	case types.ValueType_BOOL:
+		switch value.Val.(type) {
+		case *types.Value_BoolVal:
+			return value, nil
+		}
+	case types.ValueType_STRING_LIST:
+		switch value.Val.(type) {
+		case *types.Value_StringListVal:
+			return value, nil
+		}
+	case types.ValueType_BYTES_LIST:
+		switch value.Val.(type) {
+		case *types.Value_BytesListVal:
+			return value, nil
+		case *types.Value_StringListVal:
+			stringList := value.GetStringListVal().GetVal()
+			bytesList := make([][]byte, len(stringList))
+			for i, str := range stringList {
+				bytesList[i] = []byte(str)
+			}
+			return &types.Value{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: bytesList}}}, nil
+		}
+	case types.ValueType_INT32_LIST:
+		switch value.Val.(type) {
+		case *types.Value_Int32ListVal:
+			return value, nil
+		case *types.Value_Int64ListVal:
+			int64List := value.GetInt64ListVal().GetVal()
+			int32List := make([]int32, len(int64List))
+			for i, v := range int64List {
+				if v < math.MinInt32 || v > math.MaxInt32 {
+					return nil, fmt.Errorf("value %d is out of range for %s", v, valueType)
+				}
+				int32List[i] = int32(v)
+			}
+			return &types.Value{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: int32List}}}, nil
+		}
+	case types.ValueType_INT64_LIST:
+		switch value.Val.(type) {
+		case *types.Value_Int64ListVal:
+			return value, nil
+		}
+	case types.ValueType_FLOAT_LIST:
+		switch value.Val.(type) {
+		case *types.Value_FloatListVal:
+			return value, nil
+		case *types.Value_DoubleListVal:
+			doubleList := value.GetDoubleListVal().GetVal()
+			floatList := make([]float32, len(doubleList))
+			for i, v := range doubleList {
+				if v < math.SmallestNonzeroFloat32 || v > math.MaxFloat32 {
+					return nil, fmt.Errorf("value %e is out of range for %s", v, valueType)
+				}
+				floatList[i] = float32(v)
+			}
+			return &types.Value{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: floatList}}}, nil
+		}
+	case types.ValueType_DOUBLE_LIST:
+		switch value.Val.(type) {
+		case *types.Value_DoubleListVal:
+			return value, nil
+		}
+	case types.ValueType_UNIX_TIMESTAMP_LIST:
+		switch value.Val.(type) {
+		case *types.Value_UnixTimestampListVal:
+			return value, nil
+		case *types.Value_Int64ListVal:
+			return &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: value.GetInt64ListVal().GetVal()}}}, nil
+		}
+	case types.ValueType_BOOL_LIST:
+		switch value.Val.(type) {
+		case *types.Value_BoolListVal:
+			return value, nil
+		}
+	case types.ValueType_NULL:
+		if value == nil || value.Val == nil {
+			return nil, nil
+		}
+		switch value.Val.(type) {
+		case *types.Value_NullVal:
+			return nil, nil
+		default:
+			return nil, fmt.Errorf("value is not null, cannot convert type %T", value.Val)
+		}
+	}
+
+	return nil, err
+}
+
+func GetTimestampMillis(ts *timestamppb.Timestamp) int64 {
+	if ts == nil {
+		return 0
+	}
+	return (ts.GetSeconds() * 1000) + int64(ts.GetNanos()/1_000_000)
 }

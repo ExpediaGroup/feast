@@ -1,8 +1,10 @@
+//go:build !integration
+
 package feast
 
 import (
 	"context"
-	"github.com/apache/arrow/go/v17/arrow/array"
+	"fmt"
 	"github.com/apache/arrow/go/v17/arrow/memory"
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
@@ -18,7 +20,6 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"testing"
 	"time"
 )
@@ -91,8 +92,8 @@ func (m *MockOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.En
 	return args.Get(0).([][]onlinestore.FeatureData), args.Error(1)
 }
 
-func (m *MockOnlineStore) OnlineReadRange(ctx context.Context, entityRows []*types.EntityKey, featureViewNames []string, featureNames []string, sortKeyFilters []*model.SortKeyFilter, limit int32) ([][]onlinestore.RangeFeatureData, error) {
-	args := m.Called(ctx, entityRows, featureViewNames, featureNames, sortKeyFilters, limit)
+func (m *MockOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs *model.GroupedRangeFeatureRefs) ([][]onlinestore.RangeFeatureData, error) {
+	args := m.Called(ctx, groupedRefs)
 	return args.Get(0).([][]onlinestore.RangeFeatureData), args.Error(1)
 }
 
@@ -141,31 +142,41 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	now := time.Now()
 	oneWeekAgo := now.AddDate(0, 0, -7)
 
-	sortKeyFilters := []*serving.SortKeyFilter{
-		{
-			SortKeyName: "event_timestamp",
-			Query: &serving.SortKeyFilter_Range{
-				Range: &serving.SortKeyFilter_RangeQuery{
-					RangeStart: &types.Value{
-						Val: &types.Value_UnixTimestampVal{
-							UnixTimestampVal: oneWeekAgo.Unix(),
-						},
-					},
-					RangeEnd: &types.Value{
-						Val: &types.Value_UnixTimestampVal{
-							UnixTimestampVal: now.Unix(),
-						},
-					},
-					StartInclusive: true,
-					EndInclusive:   true,
+	sortKeyProto := &serving.SortKeyFilter{
+		SortKeyName: "event_timestamp",
+		Query: &serving.SortKeyFilter_Range{
+			Range: &serving.SortKeyFilter_RangeQuery{
+				RangeStart: &types.Value{
+					Val: &types.Value_UnixTimestampVal{UnixTimestampVal: oneWeekAgo.Unix()},
 				},
+				RangeEnd: &types.Value{
+					Val: &types.Value_UnixTimestampVal{UnixTimestampVal: now.Unix()},
+				},
+				StartInclusive: true,
+				EndInclusive:   true,
 			},
 		},
 	}
-	sortKeyFilterModels := []*model.SortKeyFilter{
-		model.NewSortKeyFilterFromProto(sortKeyFilters[0], core.SortOrder_ASC),
-	}
 
+	expectedFilter := model.NewSortKeyFilterFromProto(sortKeyProto, nil)
+	filterMatcher := func(fs []*model.SortKeyFilter) bool {
+		if len(fs) != 1 {
+			return false
+		}
+		f := fs[0]
+		sameBase :=
+			f.SortKeyName == expectedFilter.SortKeyName &&
+				f.StartInclusive == expectedFilter.StartInclusive &&
+				f.EndInclusive == expectedFilter.EndInclusive &&
+				fmt.Sprint(f.RangeStart) == fmt.Sprint(expectedFilter.RangeStart) &&
+				fmt.Sprint(f.RangeEnd) == fmt.Sprint(expectedFilter.RangeEnd)
+
+		if f.Order == nil && expectedFilter.Order == nil {
+			return sameBase
+		}
+		return sameBase && f.Order != nil && expectedFilter.Order != nil &&
+			f.Order.Order == expectedFilter.Order.Order
+	}
 	mockRangeFeatureData := [][]onlinestore.RangeFeatureData{
 		{
 			{
@@ -211,22 +222,44 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		},
 	}
 
-	featureViewNamesMatcher := mock.MatchedBy(func(views []string) bool {
+	featureViewNamesMatcher := func(views []string) bool {
 		for _, view := range views {
 			if view != "driver_stats" {
 				return false
 			}
 		}
 		return len(views) > 0
+	}
+
+	entityKeysMatcher := func(keys []*types.EntityKey) bool {
+		if len(keys) != len(entityValues["driver_id"].Val) {
+			return false
+		}
+		for i, key := range keys {
+			if len(key.JoinKeys) != 1 || key.JoinKeys[0] != "driver_id" {
+				return false
+			}
+			if len(key.EntityValues) != 1 || key.EntityValues[0].GetInt64Val() != entityValues["driver_id"].Val[i].GetInt64Val() {
+				return false
+			}
+		}
+		return true
+	}
+
+	groupedRefsMatcher := mock.MatchedBy(func(ref *model.GroupedRangeFeatureRefs) bool {
+		return entityKeysMatcher(ref.EntityKeys) &&
+			featureViewNamesMatcher(ref.FeatureViewNames) &&
+			len(ref.FeatureNames) == 2 &&
+			ref.FeatureNames[0] == "conv_rate" &&
+			ref.FeatureNames[1] == "acc_rate" &&
+			filterMatcher(ref.SortKeyFilters) &&
+			ref.Limit == 0 &&
+			ref.IsReverseSortOrder == false
 	})
 
 	mockStore.On("OnlineReadRange",
 		mock.Anything,
-		mock.AnythingOfType("[]*types.EntityKey"),
-		featureViewNamesMatcher,
-		[]string{"conv_rate", "acc_rate"},
-		sortKeyFilterModels,
-		int32(0),
+		groupedRefsMatcher,
 	).Return(mockRangeFeatureData, nil)
 
 	result, err := testGetOnlineFeaturesRange(
@@ -236,52 +269,46 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		[]*model.Entity{testEntity},
 		[]*model.SortedFeatureView{sortedFV},
 		entityValues,
-		sortKeyFilters,
+		[]*serving.SortKeyFilter{sortKeyProto},
 		false,
 		0,
 		nil,
 		true,
 	)
 
-	// Sort the result by name, so we can assert by index consistently
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Name < result[j].Name
-	})
-
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
 	assert.Equal(t, 3, len(result), "Should have 3 vectors (1 entity + 2 features)")
-	assert.Equal(t, "driver_id", result[0].Name)
-	assert.Equal(t, "driver_stats__acc_rate", result[1].Name)
-	assert.Equal(t, "driver_stats__conv_rate", result[2].Name)
-	assert.Equal(t, 2, result[0].RangeValues.Len())
-	assert.Equal(t, 2, len(result[0].RangeStatuses))
-	assert.Equal(t, 2, len(result[0].RangeTimestamps))
-
-	for i := 0; i < result[0].RangeValues.Len(); i++ {
-		key := result[0].RangeValues.(*array.List).ListValues().(*array.Int64).Value(i)
-		var expectedLength int
-
-		accRateValues, err := types2.ArrowValuesToProtoValues(result[1].RangeValues)
-		assert.NoError(t, err)
-		convRateValues, err := types2.ArrowValuesToProtoValues(result[2].RangeValues)
-		assert.NoError(t, err)
-
-		if key == 1001 {
-			assert.Equal(t, []float64{0.91, 0.92, 0.94}, accRateValues[i].GetDoubleListVal().Val)
-			assert.Equal(t, []float64{0.85, 0.87, 0.89}, convRateValues[i].GetDoubleListVal().Val)
-			expectedLength = 3
-		} else {
-			assert.Equal(t, []float64{0.85, 0.88}, accRateValues[i].GetDoubleListVal().Val)
-			assert.Equal(t, []float64{0.78, 0.80}, convRateValues[i].GetDoubleListVal().Val)
-			expectedLength = 2
+	var driverIdVector, accRateVector, convRateVector *onlineserving.RangeFeatureVector
+	for _, r := range result {
+		switch r.Name {
+		case "driver_id":
+			driverIdVector = r
+		case "driver_stats__acc_rate":
+			accRateVector = r
+		case "driver_stats__conv_rate":
+			convRateVector = r
 		}
-
-		assert.Equal(t, expectedLength, len(result[1].RangeStatuses[i]))
-		assert.Equal(t, expectedLength, len(result[2].RangeStatuses[i]))
-		assert.Equal(t, expectedLength, len(result[1].RangeTimestamps[i]))
-		assert.Equal(t, expectedLength, len(result[2].RangeTimestamps[i]))
 	}
+
+	assert.NotNil(t, driverIdVector)
+	assert.NotNil(t, accRateVector)
+	assert.NotNil(t, convRateVector)
+
+	accRateValues, err := types2.ArrowValuesToProtoValues(accRateVector.RangeValues)
+	assert.NoError(t, err)
+	convRateValues, err := types2.ArrowValuesToProtoValues(convRateVector.RangeValues)
+	assert.NoError(t, err)
+	assert.Equal(t, []float64{0.91, 0.92, 0.94}, accRateValues[0].GetDoubleListVal().Val)
+	assert.Equal(t, []float64{0.85, 0.87, 0.89}, convRateValues[0].GetDoubleListVal().Val)
+	assert.Equal(t, []float64{0.85, 0.88}, accRateValues[1].GetDoubleListVal().Val)
+	assert.Equal(t, []float64{0.78, 0.80}, convRateValues[1].GetDoubleListVal().Val)
+
+	assert.Equal(t, 3, len(accRateVector.RangeStatuses[0]))
+	assert.Equal(t, 3, len(convRateVector.RangeStatuses[0]))
+	assert.Equal(t, 2, len(accRateVector.RangeStatuses[1]))
+	assert.Equal(t, 2, len(convRateVector.RangeStatuses[1]))
+
 	mockStore.AssertExpectations(t)
 }
 
@@ -363,11 +390,7 @@ func testGetOnlineFeaturesRange(
 	for _, groupRef := range groupedRangeRefs {
 		featureData, err := store.OnlineReadRange(
 			ctx,
-			groupRef.EntityKeys,
-			groupRef.FeatureViewNames,
-			groupRef.FeatureNames,
-			groupRef.SortKeyFilters,
-			groupRef.Limit)
+			groupRef)
 		if err != nil {
 			return nil, err
 		}
@@ -387,4 +410,121 @@ func testGetOnlineFeaturesRange(
 	}
 
 	return result, nil
+}
+
+func assertValueTypes(t *testing.T, actualValues []*types.Value, expectedType string) {
+	for _, value := range actualValues {
+		assert.Equal(t, expectedType, fmt.Sprintf("%T", value.GetVal()), expectedType)
+	}
+}
+
+func TestEntityTypeConversion_WithValidValues(t *testing.T) {
+	entityMap := map[string]*types.RepeatedValue{
+		"int32":         {Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1002}}, {Val: &types.Value_Int32Val{Int32Val: 2003}}}},
+		"int64>int32":   {Val: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 1001}}, {Val: &types.Value_Int64Val{Int64Val: 2002}}}},
+		"float":         {Val: []*types.Value{{Val: &types.Value_FloatVal{FloatVal: 1.23}}, {Val: &types.Value_FloatVal{FloatVal: 4.56}}}},
+		"float64>float": {Val: []*types.Value{{Val: &types.Value_DoubleVal{DoubleVal: 10.32}}, {Val: &types.Value_DoubleVal{DoubleVal: 20.64}}}},
+		"bytes":         {Val: []*types.Value{{Val: &types.Value_BytesVal{BytesVal: []byte("test")}}, {Val: &types.Value_BytesVal{BytesVal: []byte("data")}}}},
+		"string>bytes":  {Val: []*types.Value{{Val: &types.Value_StringVal{StringVal: "test"}}, {Val: &types.Value_StringVal{StringVal: "data"}}}},
+	}
+	entityColumns := map[string]*model.Field{
+		"int32":         {Name: "int32", Dtype: types.ValueType_INT32},
+		"int64>int32":   {Name: "int64>int32", Dtype: types.ValueType_INT32},
+		"float":         {Name: "float", Dtype: types.ValueType_FLOAT},
+		"float64>float": {Name: "float64>float", Dtype: types.ValueType_FLOAT},
+		"bytes":         {Name: "bytes", Dtype: types.ValueType_BYTES},
+		"string>bytes":  {Name: "string>bytes", Dtype: types.ValueType_BYTES},
+	}
+
+	err := entityTypeConversion(entityMap, entityColumns)
+	assert.NoError(t, err)
+	assertValueTypes(t, entityMap["int32"].Val, "*types.Value_Int32Val")
+	assertValueTypes(t, entityMap["int64>int32"].Val, "*types.Value_Int32Val")
+	assertValueTypes(t, entityMap["float"].Val, "*types.Value_FloatVal")
+	assertValueTypes(t, entityMap["float64>float"].Val, "*types.Value_FloatVal")
+	assertValueTypes(t, entityMap["bytes"].Val, "*types.Value_BytesVal")
+	assertValueTypes(t, entityMap["string>bytes"].Val, "*types.Value_BytesVal")
+}
+
+func TestEntityTypeConversion_WithInvalidValues(t *testing.T) {
+	entityMaps := []map[string]*types.RepeatedValue{
+		{"int32": {Val: []*types.Value{{Val: &types.Value_StringVal{StringVal: "invalid"}}}}},
+		{"float": {Val: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 1001}}}}},
+		{"bytes": {Val: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 1001}}}}},
+	}
+	entityColumns := []map[string]*model.Field{
+		{"int32": {Name: "int32", Dtype: types.ValueType_INT32}},
+		{"float": {Name: "float", Dtype: types.ValueType_FLOAT}},
+		{"bytes": {Name: "bytes", Dtype: types.ValueType_BYTES}},
+	}
+	expectedErrors := []string{
+		"error converting entity value for int32: unsupported value type for conversion: INT32 for actual value type: *types.Value_StringVal",
+		"error converting entity value for float: unsupported value type for conversion: FLOAT for actual value type: *types.Value_Int64Val",
+		"error converting entity value for bytes: unsupported value type for conversion: BYTES for actual value type: *types.Value_Int64Val",
+	}
+
+	for i, entityMap := range entityMaps {
+		err := entityTypeConversion(entityMap, entityColumns[i])
+		assert.Error(t, err)
+		assert.Equal(t, expectedErrors[i], err.Error())
+	}
+}
+
+func TestSortKeyFilterTypeConversion_WithValidValues(t *testing.T) {
+	sortKeyFilters := []*serving.SortKeyFilter{
+		{SortKeyName: "int32_equals", Query: &serving.SortKeyFilter_Equals{Equals: &types.Value{Val: &types.Value_Int64Val{Int64Val: 1001}}}},
+		{SortKeyName: "int32_range", Query: &serving.SortKeyFilter_Range{Range: &serving.SortKeyFilter_RangeQuery{
+			RangeStart: &types.Value{Val: &types.Value_Int64Val{Int64Val: 1000}},
+			RangeEnd:   &types.Value{Val: &types.Value_Int64Val{Int64Val: 2000}},
+		}}},
+		{SortKeyName: "float32_equals", Query: &serving.SortKeyFilter_Equals{Equals: &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 10.32}}}},
+		{SortKeyName: "float32_range", Query: &serving.SortKeyFilter_Range{Range: &serving.SortKeyFilter_RangeQuery{
+			RangeStart: &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 10.32}},
+			RangeEnd:   &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 20.64}},
+		}}},
+		{SortKeyName: "bytes_equals", Query: &serving.SortKeyFilter_Equals{Equals: &types.Value{Val: &types.Value_StringVal{StringVal: "test"}}}},
+		{SortKeyName: "bytes_range", Query: &serving.SortKeyFilter_Range{Range: &serving.SortKeyFilter_RangeQuery{
+			RangeEnd: &types.Value{Val: &types.Value_StringVal{StringVal: "test"}},
+		}}},
+		{SortKeyName: "timestamp_equals", Query: &serving.SortKeyFilter_Equals{Equals: &types.Value{Val: &types.Value_Int64Val{Int64Val: time.Now().Unix()}}}},
+		{SortKeyName: "timestamp_range", Query: &serving.SortKeyFilter_Range{Range: &serving.SortKeyFilter_RangeQuery{
+			RangeStart: &types.Value{Val: &types.Value_Int64Val{Int64Val: time.Now().Unix()}},
+		}}},
+	}
+	sortKeys := map[string]*model.SortKey{
+		"int32_equals":     {FieldName: "int32_equals", ValueType: types.ValueType_INT32},
+		"int32_range":      {FieldName: "int32_range", ValueType: types.ValueType_INT32},
+		"float32_equals":   {FieldName: "float32_equals", ValueType: types.ValueType_FLOAT},
+		"float32_range":    {FieldName: "float32_range", ValueType: types.ValueType_FLOAT},
+		"bytes_equals":     {FieldName: "bytes_equals", ValueType: types.ValueType_BYTES},
+		"bytes_range":      {FieldName: "bytes_range", ValueType: types.ValueType_BYTES},
+		"timestamp_equals": {FieldName: "timestamp_equals", ValueType: types.ValueType_UNIX_TIMESTAMP},
+		"timestamp_range":  {FieldName: "timestamp_range", ValueType: types.ValueType_UNIX_TIMESTAMP},
+	}
+	filters, err := sortKeyFilterTypeConversion(sortKeyFilters, sortKeys)
+	assert.NoError(t, err)
+	int32values := []*types.Value{
+		filters[0].GetEquals(),
+		filters[1].GetRange().GetRangeStart(),
+		filters[1].GetRange().GetRangeEnd(),
+	}
+	assertValueTypes(t, int32values, "*types.Value_Int32Val")
+	floatValues := []*types.Value{
+		filters[2].GetEquals(),
+		filters[3].GetRange().GetRangeStart(),
+		filters[3].GetRange().GetRangeEnd(),
+	}
+	assertValueTypes(t, floatValues, "*types.Value_FloatVal")
+	bytesValues := []*types.Value{
+		filters[4].GetEquals(),
+		filters[5].GetRange().GetRangeEnd(),
+	}
+	assertValueTypes(t, bytesValues, "*types.Value_BytesVal")
+	assert.Nil(t, filters[5].GetRange().GetRangeStart())
+	timestampValues := []*types.Value{
+		filters[6].GetEquals(),
+		filters[7].GetRange().GetRangeStart(),
+	}
+	assertValueTypes(t, timestampValues, "*types.Value_UnixTimestampVal")
+	assert.Nil(t, filters[7].GetRange().GetRangeEnd())
 }
