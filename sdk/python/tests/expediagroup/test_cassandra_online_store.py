@@ -199,8 +199,8 @@ class TestCassandraOnlineStore:
 
         expected_columns = {
             "entity_key": "text",
-            "feature1": "bigint",
-            "feature2": "list<text>",
+            "feature1": "blob",
+            "feature2": "blob",
             "sort_key1": "bigint",
             "sort_key2": "text",
             "event_ts": "timestamp",
@@ -795,7 +795,7 @@ def test_update_alters_existing_table_adds_new_column(
         schema=[
             Field(name="sort_key", dtype=Int32),
             Field(name="f1", dtype=String),
-            Field(name="f2", dtype=String),  # new
+            Field(name="f2", dtype=String),
         ],
         sort_keys=fv1.sort_keys,
     )

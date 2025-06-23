@@ -924,6 +924,7 @@ class CassandraOnlineStore(OnlineStore):
     def _table_exists(
         self, config: RepoConfig, project: str, table: FeatureView
     ) -> bool:
+        self._get_session(config)
         _, plain_table_name = self._resolve_table_names(config, project, table)
         ks_meta = self._cluster.metadata.keyspaces[self._keyspace]
         return plain_table_name in ks_meta.tables
@@ -936,7 +937,7 @@ class CassandraOnlineStore(OnlineStore):
         existing_cols = set(ks_meta.tables[plain_table_name].columns.keys())
 
         desired_cols = {f.name for f in table.features}
-
+        cql_type = "BLOB"  # Default type for features
         for col in desired_cols - existing_cols:
             f_obj = next(f for f in table.features if f.name == col)
             cql_type = self._get_cql_type(f_obj.dtype)
