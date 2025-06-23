@@ -741,3 +741,153 @@ class TestCassandraOnlineStore:
                 None,
             )
         ]
+
+
+def test_update_alters_existing_table_adds_new_column(
+    cassandra_session, repo_config, online_store
+):
+    session, keyspace = cassandra_session
+
+    fv1 = SortedFeatureView(
+        name="fv_alter_test",
+        entities=[Entity(name="id")],
+        source=FileSource(name="src", path="x.parquet", timestamp_field="ts"),
+        schema=[
+            Field(name="sort_key", dtype=Int32),
+            Field(name="f1", dtype=String),
+        ],
+        sort_keys=[
+            SortKey(
+                name="sort_key",
+                value_type=ValueType.INT32,
+                default_sort_order=SortOrder.Enum.ASC,
+            )
+        ],
+    )
+
+    online_store._create_table(repo_config, repo_config.project, fv1)
+
+    online_store_table = (
+        online_store._fq_table_name(
+            keyspace,
+            repo_config.project,
+            fv1,
+            repo_config.online_store.table_name_format_version,
+        )
+        .split(".", 1)[1]
+        .strip('"')
+    )
+
+    cols = session.execute(
+        textwrap.dedent(f"""
+            SELECT column_name
+            FROM system_schema.columns
+            WHERE keyspace_name='{keyspace}' AND table_name='{online_store_table}';
+        """)
+    )
+    names = {r.column_name for r in cols}
+    assert "f1" in names and "f2" not in names
+
+    fv2 = SortedFeatureView(
+        name="fv_alter_test",
+        entities=[Entity(name="id")],
+        source=FileSource(name="src", path="x.parquet", timestamp_field="ts"),
+        schema=[
+            Field(name="sort_key", dtype=Int32),
+            Field(name="f1", dtype=String),
+            Field(name="f2", dtype=String),  # new
+        ],
+        sort_keys=fv1.sort_keys,
+    )
+
+    online_store.update(
+        config=repo_config,
+        tables_to_delete=[],
+        tables_to_keep=[fv2],
+        entities_to_delete=[],
+        entities_to_keep=[],
+        partial=False,
+    )
+
+    cols = session.execute(
+        textwrap.dedent(f"""
+            SELECT column_name
+            FROM system_schema.columns
+            WHERE keyspace_name='{keyspace}' AND table_name='{online_store_table}';
+        """)
+    )
+    names = {r.column_name for r in cols}
+    assert {"f1", "f2", "sort_key", "entity_key", "event_ts", "created_ts"}.issubset(
+        names
+    )
+
+
+def test_update_noop_when_schema_unchanged(
+    cassandra_session, repo_config, online_store
+):
+    session, keyspace = cassandra_session
+
+    fv = SortedFeatureView(
+        name="fv_noop_test",
+        entities=[Entity(name="id")],
+        source=FileSource(name="src", path="x.parquet", timestamp_field="ts"),
+        schema=[
+            Field(name="sort_key", dtype=Int32),
+            Field(name="f1", dtype=String),
+        ],
+        sort_keys=[
+            SortKey(
+                name="sort_key",
+                value_type=ValueType.INT32,
+                default_sort_order=SortOrder.Enum.ASC,
+            )
+        ],
+    )
+
+    online_store.update(
+        config=repo_config,
+        tables_to_delete=[],
+        tables_to_keep=[fv],
+        entities_to_delete=[],
+        entities_to_keep=[],
+        partial=False,
+    )
+
+    online_store_table = (
+        online_store._fq_table_name(
+            keyspace,
+            repo_config.project,
+            fv,
+            repo_config.online_store.table_name_format_version,
+        )
+        .split(".", 1)[1]
+        .strip('"')
+    )
+
+    before = {
+        r.column_name
+        for r in session.execute(
+            f"SELECT column_name FROM system_schema.columns "
+            f"WHERE keyspace_name='{keyspace}' AND table_name='{online_store_table}';"
+        )
+    }
+
+    # run update again with identical fv
+    online_store.update(
+        config=repo_config,
+        tables_to_delete=[],
+        tables_to_keep=[fv],
+        entities_to_delete=[],
+        entities_to_keep=[],
+        partial=False,
+    )
+
+    after = {
+        r.column_name
+        for r in session.execute(
+            f"SELECT column_name FROM system_schema.columns "
+            f"WHERE keyspace_name='{keyspace}' AND table_name='{online_store_table}';"
+        )
+    }
+
+    assert before == after
