@@ -939,8 +939,6 @@ class CassandraOnlineStore(OnlineStore):
         desired_cols = {f.name for f in table.features}
         cql_type = "BLOB"  # Default type for features
         for col in desired_cols - existing_cols:
-            f_obj = next(f for f in table.features if f.name == col)
-            cql_type = self._get_cql_type(f_obj.dtype)
             session.execute(f"ALTER TABLE {fqtable} ADD {col} {cql_type}")
             logger.info(f"Added column {col} to {fqtable}")
 
