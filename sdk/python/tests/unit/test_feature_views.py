@@ -238,7 +238,7 @@ def test_fv_compatibility_remove_non_entity_feature(caplog):
         "fv", [("feat1", Int64), ("feat2", String)], [entity], timedelta(days=1)
     )
     fv2 = make_fv("fv", [("feat1", Int64)], [entity], timedelta(days=1))
-    caplog.set_level("WARNING")
+    caplog.set_level("INFO")
     ok, reasons = fv1.is_update_compatible_with(fv2)
     assert ok
     assert reasons == []
