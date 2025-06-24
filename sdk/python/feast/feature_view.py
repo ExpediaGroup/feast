@@ -432,14 +432,16 @@ class FeatureView(BaseFeatureView):
                     f"feature '{fname}' removed from FeatureView '{self.name}' is an entity key and cannot be removed"
                 )
             else:
-                logger.warning(
+                logger.info(
                     "Feature '%s' removed from FeatureView '%s'.", fname, self.name
                 )
 
         for fname, old_dtype in old_fields.items():
             if fname in new_fields and new_fields[fname] != old_dtype:
-                reasons.append(
-                    f"feature '{fname}' type changed ({old_dtype} to {new_fields[fname]}) not allowed"
+                logger.warning(
+                    f"feature '{fname}' type changed ({old_dtype} to {new_fields[fname]}), this is "
+                    "generally an illegal operation, please re-materialize all data in order for this "
+                    "change to reflect correctly"
                 )
 
         return len(reasons) == 0, reasons

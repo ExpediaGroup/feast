@@ -245,18 +245,6 @@ def test_fv_compatibility_remove_non_entity_feature(caplog):
     assert "Feature 'feat2' removed from FeatureView 'fv'." in caplog.text
 
 
-def test_fv_compatibility_change_dtype():
-    """
-    Changing a feature's data type should be incompatible and list reason.
-    """
-    entity = Entity(name="e1", join_keys=["e1_id"])
-    fv1 = make_fv("fv", [("feat1", Int64)], [entity], timedelta(days=1))
-    fv2 = make_fv("fv", [("feat1", String)], [entity], timedelta(days=1))
-    ok, reasons = fv1.is_update_compatible_with(fv2)
-    assert not ok
-    assert any("type changed" in r for r in reasons)
-
-
 def test_fv_compatibility_change_entities():
     """
     Changing the entity list should be incompatible and list reason.
