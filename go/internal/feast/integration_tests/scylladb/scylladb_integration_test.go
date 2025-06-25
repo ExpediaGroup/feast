@@ -147,12 +147,6 @@ func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
 		},
 	}
 
-	featureNames := []string{"int_val", "long_val", "float_val", "double_val", "byte_val", "string_val", "timestamp_val", "boolean_val", "array_int_val",
-		"array_long_val", "array_float_val", "array_double_val", "array_byte_val", "array_string_val", "array_timestamp_val", "array_boolean_val",
-		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
-		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
-		"null_array_timestamp_val", "null_array_boolean_val", "event_timestamp"}
-
 	request := &serving.GetOnlineFeaturesRangeRequest{
 		Kind: &serving.GetOnlineFeaturesRangeRequest_FeatureService{
 			FeatureService: "test_service",
@@ -170,9 +164,9 @@ func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
 		},
 		Limit: 10,
 	}
-	response, err := client.GetOnlineFeaturesRange(ctx, request)
-	assert.NoError(t, err)
-	assertResponseData(t, response, featureNames)
+	_, err := client.GetOnlineFeaturesRange(ctx, request)
+	require.Error(t, err, "Expected an error due to regular feature view requested for range query")
+	assert.Equal(t, "rpc error: code = Unknown desc = GetOnlineFeaturesRange does not support standard feature views [all_dtypes]", err.Error(), "Expected error message for unsupported feature view")
 }
 
 func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {

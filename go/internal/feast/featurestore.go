@@ -189,9 +189,8 @@ func (fs *FeatureStore) GetOnlineFeatures(
 	var requestedSortedFeatureViews []*onlineserving.SortedFeatureViewAndRefs
 	var requestedOnDemandFeatureViews []*model.OnDemandFeatureView
 
-	// TODO: currently ignores SortedFeatureViews, need to either implement get for them or throw some kind of error/warning
 	if featureService != nil {
-		requestedFeatureViews, _, requestedOnDemandFeatureViews, err =
+		requestedFeatureViews, requestedSortedFeatureViews, requestedOnDemandFeatureViews, err =
 			onlineserving.GetFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
 	} else {
 		requestedFeatureViews, requestedSortedFeatureViews, requestedOnDemandFeatureViews, err =
@@ -328,7 +327,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	var requestedSortedFeatureViews []*onlineserving.SortedFeatureViewAndRefs
 	var requestedFeatureViews []*onlineserving.FeatureViewAndRefs
 	if featureService != nil {
-		_, requestedSortedFeatureViews, _, err =
+		requestedFeatureViews, requestedSortedFeatureViews, _, err =
 			onlineserving.GetFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
 	} else {
 		requestedFeatureViews, requestedSortedFeatureViews, _, err =
