@@ -389,13 +389,8 @@ func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 
 	includeMetadata, err := parseIncludeMetadata(r)
 	if err != nil {
-		logSpanContext.Error().Err(err).
-			Msg("Error parsing includeMetadata query parameter")
-		writeJSONError(
-			w,
-			fmt.Errorf("error parsing includeMetadata query parameter: %w", err),
-			http.StatusBadRequest,
-		)
+		logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
+		writeJSONError(w, fmt.Errorf("error parsing includeMetadata query parameter: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -573,13 +568,8 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 
 	includeMetadata, err := parseIncludeMetadata(r)
 	if err != nil {
-		logSpanContext.Error().Err(err).
-			Msg("Error parsing includeMetadata query parameter")
-		writeJSONError(
-			w,
-			fmt.Errorf("error parsing includeMetadata query parameter: %w", err),
-			http.StatusBadRequest,
-		)
+		logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
+		writeJSONError(w, fmt.Errorf("error parsing includeMetadata query parameter: %w", err), http.StatusBadRequest)
 		return
 	}
 
