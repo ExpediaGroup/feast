@@ -305,7 +305,7 @@ class SparkKafkaProcessor(StreamProcessor):
 
             pre_write_time = perf_counter() - write_start
             print(
-                f"INFO: write_time: {pre_write_time}."
+                f"INFO: pre_write_time: {pre_write_time}."
             )
             # Finally persist the data to the online store and/or offline store.
             if rows.size > 0:
