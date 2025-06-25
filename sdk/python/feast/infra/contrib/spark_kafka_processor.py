@@ -24,6 +24,7 @@ from feast.infra.materialization.contrib.spark.spark_materialization_engine impo
 from feast.infra.provider import get_provider
 from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
+from time import perf_counter
 
 
 class SparkProcessorConfig(ProcessorConfig):
@@ -136,9 +137,29 @@ class SparkKafkaProcessor(StreamProcessor):
         self, to: PushMode = PushMode.ONLINE
     ) -> StreamingQuery:
         self._create_infra_if_necessary()
+        ingest_start = perf_counter()
         ingested_stream_df = self._ingest_stream_data()
+        ingest_stop = perf_counter()
+        ingestion_time = ingest_stop-ingest_start
+        print(
+            f"INFO: ingestion_time: {ingestion_time}."
+        )
+
+        transformation_start = perf_counter()
         transformed_df = self._construct_transformation_plan(ingested_stream_df)
+        transformation_stop = perf_counter()
+        transformation_time = transformation_stop - transformation_start
+        print(
+            f"INFO: transformation_time: {transformation_time}."
+        )
+
+        write_start = perf_counter()
         online_store_query = self._write_stream_data(transformed_df, to)
+        write_stop = perf_counter()
+        write_time = write_stop - write_start
+        print(
+            f"INFO: write_time: {write_time}."
+        )
         return online_store_query
 
     # In the line 116 of __init__(), the "data_source" is assigned a stream_source (and has to be KafkaSource as in line 80).
