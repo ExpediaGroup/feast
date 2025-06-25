@@ -137,29 +137,15 @@ class SparkKafkaProcessor(StreamProcessor):
         self, to: PushMode = PushMode.ONLINE
     ) -> StreamingQuery:
         self._create_infra_if_necessary()
-        ingest_start = perf_counter()
         ingested_stream_df = self._ingest_stream_data()
-        ingest_stop = perf_counter()
-        ingestion_time = ingest_stop-ingest_start
-        print(
-            f"INFO: ingestion_time: {ingestion_time}."
-        )
 
-        transformation_start = perf_counter()
+
         transformed_df = self._construct_transformation_plan(ingested_stream_df)
-        transformation_stop = perf_counter()
-        transformation_time = transformation_stop - transformation_start
-        print(
-            f"INFO: transformation_time: {transformation_time}."
-        )
 
-        write_start = perf_counter()
+
+
         online_store_query = self._write_stream_data(transformed_df, to)
-        write_stop = perf_counter()
-        write_time = write_stop - write_start
-        print(
-            f"INFO: write_time: {write_time}."
-        )
+
         return online_store_query
 
     # In the line 116 of __init__(), the "data_source" is assigned a stream_source (and has to be KafkaSource as in line 80).
@@ -186,6 +172,7 @@ class SparkKafkaProcessor(StreamProcessor):
                 .select("table.*")
             )
         elif isinstance(self.format, ConfluentAvroFormat):
+            ingest_start = perf_counter()
             # Need Abris jar dependency to read Confluent Avro format along with schema registry integration
             if self.schema_registry_config is None:
                 raise ValueError(
@@ -212,7 +199,13 @@ class SparkKafkaProcessor(StreamProcessor):
                 )
                 .select("table.*")
             )
+            ingest_stop = perf_counter()
+            ingestion_time = ingest_stop - ingest_start
+            print(
+                f"INFO: ingestion_time: {ingestion_time}."
+            )
         else:  # AvroFormat
+            ingest_start = perf_counter()
             stream_df = (
                 self.spark.readStream.format("kafka")
                 .option(
@@ -231,9 +224,15 @@ class SparkKafkaProcessor(StreamProcessor):
                 )
                 .select("table.*")
             )
+            ingest_stop = perf_counter()
+            ingestion_time = ingest_stop - ingest_start
+            print(
+                f"INFO: ingestion_time: {ingestion_time}."
+            )
         return stream_df
 
     def _construct_transformation_plan(self, df: StreamTable) -> StreamTable:
+        transformation_start = perf_counter()
         if isinstance(self.sfv, FeatureView):
             # Apply field mapping if it exists.
             if self.sfv.stream_source is not None:
@@ -263,6 +262,11 @@ class SparkKafkaProcessor(StreamProcessor):
                     print(
                         f"INFO: Dropping extra columns in the DataFrame: {drop_list}. Avoid unnecessary columns in the dataframe."
                     )
+                transformation_stop = perf_counter()
+                transformation_time = transformation_stop - transformation_start
+                print(
+                    f"INFO: transformation_time: {transformation_time}."
+                )
                 return df.drop(*drop_list)
             else:
                 raise Exception(f"Stream source is not defined for {self.sfv.name}")
@@ -272,6 +276,7 @@ class SparkKafkaProcessor(StreamProcessor):
     def _write_stream_data(self, df: StreamTable, to: PushMode) -> StreamingQuery:
         # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
         def batch_write(row: DataFrame, batch_id: int):
+            write_start = perf_counter()
             rows: pd.DataFrame = row.toPandas()
 
             # Extract the latest feature values for each unique entity row (i.e. the join keys).
@@ -305,6 +310,11 @@ class SparkKafkaProcessor(StreamProcessor):
                 if to == PushMode.OFFLINE or to == PushMode.ONLINE_AND_OFFLINE:
                     self.fs.write_to_offline_store(self.sfv.name, rows)
 
+            write_stop = perf_counter()
+            write_time = write_stop - write_start
+            print(
+                f"INFO: write_time: {write_time}."
+            )
         query = (
             df.writeStream.outputMode("update")
             .option("checkpointLocation", self.checkpoint_location)
