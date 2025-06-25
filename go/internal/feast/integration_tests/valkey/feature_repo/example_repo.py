@@ -2,9 +2,7 @@
 
 from datetime import timedelta
 
-from feast import Entity, FeatureView, Field, FileSource, Project, SortedFeatureView
-from feast.sort_key import SortKey
-from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
+from feast import Entity, FeatureView, Field, FileSource, Project, FeatureService
 from feast.types import (
     Array,
     Bool,
@@ -40,22 +38,15 @@ mlpfs_test_all_datatypes_source: FileSource = FileSource(
     path="data.parquet", timestamp_field="event_timestamp"
 )
 
-mlpfs_test_all_datatypes_view: SortedFeatureView = SortedFeatureView(
-    name="all_dtypes_sorted",
+mlpfs_test_all_datatypes_view: FeatureView = FeatureView(
+    name="all_dtypes",
     entities=[index_entity],
-    ttl=timedelta(),
+    ttl=timedelta(days=0),
     source=mlpfs_test_all_datatypes_source,
     tags=tags,
     description="Feature View with all supported feast datatypes",
     owner=owner,
     online=True,
-    sort_keys=[
-        SortKey(
-            name="event_timestamp",
-            value_type=ValueType.UNIX_TIMESTAMP,
-            default_sort_order=SortOrder.DESC,
-        )
-    ],
     schema=[
         Field(name="index_id", dtype=Int64),
         Field(name="int_val", dtype=Int32),
@@ -90,6 +81,11 @@ mlpfs_test_all_datatypes_view: SortedFeatureView = SortedFeatureView(
         Field(name="null_array_string_val", dtype=Array(String)),
         Field(name="null_array_timestamp_val", dtype=Array(UnixTimestamp)),
         Field(name="null_array_boolean_val", dtype=Array(Bool)),
-        Field(name="event_timestamp", dtype=UnixTimestamp),
     ],
 )
+
+mlpfs_test_all_datatypes_service = FeatureService(
+    name="test_service",
+    features=[mlpfs_test_all_datatypes_view],
+)
+

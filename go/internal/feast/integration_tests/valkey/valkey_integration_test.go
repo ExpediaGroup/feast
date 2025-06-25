@@ -1,31 +1,60 @@
 //go:build integration
 
-package server
+package valkey
 
 import (
 	"context"
+	fmt "fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/feast-dev/feast/go/internal/feast/server"
 	"github.com/feast-dev/feast/go/internal/test"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
+var client serving.ServingServiceClient
+var ctx context.Context
+var dir string
+
+func TestMain(m *testing.M) {
+	var err error
+	dir, err = filepath.Abs("./")
+	if err != nil {
+		fmt.Printf("Failed to get absolute path: %v\n", err)
+		os.Exit(1)
+	}
+	err = test.SetupInitializedRepo(dir)
+	if err != nil {
+		fmt.Printf("Failed to set up test environment: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx = context.Background()
+	var closer func()
+
+	client, closer = server.GetClient(ctx, "", dir, "")
+
+	// Run the tests
+	exitCode := m.Run()
+
+	// Clean up the test environment
+	test.CleanUpInitializedRepo(dir)
+	closer()
+
+	// Exit with the appropriate code
+	if exitCode != 0 {
+		fmt.Printf("CassandraOnlineStore Int Tests failed with exit code %d\n", exitCode)
+	}
+	os.Exit(exitCode)
+}
+
 func TestGetOnlineFeaturesValkey(t *testing.T) {
-	ctx := context.Background()
-	dir := "../../../integration_tests/valkey/"
-	err := test.SetupInitializedRepo(dir)
-	defer test.CleanUpInitializedRepo(dir)
-	require.Nil(t, err)
-
-	client, closer := getClient(ctx, "", dir, "")
-	defer closer()
-
 	entities := make(map[string]*types.RepeatedValue)
 
 	entities["index_id"] = &types.RepeatedValue{
