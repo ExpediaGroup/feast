@@ -607,3 +607,38 @@ def test_sfv_compatibility_change_entity():
     ok, reasons = sfv1.is_update_compatible_with(sfv2)
     assert not ok
     assert any("entity definitions cannot change" in r for r in reasons)
+
+
+def test_sfv_compatibility_change_sort_key_dtype():
+    """
+    Changing the sort key's dtype should produce incompatibility reasons.
+    """
+    source = FileSource(path="dummy", event_timestamp_column="ts")
+    entity = Entity(name="e1", join_keys=["e1_id"])
+    schema = [Field(name="f1", dtype=Int64)]
+    sort_key1 = SortKey(
+        name="f1", value_type=ValueType.INT64, default_sort_order=SortOrder.ASC
+    )
+    sort_key2 = SortKey(
+        name="f1", value_type=ValueType.INT64, default_sort_order=SortOrder.DESC
+    )
+    sfv1 = SortedFeatureView(
+        name="sfv",
+        source=source,
+        entities=[entity],
+        schema=schema,
+        ttl=timedelta(days=1),
+        sort_keys=[sort_key1],
+    )
+    sfv2 = SortedFeatureView(
+        name="sfv",
+        source=source,
+        entities=[entity],
+        schema=schema,
+        ttl=timedelta(days=1),
+        sort_keys=[sort_key2],
+    )
+
+    ok, reasons = sfv1.is_update_compatible_with(sfv2)
+    assert not ok
+    assert any("sort key 'f1' sort order changed" in r for r in reasons)

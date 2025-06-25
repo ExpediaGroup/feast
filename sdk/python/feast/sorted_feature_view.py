@@ -170,6 +170,13 @@ class SortedFeatureView(FeatureView):
                 f"sort keys cannot change (old: {old_keys}, new: {new_keys})"
             )
 
+        for old_sk, new_sk in zip(self.sort_keys, updated.sort_keys):
+            if old_sk.default_sort_order != new_sk.default_sort_order:
+                reasons.append(
+                    f"sort key '{old_sk.name}' sort order changed "
+                    f"({old_sk.default_sort_order} to {new_sk.default_sort_order})"
+                )
+
         return len(reasons) == 0, reasons
 
     @property
