@@ -10,7 +10,7 @@ import tempfile
 from importlib.abc import Loader
 from importlib.machinery import ModuleSpec
 from pathlib import Path
-from typing import List, Optional, Set, Union, cast
+from typing import List, Optional, Set, Union
 
 import click
 from click.exceptions import BadParameter
@@ -21,6 +21,7 @@ from feast.constants import FEATURE_STORE_YAML_ENV_NAME
 from feast.data_source import DataSource, KafkaSource, KinesisSource
 from feast.diff.registry_diff import extract_objects_for_keep_delete_update_add
 from feast.entity import Entity
+from feast.feast_object import FeastObject
 from feast.feature_service import FeatureService
 from feast.feature_store import FeatureStore
 from feast.feature_view import DUMMY_ENTITY, FeatureView
@@ -33,23 +34,9 @@ from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.repo_config import RepoConfig
 from feast.repo_contents import RepoContents
-from feast.saved_dataset import ValidationReference
 from feast.stream_feature_view import StreamFeatureView
 
 logger = logging.getLogger(__name__)
-ApplyTarget = Union[
-    Project,
-    DataSource,
-    Entity,
-    FeatureView,
-    SortedFeatureView,
-    OnDemandFeatureView,
-    BatchFeatureView,
-    StreamFeatureView,
-    FeatureService,
-    ValidationReference,
-    Permission,
-]
 
 
 def py_path_to_module(path: Path) -> str:
@@ -356,10 +343,10 @@ def extract_objects_for_apply_delete(project, registry, repo):
 
 
 def validate_objects_for_apply(
-    all_to_apply: List[ApplyTarget],
+    all_to_apply: List[FeastObject],
     registry: BaseRegistry,
     project_name: str,
-) -> List[ApplyTarget]:
+) -> List[FeastObject]:
     """
     Validates objects in `all_to_apply` against existing registry entries
     by calling each object’s `is_update_compatible_with`, unpacking the
@@ -367,7 +354,7 @@ def validate_objects_for_apply(
     if any incompatibility is found.
     """
     errors: List[str] = []
-    validated: List[ApplyTarget] = []
+    validated: List[FeastObject] = []
 
     for obj in all_to_apply:
         incompatible = False
@@ -426,7 +413,7 @@ def apply_total_with_repo_instance(
         views_to_delete,
     ) = extract_objects_for_apply_delete(project_name, registry, repo)
 
-    validated_to_apply: List[ApplyTarget] = validate_objects_for_apply(
+    validated_to_apply: List[FeastObject] = validate_objects_for_apply(
         all_to_apply, registry, project_name
     )
 
@@ -438,7 +425,7 @@ def apply_total_with_repo_instance(
         click.echo(infra_diff.to_string())
     else:
         store.apply(
-            objects=cast(ApplyTarget, validated_to_apply),
+            objects=validated_to_apply,
             objects_to_delete=all_to_delete,
             partial=False,
         )
