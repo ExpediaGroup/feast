@@ -173,6 +173,17 @@ func GetFeatureViewsToUseByService(
 	return fvsToUse, sortedFvsToUse, odFvsToUse, nil
 }
 
+func validateFeatureInFeatureView(
+	fvFeatures []*model.Field,
+	featureName string) bool {
+	for _, field := range fvFeatures {
+		if field.Name == featureName {
+			return true
+		}
+	}
+	return false
+}
+
 /*
 Return
 
@@ -190,12 +201,17 @@ func GetFeatureViewsToUseByFeatureRefs(
 	odFvToFeatures := make(map[string][]string)
 	odFvToProjectWithFeatures := make(map[string]*model.OnDemandFeatureView)
 
+	invalidFeatures := make([]string, 0)
 	for _, featureRef := range features {
 		featureViewName, featureName, err := ParseFeatureReference(featureRef)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		if fv, err := registry.GetFeatureView(projectName, featureViewName); err == nil {
+			if !validateFeatureInFeatureView(fv.Base.Features, featureName) {
+				invalidFeatures = append(invalidFeatures, featureRef)
+			}
+
 			if viewAndRef, ok := viewNameToViewAndRefs[fv.Base.Name]; ok {
 				viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
 			} else {
@@ -205,6 +221,10 @@ func GetFeatureViewsToUseByFeatureRefs(
 				}
 			}
 		} else if sortedFv, err := registry.GetSortedFeatureView(projectName, featureViewName); err == nil {
+			if !validateFeatureInFeatureView(sortedFv.Base.Features, featureName) {
+				invalidFeatures = append(invalidFeatures, featureRef)
+			}
+
 			if viewAndRef, ok := viewNameToSortedViewAndRefs[sortedFv.Base.Name]; ok {
 				viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
 			} else {
@@ -214,6 +234,10 @@ func GetFeatureViewsToUseByFeatureRefs(
 				}
 			}
 		} else if odfv, err := registry.GetOnDemandFeatureView(projectName, featureViewName); err == nil {
+			if !validateFeatureInFeatureView(odfv.Base.Features, featureName) {
+				invalidFeatures = append(invalidFeatures, featureRef)
+			}
+
 			if _, ok := odFvToFeatures[odfv.Base.Name]; !ok {
 				odFvToFeatures[odfv.Base.Name] = []string{featureName}
 			} else {
@@ -225,6 +249,10 @@ func GetFeatureViewsToUseByFeatureRefs(
 			return nil, nil, nil, fmt.Errorf("feature View %s doesn't exist, please make sure that you have created the"+
 				" feature View %s and that you have registered it by running \"apply\"", featureViewName, featureViewName)
 		}
+	}
+
+	if len(invalidFeatures) > 0 {
+		return nil, nil, nil, fmt.Errorf("requested features are not valid: %s", strings.Join(invalidFeatures, ", "))
 	}
 
 	odFvsToUse := make([]*model.OnDemandFeatureView, 0)
