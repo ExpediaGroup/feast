@@ -363,9 +363,9 @@ func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingServic
 
 func parseIncludeMetadata(r *http.Request) (bool, error) {
 	q := r.URL.Query()
-	raw := q.Get("includeMetadata")
+	raw := strings.TrimSpace(q.Get("includeMetadata"))
 	if raw == "" {
-		raw = q.Get("include_metadata")
+		raw = strings.TrimSpace(q.Get("include_metadata"))
 	}
 	if raw == "" {
 		return false, nil
