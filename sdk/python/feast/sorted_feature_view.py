@@ -45,6 +45,7 @@ class SortedFeatureView(FeatureView):
         tags: Optional[Dict[str, str]] = None,
         owner: str = "",
         sort_keys: Optional[List[SortKey]] = None,
+        use_write_time_for_ttl: bool = False,
         _skip_validation: bool = False,  # only skipping validation for proto creation, internal use only
     ):
         super().__init__(
@@ -59,6 +60,7 @@ class SortedFeatureView(FeatureView):
             owner=owner,
         )
         self.sort_keys = sort_keys if sort_keys is not None else []
+        self.use_write_time_for_ttl = use_write_time_for_ttl
         if not _skip_validation:
             self.ensure_valid()
 
@@ -77,6 +79,7 @@ class SortedFeatureView(FeatureView):
             tags=copy.deepcopy(self.tags),
             owner=self.owner,
             sort_keys=copy.copy(self.sort_keys),
+            use_write_time_for_ttl=self.use_write_time_for_ttl,
         )
         sfv.entities = self.entities
         sfv.features = copy.copy(self.features)
@@ -190,6 +193,7 @@ class SortedFeatureView(FeatureView):
             stream_source=stream_source_proto,
             online=self.online,
             original_entities=original_entities,
+            use_write_time_for_ttl=self.use_write_time_for_ttl,
         )
 
         return SortedFeatureViewProto(spec=spec, meta=meta)
@@ -224,6 +228,7 @@ class SortedFeatureView(FeatureView):
             schema=None,
             entities=None,
             sort_keys=[SortKey.from_proto(sk) for sk in spec.sort_keys],
+            use_write_time_for_ttl=spec.use_write_time_for_ttl,
             _skip_validation=True,
         )
 

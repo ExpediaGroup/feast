@@ -81,6 +81,9 @@ message SortedFeatureViewSpec {
     // Whether these features should be served online or not
     bool online = 8;
 
+    // Whether to use the write time or event time for TTL calculations.
+    bool use_write_time_for_ttl = 14;
+
     // User-specified specifications of this entity.
     // Adding higher index to avoid conflicts in future 
     // if Feast adds more fields
