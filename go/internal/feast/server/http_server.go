@@ -140,140 +140,96 @@ func parseValueFromJSON(data json.RawMessage) (*prototypes.Value, error) {
 func processFeatureVectors(
 	vectors []*onlineserving.RangeFeatureVector,
 	includeMetadata bool,
-	entitiesProto map[string]*prototypes.RepeatedValue,
-	requestedFeatureNames []string) ([]string, []interface{}, []map[string]interface{}) {
+	entitiesProto map[string]*prototypes.RepeatedValue) ([]string, map[string]interface{}, []map[string]interface{}) {
 
-	entityNames := make([]string, 0, len(entitiesProto))
-	for entityName := range entitiesProto {
-		entityNames = append(entityNames, entityName)
+	entities := make(map[string]interface{})
+	for entityName, entityProto := range entitiesProto {
+		entityValues := make([]interface{}, len(entityProto.Val))
+		for j, val := range entityProto.Val {
+			entityValues[j] = types.ValueTypeToGoType(val)
+		}
+		entities[entityName] = entityValues
 	}
 
-	vectorsByName := make(map[string]*onlineserving.RangeFeatureVector)
+	featureNames := make([]string, 0, len(vectors))
+	results := make([]map[string]interface{}, 0, len(vectors))
+
 	for _, vector := range vectors {
-		vectorsByName[vector.Name] = vector
-	}
+		featureNames = append(featureNames, vector.Name)
 
-	entityNamesMap := make(map[string]bool)
-	for _, entityName := range entityNames {
-		entityNamesMap[entityName] = true
-	}
+		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
+		if err != nil {
+			results = append(results, map[string]interface{}{"values": []interface{}{}})
+			continue
+		}
 
-	entities := make([]interface{}, 0, len(entityNames))
-	for _, entityName := range entityNames {
-		if vector, exists := vectorsByName[entityName]; exists {
-			rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
-			if err != nil {
-				entities = append(entities, []interface{}{})
+		result := make(map[string]interface{})
+
+		simplifiedValues := make([]interface{}, len(rangeValues))
+		for j, repeatedValue := range rangeValues {
+			if repeatedValue == nil || len(repeatedValue.Val) == 0 {
+				simplifiedValues[j] = nil
 				continue
 			}
 
-			entityValues := make([]interface{}, len(rangeValues))
-			for j, repeatedValue := range rangeValues {
-				if repeatedValue == nil || len(repeatedValue.Val) == 0 {
-					entityValues[j] = nil
-				} else {
-					if j < len(vector.RangeStatuses) && len(vector.RangeStatuses[j]) > 0 {
-						statusCode := vector.RangeStatuses[j][0]
-						if statusCode == serving.FieldStatus_NOT_FOUND ||
-							statusCode == serving.FieldStatus_NULL_VALUE {
-							entityValues[j] = nil
-						} else {
-							entityValues[j] = types.ValueTypeToGoType(repeatedValue.Val[0])
-						}
-					} else {
-						entityValues[j] = types.ValueTypeToGoType(repeatedValue.Val[0])
-					}
-				}
-			}
-			entities = append(entities, entityValues)
-		} else {
-			entities = append(entities, []interface{}{})
-		}
-	}
-
-	featureNames := make([]string, 0)
-	results := make([]map[string]interface{}, 0)
-
-	for _, featureName := range requestedFeatureNames {
-		if !entityNamesMap[featureName] {
-			if vector, exists := vectorsByName[featureName]; exists {
-				featureNames = append(featureNames, featureName)
-
-				rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
-				if err != nil {
-					results = append(results, map[string]interface{}{"values": []interface{}{}})
-					continue
-				}
-
-				result := make(map[string]interface{})
-
-				simplifiedValues := make([]interface{}, len(rangeValues))
-				for j, repeatedValue := range rangeValues {
-					if repeatedValue == nil || len(repeatedValue.Val) == 0 {
-						simplifiedValues[j] = nil
+			rangeForEntity := make([]interface{}, len(repeatedValue.Val))
+			for k, val := range repeatedValue.Val {
+				if j < len(vector.RangeStatuses) && k < len(vector.RangeStatuses[j]) {
+					statusCode := vector.RangeStatuses[j][k]
+					if statusCode == serving.FieldStatus_NOT_FOUND ||
+						statusCode == serving.FieldStatus_NULL_VALUE {
+						rangeForEntity[k] = nil
 						continue
 					}
+				}
 
-					rangeForEntity := make([]interface{}, len(repeatedValue.Val))
-					for k, val := range repeatedValue.Val {
+				if val == nil {
+					rangeForEntity[k] = nil
+				} else {
+					rangeForEntity[k] = types.ValueTypeToGoType(val)
+				}
+			}
+			simplifiedValues[j] = rangeForEntity
+		}
+		result["values"] = simplifiedValues
+
+		if includeMetadata {
+			if len(vector.RangeStatuses) > 0 {
+				statusValues := make([][]string, len(vector.RangeStatuses))
+				for j, entityStatuses := range vector.RangeStatuses {
+					statusValues[j] = make([]string, len(entityStatuses))
+					for k, stat := range entityStatuses {
+						statusValues[j][k] = stat.String()
+					}
+				}
+				result["statuses"] = statusValues
+			} else {
+				result["statuses"] = [][]string{}
+			}
+
+			if len(vector.RangeTimestamps) > 0 {
+				timestampValues := make([][]interface{}, len(vector.RangeTimestamps))
+				for j, entityTimestamps := range vector.RangeTimestamps {
+					timestampValues[j] = make([]interface{}, len(entityTimestamps))
+					for k, ts := range entityTimestamps {
 						if j < len(vector.RangeStatuses) && k < len(vector.RangeStatuses[j]) {
 							statusCode := vector.RangeStatuses[j][k]
 							if statusCode == serving.FieldStatus_NOT_FOUND ||
 								statusCode == serving.FieldStatus_NULL_VALUE {
-								rangeForEntity[k] = nil
+								timestampValues[j][k] = nil
 								continue
 							}
 						}
-
-						if val == nil {
-							rangeForEntity[k] = nil
-						} else {
-							rangeForEntity[k] = types.ValueTypeToGoType(val)
-						}
-					}
-					simplifiedValues[j] = rangeForEntity
-				}
-				result["values"] = simplifiedValues
-
-				if includeMetadata {
-					if len(vector.RangeStatuses) > 0 {
-						statusValues := make([][]string, len(vector.RangeStatuses))
-						for j, entityStatuses := range vector.RangeStatuses {
-							statusValues[j] = make([]string, len(entityStatuses))
-							for k, stat := range entityStatuses {
-								statusValues[j][k] = stat.String()
-							}
-						}
-						result["statuses"] = statusValues
-					} else {
-						result["statuses"] = [][]string{}
-					}
-
-					if len(vector.RangeTimestamps) > 0 {
-						timestampValues := make([][]interface{}, len(vector.RangeTimestamps))
-						for j, entityTimestamps := range vector.RangeTimestamps {
-							timestampValues[j] = make([]interface{}, len(entityTimestamps))
-							for k, ts := range entityTimestamps {
-								if j < len(vector.RangeStatuses) && k < len(vector.RangeStatuses[j]) {
-									statusCode := vector.RangeStatuses[j][k]
-									if statusCode == serving.FieldStatus_NOT_FOUND ||
-										statusCode == serving.FieldStatus_NULL_VALUE {
-										timestampValues[j][k] = nil
-										continue
-									}
-								}
-								timestampValues[j][k] = ts.AsTime().Format(time.RFC3339)
-							}
-						}
-						result["event_timestamps"] = timestampValues
-					} else {
-						result["event_timestamps"] = [][]interface{}{}
+						timestampValues[j][k] = ts.AsTime().Format(time.RFC3339)
 					}
 				}
-
-				results = append(results, result)
+				result["event_timestamps"] = timestampValues
+			} else {
+				result["event_timestamps"] = [][]interface{}{}
 			}
 		}
+
+		results = append(results, result)
 	}
 
 	return featureNames, entities, results
@@ -657,7 +613,7 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 	}
 
 	featureNames, entities, results := processFeatureVectors(
-		rangeFeatureVectors, includeMetadata, entitiesProto, request.Features)
+		rangeFeatureVectors, includeMetadata, entitiesProto)
 
 	response := map[string]interface{}{
 		"metadata": map[string]interface{}{
