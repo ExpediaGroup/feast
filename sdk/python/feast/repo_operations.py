@@ -399,7 +399,7 @@ def apply_total_with_repo_instance(
     registry: BaseRegistry,
     repo: RepoContents,
     skip_source_validation: bool,
-) -> None:
+):
     if not skip_source_validation:
         provider = store._get_provider()
         data_sources = [t.batch_source for t in repo.feature_views]

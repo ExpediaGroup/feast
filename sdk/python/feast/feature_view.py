@@ -423,8 +423,10 @@ class FeatureView(BaseFeatureView):
 
         # TODO: Think about how the following check should be handled for stream FVs
         if self.materialization_intervals:
-            if set(updated.entities) != set(self.entities):
-                reasons.append("entity definitions cannot change")
+            if updated.entities != self.entities:
+                reasons.append(
+                    f"entity definitions cannot change for FeatureView: {self.name}"
+                )
 
             removed = old_fields.keys() - new_fields.keys()
             for fname in sorted(removed):
@@ -443,7 +445,7 @@ class FeatureView(BaseFeatureView):
                 logger.warning(
                     f"feature '{fname}' type changed ({old_dtype} to {new_fields[fname]}), this is "
                     "generally an illegal operation, please re-materialize all data in order for this "
-                    "change to reflect correctly"
+                    f"change to reflect correctly for this feature view {self.name}."
                 )
 
         return len(reasons) == 0, reasons
