@@ -48,6 +48,9 @@ func TestGetOnlineFeaturesValkey(t *testing.T) {
 		featureNamesWithFeatureView = append(featureNamesWithFeatureView, "all_dtypes:"+featureName)
 	}
 
+	// Add duplicate feature that should be ignored
+	featureNamesWithFeatureView = append(featureNamesWithFeatureView, "all_dtypes:int_val")
+
 	request := &serving.GetOnlineFeaturesRequest{
 		Kind: &serving.GetOnlineFeaturesRequest_Features{
 			Features: &serving.FeatureList{

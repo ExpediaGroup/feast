@@ -175,6 +175,18 @@ func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKe
 	return newFilters, nil
 }
 
+func dedupeFeatureRefs(featureRefs []string) []string {
+	uniqueRefs := make(map[string]struct{}, len(featureRefs))
+	dedupedRefs := make([]string, 0)
+	for _, ref := range featureRefs {
+		if _, ok := uniqueRefs[ref]; !ok {
+			uniqueRefs[ref] = struct{}{}
+			dedupedRefs = append(dedupedRefs, ref)
+		}
+	}
+	return dedupedRefs
+}
+
 // TODO: Review all functions that use ODFV and Request FV since these have not been tested
 // ToDo: Split GetOnlineFeatures interface into two: GetOnlinFeaturesByFeatureService and GetOnlineFeaturesByFeatureRefs
 func (fs *FeatureStore) GetOnlineFeatures(
@@ -193,6 +205,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 		requestedFeatureViews, _, requestedOnDemandFeatureViews, err =
 			onlineserving.GetFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
 	} else {
+		featureRefs = dedupeFeatureRefs(featureRefs)
 		requestedFeatureViews, _, requestedOnDemandFeatureViews, err =
 			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fs.registry, fs.config.Project)
 	}
@@ -317,6 +330,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		_, requestedSortedFeatureViews, _, err =
 			onlineserving.GetFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
 	} else {
+		featureRefs = dedupeFeatureRefs(featureRefs)
 		_, requestedSortedFeatureViews, _, err =
 			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fs.registry, fs.config.Project)
 	}

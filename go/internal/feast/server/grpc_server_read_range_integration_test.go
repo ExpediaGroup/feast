@@ -67,6 +67,9 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		featureNamesWithFeatureView = append(featureNamesWithFeatureView, "all_dtypes_sorted:"+featureName)
 	}
 
+	// Add duplicate feature that should be ignored
+	featureNamesWithFeatureView = append(featureNamesWithFeatureView, "all_dtypes_sorted:int_val")
+
 	request := &serving.GetOnlineFeaturesRangeRequest{
 		Kind: &serving.GetOnlineFeaturesRangeRequest_Features{
 			Features: &serving.FeatureList{
