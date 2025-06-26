@@ -21,6 +21,7 @@ from feast.constants import FEATURE_STORE_YAML_ENV_NAME
 from feast.data_source import DataSource, KafkaSource, KinesisSource
 from feast.diff.registry_diff import extract_objects_for_keep_delete_update_add
 from feast.entity import Entity
+from feast.errors import FeatureViewNotFoundException
 from feast.feast_object import FeastObject
 from feast.feature_service import FeatureService
 from feast.feature_store import FeatureStore
@@ -346,7 +347,7 @@ def validate_objects_for_apply(
     all_to_apply: List[FeastObject],
     registry: BaseRegistry,
     project_name: str,
-) -> List[FeastObject]:
+):
     """
     Validates objects in `all_to_apply` against existing registry entries
     by calling each object’s `is_update_compatible_with`, unpacking the
@@ -367,7 +368,7 @@ def validate_objects_for_apply(
                     current = registry.get_feature_view(obj.name, project_name)  # type: ignore[assignment]
                 else:
                     current = None
-            except Exception:
+            except FeatureViewNotFoundException:
                 logger.warning(
                     "'%s' not found in registry; treating as new object.",
                     obj.name,
@@ -388,8 +389,6 @@ def validate_objects_for_apply(
     if errors:
         raise ValueError("Compatibility check failed for:\n" + "\n".join(errors))
 
-    return validated
-
 
 def apply_total_with_repo_instance(
     store: FeatureStore,
@@ -397,7 +396,7 @@ def apply_total_with_repo_instance(
     registry: BaseRegistry,
     repo: RepoContents,
     skip_source_validation: bool,
-):
+) -> None:
     if not skip_source_validation:
         provider = store._get_provider()
         data_sources = [t.batch_source for t in repo.feature_views]
@@ -413,9 +412,7 @@ def apply_total_with_repo_instance(
         views_to_delete,
     ) = extract_objects_for_apply_delete(project_name, registry, repo)
 
-    validated_to_apply: List[FeastObject] = validate_objects_for_apply(
-        all_to_apply, registry, project_name
-    )
+    validate_objects_for_apply(all_to_apply, registry, project_name)
 
     if store._should_use_plan():
         registry_diff, infra_diff, new_infra = store.plan(repo)
@@ -425,7 +422,7 @@ def apply_total_with_repo_instance(
         click.echo(infra_diff.to_string())
     else:
         store.apply(
-            objects=validated_to_apply,
+            objects=all_to_apply,
             objects_to_delete=all_to_delete,
             partial=False,
         )
