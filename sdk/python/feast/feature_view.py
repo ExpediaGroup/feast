@@ -418,24 +418,26 @@ class FeatureView(BaseFeatureView):
             (False, [reasons...]) otherwise.
         """
         reasons: List[str] = []
-
-        if set(updated.entities) != set(self.entities):
-            reasons.append("entity definitions cannot change")
-
         old_fields = {f.name: f.dtype for f in self.schema}
         new_fields = {f.name: f.dtype for f in updated.schema}
 
-        removed = old_fields.keys() - new_fields.keys()
-        for fname in sorted(removed):
-            if fname in self.entities:
-                reasons.append(
-                    f"feature '{fname}' removed from FeatureView '{self.name}' is an entity key and cannot be removed"
-                )
-            else:
-                logger.info(
-                    "Feature '%s' removed from FeatureView '%s'.", fname, self.name
-                )
+        # TODO: Think about how the following check should be handled for stream FVs
+        if self.materialization_intervals:
+            if set(updated.entities) != set(self.entities):
+                reasons.append("entity definitions cannot change")
 
+            removed = old_fields.keys() - new_fields.keys()
+            for fname in sorted(removed):
+                if fname in self.entities:
+                    reasons.append(
+                        f"feature '{fname}' removed from FeatureView '{self.name}' is an entity key and cannot be removed"
+                    )
+                else:
+                    logger.info(
+                        "Feature '%s' removed from FeatureView '%s'.", fname, self.name
+                    )
+        else:
+            logger.info("No materialization intervals: skipping entity related checks.")
         for fname, old_dtype in old_fields.items():
             if fname in new_fields and new_fields[fname] != old_dtype:
                 logger.warning(
