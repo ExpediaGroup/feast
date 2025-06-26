@@ -38,6 +38,7 @@ from feast.utils import (
     _run_pyarrow_field_mapping,
     make_tzaware,
 )
+from time import perf_counter
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +282,12 @@ class PassthroughProvider(Provider):
         feature_view: FeatureView,
         df: pd.DataFrame,
     ):
+        write_start = perf_counter()
         table = pa.Table.from_pandas(df)
+        df_table_conversion_time = perf_counter() - write_start
+        logger.info(
+            f"df_table_conversion_time: {df_table_conversion_time}."
+        )
 
         if feature_view.batch_source.field_mapping is not None:
             table = _run_pyarrow_field_mapping(
@@ -294,8 +300,17 @@ class PassthroughProvider(Provider):
         }
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
 
+        arrow_to_proto_conversion_time = perf_counter() - write_start
+        logger.info(
+            f"arrow_to_proto_conversion_time: {arrow_to_proto_conversion_time}."
+        )
+
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
+        )
+        provider_total_time = perf_counter() - write_start
+        logger.info(
+            f"provider_total_time: {provider_total_time}."
         )
 
     def ingest_df_to_offline_store(self, feature_view: FeatureView, table: pa.Table):

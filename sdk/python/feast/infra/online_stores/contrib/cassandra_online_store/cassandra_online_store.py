@@ -64,6 +64,7 @@ from feast.types import (
     String,
     UnixTimestamp,
 )
+from time import perf_counter
 
 # Error messages
 E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS = (
@@ -448,6 +449,7 @@ class CassandraOnlineStore(OnlineStore):
             # Split the data in to multiple batches, with each batch having the same entity key (partition key).
             # NOTE: It is not a good practice to have data from multiple partitions in the same batch.
             # Doing so can affect write latency and also data loss among other things.
+            write_start = perf_counter()
             entity_dict: Dict[
                 str,
                 List[
@@ -474,6 +476,12 @@ class CassandraOnlineStore(OnlineStore):
                     entity_key_serialization_version=config.entity_key_serialization_version,
                 ).hex()
                 entity_dict[entity_key_bin].append(row)
+
+            entity_dict_time = perf_counter() - write_start
+            print(
+                f"entity_dict_time: {entity_dict_time}."
+            )
+
 
             # Get the list of feature names from data to use in the insert query
             feature_names = list(data[0][1].keys())
@@ -549,6 +557,10 @@ class CassandraOnlineStore(OnlineStore):
                             on_success,
                             on_failure,
                         )
+                        apply_batch_time = perf_counter() - write_start
+                        print(
+                            f"apply_batch_time: {apply_batch_time}."
+                        )
                         batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                         batch_count = 0
 
@@ -561,6 +573,10 @@ class CassandraOnlineStore(OnlineStore):
                         concurrent_queue,
                         on_success,
                         on_failure,
+                    )
+                    apply_last_batch_time_ = perf_counter() - write_start
+                    print(
+                        f"apply_last_batch_time_: {apply_last_batch_time_}."
                     )
         else:
             insert_cql = self._get_cql_statement(
