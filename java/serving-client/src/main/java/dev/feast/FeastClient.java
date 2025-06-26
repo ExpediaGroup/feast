@@ -413,10 +413,12 @@ public class FeastClient implements AutoCloseable {
   }
 
   /**
-   * Get online features from Feast given a getOnlineFeaturesRequest proto object.
+   * Retrieves online features from Feast using the provided request, entity rows, and project name.
    *
-   * @param getOnlineFeaturesRequest getOnlineFeaturesRequest proto object
-   * @return list of {@link Row} containing retrieved data fields.
+   * @param getOnlineFeaturesRequest The request object containing feature references.
+   * @param entities List of {@link Row} objects representing the entities to retrieve features for.
+   * @param project The Feast project to retrieve features from.
+   * @return A list of {@link Row} containing the retrieved feature data.
    */
   public List<Row> getOnlineFeatures(
       GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities, String project) {
@@ -424,18 +426,20 @@ public class FeastClient implements AutoCloseable {
   }
 
   /**
-   * Get online features range from Feast, without indicating project, will use `default`.
+   * Get online features range from Feast without indicating a project — uses the default project.
    *
-   * <p>See {@link #getOnlineFeaturesRange(List, List, List, int, boolean, String)}
+   * <p>See {@link #getOnlineFeaturesRange(List, List, List, int, boolean, String)} for
+   * project-specific queries.
    *
-   * @param featureRefs list of string feature references to retrieve in the following format
-   *     featureTable:feature, where 'featureTable' and 'feature' refer to the FeatureTable and
+   * @param featureRefs List of string feature references to retrieve in the format {@code
+   *     featureTable:feature}, where 'featureTable' and 'feature' refer to the FeatureTable and
    *     Feature names respectively. Only the Feature name is required.
-   * @param entities list of {@link RangeRow} to select the entities to retrieve the features for.
-   * @param sortKeyFilters
-   * @param limit
-   * @param reverseSortOrder
-   * @return list of {@link RangeRow} containing retrieved data fields.
+   * @param entities List of {@link RangeRow} objects representing the entities for which to
+   *     retrieve features.
+   * @param sortKeyFilters List of field names to use for sorting the feature results.
+   * @param limit Maximum number of results to return.
+   * @param reverseSortOrder If true, the results will be returned in descending order.
+   * @return List of {@link RangeRow} containing the retrieved feature data.
    */
   public List<RangeRow> getOnlineFeaturesRange(
       GetOnlineFeaturesRangeRequest request, List<Row> entities) {
