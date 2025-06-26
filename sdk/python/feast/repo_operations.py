@@ -21,7 +21,7 @@ from feast.constants import FEATURE_STORE_YAML_ENV_NAME
 from feast.data_source import DataSource, KafkaSource, KinesisSource
 from feast.diff.registry_diff import extract_objects_for_keep_delete_update_add
 from feast.entity import Entity
-from feast.errors import FeatureViewNotFoundException
+from feast.errors import FeatureViewNotFoundException, SortedFeatureViewNotFoundException
 from feast.feast_object import FeastObject
 from feast.feature_service import FeatureService
 from feast.feature_store import FeatureStore
@@ -368,7 +368,7 @@ def validate_objects_for_apply(
                     current = registry.get_feature_view(obj.name, project_name)  # type: ignore[assignment]
                 else:
                     current = None
-            except FeatureViewNotFoundException:
+            except (SortedFeatureViewNotFoundException, FeatureViewNotFoundException) as e:
                 logger.warning(
                     "'%s' not found in registry; treating as new object.",
                     obj.name,
