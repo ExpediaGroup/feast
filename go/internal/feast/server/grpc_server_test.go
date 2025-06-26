@@ -33,7 +33,7 @@ func TestGetFeastServingInfo(t *testing.T) {
 
 	require.Nil(t, err)
 
-	client, closer := GetClient(ctx, dir, "")
+	client, closer := GetClient(ctx, "", dir, "")
 	defer closer()
 	response, err := client.GetFeastServingInfo(ctx, &serving.GetFeastServingInfoRequest{})
 	assert.Nil(t, err)
@@ -49,7 +49,7 @@ func TestGetOnlineFeaturesSqlite(t *testing.T) {
 
 	require.Nil(t, err)
 
-	client, closer := GetClient(ctx, dir, "")
+	client, closer := GetClient(ctx, "", dir, "")
 	defer closer()
 	entities := make(map[string]*types.RepeatedValue)
 	entities["driver_id"] = &types.RepeatedValue{
@@ -110,7 +110,7 @@ func TestGetOnlineFeaturesSqliteWithLogging(t *testing.T) {
 	require.Nil(t, err)
 
 	logPath := t.TempDir()
-	client, closer := GetClient(ctx, dir, logPath)
+	client, closer := GetClient(ctx, "file", dir, logPath)
 	defer closer()
 	entities := make(map[string]*types.RepeatedValue)
 	entities["driver_id"] = &types.RepeatedValue{
