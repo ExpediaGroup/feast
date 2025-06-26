@@ -335,28 +335,7 @@ func parseIncludeMetadata(r *http.Request) (bool, error) {
 	return strconv.ParseBool(raw)
 }
 
-func (s *HttpServer) getVersion(w http.ResponseWriter, r *http.Request) {
-	span, _ := tracer.StartSpanFromContext(r.Context(), "getVersion", tracer.ResourceName("/get-version"))
-	defer span.Finish()
-
-	logSpanContext := LogWithSpanContext(span)
-
-	if r.Method != "GET" {
-		http.NotFound(w, r)
-		return
-	}
-
-	versionInfo := version.GetVersionInfo()
-	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(versionInfo)
-	if err != nil {
-		logSpanContext.Error().Err(err).Msg("Error encoding version response")
-		writeJSONError(w, fmt.Errorf("error encoding version response: %+v", err), http.StatusInternalServerError)
-		return
-	}
-}
-
-func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
+func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var featureVectors []*onlineserving.FeatureVector
 
@@ -370,6 +349,11 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	includeMetadata, err := parseIncludeMetadata(r)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
+		writeJSONError(w, fmt.Errorf("error parsing includeMetadata query parameter: %w", err), http.StatusBadRequest)
+		return
 	includeMetadata, err := parseIncludeMetadata(r)
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
@@ -549,6 +533,11 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	includeMetadata, err := parseIncludeMetadata(r)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
+		writeJSONError(w, fmt.Errorf("error parsing includeMetadata query parameter: %w", err), http.StatusBadRequest)
+		return
 	includeMetadata, err := parseIncludeMetadata(r)
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
