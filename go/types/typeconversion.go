@@ -468,77 +468,9 @@ func RepeatedProtoValuesToArrowArray(repeatedValues []*types.RepeatedValue, allo
 		if repeatedValue == nil || len(repeatedValue.Val) == 0 {
 			continue
 		}
-
-		for _, val := range repeatedValue.Val {
-			if val == nil || val.Val == nil {
-				appendNullByType(valueBuilder)
-				continue
-			}
-
-			switch v := val.Val.(type) {
-			case *types.Value_Int32Val:
-				valueBuilder.(*array.Int32Builder).Append(v.Int32Val)
-			case *types.Value_Int64Val:
-				valueBuilder.(*array.Int64Builder).Append(v.Int64Val)
-			case *types.Value_FloatVal:
-				valueBuilder.(*array.Float32Builder).Append(v.FloatVal)
-			case *types.Value_DoubleVal:
-				valueBuilder.(*array.Float64Builder).Append(v.DoubleVal)
-			case *types.Value_BoolVal:
-				valueBuilder.(*array.BooleanBuilder).Append(v.BoolVal)
-			case *types.Value_StringVal:
-				valueBuilder.(*array.StringBuilder).Append(v.StringVal)
-			case *types.Value_BytesVal:
-				valueBuilder.(*array.BinaryBuilder).Append(v.BytesVal)
-			case *types.Value_UnixTimestampVal:
-				valueBuilder.(*array.TimestampBuilder).Append(arrow.Timestamp(v.UnixTimestampVal))
-			case *types.Value_Int32ListVal:
-				int32List := v.Int32ListVal.Val
-				valueBuilder.(*array.ListBuilder).Append(true)
-				subListBuilder := valueBuilder.(*array.ListBuilder).ValueBuilder()
-				subListBuilder.(*array.Int32Builder).AppendValues(int32List, []bool{})
-			case *types.Value_Int64ListVal:
-				int64List := v.Int64ListVal.Val
-				valueBuilder.(*array.ListBuilder).Append(true)
-				subListBuilder := valueBuilder.(*array.ListBuilder).ValueBuilder()
-				subListBuilder.(*array.Int64Builder).AppendValues(int64List, []bool{})
-			case *types.Value_FloatListVal:
-				floatList := v.FloatListVal.Val
-				valueBuilder.(*array.ListBuilder).Append(true)
-				subListBuilder := valueBuilder.(*array.ListBuilder).ValueBuilder()
-				subListBuilder.(*array.Float32Builder).AppendValues(floatList, []bool{})
-			case *types.Value_DoubleListVal:
-				doubleList := v.DoubleListVal.Val
-				valueBuilder.(*array.ListBuilder).Append(true)
-				subListBuilder := valueBuilder.(*array.ListBuilder).ValueBuilder()
-				subListBuilder.(*array.Float64Builder).AppendValues(doubleList, []bool{})
-			case *types.Value_BoolListVal:
-				boolList := v.BoolListVal.Val
-				valueBuilder.(*array.ListBuilder).Append(true)
-				subListBuilder := valueBuilder.(*array.ListBuilder).ValueBuilder()
-				subListBuilder.(*array.BooleanBuilder).AppendValues(boolList, []bool{})
-			case *types.Value_StringListVal:
-				stringList := v.StringListVal.Val
-				valueBuilder.(*array.ListBuilder).Append(true)
-				subListBuilder := valueBuilder.(*array.ListBuilder).ValueBuilder()
-				subListBuilder.(*array.StringBuilder).AppendValues(stringList, []bool{})
-			case *types.Value_BytesListVal:
-				bytesList := v.BytesListVal.Val
-				valueBuilder.(*array.ListBuilder).Append(true)
-				subListBuilder := valueBuilder.(*array.ListBuilder).ValueBuilder()
-				subListBuilder.(*array.BinaryBuilder).AppendValues(bytesList, []bool{})
-			case *types.Value_UnixTimestampListVal:
-				timestampList := v.UnixTimestampListVal.Val
-				valueBuilder.(*array.ListBuilder).Append(true)
-				subListBuilder := valueBuilder.(*array.ListBuilder).ValueBuilder()
-				timestampValues := make([]arrow.Timestamp, len(timestampList))
-				for i, ts := range timestampList {
-					timestampValues[i] = arrow.Timestamp(ts)
-				}
-				subListBuilder.(*array.TimestampBuilder).AppendValues(timestampValues, []bool{})
-			default:
-				appendNullByType(valueBuilder)
-			}
+		err = CopyProtoValuesToArrowArray(valueBuilder, repeatedValue.Val)
+		if err != nil {
+			return nil, fmt.Errorf("error copying proto values to arrow array: %v", err)
 		}
 	}
 
