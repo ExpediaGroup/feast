@@ -277,7 +277,7 @@ def test_fv_compatibility_change_entities():
 
     ok, reasons = fv1.is_update_compatible_with(fv2)
     assert not ok
-    assert "entity definitions cannot change" in reasons
+    assert "entity definitions cannot change for FeatureView: fv" in reasons
 
 
 def test_fv_compatibility_change_entities_with_no_materialization_interval():
