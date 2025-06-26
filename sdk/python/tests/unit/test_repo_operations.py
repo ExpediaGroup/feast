@@ -19,6 +19,7 @@ from feast.repo_contents import RepoContents
 from feast.repo_operations import apply_total_with_repo_instance
 from feast.sort_key import SortKey
 from feast.types import Float64, Int64, String
+from feast.utils import _utc_now, make_tzaware
 
 
 @pytest.fixture
@@ -373,7 +374,13 @@ def test_update_feature_view_remove_entity_key_fails(
         repo=dummy_repo_contents_fv,
         skip_source_validation=True,
     )
+
     original_fv = dummy_repo_contents_fv.feature_views[0]
+    current_time = _utc_now()
+    start_date = make_tzaware(current_time - timedelta(days=1))
+    end_date = make_tzaware(current_time)
+    original_fv.materialization_intervals.append((start_date, end_date))
+
     registry.apply_feature_view(original_fv, project="my_project", commit=True)
 
     with pytest.raises(ValueError) as excinfo:

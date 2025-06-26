@@ -604,6 +604,11 @@ def test_sfv_compatibility_change_entity():
         sort_keys=[sort_key],
     )
 
+    current_time = _utc_now()
+    start_date = make_tzaware(current_time - timedelta(days=1))
+    end_date = make_tzaware(current_time)
+    sfv1.materialization_intervals.append((start_date, end_date))
+
     ok, reasons = sfv1.is_update_compatible_with(sfv2)
     assert not ok
     assert any("entity definitions cannot change" in r for r in reasons)
