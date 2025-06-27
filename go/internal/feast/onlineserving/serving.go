@@ -213,46 +213,45 @@ func GetFeatureViewsToUseByFeatureRefs(
 			addFeaturesToValidationMap(fv.Base.Name, fv.Base.Features, viewToFeaturesValidationMap)
 			if !viewToFeaturesValidationMap[fv.Base.Name][featureName] {
 				invalidFeatures = append(invalidFeatures, featureRef)
-				continue
-			}
-
-			if viewAndRef, ok := viewNameToViewAndRefs[fv.Base.Name]; ok {
-				viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
 			} else {
-				viewNameToViewAndRefs[fv.Base.Name] = &FeatureViewAndRefs{
-					View:        fv,
-					FeatureRefs: []string{featureName},
+				if viewAndRef, ok := viewNameToViewAndRefs[fv.Base.Name]; ok {
+					viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
+				} else {
+					viewNameToViewAndRefs[fv.Base.Name] = &FeatureViewAndRefs{
+						View:        fv,
+						FeatureRefs: []string{featureName},
+					}
 				}
 			}
 		} else if sortedFv, err := registry.GetSortedFeatureView(projectName, featureViewName); err == nil {
 			addFeaturesToValidationMap(sortedFv.Base.Name, sortedFv.Base.Features, viewToFeaturesValidationMap)
 			if !viewToFeaturesValidationMap[sortedFv.Base.Name][featureName] {
 				invalidFeatures = append(invalidFeatures, featureRef)
-				continue
-			}
-
-			if viewAndRef, ok := viewNameToSortedViewAndRefs[sortedFv.Base.Name]; ok {
-				viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
 			} else {
-				viewNameToSortedViewAndRefs[sortedFv.Base.Name] = &SortedFeatureViewAndRefs{
-					View:        sortedFv,
-					FeatureRefs: []string{featureName},
+
+				if viewAndRef, ok := viewNameToSortedViewAndRefs[sortedFv.Base.Name]; ok {
+					viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
+				} else {
+					viewNameToSortedViewAndRefs[sortedFv.Base.Name] = &SortedFeatureViewAndRefs{
+						View:        sortedFv,
+						FeatureRefs: []string{featureName},
+					}
 				}
 			}
 		} else if odfv, err := registry.GetOnDemandFeatureView(projectName, featureViewName); err == nil {
 			addFeaturesToValidationMap(odfv.Base.Name, odfv.Base.Features, viewToFeaturesValidationMap)
 			if !viewToFeaturesValidationMap[odfv.Base.Name][featureName] {
 				invalidFeatures = append(invalidFeatures, featureRef)
-				continue
-			}
-
-			if _, ok := odFvToFeatures[odfv.Base.Name]; !ok {
-				odFvToFeatures[odfv.Base.Name] = []string{featureName}
 			} else {
-				odFvToFeatures[odfv.Base.Name] = append(
-					odFvToFeatures[odfv.Base.Name], featureName)
+
+				if _, ok := odFvToFeatures[odfv.Base.Name]; !ok {
+					odFvToFeatures[odfv.Base.Name] = []string{featureName}
+				} else {
+					odFvToFeatures[odfv.Base.Name] = append(
+						odFvToFeatures[odfv.Base.Name], featureName)
+				}
+				odFvToProjectWithFeatures[odfv.Base.Name] = odfv
 			}
-			odFvToProjectWithFeatures[odfv.Base.Name] = odfv
 		} else {
 			return nil, nil, nil, fmt.Errorf("feature View %s doesn't exist, please make sure that you have created the"+
 				" feature View %s and that you have registered it by running \"apply\"", featureViewName, featureViewName)
