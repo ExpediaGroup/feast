@@ -72,7 +72,10 @@ def test_sorted_feature_view_ensure_valid():
             sort_keys=[],
         )
 
-    assert "must have at least one sort key defined" in str(excinfo.value)
+    assert (
+        "For SortedFeatureView: invalid_sorted_feature_view, must have at least one sort key defined"
+        in str(excinfo.value)
+    )
 
 
 def test_sorted_feature_view_ensure_valid_sort_key_in_entity_columns():
@@ -89,13 +92,18 @@ def test_sorted_feature_view_ensure_valid_sort_key_in_entity_columns():
     )
 
     # Create a SortedFeatureView with a sort key that conflicts.
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as excinfo:
         SortedFeatureView(
             name="invalid_sorted_feature_view",
             source=source,
             entities=[entity],
             sort_keys=[sort_key],
         )
+
+    assert (
+        "For SortedFeatureView: invalid_sorted_feature_view, Sort key 'entity1' refers to an entity column and cannot be used as a sort key."
+        in str(excinfo.value)
+    )
 
 
 def test_sorted_feature_view_copy():
