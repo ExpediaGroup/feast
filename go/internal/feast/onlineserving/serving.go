@@ -173,15 +173,16 @@ func GetFeatureViewsToUseByService(
 	return fvsToUse, sortedFvsToUse, odFvsToUse, nil
 }
 
-func validateFeatureInFeatureView(
+func addFeaturesToValidationMap(
+	viewName string,
 	fvFeatures []*model.Field,
-	featureName string) bool {
-	for _, field := range fvFeatures {
-		if field.Name == featureName {
-			return true
+	validationMap map[string]map[string]bool) {
+	if _, ok := validationMap[viewName]; !ok {
+		validationMap[viewName] = make(map[string]bool)
+		for _, field := range fvFeatures {
+			validationMap[viewName][field.Name] = true
 		}
 	}
-	return false
 }
 
 /*
@@ -201,6 +202,7 @@ func GetFeatureViewsToUseByFeatureRefs(
 	odFvToFeatures := make(map[string][]string)
 	odFvToProjectWithFeatures := make(map[string]*model.OnDemandFeatureView)
 
+	viewToFeaturesValidationMap := make(map[string]map[string]bool)
 	invalidFeatures := make([]string, 0)
 	for _, featureRef := range features {
 		featureViewName, featureName, err := ParseFeatureReference(featureRef)
@@ -208,7 +210,8 @@ func GetFeatureViewsToUseByFeatureRefs(
 			return nil, nil, nil, err
 		}
 		if fv, err := registry.GetFeatureView(projectName, featureViewName); err == nil {
-			if !validateFeatureInFeatureView(fv.Base.Features, featureName) {
+			addFeaturesToValidationMap(fv.Base.Name, fv.Base.Features, viewToFeaturesValidationMap)
+			if !viewToFeaturesValidationMap[fv.Base.Name][featureName] {
 				invalidFeatures = append(invalidFeatures, featureRef)
 				continue
 			}
@@ -222,7 +225,8 @@ func GetFeatureViewsToUseByFeatureRefs(
 				}
 			}
 		} else if sortedFv, err := registry.GetSortedFeatureView(projectName, featureViewName); err == nil {
-			if !validateFeatureInFeatureView(sortedFv.Base.Features, featureName) {
+			addFeaturesToValidationMap(sortedFv.Base.Name, sortedFv.Base.Features, viewToFeaturesValidationMap)
+			if !viewToFeaturesValidationMap[sortedFv.Base.Name][featureName] {
 				invalidFeatures = append(invalidFeatures, featureRef)
 				continue
 			}
@@ -236,7 +240,8 @@ func GetFeatureViewsToUseByFeatureRefs(
 				}
 			}
 		} else if odfv, err := registry.GetOnDemandFeatureView(projectName, featureViewName); err == nil {
-			if !validateFeatureInFeatureView(odfv.Base.Features, featureName) {
+			addFeaturesToValidationMap(odfv.Base.Name, odfv.Base.Features, viewToFeaturesValidationMap)
+			if !viewToFeaturesValidationMap[odfv.Base.Name][featureName] {
 				invalidFeatures = append(invalidFeatures, featureRef)
 				continue
 			}
