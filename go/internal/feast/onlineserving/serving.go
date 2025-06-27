@@ -210,6 +210,7 @@ func GetFeatureViewsToUseByFeatureRefs(
 		if fv, err := registry.GetFeatureView(projectName, featureViewName); err == nil {
 			if !validateFeatureInFeatureView(fv.Base.Features, featureName) {
 				invalidFeatures = append(invalidFeatures, featureRef)
+				continue
 			}
 
 			if viewAndRef, ok := viewNameToViewAndRefs[fv.Base.Name]; ok {
@@ -223,6 +224,7 @@ func GetFeatureViewsToUseByFeatureRefs(
 		} else if sortedFv, err := registry.GetSortedFeatureView(projectName, featureViewName); err == nil {
 			if !validateFeatureInFeatureView(sortedFv.Base.Features, featureName) {
 				invalidFeatures = append(invalidFeatures, featureRef)
+				continue
 			}
 
 			if viewAndRef, ok := viewNameToSortedViewAndRefs[sortedFv.Base.Name]; ok {
@@ -236,6 +238,7 @@ func GetFeatureViewsToUseByFeatureRefs(
 		} else if odfv, err := registry.GetOnDemandFeatureView(projectName, featureViewName); err == nil {
 			if !validateFeatureInFeatureView(odfv.Base.Features, featureName) {
 				invalidFeatures = append(invalidFeatures, featureRef)
+				continue
 			}
 
 			if _, ok := odFvToFeatures[odfv.Base.Name]; !ok {
