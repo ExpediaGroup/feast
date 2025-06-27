@@ -386,6 +386,9 @@ public class FeastClient implements AutoCloseable {
     return getOnlineFeatures(featureRefs, rows, false);
   }
 
+  public List<Row> getOnlineFeatures(List<String> featureRefs, List<Row> rows) {
+    return getOnlineFeatures(featureRefs, rows, false);
+  }
   /**
    * Get online features from Feast given a feature service name. Internally feature service calls
    * resolve featureViews via a call to the feature registry.
@@ -485,6 +488,26 @@ public class FeastClient implements AutoCloseable {
       results.add(row);
     }
     return results;
+  }
+
+  public List<RangeRow> getOnlineFeaturesRange(
+      List<String> featureRefs,
+      List<Row> rows,
+      List<SortKeyFilterModel> sortKeyFilters,
+      int limit,
+      boolean reverseSortOrder) {
+    GetOnlineFeaturesRangeRequest request =
+        GetOnlineFeaturesRangeRequest.newBuilder()
+            .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
+            .addAllSortKeyFilters(
+                sortKeyFilters.stream()
+                    .map(SortKeyFilterModel::toProto)
+                    .collect(Collectors.toList()))
+            .setLimit(limit)
+            .setReverseSortOrder(reverseSortOrder)
+            .setIncludeMetadata(false)
+            .build();
+    return getOnlineFeaturesRange(request, rows);
   }
 
   /**
