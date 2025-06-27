@@ -815,18 +815,24 @@ func getEventTimestamp(timestamps []timestamp.Timestamp, index int) *timestamppb
 	return &timestamppb.Timestamp{}
 }
 
-func KeepOnlyRequestedFeatures(
-	vectors []*FeatureVector,
+func KeepOnlyRequestedFeatures[T any](
+	vectors []T,
 	requestedFeatureRefs []string,
 	featureService *model.FeatureService,
-	fullFeatureNames bool) ([]*FeatureVector, error) {
-	vectorsByName := make(map[string]*FeatureVector)
-	expectedVectors := make([]*FeatureVector, 0)
+	fullFeatureNames bool) ([]T, error) {
+	vectorsByName := make(map[string]T)
+	expectedVectors := make([]T, 0)
 
 	usedVectors := make(map[string]bool)
 
 	for _, vector := range vectors {
-		vectorsByName[vector.Name] = vector
+		if featureVector, ok := any(vector).(*FeatureVector); ok {
+			vectorsByName[featureVector.Name] = vector
+		} else if rangeFeatureVector, ok := any(vector).(*RangeFeatureVector); ok {
+			vectorsByName[rangeFeatureVector.Name] = vector
+		} else {
+			return nil, fmt.Errorf("unsupported vector type: %T", vector)
+		}
 	}
 
 	if featureService != nil {
@@ -853,8 +859,16 @@ func KeepOnlyRequestedFeatures(
 
 	// Free arrow arrays for vectors that were not used.
 	for _, vector := range vectors {
-		if _, ok := usedVectors[vector.Name]; !ok {
-			vector.Values.Release()
+		if featureVector, ok := any(vector).(*FeatureVector); ok {
+			if _, ok := usedVectors[featureVector.Name]; !ok {
+				featureVector.Values.Release()
+			}
+		} else if rangeFeatureVector, ok := any(vector).(*RangeFeatureVector); ok {
+			if _, ok := usedVectors[rangeFeatureVector.Name]; !ok {
+				rangeFeatureVector.RangeValues.Release()
+			}
+		} else {
+			return nil, fmt.Errorf("unsupported vector type: %T", vector)
 		}
 	}
 
