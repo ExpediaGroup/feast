@@ -386,7 +386,7 @@ public class FeastClient implements AutoCloseable {
     return getOnlineFeatures(featureRefs, rows, false);
   }
 
-  public List<Row> getOnlineFeatures(List<String> featureRefs, List<Row> rows, String project) {
+  public List<Row> getOnlineFeatures(List<String> featureRefs, List<Row> rows) {
     return getOnlineFeatures(featureRefs, rows, false);
   }
   /**
