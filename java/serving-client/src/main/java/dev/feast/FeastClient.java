@@ -497,7 +497,7 @@ public class FeastClient implements AutoCloseable {
    * @param limit Maximum number of results to return.
    * @param reverseSortOrder If true, the results will be returned in descending order.
    * @param project The Feast project to retrieve features from.
-   * @return List of {@link RangeRow} containing retrieved data fields.
+   * @param includeMetadata If true, includes metadata in the response.
    */
   public List<RangeRow> getOnlineFeaturesRange(
       List<String> featureRefs,
