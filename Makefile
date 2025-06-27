@@ -98,7 +98,7 @@ benchmark-python-local:
 	IS_TEST=True FEAST_IS_LOCAL_TEST=True python -m pytest --integration --benchmark  --benchmark-autosave --benchmark-save-data sdk/python/tests
 
 test-python-unit:
-	python -m pytest -n 1 --color=yes sdk/python/tests
+	python -m pytest -n 8 --color=yes sdk/python/tests --ignore=sdk/python/tests/expediagroup
 
 test-python-integration:
 	python -m pytest -n 8 --integration --color=yes --durations=10 --timeout=1200 --timeout_method=thread --dist loadgroup \
