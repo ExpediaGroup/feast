@@ -424,6 +424,7 @@ public class FeastClient implements AutoCloseable {
       GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities, String project) {
     return getOnlineFeatures(getOnlineFeaturesRequest, entities);
   }
+
   public List<Row> getOnlineFeatures(
       GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities) {
     return getOnlineFeatures(getOnlineFeaturesRequest, entities);
@@ -490,7 +491,7 @@ public class FeastClient implements AutoCloseable {
     }
     return results;
   }
-  
+
   public List<RangeRow> getOnlineFeaturesRange(
       List<String> featureRefs,
       List<Row> rows,
