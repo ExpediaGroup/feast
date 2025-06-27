@@ -89,6 +89,7 @@ from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
 from feast.utils import _utc_now
 from feast.version import get_version
+from time import perf_counter
 
 warnings.simplefilter("once", DeprecationWarning)
 
@@ -1556,9 +1557,14 @@ class FeatureStore:
         # TODO: restrict this to work with online StreamFeatureViews and validate the FeatureView type
         # In EG, we use feature view to support streaming and http registry is not implemented for stream feature views
         # HTTP Registry raises MethodNotImplementedError for get_stream_feature_view
+        write_start = perf_counter()
         try:
             feature_view: FeatureView = self.get_feature_view(
                 feature_view_name, allow_registry_cache=allow_registry_cache
+            )
+            feature_view_retrieval_time = perf_counter() - write_start
+            print(
+                f"INFO: feature_view_retrieval_time: {feature_view_retrieval_time}."
             )
         except FeatureViewNotFoundException:
             try:
@@ -1582,7 +1588,18 @@ class FeatureStore:
             else:
                 raise ValueError("inputs must be a dictionary or a pandas DataFrame.")
         provider = self._get_provider()
+        fs_pre_write_total_time = perf_counter() - write_start
+        print(
+            f"INFO: fs_pre_write_total_time: {fs_pre_write_total_time}."
+        )
+
+        write_start2= perf_counter()
         provider.ingest_df(feature_view, df)
+
+        fs_ingest_df_time = perf_counter() - write_start2
+        print(
+            f"INFO: fs_ingest_df_time: {fs_ingest_df_time}."
+        )
 
     def write_to_offline_store(
         self,

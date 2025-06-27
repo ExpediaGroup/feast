@@ -64,6 +64,7 @@ from feast.types import (
     String,
     UnixTimestamp,
 )
+from time import perf_counter
 
 # Error messages
 E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS = (
@@ -438,11 +439,12 @@ class CassandraOnlineStore(OnlineStore):
         fqtable = CassandraOnlineStore._fq_table_name(
             keyspace, project, table, table_name_version
         )
-
+        write_start = perf_counter()
         if isinstance(table, SortedFeatureView):
             # Split the data in to multiple batches, with each batch having the same entity key (partition key).
             # NOTE: It is not a good practice to have data from multiple partitions in the same batch.
             # Doing so can affect write latency and also data loss among other things.
+            write_start2 = perf_counter()
             entity_dict: Dict[
                 str,
                 List[
@@ -469,6 +471,10 @@ class CassandraOnlineStore(OnlineStore):
                     entity_key_serialization_version=config.entity_key_serialization_version,
                 ).hex()
                 entity_dict[entity_key_bin].append(row)
+            entity_dict_time = perf_counter() - write_start2
+            print(
+                f"entity_dict_time: {entity_dict_time}."
+            )
 
             # Get the list of feature names from data to use in the insert query
             feature_names = list(data[0][1].keys())
@@ -627,6 +633,10 @@ class CassandraOnlineStore(OnlineStore):
                 raise ex
             # Spark materialization engine doesn't log info messages
             # so we print the message to stdout
+            scylla_microbatch_write_time = perf_counter() - write_start
+            print(
+                f"scylla_microbatch_write_time: {scylla_microbatch_write_time}."
+            )
             print("Completed writing all futures.")
 
             # correction for the last missing call to `progress`:

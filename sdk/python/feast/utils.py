@@ -2,6 +2,7 @@ import copy
 import itertools
 import os
 import typing
+import logging
 import warnings
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
@@ -43,13 +44,14 @@ from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.type_map import python_values_to_proto_values
 from feast.value_type import ValueType
 from feast.version import get_version
-
+from time import perf_counter
 if typing.TYPE_CHECKING:
     from feast.feature_service import FeatureService
     from feast.feature_view import FeatureView
     from feast.on_demand_feature_view import OnDemandFeatureView
 
 
+logger = logging.getLogger(__name__)
 APPLICATION_NAME = "feast-dev/feast"
 USER_AGENT = "{}/{}".format(APPLICATION_NAME, get_version())
 
@@ -253,6 +255,7 @@ def _convert_arrow_to_proto(
     join_keys: Dict[str, ValueType],
 ) -> List[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]]:
     # Avoid ChunkedArrays which guarantees `zero_copy_only` available.
+    write_start = perf_counter()
     if isinstance(table, pyarrow.Table):
         table = table.to_batches()[0]
 
@@ -260,12 +263,22 @@ def _convert_arrow_to_proto(
         (field.name, field.dtype.to_value_type()) for field in feature_view.features
     ] + list(join_keys.items())
 
+    atp_initial_time = perf_counter() - write_start
+    logger.info(
+        f"atp_initial_time: {atp_initial_time}."
+    )
+
     proto_values_by_column = {
         column: python_values_to_proto_values(
             table.column(column).to_numpy(zero_copy_only=False), value_type
         )
         for column, value_type in columns
     }
+
+    atp_pvc_time = perf_counter() - write_start
+    logger.info(
+        f"atp_pvc_time: {atp_pvc_time}."
+    )
 
     entity_keys = [
         EntityKeyProto(
@@ -275,12 +288,22 @@ def _convert_arrow_to_proto(
         for idx in range(table.num_rows)
     ]
 
+    atp_entity_keys_time = perf_counter() - write_start
+    logger.info(
+        f"atp_entity_keys_time: {atp_entity_keys_time}."
+    )
+
     # Serialize the features per row
     feature_dict = {
         feature.name: proto_values_by_column[feature.name]
         for feature in feature_view.features
     }
     features = [dict(zip(feature_dict, vars)) for vars in zip(*feature_dict.values())]
+
+    atp_feature_dict_time = perf_counter() - write_start
+    logger.info(
+        f"atp_feature_dict_time: {atp_feature_dict_time}."
+    )
 
     # Convert event_timestamps
     event_timestamps = [
@@ -291,6 +314,11 @@ def _convert_arrow_to_proto(
             )
         )
     ]
+
+    atp_event_timestamps_time = perf_counter() - write_start
+    logger.info(
+        f"atp_event_timestamps_time: {atp_event_timestamps_time}."
+    )
 
     # Convert created_timestamps if they exist
     if feature_view.batch_source.created_timestamp_column:
@@ -305,6 +333,10 @@ def _convert_arrow_to_proto(
     else:
         created_timestamps = [None] * table.num_rows
 
+    atp_total_time = perf_counter() - write_start
+    logger.info(
+        f"atp_total_time: {atp_total_time}."
+    )
     return list(zip(entity_keys, features, event_timestamps, created_timestamps))
 
 
