@@ -140,7 +140,7 @@ class SortedFeatureView(FeatureView):
             # Sort keys should not conflict with entity names.
             if sort_key.name in self.entities:
                 raise ValueError(
-                    f"Sort key '{sort_key.name}' refers to an entity column and cannot be used as a sort key. "
+                    f"For SortedFeatureView: {self.name}, Sort key '{sort_key.name}' refers to an entity column and cannot be used as a sort key. "
                     f"Valid sort key names are feature names: {valid_feature_names}"
                 )
 
