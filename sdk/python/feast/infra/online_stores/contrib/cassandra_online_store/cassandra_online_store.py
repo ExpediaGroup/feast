@@ -941,7 +941,7 @@ class CassandraOnlineStore(OnlineStore):
         if new_cols:
             cql_type = "BLOB"  # Default type for features
             col_defs = ", ".join(f"{col} {cql_type}" for col in new_cols)
-            alter_cql = f"ALTER TABLE {fqtable} ADD {col_defs}"
+            alter_cql = f"ALTER TABLE {fqtable} ADD ({col_defs})"
             session.execute(alter_cql)
             logger.info(
                 f"Added columns [{', '.join(sorted(new_cols))}] to table: {fqtable}"
