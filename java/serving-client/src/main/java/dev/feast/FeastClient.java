@@ -424,6 +424,10 @@ public class FeastClient implements AutoCloseable {
       GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities, String project) {
     return getOnlineFeatures(getOnlineFeaturesRequest, entities);
   }
+  public List<Row> getOnlineFeatures(
+      GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities) {
+    return getOnlineFeatures(getOnlineFeaturesRequest, entities);
+  }
 
   /**
    * Get online features range from Feast without indicating a project — uses the default project.
@@ -485,6 +489,26 @@ public class FeastClient implements AutoCloseable {
       results.add(row);
     }
     return results;
+  }
+  
+  public List<RangeRow> getOnlineFeaturesRange(
+      List<String> featureRefs,
+      List<Row> rows,
+      List<SortKeyFilterModel> sortKeyFilters,
+      int limit,
+      boolean reverseSortOrder) {
+    GetOnlineFeaturesRangeRequest request =
+        GetOnlineFeaturesRangeRequest.newBuilder()
+            .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
+            .addAllSortKeyFilters(
+                sortKeyFilters.stream()
+                    .map(SortKeyFilterModel::toProto)
+                    .collect(Collectors.toList()))
+            .setLimit(limit)
+            .setReverseSortOrder(reverseSortOrder)
+            .setIncludeMetadata(false)
+            .build();
+    return getOnlineFeaturesRange(request, rows);
   }
 
   /**
