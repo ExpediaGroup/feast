@@ -386,6 +386,9 @@ public class FeastClient implements AutoCloseable {
     return getOnlineFeatures(featureRefs, rows, false);
   }
 
+  public List<Row> getOnlineFeatures(List<String> featureRefs, List<Row> rows, String project) {
+    return getOnlineFeatures(featureRefs, rows, false);
+  }
   /**
    * Get online features from Feast given a feature service name. Internally feature service calls
    * resolve featureViews via a call to the feature registry.
@@ -422,11 +425,6 @@ public class FeastClient implements AutoCloseable {
    */
   public List<Row> getOnlineFeatures(
       GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities, String project) {
-    return getOnlineFeatures(getOnlineFeaturesRequest, entities);
-  }
-
-  public List<Row> getOnlineFeatures(
-      GetOnlineFeaturesRequest getOnlineFeaturesRequest, List<Row> entities) {
     return getOnlineFeatures(getOnlineFeaturesRequest, entities);
   }
 
