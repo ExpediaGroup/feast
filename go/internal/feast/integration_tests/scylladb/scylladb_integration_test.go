@@ -1,15 +1,18 @@
 //go:build integration
 
-package server
+package scylladb
 
 import (
 	"context"
 	"fmt"
+	"github.com/feast-dev/feast/go/internal/feast/server"
 	"github.com/feast-dev/feast/go/internal/test"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -18,8 +21,12 @@ var client serving.ServingServiceClient
 var ctx context.Context
 
 func TestMain(m *testing.M) {
-	dir := "../../../integration_tests/scylladb/"
-	err := test.SetupInitializedRepo(dir)
+	dir, err := filepath.Abs("./")
+	if err != nil {
+		fmt.Printf("Failed to get absolute path: %v\n", err)
+		os.Exit(1)
+	}
+	err = test.SetupInitializedRepo(dir)
 	if err != nil {
 		fmt.Printf("Failed to set up test environment: %v\n", err)
 		os.Exit(1)
@@ -28,7 +35,7 @@ func TestMain(m *testing.M) {
 	ctx = context.Background()
 	var closer func()
 
-	client, closer = getClient(ctx, "", dir, "")
+	client, closer = server.GetClient(ctx, "", dir, "")
 
 	// Run the tests
 	exitCode := m.Run()
@@ -88,29 +95,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	}
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
 	assert.NoError(t, err)
-	assert.NotNil(t, response)
-	assert.Equal(t, 1, len(response.Entities), "Should have 1 entity")
-	indexIdEntity, exists := response.Entities["index_id"]
-	assert.True(t, exists, "Should have index_id entity")
-	assert.NotNil(t, indexIdEntity)
-	assert.Equal(t, 3, len(indexIdEntity.Val), "Entity should have 3 values")
-	assert.Equal(t, 32, len(response.Results), "Should have 32 features")
-
-	for i, featureResult := range response.Results {
-		assert.Equal(t, 3, len(featureResult.Values))
-		for _, value := range featureResult.Values {
-			featureName := featureNames[i]
-			if strings.Contains(featureName, "null") {
-				// For null features, we expect the value to contain 1 entry with a nil value
-				assert.NotNil(t, value)
-				assert.Equal(t, 1, len(value.Val), "Feature %s should have one values, got %d", featureName, len(value.Val))
-				assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
-			} else {
-				assert.NotNil(t, value)
-				assert.Equal(t, 10, len(value.Val), "Feature %s should have 10 values, got %d", featureName, len(value.Val))
-			}
-		}
-	}
+	assertResponseData(t, response, featureNames)
 }
 
 func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
@@ -148,13 +133,97 @@ func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
 	}
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
 	assert.NoError(t, err)
+	assertResponseData(t, response, featureNames)
+}
+
+func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
+	entities := make(map[string]*types.RepeatedValue)
+
+	entities["index_id"] = &types.RepeatedValue{
+		Val: []*types.Value{
+			{Val: &types.Value_Int64Val{Int64Val: 1}},
+			{Val: &types.Value_Int64Val{Int64Val: 2}},
+			{Val: &types.Value_Int64Val{Int64Val: 3}},
+		},
+	}
+
+	request := &serving.GetOnlineFeaturesRangeRequest{
+		Kind: &serving.GetOnlineFeaturesRangeRequest_FeatureService{
+			FeatureService: "test_service",
+		},
+		Entities: entities,
+		SortKeyFilters: []*serving.SortKeyFilter{
+			{
+				SortKeyName: "event_timestamp",
+				Query: &serving.SortKeyFilter_Range{
+					Range: &serving.SortKeyFilter_RangeQuery{
+						RangeStart: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 0}},
+					},
+				},
+			},
+		},
+		Limit: 10,
+	}
+	_, err := client.GetOnlineFeaturesRange(ctx, request)
+	require.Error(t, err, "Expected an error due to regular feature view requested for range query")
+	assert.Equal(t, "rpc error: code = Unknown desc = GetOnlineFeaturesRange does not support standard feature views [all_dtypes]", err.Error(), "Expected error message for unsupported feature view")
+}
+
+func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
+	entities := make(map[string]*types.RepeatedValue)
+
+	entities["index_id"] = &types.RepeatedValue{
+		Val: []*types.Value{
+			{Val: &types.Value_Int64Val{Int64Val: 1}},
+			{Val: &types.Value_Int64Val{Int64Val: 2}},
+			{Val: &types.Value_Int64Val{Int64Val: 3}},
+		},
+	}
+
+	featureNames := []string{"int_val", "long_val", "float_val", "double_val", "byte_val", "string_val", "timestamp_val", "boolean_val",
+		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
+		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
+		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
+		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+
+	var featureNamesWithFeatureView []string
+
+	for _, featureName := range featureNames {
+		featureNamesWithFeatureView = append(featureNamesWithFeatureView, "all_dtypes:"+featureName)
+	}
+
+	request := &serving.GetOnlineFeaturesRangeRequest{
+		Kind: &serving.GetOnlineFeaturesRangeRequest_Features{
+			Features: &serving.FeatureList{
+				Val: featureNamesWithFeatureView,
+			},
+		},
+		Entities: entities,
+		SortKeyFilters: []*serving.SortKeyFilter{
+			{
+				SortKeyName: "event_timestamp",
+				Query: &serving.SortKeyFilter_Range{
+					Range: &serving.SortKeyFilter_RangeQuery{
+						RangeStart: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 0}},
+					},
+				},
+			},
+		},
+		Limit: 10,
+	}
+	_, err := client.GetOnlineFeaturesRange(ctx, request)
+	require.Error(t, err, "Expected an error due to regular feature view requested for range query")
+	assert.Equal(t, "rpc error: code = Unknown desc = GetOnlineFeaturesRange does not support standard feature views [all_dtypes]", err.Error(), "Expected error message for unsupported feature view")
+}
+
+func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string) {
 	assert.NotNil(t, response)
 	assert.Equal(t, 1, len(response.Entities), "Should have 1 entity")
 	indexIdEntity, exists := response.Entities["index_id"]
 	assert.True(t, exists, "Should have index_id entity")
 	assert.NotNil(t, indexIdEntity)
 	assert.Equal(t, 3, len(indexIdEntity.Val), "Entity should have 3 values")
-	assert.Equal(t, 32, len(response.Results), "Should have 32 features")
+	assert.Equal(t, len(featureNames), len(response.Results), "Should have expected number of features")
 
 	for i, featureResult := range response.Results {
 		assert.Equal(t, 3, len(featureResult.Values))
@@ -163,7 +232,7 @@ func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
 			if strings.Contains(featureName, "null") {
 				// For null features, we expect the value to contain 1 entry with a nil value
 				assert.NotNil(t, value)
-				assert.Equal(t, 1, len(value.Val), "Feature %s should have one values, got %d", featureName, len(value.Val))
+				assert.Equal(t, 1, len(value.Val), "Feature %s should have one value, got %d", featureName, len(value.Val))
 				assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
 			} else {
 				assert.NotNil(t, value)

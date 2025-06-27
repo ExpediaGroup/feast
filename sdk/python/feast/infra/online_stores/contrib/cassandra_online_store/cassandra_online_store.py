@@ -242,11 +242,6 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     Table names should be quoted to make them case sensitive.
     """
 
-    use_write_time_for_ttl: Optional[bool] = False
-    """
-    If True, the expiration time is always calculated as now() on the Coordinator + TTL where, now() is the wall clock during the corresponding write operation.
-    """
-
 
 class CassandraOnlineStore(OnlineStore):
     """
@@ -489,10 +484,9 @@ class CassandraOnlineStore(OnlineStore):
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                 batch_count = 0
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
-                    # TODO: move use_write_time_for_ttl config to SortedFeatureView level
                     ttl = CassandraOnlineStore._get_ttl(
                         ttl_feature_view,
-                        online_store_config.use_write_time_for_ttl,
+                        table.use_write_time_for_ttl,
                         timestamp,
                     )
                     if ttl < 0:

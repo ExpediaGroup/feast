@@ -335,6 +335,18 @@ func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingServic
 	return &httpServer{fs: fs, loggingService: loggingService}
 }
 
+func parseIncludeMetadata(r *http.Request) (bool, error) {
+	q := r.URL.Query()
+	raw := strings.TrimSpace(q.Get("includeMetadata"))
+	if raw == "" {
+		raw = strings.TrimSpace(q.Get("include_metadata"))
+	}
+	if raw == "" {
+		return false, nil
+	}
+	return strconv.ParseBool(raw)
+}
+
 func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var featureVectors []*onlineserving.FeatureVector
@@ -349,16 +361,11 @@ func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	includeMetadataQuery := r.URL.Query().Get("includeMetadata")
-
-	includeMetadata := false
-	if includeMetadataQuery != "" {
-		includeMetadata, err = strconv.ParseBool(includeMetadataQuery)
-		if err != nil {
-			logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
-			writeJSONError(w, fmt.Errorf("Error parsing includeMetadata query parameter: %+v", err), http.StatusBadRequest)
-			return
-		}
+	includeMetadata, err := parseIncludeMetadata(r)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
+		writeJSONError(w, fmt.Errorf("error parsing includeMetadata query parameter: %w", err), http.StatusBadRequest)
+		return
 	}
 
 	decoder := json.NewDecoder(r.Body)
@@ -533,15 +540,11 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	includeMetadataQuery := r.URL.Query().Get("includeMetadata")
-	includeMetadata := false
-	if includeMetadataQuery != "" {
-		includeMetadata, err = strconv.ParseBool(includeMetadataQuery)
-		if err != nil {
-			logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
-			writeJSONError(w, fmt.Errorf("error parsing includeMetadata query parameter: %w", err), http.StatusBadRequest)
-			return
-		}
+	includeMetadata, err := parseIncludeMetadata(r)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
+		writeJSONError(w, fmt.Errorf("error parsing includeMetadata query parameter: %w", err), http.StatusBadRequest)
+		return
 	}
 
 	decoder := json.NewDecoder(r.Body)

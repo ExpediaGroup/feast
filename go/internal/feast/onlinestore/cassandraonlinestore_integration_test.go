@@ -23,14 +23,14 @@ var ctx = context.Background()
 
 func TestMain(m *testing.M) {
 	// Initialize the test environment
-	dir := "../../../integration_tests/scylladb/"
-	err := test.SetupInitializedRepo(dir)
+	dir, err := filepath.Abs("./../integration_tests/scylladb/")
+	err = test.SetupInitializedRepo(dir)
 	if err != nil {
 		fmt.Printf("Failed to set up test environment: %v\n", err)
 		os.Exit(1)
 	}
 
-	onlineStore, err = getCassandraOnlineStore()
+	onlineStore, err = getCassandraOnlineStore(dir)
 	if err != nil {
 		fmt.Printf("Failed to create CassandraOnlineStore: %v\n", err)
 		os.Exit(1)
@@ -49,8 +49,7 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-func getCassandraOnlineStore() (*CassandraOnlineStore, error) {
-	dir := "../../../integration_tests/scylladb/"
+func getCassandraOnlineStore(dir string) (*CassandraOnlineStore, error) {
 	config, err := loadRepoConfig(dir)
 	if err != nil {
 		fmt.Printf("Failed to load repo config: %v\n", err)
