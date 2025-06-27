@@ -107,40 +107,47 @@ class SortedFeatureView(FeatureView):
         for field in self.features:
             if field.name in reserved_columns:
                 raise ValueError(
-                    f"Field name '{field.name}' is reserved and cannot be used as a feature name."
+                    f"For SortedFeatureView: {self.name}: Field name '{field.name}' is reserved and cannot be used as "
+                    f"a feature name."
                 )
             if field.name in self.entities:
                 raise ValueError(
-                    f"Feature name '{field.name}' is an entity name and cannot be used as a feature."
+                    f"For SortedFeatureView: {self.name}: Feature name '{field.name}' is an entity name and cannot be "
+                    f"used as a feature."
                 )
             if field.name in feature_map:
-                raise ValueError(f"Duplicate feature name found: '{field.name}'.")
+                raise ValueError(
+                    f"For SortedFeatureView: {self.name}: Duplicate feature name found: '{field.name}'."
+                )
             feature_map[field.name] = field
 
         valid_feature_names = list(feature_map.keys())
 
         if not self.sort_keys:
             raise ValueError(
-                "SortedFeatureView must have at least one sort key defined."
+                f"For SortedFeatureView: {self.name}, must have at least one sort key defined."
             )
 
         seen_sort_keys = set()
         for sort_key in self.sort_keys:
             # Check for duplicate sort keys
             if sort_key.name in seen_sort_keys:
-                raise ValueError(f"Duplicate sort key found: '{sort_key.name}'.")
+                raise ValueError(
+                    f"Duplicate sort key found: '{sort_key.name}' in SortedFeatureView: {self.name}."
+                )
             seen_sort_keys.add(sort_key.name)
 
             # Sort keys should not conflict with entity names.
             if sort_key.name in self.entities:
                 raise ValueError(
-                    f"Sort key '{sort_key.name}' cannot be part of entity columns."
+                    f"Sort key '{sort_key.name}' refers to an entity column and cannot be used as a sort key. "
+                    f"Valid sort key names are feature names: {valid_feature_names}"
                 )
 
             # Validate that the sort key corresponds to a feature.
             if sort_key.name not in feature_map:
                 raise ValueError(
-                    f"Sort key '{sort_key.name}' does not match any feature name. "
+                    f"Sort key '{sort_key.name}' does not match any feature name in SortedFeatureView: {self.name}. "
                     f"Valid options are: {valid_feature_names}"
                 )
 
@@ -148,7 +155,8 @@ class SortedFeatureView(FeatureView):
             if sort_key.value_type != expected_value_type:
                 raise ValueError(
                     f"Sort key '{sort_key.name}' has value type {sort_key.value_type} which does not match "
-                    f"the expected feature value type {expected_value_type} for feature '{sort_key.name}'."
+                    f"the expected feature value type {expected_value_type} for feature '{sort_key.name}' in "
+                    f"SortedFeatureView: {self.name}."
                 )
 
     @property
