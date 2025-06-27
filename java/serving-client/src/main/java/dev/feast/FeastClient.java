@@ -502,6 +502,7 @@ public class FeastClient implements AutoCloseable {
     GetOnlineFeaturesRangeRequest request =
         GetOnlineFeaturesRangeRequest.newBuilder()
             .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
+            .putAllEntities(transposeEntitiesOntoColumns(rows))
             .addAllSortKeyFilters(
                 sortKeyFilters.stream()
                     .map(SortKeyFilterModel::toProto)

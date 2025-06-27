@@ -265,12 +265,13 @@ func TestProcessFeatureVectors_NotFoundReturnsNull(t *testing.T) {
 	}
 	defer featureVector.RangeValues.Release()
 
-	featureNames, _, results := processFeatureVectors(
+	featureNames, _, results, err := processFeatureVectors(
 		[]*onlineserving.RangeFeatureVector{featureVector},
 		false,
 		entitiesProto,
 	)
 
+	assert.NoError(t, err, "Error processing feature vectors")
 	assert.Equal(t, []string{"feature_2"}, featureNames)
 	values := results[0]["values"].([]interface{})
 	entity1Values := values[0].([]interface{})
@@ -317,12 +318,13 @@ func TestProcessFeatureVectors_TimestampHandling(t *testing.T) {
 	}
 	defer featureVector.RangeValues.Release()
 
-	featureNames, _, results := processFeatureVectors(
+	featureNames, _, results, err := processFeatureVectors(
 		[]*onlineserving.RangeFeatureVector{featureVector},
 		true,
 		entitiesProto,
 	)
 
+	assert.NoError(t, err, "Error processing feature vectors")
 	assert.Equal(t, []string{"feature_3"}, featureNames)
 	timestamps := results[0]["event_timestamps"].([][]interface{})
 	assert.Nil(t, timestamps[0][0])
@@ -360,12 +362,13 @@ func TestProcessFeatureVectors_NullValueReturnsNull(t *testing.T) {
 	}
 	defer featureVector.RangeValues.Release()
 
-	featureNames, _, results := processFeatureVectors(
+	featureNames, _, results, err := processFeatureVectors(
 		[]*onlineserving.RangeFeatureVector{featureVector},
 		true,
 		entitiesProto,
 	)
 
+	assert.NoError(t, err, "Error processing feature vectors")
 	assert.Equal(t, []string{"feature_4"}, featureNames)
 	values := results[0]["values"].([]interface{})
 	entity1Values := values[0].([]interface{})
