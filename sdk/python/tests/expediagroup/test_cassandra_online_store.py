@@ -93,6 +93,25 @@ def repo_config(cassandra_online_store_config, setup_keyspace) -> RepoConfig:
 
 
 @pytest.fixture(scope="session")
+def long_name_repo_config(cassandra_online_store_config, setup_keyspace) -> RepoConfig:
+    return RepoConfig(
+        registry=REGISTRY,
+        project=PROJECT,
+        provider=PROVIDER,
+        online_store=CassandraOnlineStoreConfig(
+            hosts=cassandra_online_store_config["hosts"],
+            port=cassandra_online_store_config["port"],
+            keyspace=setup_keyspace,
+            table_name_format_version=cassandra_online_store_config.get(
+                "table_name_format_version", 2
+            ),
+        ),
+        offline_store=DaskOfflineStoreConfig(),
+        entity_key_serialization_version=ENTITY_KEY_SERIALIZATION_VERSION,
+    )
+
+
+@pytest.fixture(scope="session")
 def online_store(repo_config) -> CassandraOnlineStore:
     store = CassandraOnlineStore()
     yield store
@@ -891,3 +910,47 @@ def test_update_noop_when_schema_unchanged(
     }
 
     assert before == after
+
+
+def test_resolve_table_names_v2_preserves_case(
+    cassandra_session, long_name_repo_config, online_store
+):
+    session, keyspace = cassandra_session
+    # build a feature view name so long that V2 hashing will trigger mixed-case
+    fv_name = "VeryLongFeatureViewName_" + "X" * 60
+    sfv = SortedFeatureView(
+        name=fv_name,
+        entities=[Entity(name="id", join_keys=["id"])],
+        source=FileSource(name="src", path="path", timestamp_field="ts"),
+        schema=[
+            Field(name="ts", dtype=UnixTimestamp),
+        ],
+        sort_keys=[
+            SortKey(
+                name="ts",
+                value_type=ValueType.UNIX_TIMESTAMP,
+                default_sort_order=SortOrder.Enum.ASC,
+            )
+        ],
+    )
+
+    # compute the fully‐qualified name
+    fqtable = online_store._fq_table_name(
+        keyspace,
+        long_name_repo_config.project,
+        sfv,
+        long_name_repo_config.online_store.table_name_format_version,
+    )
+
+    quoted = fqtable.split(".", 1)[1]
+    expected_plain = quoted.strip('"')
+
+    _, actual_plain = online_store._resolve_table_names(
+        long_name_repo_config, long_name_repo_config.project, sfv
+    )
+
+    assert actual_plain == expected_plain, (
+        f"resolve_table_names lowercased the identifier:\n"
+        f"  expected: {expected_plain}\n"
+        f"  got:      {actual_plain}"
+    )

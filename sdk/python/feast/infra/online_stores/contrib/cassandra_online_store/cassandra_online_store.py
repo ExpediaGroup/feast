@@ -918,7 +918,7 @@ class CassandraOnlineStore(OnlineStore):
         )
         # extract bare identifier: split off keyspace, strip quotes, lower-case
         quoted = fqtable.split(".", 1)[1]
-        plain_table_name = quoted.strip('"').lower()
+        plain_table_name = quoted.strip('"')
         return fqtable, plain_table_name
 
     def _table_exists(
@@ -937,10 +937,15 @@ class CassandraOnlineStore(OnlineStore):
         existing_cols = set(ks_meta.tables[plain_table_name].columns.keys())
 
         desired_cols = {f.name for f in table.features}
-        cql_type = "BLOB"  # Default type for features
-        for col in desired_cols - existing_cols:
-            session.execute(f"ALTER TABLE {fqtable} ADD {col} {cql_type}")
-            logger.info(f"Added column {col} to {fqtable}")
+        new_cols = desired_cols - existing_cols
+        if new_cols:
+            cql_type = "BLOB"  # Default type for features
+            col_defs = ", ".join(f"{col} {cql_type}" for col in new_cols)
+            alter_cql = f"ALTER TABLE {fqtable} ADD {col_defs}"
+            session.execute(alter_cql)
+            logger.info(
+                f"Added columns [{', '.join(sorted(new_cols))}] to table: {fqtable}"
+            )
 
     def _build_sorted_table_cql(
         self, project: str, table: SortedFeatureView, fqtable: str
