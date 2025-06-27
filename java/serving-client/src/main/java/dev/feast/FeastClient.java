@@ -427,6 +427,7 @@ public class FeastClient implements AutoCloseable {
 
   /**
    * Get online features range from Feast without indicating a project — uses the default project.
+   *
    * <p>See {@link #getOnlineFeaturesRange(List, List, List, int, boolean, String)} for
    * project-specific queries.
    *
