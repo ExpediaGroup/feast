@@ -52,7 +52,7 @@ jobs:
         run: make test-python-unit
       - name: Test Python for Mac
         if: matrix.os != 'ubuntu-latest'
-        run: python -m pytest -n 8 --color=yes sdk/python/tests --ignore=sdk/python/tests/expediagroup
+        run: python -m pytest -n 1 --color=yes sdk/python/tests --ignore=sdk/python/tests/expediagroup
 
   unit-test-go:
     runs-on: ${{ matrix.os }}
