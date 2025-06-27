@@ -140,7 +140,7 @@ func parseValueFromJSON(data json.RawMessage) (*prototypes.Value, error) {
 func processFeatureVectors(
 	vectors []*onlineserving.RangeFeatureVector,
 	includeMetadata bool,
-	entitiesProto map[string]*prototypes.RepeatedValue) ([]string, map[string]interface{}, []map[string]interface{}) {
+	entitiesProto map[string]*prototypes.RepeatedValue) ([]string, map[string]interface{}, []map[string]interface{}, error) {
 
 	entities := make(map[string]interface{})
 	for entityName, entityProto := range entitiesProto {
@@ -159,8 +159,7 @@ func processFeatureVectors(
 
 		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
 		if err != nil {
-			results = append(results, map[string]interface{}{"values": []interface{}{}})
-			continue
+			return nil, nil, nil, fmt.Errorf("error converting feature '%s' from Arrow to Proto: %w", vector.Name, err)
 		}
 
 		result := make(map[string]interface{})
@@ -174,15 +173,6 @@ func processFeatureVectors(
 
 			rangeForEntity := make([]interface{}, len(repeatedValue.Val))
 			for k, val := range repeatedValue.Val {
-				if j < len(vector.RangeStatuses) && k < len(vector.RangeStatuses[j]) {
-					statusCode := vector.RangeStatuses[j][k]
-					if statusCode == serving.FieldStatus_NOT_FOUND ||
-						statusCode == serving.FieldStatus_NULL_VALUE {
-						rangeForEntity[k] = nil
-						continue
-					}
-				}
-
 				if val == nil {
 					rangeForEntity[k] = nil
 				} else {
@@ -232,7 +222,7 @@ func processFeatureVectors(
 		results = append(results, result)
 	}
 
-	return featureNames, entities, results
+	return featureNames, entities, results, nil
 }
 
 func (u *repeatedValue) ToProto() *prototypes.RepeatedValue {
@@ -612,8 +602,13 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	featureNames, entities, results := processFeatureVectors(
+	featureNames, entities, results, err := processFeatureVectors(
 		rangeFeatureVectors, includeMetadata, entitiesProto)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Error processing feature vectors")
+		writeJSONError(w, err, http.StatusInternalServerError)
+		return
+	}
 
 	response := map[string]interface{}{
 		"metadata": map[string]interface{}{

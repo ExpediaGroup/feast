@@ -480,9 +480,12 @@ public class FeastClient implements AutoCloseable {
                   .collect(Collectors.toList()));
         }
       }
-      for (Map.Entry<String, ValueProto.Value> entry :
-          entities.get(rowIdx).getFields().entrySet()) {
-        row.setEntity(entry.getKey(), entry.getValue());
+
+      for (Map.Entry<String, ValueProto.RepeatedValue> entityEntry :
+          response.getEntitiesMap().entrySet()) {
+        if (entityEntry.getValue().getValCount() > rowIdx) {
+          row.setEntity(entityEntry.getKey(), entityEntry.getValue().getVal(rowIdx));
+        }
       }
 
       results.add(row);
@@ -532,6 +535,7 @@ public class FeastClient implements AutoCloseable {
     GetOnlineFeaturesRangeRequest request =
         GetOnlineFeaturesRangeRequest.newBuilder()
             .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
+            .putAllEntities(transposeEntitiesOntoColumns(rows))
             .addAllSortKeyFilters(
                 sortKeyFilters.stream()
                     .map(SortKeyFilterModel::toProto)
@@ -554,6 +558,7 @@ public class FeastClient implements AutoCloseable {
     GetOnlineFeaturesRangeRequest request =
         GetOnlineFeaturesRangeRequest.newBuilder()
             .setFeatures(ServingAPIProto.FeatureList.newBuilder().addAllVal(featureRefs).build())
+            .putAllEntities(transposeEntitiesOntoColumns(rows))
             .addAllSortKeyFilters(
                 sortKeyFilters.stream()
                     .map(SortKeyFilterModel::toProto)
