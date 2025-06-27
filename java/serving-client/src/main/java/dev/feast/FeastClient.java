@@ -426,7 +426,9 @@ public class FeastClient implements AutoCloseable {
   }
 
   /**
-   * Get online features from Feast, without indicating project, will use 'default'
+   * Get online features range from Feast without indicating a project — uses the default project.
+   * <p>See {@link #getOnlineFeaturesRange(List, List, List, int, boolean, String)} for
+   * project-specific queries.
    *
    * @param request {@link GetOnlineFeaturesRangeRequest} containing the request parameters.
    * @param entities list of {@link Row} to select the entities to retrieve the features for.

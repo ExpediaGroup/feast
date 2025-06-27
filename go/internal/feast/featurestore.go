@@ -386,14 +386,8 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	addDummyEntityIfNeeded(entitylessCase, joinKeyToEntityValues, numRows)
 
 	arrowMemory := memory.NewGoAllocator()
-	entityColumns, err := onlineserving.EntitiesToRangeFeatureVectors(
-		joinKeyToEntityValues, arrowMemory, numRows)
-	if err != nil {
-		return nil, err
-	}
 
-	result := make([]*onlineserving.RangeFeatureVector, 0, len(entityColumns))
-	result = append(result, entityColumns...)
+	result := make([]*onlineserving.RangeFeatureVector, 0)
 
 	groupedRangeRefs, err := onlineserving.GroupSortedFeatureRefs(
 		requestedSortedFeatureViews,

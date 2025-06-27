@@ -90,9 +90,10 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, response)
 	assert.Equal(t, 1, len(response.Entities), "Should have 1 entity")
-	entityValues := response.Entities[0]
-	assert.NotNil(t, entityValues)
-	assert.Equal(t, 3, len(entityValues.Val), "Entity should have 3 values")
+	indexIdEntity, exists := response.Entities["index_id"]
+	assert.True(t, exists, "Should have index_id entity")
+	assert.NotNil(t, indexIdEntity)
+	assert.Equal(t, 3, len(indexIdEntity.Val), "Entity should have 3 values")
 	assert.Equal(t, 32, len(response.Results), "Should have 32 features")
 
 	for i, featureResult := range response.Results {
@@ -149,9 +150,10 @@ func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, response)
 	assert.Equal(t, 1, len(response.Entities), "Should have 1 entity")
-	entityValues := response.Entities[0]
-	assert.NotNil(t, entityValues)
-	assert.Equal(t, 3, len(entityValues.Val), "Entity should have 3 values")
+	indexIdEntity, exists := response.Entities["index_id"]
+	assert.True(t, exists, "Should have index_id entity")
+	assert.NotNil(t, indexIdEntity)
+	assert.Equal(t, 3, len(indexIdEntity.Val), "Entity should have 3 values")
 	assert.Equal(t, 32, len(response.Results), "Should have 32 features")
 
 	for i, featureResult := range response.Results {
