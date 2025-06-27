@@ -267,7 +267,7 @@ def _convert_arrow_to_proto(
     logger.info(
         f"atp_initial_time: {atp_initial_time}."
     )
-
+    write_start1 = perf_counter()
     proto_values_by_column = {
         column: python_values_to_proto_values(
             table.column(column).to_numpy(zero_copy_only=False), value_type
@@ -275,11 +275,11 @@ def _convert_arrow_to_proto(
         for column, value_type in columns
     }
 
-    atp_pvc_time = perf_counter() - write_start
+    atp_pvc_time = perf_counter() - write_start1
     logger.info(
         f"atp_pvc_time: {atp_pvc_time}."
     )
-
+    write_start2 = perf_counter()
     entity_keys = [
         EntityKeyProto(
             join_keys=join_keys,
@@ -288,11 +288,11 @@ def _convert_arrow_to_proto(
         for idx in range(table.num_rows)
     ]
 
-    atp_entity_keys_time = perf_counter() - write_start
+    atp_entity_keys_time = perf_counter() - write_start2
     logger.info(
         f"atp_entity_keys_time: {atp_entity_keys_time}."
     )
-
+    write_start3 = perf_counter()
     # Serialize the features per row
     feature_dict = {
         feature.name: proto_values_by_column[feature.name]
@@ -300,11 +300,12 @@ def _convert_arrow_to_proto(
     }
     features = [dict(zip(feature_dict, vars)) for vars in zip(*feature_dict.values())]
 
-    atp_feature_dict_time = perf_counter() - write_start
+    atp_feature_dict_time = perf_counter() - write_start3
     logger.info(
         f"atp_feature_dict_time: {atp_feature_dict_time}."
     )
 
+    write_start4 = perf_counter()
     # Convert event_timestamps
     event_timestamps = [
         _coerce_datetime(val)
@@ -315,7 +316,7 @@ def _convert_arrow_to_proto(
         )
     ]
 
-    atp_event_timestamps_time = perf_counter() - write_start
+    atp_event_timestamps_time = perf_counter() - write_start4
     logger.info(
         f"atp_event_timestamps_time: {atp_event_timestamps_time}."
     )

@@ -490,6 +490,7 @@ class CassandraOnlineStore(OnlineStore):
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                 batch_count = 0
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
+                    write_start3 = perf_counter()
                     ttl = CassandraOnlineStore._get_ttl(
                         ttl_feature_view,
                         table.use_write_time_for_ttl,
@@ -537,12 +538,21 @@ class CassandraOnlineStore(OnlineStore):
                         params_str=params_str,
                     )
                     batch.add(insert_cql, feature_values)
+                    each_row_in_batch_creation_time = perf_counter() - write_start3
+                    print(
+                        f"each_row_in_batch_creation_time: {each_row_in_batch_creation_time}."
+                    )
                     batch_count += 1
 
                     if (
                         online_store_config.write_batch_size is not None
                         and 0 < online_store_config.write_batch_size <= batch_count
                     ):
+                        batch_creation_time = perf_counter() - write_start3
+                        print(
+                            f"batch_creation_time: {batch_creation_time}."
+                        )
+                        write_start4 = perf_counter()
                         CassandraOnlineStore._apply_batch(
                             rate_limiter,
                             batch,
@@ -554,8 +564,13 @@ class CassandraOnlineStore(OnlineStore):
                         )
                         batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                         batch_count = 0
+                        apply_batch_time = perf_counter() - write_start4
+                        print(
+                            f"apply_batch_time: {apply_batch_time}."
+                        )
 
                 if batch_count > 0:
+                    write_start5 = perf_counter()
                     CassandraOnlineStore._apply_batch(
                         rate_limiter,
                         batch,
@@ -564,6 +579,10 @@ class CassandraOnlineStore(OnlineStore):
                         concurrent_queue,
                         on_success,
                         on_failure,
+                    )
+                    apply_last_batch_time = perf_counter() - write_start5
+                    print(
+                        f"apply_last_batch_time: {apply_last_batch_time}."
                     )
         else:
             insert_cql = self._get_cql_statement(
@@ -618,6 +637,10 @@ class CassandraOnlineStore(OnlineStore):
                         on_failure,
                     )
 
+        batch_preparation_time = perf_counter() - write_start
+        print(
+            f"all_batch_submission_time: {batch_preparation_time}."
+        )
         if ex:
             raise ex
 
