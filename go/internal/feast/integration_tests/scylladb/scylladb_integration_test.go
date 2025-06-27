@@ -98,6 +98,49 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	assertResponseData(t, response, featureNames)
 }
 
+func TestGetOnlineFeaturesRange_includesDuplicatedRequestedFeatures(t *testing.T) {
+	entities := make(map[string]*types.RepeatedValue)
+
+	entities["index_id"] = &types.RepeatedValue{
+		Val: []*types.Value{
+			{Val: &types.Value_Int64Val{Int64Val: 1}},
+			{Val: &types.Value_Int64Val{Int64Val: 2}},
+			{Val: &types.Value_Int64Val{Int64Val: 3}},
+		},
+	}
+
+	featureNames := []string{"int_val", "int_val"}
+
+	var featureNamesWithFeatureView []string
+
+	for _, featureName := range featureNames {
+		featureNamesWithFeatureView = append(featureNamesWithFeatureView, "all_dtypes_sorted:"+featureName)
+	}
+
+	request := &serving.GetOnlineFeaturesRangeRequest{
+		Kind: &serving.GetOnlineFeaturesRangeRequest_Features{
+			Features: &serving.FeatureList{
+				Val: featureNamesWithFeatureView,
+			},
+		},
+		Entities: entities,
+		SortKeyFilters: []*serving.SortKeyFilter{
+			{
+				SortKeyName: "event_timestamp",
+				Query: &serving.SortKeyFilter_Range{
+					Range: &serving.SortKeyFilter_RangeQuery{
+						RangeStart: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 0}},
+					},
+				},
+			},
+		},
+		Limit: 10,
+	}
+	response, err := client.GetOnlineFeaturesRange(ctx, request)
+	assert.NoError(t, err)
+	assertResponseData(t, response, featureNames)
+}
+
 func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
 	entities := make(map[string]*types.RepeatedValue)
 
@@ -218,25 +261,19 @@ func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
 
 func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string) {
 	assert.NotNil(t, response)
-	assert.Equal(t, len(featureNames)+1, len(response.Results), "Expected %d results, got %d", len(featureNames)+1, len(response.Results))
+	assert.Equal(t, len(featureNames), len(response.Results), "Expected %d results, got %d", len(featureNames), len(response.Results))
 	for i, featureResult := range response.Results {
 		assert.Equal(t, 3, len(featureResult.Values))
 		for _, value := range featureResult.Values {
-			if i == 0 {
-				// The first result is the entity key which should only have 1 entry
+			featureName := featureNames[i] // The first entry is the entity key
+			if strings.Contains(featureName, "null") {
+				// For null features, we expect the value to contain 1 entry with a nil value
 				assert.NotNil(t, value)
-				assert.Equal(t, 1, len(value.Val), "Entity Key should have 1 value, got %d", len(value.Val))
+				assert.Equal(t, 1, len(value.Val), "Feature %s should have one values, got %d", featureName, len(value.Val))
+				assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
 			} else {
-				featureName := featureNames[i-1] // The first entry is the entity key
-				if strings.Contains(featureName, "null") {
-					// For null features, we expect the value to contain 1 entry with a nil value
-					assert.NotNil(t, value)
-					assert.Equal(t, 1, len(value.Val), "Feature %s should have one values, got %d", featureName, len(value.Val))
-					assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
-				} else {
-					assert.NotNil(t, value)
-					assert.Equal(t, 10, len(value.Val), "Feature %s should have 10 values, got %d", featureName, len(value.Val))
-				}
+				assert.NotNil(t, value)
+				assert.Equal(t, 10, len(value.Val), "Feature %s should have 10 values, got %d", featureName, len(value.Val))
 			}
 		}
 	}
