@@ -247,7 +247,7 @@ func TestProcessFeatureVectors_NotFoundReturnsNull(t *testing.T) {
 
 	// Entity 1: NOT_FOUND
 	featureBuilder.Append(true)
-	valueBuilder.Append(0)
+	valueBuilder.AppendNull()
 	featureBuilder.Append(true)
 	valueBuilder.Append(42)
 
@@ -265,7 +265,7 @@ func TestProcessFeatureVectors_NotFoundReturnsNull(t *testing.T) {
 	}
 	defer featureVector.RangeValues.Release()
 
-	featureNames, _, results, err := processFeatureVectors(
+	featureNames, entities, results, err := processFeatureVectors(
 		[]*onlineserving.RangeFeatureVector{featureVector},
 		false,
 		entitiesProto,
@@ -273,7 +273,14 @@ func TestProcessFeatureVectors_NotFoundReturnsNull(t *testing.T) {
 
 	assert.NoError(t, err, "Error processing feature vectors")
 	assert.Equal(t, []string{"feature_2"}, featureNames)
+
+	entityValues := entities["entity_key"].([]interface{})
+	assert.Equal(t, 2, len(entityValues))
+	assert.Equal(t, "entity_1", entityValues[0])
+	assert.Equal(t, "entity_2", entityValues[1])
+
 	values := results[0]["values"].([]interface{})
+	assert.Equal(t, 2, len(values))
 	entity1Values := values[0].([]interface{})
 	assert.Equal(t, 1, len(entity1Values))
 	assert.Nil(t, entity1Values[0])
@@ -348,7 +355,7 @@ func TestProcessFeatureVectors_NullValueReturnsNull(t *testing.T) {
 	valueBuilder := featureBuilder.ValueBuilder().(*array.Float32Builder)
 
 	featureBuilder.Append(true)
-	valueBuilder.Append(0.0)
+	valueBuilder.AppendNull()
 
 	featureVector := &onlineserving.RangeFeatureVector{
 		Name:        "feature_4",
@@ -362,7 +369,7 @@ func TestProcessFeatureVectors_NullValueReturnsNull(t *testing.T) {
 	}
 	defer featureVector.RangeValues.Release()
 
-	featureNames, _, results, err := processFeatureVectors(
+	featureNames, entities, results, err := processFeatureVectors(
 		[]*onlineserving.RangeFeatureVector{featureVector},
 		true,
 		entitiesProto,
@@ -370,10 +377,16 @@ func TestProcessFeatureVectors_NullValueReturnsNull(t *testing.T) {
 
 	assert.NoError(t, err, "Error processing feature vectors")
 	assert.Equal(t, []string{"feature_4"}, featureNames)
-	values := results[0]["values"].([]interface{})
-	entity1Values := values[0].([]interface{})
-	assert.Equal(t, 1, len(entity1Values))
-	assert.Nil(t, entity1Values[0])
+
+	entityValues := entities["entity_key"].([]interface{})
+	assert.Equal(t, 1, len(entityValues))
+	assert.Equal(t, "entity_1", entityValues[0])
+
+	featureValues := results[0]["values"].([]interface{})
+	entityFeatureValues := featureValues[0].([]interface{})
+	assert.Equal(t, 1, len(entityFeatureValues))
+	assert.Nil(t, entityFeatureValues[0])
+
 	timestamps := results[0]["event_timestamps"].([][]interface{})
 	assert.Nil(t, timestamps[0][0])
 }
