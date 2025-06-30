@@ -709,7 +709,10 @@ class CassandraOnlineStore(OnlineStore):
         project = config.project
 
         for table in tables_to_keep:
-            self._create_table(config, project, table)
+            if self._table_exists(config, project, table):
+                self._alter_table(config, project, table)
+            else:
+                self._create_table(config, project, table)
         for table in tables_to_delete:
             self._drop_table(config, project, table)
 
@@ -892,6 +895,51 @@ class CassandraOnlineStore(OnlineStore):
             f"Creating table {fqtable} in keyspace {keyspace} if not exists using {create_cql}."
         )
         session.execute(create_cql)
+
+    def _resolve_table_names(
+        self, config: RepoConfig, project: str, table: FeatureView
+    ) -> Tuple[str, str]:
+        """
+        Returns (fqtable, plain_table_name) for a given FeatureView,
+        where fqtable is '"keyspace"."table"' and plain_table_name
+        is the lower-cased unquoted table identifier.
+        """
+        fqtable = CassandraOnlineStore._fq_table_name(
+            self._keyspace,
+            project,
+            table,
+            config.online_store.table_name_format_version,
+        )
+        # extract bare identifier: split off keyspace, strip quotes, lower-case
+        quoted = fqtable.split(".", 1)[1]
+        plain_table_name = quoted.strip('"')
+        return fqtable, plain_table_name
+
+    def _table_exists(
+        self, config: RepoConfig, project: str, table: FeatureView
+    ) -> bool:
+        self._get_session(config)
+        _, plain_table_name = self._resolve_table_names(config, project, table)
+        ks_meta = self._cluster.metadata.keyspaces[self._keyspace]
+        return plain_table_name in ks_meta.tables
+
+    def _alter_table(self, config: RepoConfig, project: str, table: FeatureView):
+        session = self._get_session(config)
+        fqtable, plain_table_name = self._resolve_table_names(config, project, table)
+
+        ks_meta = self._cluster.metadata.keyspaces[self._keyspace]
+        existing_cols = set(ks_meta.tables[plain_table_name].columns.keys())
+
+        desired_cols = {f.name for f in table.features}
+        new_cols = desired_cols - existing_cols
+        if new_cols:
+            cql_type = "BLOB"  # Default type for features
+            col_defs = ", ".join(f"{col} {cql_type}" for col in new_cols)
+            alter_cql = f"ALTER TABLE {fqtable} ADD ({col_defs})"
+            session.execute(alter_cql)
+            logger.info(
+                f"Added columns [{', '.join(sorted(new_cols))}] to table: {fqtable}"
+            )
 
     def _build_sorted_table_cql(
         self, project: str, table: SortedFeatureView, fqtable: str
