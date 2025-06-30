@@ -47,9 +47,6 @@ jobs:
       - name: Test EG tests
         if: matrix.os == 'ubuntu-latest'
         run: python -m pytest -n 1 --color=yes sdk/python/tests/expediagroup/
-      - name: Test EG tests for Mac
-        if: matrix.os != 'ubuntu-latest'
-        run: python -m pytest -n 1 --color=yes sdk/python/tests/expediagroup/ --ignore=sdk/python/tests/expediagroup/test_eg_milvus_online_store.py
       - name: Test Python
         if: matrix.os == 'ubuntu-latest'
         run: make test-python-unit
