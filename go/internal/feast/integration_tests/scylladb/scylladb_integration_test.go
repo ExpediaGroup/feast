@@ -98,6 +98,49 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	assertResponseData(t, response, featureNames)
 }
 
+func TestGetOnlineFeaturesRange_includesDuplicatedRequestedFeatures(t *testing.T) {
+	entities := make(map[string]*types.RepeatedValue)
+
+	entities["index_id"] = &types.RepeatedValue{
+		Val: []*types.Value{
+			{Val: &types.Value_Int64Val{Int64Val: 1}},
+			{Val: &types.Value_Int64Val{Int64Val: 2}},
+			{Val: &types.Value_Int64Val{Int64Val: 3}},
+		},
+	}
+
+	featureNames := []string{"int_val", "int_val"}
+
+	var featureNamesWithFeatureView []string
+
+	for _, featureName := range featureNames {
+		featureNamesWithFeatureView = append(featureNamesWithFeatureView, "all_dtypes_sorted:"+featureName)
+	}
+
+	request := &serving.GetOnlineFeaturesRangeRequest{
+		Kind: &serving.GetOnlineFeaturesRangeRequest_Features{
+			Features: &serving.FeatureList{
+				Val: featureNamesWithFeatureView,
+			},
+		},
+		Entities: entities,
+		SortKeyFilters: []*serving.SortKeyFilter{
+			{
+				SortKeyName: "event_timestamp",
+				Query: &serving.SortKeyFilter_Range{
+					Range: &serving.SortKeyFilter_RangeQuery{
+						RangeStart: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 0}},
+					},
+				},
+			},
+		},
+		Limit: 10,
+	}
+	response, err := client.GetOnlineFeaturesRange(ctx, request)
+	assert.NoError(t, err)
+	assertResponseData(t, response, featureNames)
+}
+
 func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
 	entities := make(map[string]*types.RepeatedValue)
 

@@ -442,6 +442,11 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		result = append(result, vectors...)
 	}
 
+	result, err = onlineserving.KeepOnlyRequestedFeatures(result, featureRefs, featureService, fullFeatureNames)
+	if err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
 
