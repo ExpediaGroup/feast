@@ -946,36 +946,6 @@ func getEventTimestamp(timestamps []timestamppb.Timestamp, index int) *timestamp
 	return &timestamppb.Timestamp{}
 }
 
-func buildDeduplicatedFeatureNamesMap(features []string) ([]ViewFeatures, error) {
-	var result []ViewFeatures
-	viewIndex := make(map[string]int)
-	featureSet := make(map[string]map[string]bool)
-
-	for _, featureRef := range features {
-		featureViewName, featureName, err := ParseFeatureReference(featureRef)
-		if err != nil {
-			return nil, err
-		}
-
-		if idx, exists := viewIndex[featureViewName]; exists {
-			if !featureSet[featureViewName][featureName] {
-				result[idx].Features = append(result[idx].Features, featureName)
-				featureSet[featureViewName][featureName] = true
-			}
-		} else {
-			viewIndex[featureViewName] = len(result)
-			result = append(result, ViewFeatures{
-				ViewName: featureViewName,
-				Features: []string{featureName},
-			})
-			featureSet[featureViewName] = make(map[string]bool)
-			featureSet[featureViewName][featureName] = true
-		}
-	}
-
-	return result, nil
-}
-
 func KeepOnlyRequestedFeatures[T any](
 	vectors []T,
 	requestedFeatureRefs []string,
@@ -992,7 +962,7 @@ func KeepOnlyRequestedFeatures[T any](
 		} else if rangeFeatureVector, ok := any(vector).(*RangeFeatureVector); ok {
 			vectorsByName[rangeFeatureVector.Name] = vector
 		} else {
-			return nil, errors.GrpcInternalErrorf("unsupported vector type: %T", vector)
+			return nil, fmt.Errorf("unsupported vector type: %T", vector)
 		}
 	}
 
@@ -1029,7 +999,7 @@ func KeepOnlyRequestedFeatures[T any](
 				rangeFeatureVector.RangeValues.Release()
 			}
 		} else {
-			return nil, errors.GrpcInternalErrorf("unsupported vector type: %T", vector)
+			return nil, fmt.Errorf("unsupported vector type: %T", vector)
 		}
 	}
 
