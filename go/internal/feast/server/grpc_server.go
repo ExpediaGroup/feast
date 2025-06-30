@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"google.golang.org/grpc/reflection"
+
 	"github.com/feast-dev/feast/go/internal/feast"
 	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
@@ -13,7 +15,6 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
-	"google.golang.org/grpc/reflection"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
 	grpcPrometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
@@ -178,7 +179,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
 		if err != nil {
 			logSpanContext.Error().Err(err).Msgf("Error converting feature '%s' from Arrow to Proto", vector.Name)
-			return nil, errors.GrpcFromError(err)
+			return nil, err
 		}
 
 		featureVector := &serving.GetOnlineFeaturesRangeResponse_RangeFeatureVector{
@@ -189,8 +190,8 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 			rangeStatuses := make([]*serving.RepeatedFieldStatus, len(rangeValues))
 			for j := range rangeValues {
 				statusValues := make([]serving.FieldStatus, len(vector.RangeStatuses[j]))
-				for k, fieldStatus := range vector.RangeStatuses[j] {
-					statusValues[k] = fieldStatus
+				for k, status := range vector.RangeStatuses[j] {
+					statusValues[k] = status
 				}
 				rangeStatuses[j] = &serving.RepeatedFieldStatus{Status: statusValues}
 			}
@@ -201,7 +202,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 				for k, ts := range timestamps {
 					timestampValues[k] = &prototypes.Value{
 						Val: &prototypes.Value_UnixTimestampVal{
-							UnixTimestampVal: types.GetTimestampSeconds(ts),
+							UnixTimestampVal: types.GetTimestampMillis(ts),
 						},
 					}
 				}
