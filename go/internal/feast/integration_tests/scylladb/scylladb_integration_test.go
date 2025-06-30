@@ -261,15 +261,21 @@ func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
 
 func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string) {
 	assert.NotNil(t, response)
-	assert.Equal(t, len(featureNames), len(response.Results), "Expected %d results, got %d", len(featureNames), len(response.Results))
+	assert.Equal(t, 1, len(response.Entities), "Should have 1 entity")
+	indexIdEntity, exists := response.Entities["index_id"]
+	assert.True(t, exists, "Should have index_id entity")
+	assert.NotNil(t, indexIdEntity)
+	assert.Equal(t, 3, len(indexIdEntity.Val), "Entity should have 3 values")
+	assert.Equal(t, len(featureNames), len(response.Results), "Should have expected number of features")
+
 	for i, featureResult := range response.Results {
 		assert.Equal(t, 3, len(featureResult.Values))
 		for _, value := range featureResult.Values {
-			featureName := featureNames[i] // The first entry is the entity key
+			featureName := featureNames[i]
 			if strings.Contains(featureName, "null") {
 				// For null features, we expect the value to contain 1 entry with a nil value
 				assert.NotNil(t, value)
-				assert.Equal(t, 1, len(value.Val), "Feature %s should have one values, got %d", featureName, len(value.Val))
+				assert.Equal(t, 1, len(value.Val), "Feature %s should have one value, got %d", featureName, len(value.Val))
 				assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
 			} else {
 				assert.NotNil(t, value)
