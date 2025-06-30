@@ -278,12 +278,10 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
-	assert.Equal(t, 3, len(result), "Should have 3 vectors (1 entity + 2 features)")
-	var driverIdVector, accRateVector, convRateVector *onlineserving.RangeFeatureVector
+	assert.Equal(t, 2, len(result), "Should have 2 vectors")
+	var accRateVector, convRateVector *onlineserving.RangeFeatureVector
 	for _, r := range result {
 		switch r.Name {
-		case "driver_id":
-			driverIdVector = r
 		case "driver_stats__acc_rate":
 			accRateVector = r
 		case "driver_stats__conv_rate":
@@ -291,7 +289,6 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		}
 	}
 
-	assert.NotNil(t, driverIdVector)
 	assert.NotNil(t, accRateVector)
 	assert.NotNil(t, convRateVector)
 
@@ -366,14 +363,8 @@ func testGetOnlineFeaturesRange(
 	}
 
 	arrowAllocator := memory.NewGoAllocator()
-	entityColumns, err := onlineserving.EntitiesToRangeFeatureVectors(
-		joinKeyToEntityValues, arrowAllocator, numRows)
-	if err != nil {
-		return nil, err
-	}
 
-	result := make([]*onlineserving.RangeFeatureVector, 0, len(entityColumns))
-	result = append(result, entityColumns...)
+	result := make([]*onlineserving.RangeFeatureVector, 0)
 
 	groupedRangeRefs, err := onlineserving.GroupSortedFeatureRefs(
 		sortedFeatureViews,
