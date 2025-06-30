@@ -299,6 +299,7 @@ public class FeastClientTest {
                 .addVal("driver:rating")
                 .addVal("driver:null_value")
                 .build())
+        .putEntities("driver_id", ValueProto.RepeatedValue.newBuilder().addVal(intValue(1)).build())
         .addAllSortKeyFilters(
             Arrays.asList(
                 ServingAPIProto.SortKeyFilter.newBuilder()
@@ -342,6 +343,7 @@ public class FeastClientTest {
                         .addVal("driver:rating")
                         .addVal("driver:null_value"))
                 .build())
+        .putEntities("driver_id", ValueProto.RepeatedValue.newBuilder().addVal(intValue(1)).build())
         .build();
   }
 

@@ -218,25 +218,25 @@ func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
 
 func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string) {
 	assert.NotNil(t, response)
-	assert.Equal(t, len(featureNames)+1, len(response.Results), "Expected %d results, got %d", len(featureNames)+1, len(response.Results))
+	assert.Equal(t, 1, len(response.Entities), "Should have 1 entity")
+	indexIdEntity, exists := response.Entities["index_id"]
+	assert.True(t, exists, "Should have index_id entity")
+	assert.NotNil(t, indexIdEntity)
+	assert.Equal(t, 3, len(indexIdEntity.Val), "Entity should have 3 values")
+	assert.Equal(t, len(featureNames), len(response.Results), "Should have expected number of features")
+
 	for i, featureResult := range response.Results {
 		assert.Equal(t, 3, len(featureResult.Values))
 		for _, value := range featureResult.Values {
-			if i == 0 {
-				// The first result is the entity key which should only have 1 entry
+			featureName := featureNames[i]
+			if strings.Contains(featureName, "null") {
+				// For null features, we expect the value to contain 1 entry with a nil value
 				assert.NotNil(t, value)
-				assert.Equal(t, 1, len(value.Val), "Entity Key should have 1 value, got %d", len(value.Val))
+				assert.Equal(t, 1, len(value.Val), "Feature %s should have one value, got %d", featureName, len(value.Val))
+				assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
 			} else {
-				featureName := featureNames[i-1] // The first entry is the entity key
-				if strings.Contains(featureName, "null") {
-					// For null features, we expect the value to contain 1 entry with a nil value
-					assert.NotNil(t, value)
-					assert.Equal(t, 1, len(value.Val), "Feature %s should have one values, got %d", featureName, len(value.Val))
-					assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
-				} else {
-					assert.NotNil(t, value)
-					assert.Equal(t, 10, len(value.Val), "Feature %s should have 10 values, got %d", featureName, len(value.Val))
-				}
+				assert.NotNil(t, value)
+				assert.Equal(t, 10, len(value.Val), "Feature %s should have 10 values, got %d", featureName, len(value.Val))
 			}
 		}
 	}

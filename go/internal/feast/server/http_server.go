@@ -137,77 +137,51 @@ func parseValueFromJSON(data json.RawMessage) (*prototypes.Value, error) {
 	return nil, fmt.Errorf("could not parse JSON value: %s", string(data))
 }
 
-func processFeatureVectors(vectors []*onlineserving.RangeFeatureVector, includeMetadata bool, entitiesProto map[string]*prototypes.RepeatedValue) ([]string, []map[string]interface{}) {
-	featureNames := make([]string, len(vectors))
-	results := make([]map[string]interface{}, len(vectors))
+func processFeatureVectors(
+	vectors []*onlineserving.RangeFeatureVector,
+	includeMetadata bool,
+	entitiesProto map[string]*prototypes.RepeatedValue) ([]string, map[string]interface{}, []map[string]interface{}, error) {
 
-	entityNames := make(map[string]bool)
-	for entityName := range entitiesProto {
-		entityNames[entityName] = true
+	entities := make(map[string]interface{})
+	for entityName, entityProto := range entitiesProto {
+		entityValues := make([]interface{}, len(entityProto.Val))
+		for j, val := range entityProto.Val {
+			entityValues[j] = types.ValueTypeToGoType(val)
+		}
+		entities[entityName] = entityValues
 	}
 
-	for i, vector := range vectors {
-		featureNames[i] = vector.Name
-		result := make(map[string]interface{})
+	featureNames := make([]string, 0, len(vectors))
+	results := make([]map[string]interface{}, 0, len(vectors))
+
+	for _, vector := range vectors {
+		featureNames = append(featureNames, vector.Name)
 
 		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
 		if err != nil {
-			result["values"] = []interface{}{}
-			results[i] = result
-			continue
+			return nil, nil, nil, fmt.Errorf("error converting feature '%s' from Arrow to Proto: %w", vector.Name, err)
 		}
 
-		isEntity := entityNames[vector.Name]
+		result := make(map[string]interface{})
 
-		if isEntity {
-			entityValues := make([]interface{}, len(rangeValues))
-			for j, repeatedValue := range rangeValues {
-				if repeatedValue == nil || len(repeatedValue.Val) == 0 {
-					entityValues[j] = nil
+		simplifiedValues := make([]interface{}, len(rangeValues))
+		for j, repeatedValue := range rangeValues {
+			if repeatedValue == nil || len(repeatedValue.Val) == 0 {
+				simplifiedValues[j] = nil
+				continue
+			}
+
+			rangeForEntity := make([]interface{}, len(repeatedValue.Val))
+			for k, val := range repeatedValue.Val {
+				if val == nil {
+					rangeForEntity[k] = nil
 				} else {
-					if j < len(vector.RangeStatuses) && len(vector.RangeStatuses[j]) > 0 {
-						statusCode := vector.RangeStatuses[j][0]
-						if statusCode == serving.FieldStatus_NOT_FOUND ||
-							statusCode == serving.FieldStatus_NULL_VALUE {
-							entityValues[j] = nil
-						} else {
-							entityValues[j] = types.ValueTypeToGoType(repeatedValue.Val[0])
-						}
-					} else {
-						entityValues[j] = types.ValueTypeToGoType(repeatedValue.Val[0])
-					}
+					rangeForEntity[k] = types.ValueTypeToGoType(val)
 				}
 			}
-			result["values"] = entityValues
-		} else {
-			simplifiedValues := make([]interface{}, len(rangeValues))
-			for j, repeatedValue := range rangeValues {
-				if repeatedValue == nil || len(repeatedValue.Val) == 0 {
-					simplifiedValues[j] = nil
-					continue
-				}
-
-				rangeForEntity := make([]interface{}, len(repeatedValue.Val))
-				for k, val := range repeatedValue.Val {
-					if j < len(vector.RangeStatuses) && k < len(vector.RangeStatuses[j]) {
-						statusCode := vector.RangeStatuses[j][k]
-						if statusCode == serving.FieldStatus_NOT_FOUND ||
-							statusCode == serving.FieldStatus_NULL_VALUE {
-							rangeForEntity[k] = nil
-							continue
-						}
-					}
-
-					if val == nil {
-						rangeForEntity[k] = nil
-					} else {
-						rangeForEntity[k] = types.ValueTypeToGoType(val)
-					}
-				}
-				simplifiedValues[j] = rangeForEntity
-			}
-			result["values"] = simplifiedValues
+			simplifiedValues[j] = rangeForEntity
 		}
+		result["values"] = simplifiedValues
 
 		if includeMetadata {
 			if len(vector.RangeStatuses) > 0 {
@@ -245,10 +219,10 @@ func processFeatureVectors(vectors []*onlineserving.RangeFeatureVector, includeM
 			}
 		}
 
-		results[i] = result
+		results = append(results, result)
 	}
 
-	return featureNames, results
+	return featureNames, entities, results, nil
 }
 
 func (u *repeatedValue) ToProto() *prototypes.RepeatedValue {
@@ -631,13 +605,20 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	featureNames, results := processFeatureVectors(rangeFeatureVectors, includeMetadata, entitiesProto)
+	featureNames, entities, results, err := processFeatureVectors(
+		rangeFeatureVectors, includeMetadata, entitiesProto)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Error processing feature vectors")
+		writeJSONError(w, err, http.StatusInternalServerError)
+		return
+	}
 
 	response := map[string]interface{}{
 		"metadata": map[string]interface{}{
 			"feature_names": featureNames,
 		},
-		"results": results,
+		"entities": entities,
+		"results":  results,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

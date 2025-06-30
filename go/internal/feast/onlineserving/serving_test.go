@@ -1112,60 +1112,6 @@ func TestGetUniqueEntityRows_MultipleJoinKeys(t *testing.T) {
 	assert.Equal(t, []int{1}, mappingIndices[1])
 }
 
-func TestEntitiesToRangeFeatureVectors(t *testing.T) {
-	entityColumns := map[string]*types.RepeatedValue{
-		"driver_id": {Val: []*types.Value{
-			{Val: &types.Value_Int32Val{Int32Val: 1}},
-			{Val: &types.Value_Int32Val{Int32Val: 2}},
-			{Val: &types.Value_Int32Val{Int32Val: 3}},
-		}},
-		"customer_id": {Val: []*types.Value{
-			{Val: &types.Value_StringVal{StringVal: "A"}},
-			{Val: &types.Value_StringVal{StringVal: "B"}},
-			{Val: &types.Value_StringVal{StringVal: "C"}},
-		}},
-	}
-
-	arrowAllocator := memory.NewGoAllocator()
-	numRows := 3
-
-	vectors, err := EntitiesToRangeFeatureVectors(entityColumns, arrowAllocator, numRows)
-
-	assert.NoError(t, err)
-	assert.Len(t, vectors, 2)
-
-	var driverVector, customerVector *RangeFeatureVector
-	for _, vector := range vectors {
-		if vector.Name == "driver_id" {
-			driverVector = vector
-		} else if vector.Name == "customer_id" {
-			customerVector = vector
-		}
-	}
-
-	require.NotNil(t, driverVector)
-	assert.Equal(t, "driver_id", driverVector.Name)
-	assert.Len(t, driverVector.RangeStatuses, numRows)
-	assert.Len(t, driverVector.RangeTimestamps, numRows)
-
-	for i := 0; i < numRows; i++ {
-		assert.Len(t, driverVector.RangeStatuses[i], 1)
-		assert.Equal(t, serving.FieldStatus_PRESENT, driverVector.RangeStatuses[i][0])
-		assert.Len(t, driverVector.RangeTimestamps[i], 1)
-	}
-
-	require.NotNil(t, customerVector)
-	assert.Equal(t, "customer_id", customerVector.Name)
-	assert.Len(t, customerVector.RangeStatuses, numRows)
-	assert.Len(t, customerVector.RangeTimestamps, numRows)
-
-	assert.NotNil(t, driverVector.RangeValues)
-	assert.NotNil(t, customerVector.RangeValues)
-
-	driverVector.RangeValues.Release()
-	customerVector.RangeValues.Release()
-}
-
 func TestTransposeRangeFeatureRowsIntoColumns(t *testing.T) {
 	arrowAllocator := memory.NewGoAllocator()
 	numRows := 2
