@@ -483,9 +483,15 @@ public class FeastClient implements AutoCloseable {
 
       for (Map.Entry<String, ValueProto.RepeatedValue> entityEntry :
           response.getEntitiesMap().entrySet()) {
-        if (entityEntry.getValue().getValCount() > rowIdx) {
-          row.setEntity(entityEntry.getKey(), entityEntry.getValue().getVal(rowIdx));
+        if (entityEntry.getValue().getValCount() <= rowIdx) {
+          throw new IllegalStateException(
+              String.format(
+                  "Entity %s has fewer values (%d) than feature rows (%d)",
+                  entityEntry.getKey(),
+                  entityEntry.getValue().getValCount(),
+                  response.getResults(0).getValuesCount()));
         }
+        row.setEntity(entityEntry.getKey(), entityEntry.getValue().getVal(rowIdx));
       }
 
       results.add(row);
