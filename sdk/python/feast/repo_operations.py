@@ -14,6 +14,7 @@ from typing import List, Optional, Set, Union
 
 import click
 from click.exceptions import BadParameter
+from httpx import HTTPStatusError
 
 from feast import PushSource, SortedFeatureView
 from feast.batch_feature_view import BatchFeatureView
@@ -377,6 +378,14 @@ def validate_objects_for_apply(
                     obj.name,
                 )
                 current = None
+            except HTTPStatusError as http_exc:
+                if http_exc.response.status_code == 404:
+                    logger.warning(
+                        "'%s' not found (HTTP 404); treating as new object.", obj.name
+                    )
+                    current = None
+                else:
+                    raise
 
             if current is not None:
                 ok, reasons = current.is_update_compatible_with(obj)
