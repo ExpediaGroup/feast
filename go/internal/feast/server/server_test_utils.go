@@ -15,7 +15,7 @@ import (
 )
 
 // Starts a new grpc server, registers the serving service and returns a client.
-func GetClient(ctx context.Context, offlineStoreType string, basePath string, logPath string) (serving.ServingServiceClient, func()) {
+func GetClient(ctx context.Context, basePath string, logPath string) (serving.ServingServiceClient, func()) {
 	buffer := 1024 * 1024
 	listener := bufconn.Listen(buffer)
 

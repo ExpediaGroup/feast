@@ -474,6 +474,14 @@ func TestValueTypeToGoType(t *testing.T) {
 		{Val: &types.Value_DoubleVal{DoubleVal: 10.0}},
 		{Val: &types.Value_BoolVal{BoolVal: true}},
 		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
+		{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"a", "b", "c"}}}},
+		{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{1, 2}, {3, 4}}}}},
+		{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{1, 2, 3}}}},
+		{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: []int64{4, 5, 6}}}},
+		{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{7.1, 8.2}}}},
+		{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{9.3, 10.4}}}},
+		{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{true, false}}}},
+		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
 		{Val: &types.Value_NullVal{NullVal: types.Null_NULL}},
 		nil,
 	}
@@ -487,12 +495,41 @@ func TestValueTypeToGoType(t *testing.T) {
 		float64(10.0),
 		true,
 		timestamp,
+		[]string{"a", "b", "c"},
+		[][]byte{{1, 2}, {3, 4}},
+		[]int32{1, 2, 3},
+		[]int64{4, 5, 6},
+		[]float32{7.1, 8.2},
+		[]float64{9.3, 10.4},
+		[]bool{true, false},
+		[]int64{timestamp, timestamp + 3600},
 		nil,
 		nil,
 	}
 
 	for i, testCase := range testCases {
 		actual := ValueTypeToGoType(testCase)
+		assert.Equal(t, expectedTypes[i], actual)
+	}
+}
+
+func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
+	timestamp := time.Now().UnixMilli()
+	testCases := []*types.Value{
+		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
+		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
+	}
+
+	expectedTypes := []interface{}{
+		time.UnixMilli(timestamp).UTC().Format(time.RFC3339),
+		[]string{
+			time.UnixMilli(timestamp).UTC().Format(time.RFC3339),
+			time.UnixMilli(timestamp + 3600).UTC().Format(time.RFC3339),
+		},
+	}
+
+	for i, testCase := range testCases {
+		actual := ValueTypeToGoTypeTimestampAsString(testCase)
 		assert.Equal(t, expectedTypes[i], actual)
 	}
 }

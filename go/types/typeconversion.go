@@ -698,6 +698,14 @@ func appendNullByType(builder array.Builder) {
 }
 
 func ValueTypeToGoType(value *types.Value) interface{} {
+	return valueTypeToGoTypeTimestampAsString(value, false)
+}
+
+func ValueTypeToGoTypeTimestampAsString(value *types.Value) interface{} {
+	return valueTypeToGoTypeTimestampAsString(value, true)
+}
+
+func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bool) interface{} {
 	if value == nil || value.Val == nil {
 		return nil
 	}
@@ -732,8 +740,18 @@ func ValueTypeToGoType(value *types.Value) interface{} {
 	case *types.Value_DoubleListVal:
 		return x.DoubleListVal.Val
 	case *types.Value_UnixTimestampVal:
+		if timestampAsString {
+			return time.UnixMilli(x.UnixTimestampVal).UTC().Format(time.RFC3339)
+		}
 		return x.UnixTimestampVal
 	case *types.Value_UnixTimestampListVal:
+		if timestampAsString {
+			timestamps := make([]string, len(x.UnixTimestampListVal.Val))
+			for i, ts := range x.UnixTimestampListVal.Val {
+				timestamps[i] = time.UnixMilli(ts).UTC().Format(time.RFC3339)
+			}
+			return timestamps
+		}
 		return x.UnixTimestampListVal.Val
 	default:
 		return nil
