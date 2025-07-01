@@ -645,6 +645,7 @@ class CassandraOnlineStore(OnlineStore):
             raise ex
 
         if not concurrent_queue.empty():
+            write_start6 = perf_counter()
             logger.warning(
                 f"Waiting for futures. Pending are {concurrent_queue.qsize()}"
             )
@@ -656,7 +657,7 @@ class CassandraOnlineStore(OnlineStore):
                 raise ex
             # Spark materialization engine doesn't log info messages
             # so we print the message to stdout
-            scylla_microbatch_write_time = perf_counter() - write_start
+            scylla_microbatch_write_time = perf_counter() - write_start6
             print(
                 f"scylla_microbatch_write_time: {scylla_microbatch_write_time}."
             )
