@@ -7,6 +7,7 @@ from threading import Lock
 from typing import Any, List, Optional, Set, Union
 
 import httpx
+from httpx import HTTPStatusError
 from pydantic import StrictStr
 
 from feast.base_feature_view import BaseFeatureView
@@ -506,11 +507,11 @@ class HttpRegistry(BaseRegistry):
             url = f"{self.base_url}/projects/{project}/feature_views/{name}"
             response_data = self._send_request("GET", url)
             return FeatureViewModel.model_validate(response_data).to_feature_view()
-        except FeatureViewNotFoundException as exception:
-            logger.error(
-                f"FeatureView {name} requested does not exist: %s", str(exception)
-            )
-            raise httpx.HTTPError(message=f"FeatureView: {name} not found")
+        except HTTPStatusError as http_exc:
+            if http_exc.response.status_code == 404:
+                logger.error("FeatureView %s not found", name)
+                raise FeatureViewNotFoundException(name, project)
+            raise
         except Exception as exception:
             self._handle_exception(exception)
 
@@ -550,11 +551,15 @@ class HttpRegistry(BaseRegistry):
             return SortedFeatureViewModel.model_validate(
                 response_data
             ).to_feature_view()
-        except SortedFeatureViewNotFoundException as exception:
-            logger.error(
-                f"SortedFeatureView {name} requested does not exist: {str(exception)}"
-            )
-            raise httpx.HTTPError(message=f"SortedFeatureView: {name} not found")
+        except HTTPStatusError as http_exc:
+            if http_exc.response.status_code == 404:
+                logger.error(
+                    "SortedFeatureView %s not found.",
+                    name,
+                )
+                raise SortedFeatureViewNotFoundException(name, project)
+            raise
+
         except Exception as exception:
             self._handle_exception(exception)
 
