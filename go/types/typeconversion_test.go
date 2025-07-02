@@ -521,10 +521,10 @@ func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
 	}
 
 	expectedTypes := []interface{}{
-		time.UnixMilli(timestamp).UTC().Format(time.RFC3339),
+		time.UnixMilli(timestamp).UTC().Format(TimestampFormat),
 		[]string{
-			time.UnixMilli(timestamp).UTC().Format(time.RFC3339),
-			time.UnixMilli(timestamp + 3600).UTC().Format(time.RFC3339),
+			time.UnixMilli(timestamp).UTC().Format(TimestampFormat),
+			time.UnixMilli(timestamp + 3600).UTC().Format(TimestampFormat),
 		},
 	}
 

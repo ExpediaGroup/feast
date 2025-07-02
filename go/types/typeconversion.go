@@ -705,6 +705,8 @@ func ValueTypeToGoTypeTimestampAsString(value *types.Value) interface{} {
 	return valueTypeToGoTypeTimestampAsString(value, true)
 }
 
+var TimestampFormat = "2006-01-02 15:04:05.999999999Z0700"
+
 func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bool) interface{} {
 	if value == nil || value.Val == nil {
 		return nil
@@ -741,14 +743,14 @@ func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bo
 		return x.DoubleListVal.Val
 	case *types.Value_UnixTimestampVal:
 		if timestampAsString {
-			return time.UnixMilli(x.UnixTimestampVal).UTC().Format(time.RFC3339)
+			return time.UnixMilli(x.UnixTimestampVal).UTC().Format(TimestampFormat)
 		}
 		return x.UnixTimestampVal
 	case *types.Value_UnixTimestampListVal:
 		if timestampAsString {
 			timestamps := make([]string, len(x.UnixTimestampListVal.Val))
 			for i, ts := range x.UnixTimestampListVal.Val {
-				timestamps[i] = time.UnixMilli(ts).UTC().Format(time.RFC3339)
+				timestamps[i] = time.UnixMilli(ts).UTC().Format(TimestampFormat)
 			}
 			return timestamps
 		}
