@@ -657,7 +657,12 @@ class CassandraOnlineStore(OnlineStore):
                 raise ex
             # Spark materialization engine doesn't log info messages
             # so we print the message to stdout
-            scylla_microbatch_write_time = perf_counter() - write_start6
+            wait_time = perf_counter() - write_start6
+            print(
+                f"wait_time: {wait_time}."
+            )
+
+            scylla_microbatch_write_time = perf_counter() - write_start
             print(
                 f"scylla_microbatch_write_time: {scylla_microbatch_write_time}."
             )
