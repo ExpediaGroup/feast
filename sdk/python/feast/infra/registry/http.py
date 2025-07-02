@@ -511,7 +511,7 @@ class HttpRegistry(BaseRegistry):
             if http_exc.response.status_code == 404:
                 logger.error("FeatureView %s not found", name)
                 raise FeatureViewNotFoundException(name, project)
-            raise
+            self._handle_exception(http_exc)
         except Exception as exception:
             self._handle_exception(exception)
 
@@ -558,7 +558,7 @@ class HttpRegistry(BaseRegistry):
                     name,
                 )
                 raise SortedFeatureViewNotFoundException(name, project)
-            raise
+            self._handle_exception(http_exc)
 
         except Exception as exception:
             self._handle_exception(exception)
