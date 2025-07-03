@@ -380,7 +380,7 @@ func TestValueTypeToGoType(t *testing.T) {
 		{Val: &types.Value_FloatVal{FloatVal: 10.0}},
 		{Val: &types.Value_DoubleVal{DoubleVal: 10.0}},
 		{Val: &types.Value_BoolVal{BoolVal: true}},
-		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp.Unix()}},
+		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
 		{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"a", "b", "c"}}}},
 		{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{1, 2}, {3, 4}}}}},
 		{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{1, 2, 3}}}},
@@ -388,7 +388,7 @@ func TestValueTypeToGoType(t *testing.T) {
 		{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{7.1, 8.2}}}},
 		{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{9.3, 10.4}}}},
 		{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{true, false}}}},
-		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp.Unix(), timestamp.Unix() + 3600}}}},
+		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
 		{Val: &types.Value_NullVal{NullVal: types.Null_NULL}},
 		nil,
 		{},
@@ -411,7 +411,7 @@ func TestValueTypeToGoType(t *testing.T) {
 		[]float32{7.1, 8.2},
 		[]float64{9.3, 10.4},
 		[]bool{true, false},
-		[]time.Time{timestamp, timestamp.Add(3600 * time.Second)},
+		[]int64{timestamp, timestamp + 3600},
 		nil,
 		nil,
 		nil,
@@ -444,6 +444,27 @@ func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
 			time.Unix(timestamp, 0).UTC().Format(TimestampFormat),
 			time.Unix(timestamp+3600, 0).UTC().Format(TimestampFormat),
 			"292277026596-12-04 15:30:08Z",
+		},
+	}
+
+	for i, testCase := range testCases {
+		actual := ValueTypeToGoTypeTimestampAsString(testCase)
+		assert.Equal(t, expectedTypes[i], actual)
+	}
+}
+
+func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
+	timestamp := time.Now().UnixMilli()
+	testCases := []*types.Value{
+		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
+		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
+	}
+
+	expectedTypes := []interface{}{
+		time.UnixMilli(timestamp).UTC().Format(TimestampFormat),
+		[]string{
+			time.UnixMilli(timestamp).UTC().Format(TimestampFormat),
+			time.UnixMilli(timestamp + 3600).UTC().Format(TimestampFormat),
 		},
 	}
 

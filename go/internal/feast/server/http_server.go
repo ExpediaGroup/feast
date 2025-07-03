@@ -149,7 +149,7 @@ func processFeatureVectors(
 	for entityName, entityProto := range entitiesProto {
 		entityValues := make([]interface{}, len(entityProto.Val))
 		for j, val := range entityProto.Val {
-			entityValues[j] = types.ValueTypeToGoType(val)
+			entityValues[j] = types.ValueTypeToGoTypeTimestampAsString(val)
 		}
 		entities[entityName] = entityValues
 	}
@@ -179,7 +179,7 @@ func processFeatureVectors(
 				if val == nil {
 					rangeForEntity[k] = nil
 				} else {
-					rangeForEntity[k] = types.ValueTypeToGoType(val)
+					rangeForEntity[k] = types.ValueTypeToGoTypeTimestampAsString(val)
 				}
 			}
 			simplifiedValues[j] = rangeForEntity
