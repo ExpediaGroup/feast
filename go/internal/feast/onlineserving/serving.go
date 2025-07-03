@@ -173,6 +173,18 @@ func GetFeatureViewsToUseByService(
 	return fvsToUse, sortedFvsToUse, odFvsToUse, nil
 }
 
+func addFeaturesToValidationMap(
+	viewName string,
+	fvFeatures []*model.Field,
+	validationMap map[string]map[string]bool) {
+	if _, ok := validationMap[viewName]; !ok {
+		validationMap[viewName] = make(map[string]bool)
+		for _, field := range fvFeatures {
+			validationMap[viewName][field.Name] = true
+		}
+	}
+}
+
 /*
 Return
 
@@ -190,41 +202,64 @@ func GetFeatureViewsToUseByFeatureRefs(
 	odFvToFeatures := make(map[string][]string)
 	odFvToProjectWithFeatures := make(map[string]*model.OnDemandFeatureView)
 
+	viewToFeaturesValidationMap := make(map[string]map[string]bool)
+	invalidFeatures := make([]string, 0)
 	for _, featureRef := range features {
 		featureViewName, featureName, err := ParseFeatureReference(featureRef)
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		if fv, err := registry.GetFeatureView(projectName, featureViewName); err == nil {
-			if viewAndRef, ok := viewNameToViewAndRefs[fv.Base.Name]; ok {
-				viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
+			addFeaturesToValidationMap(fv.Base.Name, fv.Base.Features, viewToFeaturesValidationMap)
+			if !viewToFeaturesValidationMap[fv.Base.Name][featureName] {
+				invalidFeatures = append(invalidFeatures, featureRef)
 			} else {
-				viewNameToViewAndRefs[fv.Base.Name] = &FeatureViewAndRefs{
-					View:        fv,
-					FeatureRefs: []string{featureName},
+				if viewAndRef, ok := viewNameToViewAndRefs[fv.Base.Name]; ok {
+					viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
+				} else {
+					viewNameToViewAndRefs[fv.Base.Name] = &FeatureViewAndRefs{
+						View:        fv,
+						FeatureRefs: []string{featureName},
+					}
 				}
 			}
 		} else if sortedFv, err := registry.GetSortedFeatureView(projectName, featureViewName); err == nil {
-			if viewAndRef, ok := viewNameToSortedViewAndRefs[sortedFv.Base.Name]; ok {
-				viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
+			addFeaturesToValidationMap(sortedFv.Base.Name, sortedFv.Base.Features, viewToFeaturesValidationMap)
+			if !viewToFeaturesValidationMap[sortedFv.Base.Name][featureName] {
+				invalidFeatures = append(invalidFeatures, featureRef)
 			} else {
-				viewNameToSortedViewAndRefs[sortedFv.Base.Name] = &SortedFeatureViewAndRefs{
-					View:        sortedFv,
-					FeatureRefs: []string{featureName},
+
+				if viewAndRef, ok := viewNameToSortedViewAndRefs[sortedFv.Base.Name]; ok {
+					viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
+				} else {
+					viewNameToSortedViewAndRefs[sortedFv.Base.Name] = &SortedFeatureViewAndRefs{
+						View:        sortedFv,
+						FeatureRefs: []string{featureName},
+					}
 				}
 			}
 		} else if odfv, err := registry.GetOnDemandFeatureView(projectName, featureViewName); err == nil {
-			if _, ok := odFvToFeatures[odfv.Base.Name]; !ok {
-				odFvToFeatures[odfv.Base.Name] = []string{featureName}
+			addFeaturesToValidationMap(odfv.Base.Name, odfv.Base.Features, viewToFeaturesValidationMap)
+			if !viewToFeaturesValidationMap[odfv.Base.Name][featureName] {
+				invalidFeatures = append(invalidFeatures, featureRef)
 			} else {
-				odFvToFeatures[odfv.Base.Name] = append(
-					odFvToFeatures[odfv.Base.Name], featureName)
+
+				if _, ok := odFvToFeatures[odfv.Base.Name]; !ok {
+					odFvToFeatures[odfv.Base.Name] = []string{featureName}
+				} else {
+					odFvToFeatures[odfv.Base.Name] = append(
+						odFvToFeatures[odfv.Base.Name], featureName)
+				}
+				odFvToProjectWithFeatures[odfv.Base.Name] = odfv
 			}
-			odFvToProjectWithFeatures[odfv.Base.Name] = odfv
 		} else {
 			return nil, nil, nil, fmt.Errorf("feature View %s doesn't exist, please make sure that you have created the"+
 				" feature View %s and that you have registered it by running \"apply\"", featureViewName, featureViewName)
 		}
+	}
+
+	if len(invalidFeatures) > 0 {
+		return nil, nil, nil, fmt.Errorf("requested features are not valid: %s", strings.Join(invalidFeatures, ", "))
 	}
 
 	odFvsToUse := make([]*model.OnDemandFeatureView, 0)
@@ -780,18 +815,24 @@ func getEventTimestamp(timestamps []timestamp.Timestamp, index int) *timestamppb
 	return &timestamppb.Timestamp{}
 }
 
-func KeepOnlyRequestedFeatures(
-	vectors []*FeatureVector,
+func KeepOnlyRequestedFeatures[T any](
+	vectors []T,
 	requestedFeatureRefs []string,
 	featureService *model.FeatureService,
-	fullFeatureNames bool) ([]*FeatureVector, error) {
-	vectorsByName := make(map[string]*FeatureVector)
-	expectedVectors := make([]*FeatureVector, 0)
+	fullFeatureNames bool) ([]T, error) {
+	vectorsByName := make(map[string]T)
+	expectedVectors := make([]T, 0)
 
 	usedVectors := make(map[string]bool)
 
 	for _, vector := range vectors {
-		vectorsByName[vector.Name] = vector
+		if featureVector, ok := any(vector).(*FeatureVector); ok {
+			vectorsByName[featureVector.Name] = vector
+		} else if rangeFeatureVector, ok := any(vector).(*RangeFeatureVector); ok {
+			vectorsByName[rangeFeatureVector.Name] = vector
+		} else {
+			return nil, fmt.Errorf("unsupported vector type: %T", vector)
+		}
 	}
 
 	if featureService != nil {
@@ -818,8 +859,16 @@ func KeepOnlyRequestedFeatures(
 
 	// Free arrow arrays for vectors that were not used.
 	for _, vector := range vectors {
-		if _, ok := usedVectors[vector.Name]; !ok {
-			vector.Values.Release()
+		if featureVector, ok := any(vector).(*FeatureVector); ok {
+			if _, ok := usedVectors[featureVector.Name]; !ok {
+				featureVector.Values.Release()
+			}
+		} else if rangeFeatureVector, ok := any(vector).(*RangeFeatureVector); ok {
+			if _, ok := usedVectors[rangeFeatureVector.Name]; !ok {
+				rangeFeatureVector.RangeValues.Release()
+			}
+		} else {
+			return nil, fmt.Errorf("unsupported vector type: %T", vector)
 		}
 	}
 
@@ -1086,17 +1135,17 @@ func GroupSortedFeatureRefs(
 				sortOrder = &flipped // non-nil only when sort key order is reversed
 			}
 
-			var filterModel *model.SortKeyFilter
 			if filter, ok := sortKeyFilterMap[sortKey.FieldName]; ok {
-				filterModel = model.NewSortKeyFilterFromProto(filter, sortOrder)
+				filterModel := model.NewSortKeyFilterFromProto(filter, sortOrder)
+				sortKeyFilterModels = append(sortKeyFilterModels, filterModel)
 			} else if reverseSortOrder {
-				filterModel = &model.SortKeyFilter{
+				filterModel := &model.SortKeyFilter{
 					SortKeyName: sortKey.FieldName,
 					Order:       model.NewSortOrderFromProto(*sortOrder),
 				}
+				sortKeyFilterModels = append(sortKeyFilterModels, filterModel)
 			}
 
-			sortKeyFilterModels = append(sortKeyFilterModels, filterModel)
 		}
 
 		if _, ok := groups[groupKey]; !ok {

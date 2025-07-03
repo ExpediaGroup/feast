@@ -182,6 +182,38 @@ var (
 				{Val: &types.Value_Int32Val{Int32Val: 50}},
 			}},
 		},
+		{
+			{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{10, 11}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 21}}}}}},
+		},
+		{
+			{Val: []*types.Value{{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: []int64{100, 101}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: []int64{200, 201}}}}}},
+		},
+		{
+			{Val: []*types.Value{{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{1.1, 1.2}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{2.1, 2.2}}}}}},
+		},
+		{
+			{Val: []*types.Value{{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{1.1, 1.2}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{2.1, 2.2}}}}}},
+		},
+		{
+			{Val: []*types.Value{{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{1, 2}, {3, 4}}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{5, 6}, {7, 8}}}}}}},
+		},
+		{
+			{Val: []*types.Value{{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"row1", "row2"}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"row3", "row4"}}}}}},
+		},
+		{
+			{Val: []*types.Value{{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{true, false}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{false, true}}}}}},
+		},
+		{
+			{Val: []*types.Value{{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{time.Now().UnixMilli()}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{time.Now().UnixMilli() + 3600}}}}}},
+		},
 	}
 )
 
@@ -442,6 +474,14 @@ func TestValueTypeToGoType(t *testing.T) {
 		{Val: &types.Value_DoubleVal{DoubleVal: 10.0}},
 		{Val: &types.Value_BoolVal{BoolVal: true}},
 		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
+		{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"a", "b", "c"}}}},
+		{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{1, 2}, {3, 4}}}}},
+		{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{1, 2, 3}}}},
+		{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: []int64{4, 5, 6}}}},
+		{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{7.1, 8.2}}}},
+		{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{9.3, 10.4}}}},
+		{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{true, false}}}},
+		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
 		{Val: &types.Value_NullVal{NullVal: types.Null_NULL}},
 		nil,
 	}
@@ -455,12 +495,41 @@ func TestValueTypeToGoType(t *testing.T) {
 		float64(10.0),
 		true,
 		timestamp,
+		[]string{"a", "b", "c"},
+		[][]byte{{1, 2}, {3, 4}},
+		[]int32{1, 2, 3},
+		[]int64{4, 5, 6},
+		[]float32{7.1, 8.2},
+		[]float64{9.3, 10.4},
+		[]bool{true, false},
+		[]int64{timestamp, timestamp + 3600},
 		nil,
 		nil,
 	}
 
 	for i, testCase := range testCases {
 		actual := ValueTypeToGoType(testCase)
+		assert.Equal(t, expectedTypes[i], actual)
+	}
+}
+
+func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
+	timestamp := time.Now().UnixMilli()
+	testCases := []*types.Value{
+		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
+		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
+	}
+
+	expectedTypes := []interface{}{
+		time.UnixMilli(timestamp).UTC().Format(TimestampFormat),
+		[]string{
+			time.UnixMilli(timestamp).UTC().Format(TimestampFormat),
+			time.UnixMilli(timestamp + 3600).UTC().Format(TimestampFormat),
+		},
+	}
+
+	for i, testCase := range testCases {
+		actual := ValueTypeToGoTypeTimestampAsString(testCase)
 		assert.Equal(t, expectedTypes[i], actual)
 	}
 }

@@ -186,18 +186,30 @@ func (fs *FeatureStore) GetOnlineFeatures(
 	fullFeatureNames bool) ([]*onlineserving.FeatureVector, error) {
 	var err error
 	var requestedFeatureViews []*onlineserving.FeatureViewAndRefs
+	var requestedSortedFeatureViews []*onlineserving.SortedFeatureViewAndRefs
 	var requestedOnDemandFeatureViews []*model.OnDemandFeatureView
 
-	// TODO: currently ignores SortedFeatureViews, need to either implement get for them or throw some kind of error/warning
 	if featureService != nil {
-		requestedFeatureViews, _, requestedOnDemandFeatureViews, err =
+		requestedFeatureViews, requestedSortedFeatureViews, requestedOnDemandFeatureViews, err =
 			onlineserving.GetFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
 	} else {
-		requestedFeatureViews, _, requestedOnDemandFeatureViews, err =
+		requestedFeatureViews, requestedSortedFeatureViews, requestedOnDemandFeatureViews, err =
 			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fs.registry, fs.config.Project)
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if len(requestedSortedFeatureViews) > 0 {
+		sfvNames := make([]string, len(requestedSortedFeatureViews))
+		for i, sfv := range requestedSortedFeatureViews {
+			sfvNames[i] = sfv.View.Base.Name
+		}
+		return nil, fmt.Errorf("GetOnlineFeatures does not support sorted feature views %v", sfvNames)
+	}
+
+	if len(requestedFeatureViews) == 0 {
+		return nil, fmt.Errorf("no feature views found for the requested features")
 	}
 
 	entityColumnMap := make(map[string]*model.Field)
@@ -313,15 +325,24 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 
 	var err error
 	var requestedSortedFeatureViews []*onlineserving.SortedFeatureViewAndRefs
+	var requestedFeatureViews []*onlineserving.FeatureViewAndRefs
 	if featureService != nil {
-		_, requestedSortedFeatureViews, _, err =
+		requestedFeatureViews, requestedSortedFeatureViews, _, err =
 			onlineserving.GetFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
 	} else {
-		_, requestedSortedFeatureViews, _, err =
+		requestedFeatureViews, requestedSortedFeatureViews, _, err =
 			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fs.registry, fs.config.Project)
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	if len(requestedFeatureViews) > 0 {
+		fvNames := make([]string, len(requestedFeatureViews))
+		for i, fv := range requestedFeatureViews {
+			fvNames[i] = fv.View.Base.Name
+		}
+		return nil, fmt.Errorf("GetOnlineFeaturesRange does not support standard feature views %v", fvNames)
 	}
 
 	if len(requestedSortedFeatureViews) == 0 {
@@ -386,14 +407,8 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	addDummyEntityIfNeeded(entitylessCase, joinKeyToEntityValues, numRows)
 
 	arrowMemory := memory.NewGoAllocator()
-	entityColumns, err := onlineserving.EntitiesToRangeFeatureVectors(
-		joinKeyToEntityValues, arrowMemory, numRows)
-	if err != nil {
-		return nil, err
-	}
 
-	result := make([]*onlineserving.RangeFeatureVector, 0, len(entityColumns))
-	result = append(result, entityColumns...)
+	result := make([]*onlineserving.RangeFeatureVector, 0)
 
 	groupedRangeRefs, err := onlineserving.GroupSortedFeatureRefs(
 		requestedSortedFeatureViews,
@@ -427,6 +442,11 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		result = append(result, vectors...)
 	}
 
+	result, err = onlineserving.KeepOnlyRequestedFeatures(result, featureRefs, featureService, fullFeatureNames)
+	if err != nil {
+		return nil, err
+	}
+
 	return result, nil
 }
 
@@ -453,7 +473,12 @@ func (fs *FeatureStore) ParseFeatures(kind interface{}) (*Features, error) {
 		}
 		return &Features{FeaturesRefs: nil, FeatureService: featureService}, nil
 	case *serving.GetOnlineFeaturesRangeRequest_FeatureService:
-		return nil, errors.New("range requests only support 'kind' of a list of Features")
+		featureServiceRequest := kind.(*serving.GetOnlineFeaturesRangeRequest_FeatureService)
+		featureService, err := fs.registry.GetFeatureService(fs.config.Project, featureServiceRequest.FeatureService)
+		if err != nil {
+			return nil, err
+		}
+		return &Features{FeaturesRefs: nil, FeatureService: featureService}, nil
 	default:
 		return nil, errors.New("cannot parse 'kind' of either a Feature Service or list of Features from request")
 	}
