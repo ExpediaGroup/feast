@@ -767,7 +767,11 @@ func processFeatureRowData(
 	for i, val := range featureData.Values {
 		if val == nil {
 			rangeValues[i] = nil
-			rangeStatuses[i] = serving.FieldStatus_NOT_FOUND
+			if i < len(featureData.Statuses) {
+				rangeStatuses[i] = featureData.Statuses[i]
+			} else {
+				rangeStatuses[i] = serving.FieldStatus_NOT_FOUND
+			}
 			rangeTimestamps[i] = &timestamppb.Timestamp{}
 			continue
 		}

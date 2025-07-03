@@ -406,8 +406,8 @@ func verifyResponseData(t *testing.T, data [][]RangeFeatureData, numEntityKeys i
 		assert.NotNil(t, data[i][32].Values[0])
 		assert.IsType(t, time.Time{}, data[i][32].Values[0])
 		for _, timestamp := range data[i][32].Values {
-			assert.GreaterOrEqual(t, timestamp.(time.Time).UnixMilli(), start, "Timestamp should be greater than or equal to %d", start)
-			assert.LessOrEqual(t, timestamp.(time.Time).UnixMilli(), end, "Timestamp should be less than or equal to %d", end)
+			assert.GreaterOrEqual(t, timestamp.(time.Time).Unix(), start, "Timestamp should be greater than or equal to %d", start)
+			assert.LessOrEqual(t, timestamp.(time.Time).Unix(), end, "Timestamp should be less than or equal to %d", end)
 		}
 	}
 }

@@ -504,9 +504,9 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case bool:
 		protoVal.Val = &types.Value_BoolVal{BoolVal: v}
 	case time.Time:
-		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: v.UnixMilli()}
+		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: v.Unix()}
 	case *timestamppb.Timestamp:
-		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: GetTimestampMillis(v)}
+		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: GetTimestampSeconds(v)}
 
 	case [][]byte:
 		bytesList := &types.BytesList{Val: v}
@@ -574,7 +574,7 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case []time.Time:
 		timestamps := make([]int64, len(v))
 		for j, t := range v {
-			timestamps[j] = t.UnixMilli()
+			timestamps[j] = t.Unix()
 		}
 		timestampList := &types.Int64List{Val: timestamps}
 		protoVal.Val = &types.Value_UnixTimestampListVal{UnixTimestampListVal: timestampList}
@@ -582,7 +582,7 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case []*timestamppb.Timestamp:
 		timestamps := make([]int64, len(v))
 		for j, t := range v {
-			timestamps[j] = GetTimestampMillis(t)
+			timestamps[j] = GetTimestampSeconds(t)
 		}
 		timestampList := &types.Int64List{Val: timestamps}
 		protoVal.Val = &types.Value_UnixTimestampListVal{UnixTimestampListVal: timestampList}
@@ -912,9 +912,9 @@ func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*ty
 	return nil, err
 }
 
-func GetTimestampMillis(ts *timestamppb.Timestamp) int64 {
+func GetTimestampSeconds(ts *timestamppb.Timestamp) int64 {
 	if ts == nil {
 		return 0
 	}
-	return (ts.GetSeconds() * 1000) + int64(ts.GetNanos()/1_000_000)
+	return ts.GetSeconds()
 }
