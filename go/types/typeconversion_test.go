@@ -42,9 +42,9 @@ var (
 		{{Val: &types.Value_BytesVal{[]byte{1, 2, 3}}}, {Val: &types.Value_BytesVal{[]byte{4, 5, 6}}}},
 		{nil_or_null_val, {Val: &types.Value_BoolVal{false}}},
 		{{Val: &types.Value_BoolVal{true}}, {Val: &types.Value_BoolVal{false}}},
-		{{Val: &types.Value_UnixTimestampVal{time.Now().UnixMilli()}}, nil_or_null_val},
-		{{Val: &types.Value_UnixTimestampVal{time.Now().UnixMilli()}}, {Val: &types.Value_UnixTimestampVal{time.Now().UnixMilli()}}},
-		{{Val: &types.Value_UnixTimestampVal{time.Now().UnixMilli()}}, {Val: &types.Value_UnixTimestampVal{time.Now().UnixMilli()}}, {Val: &types.Value_UnixTimestampVal{-9223372036854775808}}},
+		{{Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}, nil_or_null_val},
+		{{Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}, {Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}},
+		{{Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}, {Val: &types.Value_UnixTimestampVal{time.Now().Unix()}}, {Val: &types.Value_UnixTimestampVal{-9223372036854775808}}},
 
 		{
 			{Val: &types.Value_Int32ListVal{&types.Int32List{Val: []int32{0, 1, 2}}}},
@@ -75,13 +75,13 @@ var (
 			{Val: &types.Value_BoolListVal{&types.BoolList{Val: []bool{true, true}}}},
 		},
 		{
-			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().UnixMilli()}}}},
-			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().UnixMilli()}}}},
+			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().Unix()}}}},
+			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().Unix()}}}},
 		},
 		{
-			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().UnixMilli(), time.Now().UnixMilli()}}}},
-			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().UnixMilli(), time.Now().UnixMilli()}}}},
-			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{-9223372036854775808, time.Now().UnixMilli()}}}},
+			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().Unix(), time.Now().Unix()}}}},
+			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{time.Now().Unix(), time.Now().Unix()}}}},
+			{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: []int64{-9223372036854775808, time.Now().Unix()}}}},
 		},
 	}
 )
@@ -120,10 +120,10 @@ var (
 		{Val: []*types.Value{{Val: &types.Value_BoolVal{BoolVal: true}}}},
 		{Val: []*types.Value{{Val: &types.Value_BoolVal{BoolVal: true}}, {Val: &types.Value_BoolVal{BoolVal: false}}}},
 		{Val: []*types.Value{nil_or_null_val, {Val: &types.Value_BoolVal{BoolVal: false}}}},
-		{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().UnixMilli()}}}},
-		{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().UnixMilli()}}, {Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().UnixMilli() + 3600}}}},
-		{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().UnixMilli()}}, nil_or_null_val}},
-		{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().UnixMilli()}}, {Val: &types.Value_UnixTimestampVal{UnixTimestampVal: -9223372036854775808}}}},
+		{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().Unix()}}}},
+		{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().Unix()}}, {Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().Unix() + 3600}}}},
+		{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().Unix()}}, nil_or_null_val}},
+		{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().Unix()}}, {Val: &types.Value_UnixTimestampVal{UnixTimestampVal: -9223372036854775808}}}},
 	}
 )
 
@@ -163,8 +163,8 @@ var (
 			{Val: []*types.Value{{Val: &types.Value_BoolVal{BoolVal: false}}}},
 		},
 		{
-			{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().UnixMilli()}}}},
-			{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().UnixMilli() + 3600}}}},
+			{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().Unix()}}}},
+			{Val: []*types.Value{{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().Unix() + 3600}}}},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_BytesVal{BytesVal: []byte{1, 2, 3}}}}},
@@ -211,8 +211,8 @@ var (
 			{Val: []*types.Value{{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{false, true}}}}}},
 		},
 		{
-			{Val: []*types.Value{{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{time.Now().UnixMilli()}}}}}},
-			{Val: []*types.Value{{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{time.Now().UnixMilli() + 3600}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{time.Now().Unix()}}}}}},
+			{Val: []*types.Value{{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{time.Now().Unix() + 3600}}}}}},
 		},
 	}
 )
@@ -439,8 +439,8 @@ func TestInterfaceToProtoValue(t *testing.T) {
 		{float32(30.5), &types.Value{Val: &types.Value_FloatVal{FloatVal: 30.5}}},
 		{float64(40.5), &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 40.5}}},
 		{true, &types.Value{Val: &types.Value_BoolVal{BoolVal: true}}},
-		{testTime, &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: testTime.UnixMilli()}}},
-		{&timestamppb.Timestamp{Seconds: testTime.Unix(), Nanos: int32(testTime.Nanosecond())}, &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: testTime.UnixMilli()}}},
+		{testTime, &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: testTime.Unix()}}},
+		{&timestamppb.Timestamp{Seconds: testTime.Unix(), Nanos: int32(testTime.Nanosecond())}, &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: testTime.Unix()}}},
 		{[][]byte{{1, 2}, {3, 4}}, &types.Value{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{1, 2}, {3, 4}}}}}},
 		{[]string{"a", "b"}, &types.Value{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"a", "b"}}}}},
 		{[]int{1, 2}, &types.Value{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{1, 2}}}}},
@@ -449,8 +449,8 @@ func TestInterfaceToProtoValue(t *testing.T) {
 		{[]float32{5.5, 6.6}, &types.Value{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{5.5, 6.6}}}}},
 		{[]float64{7.7, 8.8}, &types.Value{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{7.7, 8.8}}}}},
 		{[]bool{true, false}, &types.Value{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{true, false}}}}},
-		{[]time.Time{testTime, testTime.Add(time.Hour)}, &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{testTime.UnixMilli(), testTime.Add(time.Hour).UnixMilli()}}}}},
-		{[]*timestamppb.Timestamp{{Seconds: testTime.Unix(), Nanos: int32(testTime.Nanosecond())}, {Seconds: testTime.Add(time.Hour).Unix(), Nanos: int32(testTime.Add(time.Hour).Nanosecond())}}, &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{testTime.UnixMilli(), testTime.Add(time.Hour).UnixMilli()}}}}},
+		{[]time.Time{testTime, testTime.Add(time.Hour)}, &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{testTime.Unix(), testTime.Add(time.Hour).Unix()}}}}},
+		{[]*timestamppb.Timestamp{{Seconds: testTime.Unix(), Nanos: int32(testTime.Nanosecond())}, {Seconds: testTime.Add(time.Hour).Unix(), Nanos: int32(testTime.Add(time.Hour).Nanosecond())}}, &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{testTime.Unix(), testTime.Add(time.Hour).Unix()}}}}},
 		{&types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}, &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}},
 		{&types.Value{Val: &types.Value_StringVal{StringVal: "test"}}, &types.Value{Val: &types.Value_StringVal{StringVal: "test"}}},
 	}
@@ -464,7 +464,7 @@ func TestInterfaceToProtoValue(t *testing.T) {
 }
 
 func TestValueTypeToGoType(t *testing.T) {
-	timestamp := time.Now().UnixMilli()
+	timestamp := time.Unix(1744769099, 0).UTC()
 	testCases := []*types.Value{
 		{Val: &types.Value_StringVal{StringVal: "test"}},
 		{Val: &types.Value_BytesVal{BytesVal: []byte{1, 2, 3}}},
@@ -473,7 +473,7 @@ func TestValueTypeToGoType(t *testing.T) {
 		{Val: &types.Value_FloatVal{FloatVal: 10.0}},
 		{Val: &types.Value_DoubleVal{DoubleVal: 10.0}},
 		{Val: &types.Value_BoolVal{BoolVal: true}},
-		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
+		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp.Unix()}},
 		{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"a", "b", "c"}}}},
 		{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{1, 2}, {3, 4}}}}},
 		{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{1, 2, 3}}}},
@@ -481,7 +481,7 @@ func TestValueTypeToGoType(t *testing.T) {
 		{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{7.1, 8.2}}}},
 		{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{9.3, 10.4}}}},
 		{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{true, false}}}},
-		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
+		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp.Unix(), timestamp.Unix() + 3600}}}},
 		{Val: &types.Value_NullVal{NullVal: types.Null_NULL}},
 		nil,
 	}
@@ -502,7 +502,7 @@ func TestValueTypeToGoType(t *testing.T) {
 		[]float32{7.1, 8.2},
 		[]float64{9.3, 10.4},
 		[]bool{true, false},
-		[]int64{timestamp, timestamp + 3600},
+		[]time.Time{timestamp, timestamp.Add(3600 * time.Second)},
 		nil,
 		nil,
 	}
@@ -514,17 +514,17 @@ func TestValueTypeToGoType(t *testing.T) {
 }
 
 func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
-	timestamp := time.Now().UnixMilli()
+	timestamp := int64(1744769099)
 	testCases := []*types.Value{
 		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
 		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
 	}
 
 	expectedTypes := []interface{}{
-		time.UnixMilli(timestamp).UTC().Format(TimestampFormat),
+		time.Unix(timestamp, 0).UTC().Format(TimestampFormat),
 		[]string{
-			time.UnixMilli(timestamp).UTC().Format(TimestampFormat),
-			time.UnixMilli(timestamp + 3600).UTC().Format(TimestampFormat),
+			time.Unix(timestamp, 0).UTC().Format(TimestampFormat),
+			time.Unix(timestamp+3600, 0).UTC().Format(TimestampFormat),
 		},
 	}
 
@@ -654,8 +654,8 @@ func TestConvertToValueType_Timestamp(t *testing.T) {
 		input    *types.Value
 		expected interface{}
 	}{
-		{input: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().UnixMilli()}}, expected: time.Now().UnixMilli()},
-		{input: &types.Value{Val: &types.Value_Int64Val{Int64Val: time.Now().UnixMilli()}}, expected: time.Now().UnixMilli()},
+		{input: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: time.Now().Unix()}}, expected: time.Now().Unix()},
+		{input: &types.Value{Val: &types.Value_Int64Val{Int64Val: time.Now().Unix()}}, expected: time.Now().Unix()},
 	}
 
 	for _, tc := range testCases {

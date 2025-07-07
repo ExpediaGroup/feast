@@ -476,9 +476,7 @@ class CassandraOnlineStore(OnlineStore):
             params_str = ", ".join(["?"] * (len(feature_names) + 2))
 
             # Write each batch with same entity key in to the online store
-            timestamp_field_name = table.batch_source.timestamp_field
             sort_key_names = [sort_key.name for sort_key in table.sort_keys]
-            is_timestamp_sort_key = timestamp_field_name in sort_key_names
 
             for entity_key_bin, batch_to_write in entity_dict.items():
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
@@ -495,21 +493,25 @@ class CassandraOnlineStore(OnlineStore):
 
                     feature_values: tuple[Any, ...] = ()
                     for feature_name, valProto in feat_dict.items():
-                        # When the event timestamp is added as a feature, it is converted in to UNIX_TIMESTAMP
-                        # feast type. Hence, its value must be reassigned before inserting in to online store
-                        if (
-                            is_timestamp_sort_key
-                            and feature_name == timestamp_field_name
-                        ):
-                            feature_value = timestamp
-                        elif feature_name in sort_key_names:
+                        if feature_name in sort_key_names:
                             feast_value_type = valProto.WhichOneof("val")
-                            if feast_value_type is None:
+                            if feast_value_type == "unix_timestamp_val":
+                                feature_value = (
+                                    valProto.unix_timestamp_val * 1000
+                                )  # Convert to milliseconds
+                            elif feast_value_type is None:
                                 feature_value = None
                             elif feast_value_type in feast_array_types:
-                                feature_value = getattr(
-                                    valProto, str(feast_value_type)
-                                ).val
+                                if feast_value_type == "unix_timestamp_list_val":
+                                    # Convert list of timestamps to milliseconds
+                                    feature_value = [
+                                        ts * 1000
+                                        for ts in valProto.unix_timestamp_list_val.val  # type:ignore
+                                    ]
+                                else:
+                                    feature_value = getattr(
+                                        valProto, str(feast_value_type)
+                                    ).val
                             else:
                                 feature_value = getattr(valProto, str(feast_value_type))
                         else:

@@ -87,8 +87,8 @@ func TestCassandraOnlineStore_OnlineReadRange_withSingleEntityKey(t *testing.T) 
 		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
 	sortKeyFilters := []*model.SortKeyFilter{{
 		SortKeyName: "event_timestamp",
-		RangeStart:  int64(1744769099919),
-		RangeEnd:    int64(1744779099919),
+		RangeStart:  time.Unix(1744769099, 0),
+		RangeEnd:    time.Unix(1744779099, 0),
 	}}
 
 	groupedRefs := &model.GroupedRangeFeatureRefs{
@@ -103,7 +103,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withSingleEntityKey(t *testing.T) 
 
 	data, err := onlineStore.OnlineReadRange(ctx, groupedRefs)
 	require.NoError(t, err)
-	verifyResponseData(t, data, 1, int64(1744769099919), int64(1744779099919))
+	verifyResponseData(t, data, 1, time.Unix(1744769099, 0), time.Unix(1744779099, 0))
 }
 
 func TestCassandraOnlineStore_OnlineReadRange_withMultipleEntityKeys(t *testing.T) {
@@ -135,7 +135,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withMultipleEntityKeys(t *testing.
 		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
 	sortKeyFilters := []*model.SortKeyFilter{{
 		SortKeyName: "event_timestamp",
-		RangeStart:  int64(1744769099919),
+		RangeStart:  time.Unix(1744769099, 0),
 	}}
 
 	groupedRefs := &model.GroupedRangeFeatureRefs{
@@ -150,7 +150,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withMultipleEntityKeys(t *testing.
 
 	data, err := onlineStore.OnlineReadRange(ctx, groupedRefs)
 	require.NoError(t, err)
-	verifyResponseData(t, data, 3, int64(1744769099919), int64(1744769099919*10))
+	verifyResponseData(t, data, 3, time.Unix(1744769099, 0), time.Unix(17447690990, 0))
 }
 
 func TestCassandraOnlineStore_OnlineReadRange_withReverseSortOrder(t *testing.T) {
@@ -182,7 +182,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withReverseSortOrder(t *testing.T)
 		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
 	sortKeyFilters := []*model.SortKeyFilter{{
 		SortKeyName: "event_timestamp",
-		RangeStart:  int64(1744769099919),
+		RangeStart:  time.Unix(1744769099, 0),
 		// The SortKey is defined as DESC in the SortedFeatureView, so we need to set the reverse order of ASC
 		Order: &model.SortOrder{Order: core.SortOrder_ASC},
 	}}
@@ -199,7 +199,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withReverseSortOrder(t *testing.T)
 
 	data, err := onlineStore.OnlineReadRange(ctx, groupedRefs)
 	require.NoError(t, err)
-	verifyResponseData(t, data, 3, int64(1744769099919), int64(1744769099919*10))
+	verifyResponseData(t, data, 3, time.Unix(1744769099, 0), time.Unix(17447690990, 0))
 }
 
 func TestCassandraOnlineStore_OnlineReadRange_withNoSortKeyFilters(t *testing.T) {
@@ -243,7 +243,7 @@ func TestCassandraOnlineStore_OnlineReadRange_withNoSortKeyFilters(t *testing.T)
 
 	data, err := onlineStore.OnlineReadRange(ctx, groupedRefs)
 	require.NoError(t, err)
-	verifyResponseData(t, data, 3, int64(0), int64(1744769099919*10))
+	verifyResponseData(t, data, 3, time.Unix(0, 0), time.Unix(17447690990, 0))
 }
 
 func assertValueType(t *testing.T, actualValue interface{}, expectedType string) {
@@ -251,7 +251,7 @@ func assertValueType(t *testing.T, actualValue interface{}, expectedType string)
 	assert.Equal(t, expectedType, fmt.Sprintf("%T", actualValue.(*types.Value).GetVal()), expectedType)
 }
 
-func verifyResponseData(t *testing.T, data [][]RangeFeatureData, numEntityKeys int, start int64, end int64) {
+func verifyResponseData(t *testing.T, data [][]RangeFeatureData, numEntityKeys int, start time.Time, end time.Time) {
 	assert.Equal(t, numEntityKeys, len(data))
 
 	for i := 0; i < numEntityKeys; i++ {
@@ -406,8 +406,8 @@ func verifyResponseData(t *testing.T, data [][]RangeFeatureData, numEntityKeys i
 		assert.NotNil(t, data[i][32].Values[0])
 		assert.IsType(t, time.Time{}, data[i][32].Values[0])
 		for _, timestamp := range data[i][32].Values {
-			assert.GreaterOrEqual(t, timestamp.(time.Time).UnixMilli(), start, "Timestamp should be greater than or equal to %d", start)
-			assert.LessOrEqual(t, timestamp.(time.Time).UnixMilli(), end, "Timestamp should be less than or equal to %d", end)
+			assert.GreaterOrEqual(t, timestamp.(time.Time).Unix(), start.Unix(), "Timestamp should be greater than or equal to %v", start)
+			assert.LessOrEqual(t, timestamp.(time.Time).Unix(), end.Unix(), "Timestamp should be less than or equal to %v", end)
 		}
 	}
 }
