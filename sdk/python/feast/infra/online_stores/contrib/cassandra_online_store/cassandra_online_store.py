@@ -506,7 +506,7 @@ class CassandraOnlineStore(OnlineStore):
                                     # Convert list of timestamps to milliseconds
                                     feature_value = [
                                         ts * 1000
-                                        for ts in valProto.unix_timestamp_list_val.val # type:ignore
+                                        for ts in valProto.unix_timestamp_list_val.val  # type:ignore
                                     ]
                                 else:
                                     feature_value = getattr(
