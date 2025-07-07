@@ -871,7 +871,7 @@ func TestGroupSortedFeatureRefs(t *testing.T) {
 		assert.Equal(t, 1, len(group.SortKeyFilters))
 		if group.SortKeyFilters[0].SortKeyName == "timestamp" {
 			assert.Equal(t, sortKeyFilters[0].SortKeyName, group.SortKeyFilters[0].SortKeyName)
-			assert.Equal(t, sortKeyFilters[0].GetEquals().GetUnixTimestampVal(), group.SortKeyFilters[0].Equals)
+			assert.Equal(t, sortKeyFilters[0].GetEquals().GetUnixTimestampVal(), group.SortKeyFilters[0].Equals.(time.Time).Unix())
 			assert.Nil(t, group.SortKeyFilters[0].RangeStart)
 			assert.Nil(t, group.SortKeyFilters[0].RangeEnd)
 			assert.Nil(t, group.SortKeyFilters[0].Order)
@@ -977,8 +977,8 @@ func TestGroupSortedFeatureRefs_withReverseSortOrder(t *testing.T) {
 	for _, group := range refGroups {
 		assert.Equal(t, 2, len(group.SortKeyFilters))
 		assert.Equal(t, sortKeyFilters[0].SortKeyName, group.SortKeyFilters[0].SortKeyName)
-		assert.Equal(t, sortKeyFilters[0].GetRange().RangeStart.GetUnixTimestampVal(), group.SortKeyFilters[0].RangeStart)
-		assert.Equal(t, sortKeyFilters[0].GetRange().RangeEnd.GetUnixTimestampVal(), group.SortKeyFilters[0].RangeEnd)
+		assert.Equal(t, sortKeyFilters[0].GetRange().RangeStart.GetUnixTimestampVal(), group.SortKeyFilters[0].RangeStart.(time.Time).Unix())
+		assert.Equal(t, sortKeyFilters[0].GetRange().RangeEnd.GetUnixTimestampVal(), group.SortKeyFilters[0].RangeEnd.(time.Time).Unix())
 		assert.Equal(t, sortKeyFilters[0].GetRange().StartInclusive, group.SortKeyFilters[0].StartInclusive)
 		assert.Equal(t, sortKeyFilters[0].GetRange().EndInclusive, group.SortKeyFilters[0].EndInclusive)
 		assert.Equal(t, "ASC", group.SortKeyFilters[0].Order.Order.String())

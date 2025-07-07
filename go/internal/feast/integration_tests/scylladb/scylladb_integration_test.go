@@ -345,11 +345,13 @@ func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeRe
 				assert.Equal(t, 10, len(value.Val), "Feature %s should have 10 values, got %d", featureName, len(value.Val))
 			}
 
-			for k, _ := range value.Val {
-				if strings.Contains(featureName, "null") {
-					assert.Equal(t, serving.FieldStatus_NULL_VALUE, featureResult.Statuses[j].Status[k], "Feature %s should have NULL status", featureName)
-				} else {
-					assert.Equal(t, serving.FieldStatus_PRESENT, featureResult.Statuses[j].Status[k], "Feature %s should have PRESENT status", featureName)
+			if includeMetadata {
+				for k, _ := range value.Val {
+					if strings.Contains(featureName, "null") {
+						assert.Equal(t, serving.FieldStatus_NULL_VALUE, featureResult.Statuses[j].Status[k], "Feature %s should have NULL status", featureName)
+					} else {
+						assert.Equal(t, serving.FieldStatus_PRESENT, featureResult.Statuses[j].Status[k], "Feature %s should have PRESENT status", featureName)
+					}
 				}
 			}
 		}
