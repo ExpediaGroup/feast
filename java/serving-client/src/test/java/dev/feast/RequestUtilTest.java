@@ -126,12 +126,12 @@ public class RequestUtilTest {
     assertEquals(
         RequestUtil.objectToValue(LocalDateTime.ofInstant(instant, ZoneId.of("UTC")))
             .getUnixTimestampVal(),
-            timestampSeconds);
+        timestampSeconds);
     assertEquals(
         RequestUtil.objectToValue(
                 OffsetDateTime.ofInstant(instant, ZoneId.of("America/Los_Angeles")))
             .getUnixTimestampVal(),
-            timestampSeconds);
+        timestampSeconds);
     assertEquals(RequestUtil.objectToValue(instant).getUnixTimestampVal(), timestampSeconds);
     assertEquals(RequestUtil.objectToValue(null).getNullVal(), ValueProto.Null.NULL);
     assertEquals(
@@ -165,17 +165,20 @@ public class RequestUtilTest {
         RequestUtil.objectToValue(Arrays.asList(instant, instant2))
             .getUnixTimestampListVal()
             .getValList(),
-            Arrays.asList(timestampSeconds, timestampSeconds2));
+        Arrays.asList(timestampSeconds, timestampSeconds2));
     assertEquals(
-        RequestUtil.objectToValue(Arrays.asList(LocalDateTime.ofInstant(instant, ZoneId.of("UTC")),
-            LocalDateTime.ofInstant(instant2, ZoneId.of("UTC"))))
+        RequestUtil.objectToValue(
+                Arrays.asList(
+                    LocalDateTime.ofInstant(instant, ZoneId.of("UTC")),
+                    LocalDateTime.ofInstant(instant2, ZoneId.of("UTC"))))
             .getUnixTimestampListVal()
             .getValList(),
         Arrays.asList(timestampSeconds, timestampSeconds2));
     assertEquals(
-        RequestUtil.objectToValue(Arrays.asList(
-            OffsetDateTime.ofInstant(instant, ZoneId.of("America/Los_Angeles")),
-            OffsetDateTime.ofInstant(instant2, ZoneId.of("America/Los_Angeles"))))
+        RequestUtil.objectToValue(
+                Arrays.asList(
+                    OffsetDateTime.ofInstant(instant, ZoneId.of("America/Los_Angeles")),
+                    OffsetDateTime.ofInstant(instant2, ZoneId.of("America/Los_Angeles"))))
             .getUnixTimestampListVal()
             .getValList(),
         Arrays.asList(timestampSeconds, timestampSeconds2));
