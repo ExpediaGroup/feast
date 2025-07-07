@@ -464,7 +464,7 @@ func TestInterfaceToProtoValue(t *testing.T) {
 }
 
 func TestValueTypeToGoType(t *testing.T) {
-	timestamp := time.Now().UTC()
+	timestamp := time.Unix(1744769099, 0).UTC()
 	testCases := []*types.Value{
 		{Val: &types.Value_StringVal{StringVal: "test"}},
 		{Val: &types.Value_BytesVal{BytesVal: []byte{1, 2, 3}}},
@@ -514,7 +514,7 @@ func TestValueTypeToGoType(t *testing.T) {
 }
 
 func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
-	timestamp := time.Now().Unix()
+	timestamp := int64(1744769099)
 	testCases := []*types.Value{
 		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
 		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
