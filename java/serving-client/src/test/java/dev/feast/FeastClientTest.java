@@ -304,7 +304,7 @@ public class FeastClientTest {
             Arrays.asList(
                 ServingAPIProto.SortKeyFilter.newBuilder()
                     .setSortKeyName("event_timestamp")
-                    .setEquals(Value.newBuilder().setUnixTimestampVal(174605760L).build())
+                    .setEquals(Value.newBuilder().setUnixTimestampVal(1746057600L).build())
                     .build(),
                 ServingAPIProto.SortKeyFilter.newBuilder()
                     .setSortKeyName("sort_key")
