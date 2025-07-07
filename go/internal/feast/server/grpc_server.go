@@ -3,8 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/reflection"
-
 	"github.com/feast-dev/feast/go/internal/feast"
 	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
@@ -15,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
+	"google.golang.org/grpc/reflection"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
 	grpcPrometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
@@ -202,7 +201,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 				for k, ts := range timestamps {
 					timestampValues[k] = &prototypes.Value{
 						Val: &prototypes.Value_UnixTimestampVal{
-							UnixTimestampVal: types.GetTimestampMillis(ts),
+							UnixTimestampVal: types.GetTimestampSeconds(ts),
 						},
 					}
 				}

@@ -907,8 +907,16 @@ func processFeatureRowData(
 		rangeStatuses := make([]serving.FieldStatus, numValues)
 		rangeTimestamps := make([]*timestamppb.Timestamp, numValues)
 
-		if len(featureData.Values) != len(featureData.Statuses) {
-			return nil, nil, nil, errors.GrpcInternalErrorf("mismatch in number of values and statuses for feature %s in feature view %s", featureData.FeatureName, featureViewName)
+	for i, val := range featureData.Values {
+		if val == nil {
+			rangeValues[i] = nil
+			if i < len(featureData.Statuses) {
+				rangeStatuses[i] = featureData.Statuses[i]
+			} else {
+				rangeStatuses[i] = serving.FieldStatus_NOT_FOUND
+			}
+			rangeTimestamps[i] = &timestamppb.Timestamp{}
+			continue
 		}
 
 		for i, val := range featureData.Values {

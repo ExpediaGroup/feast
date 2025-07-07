@@ -870,18 +870,22 @@ func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bo
 		return x.DoubleListVal.Val
 	case *types.Value_UnixTimestampVal:
 		if timestampAsString {
-			return time.UnixMilli(x.UnixTimestampVal).UTC().Format(TimestampFormat)
+			return time.Unix(x.UnixTimestampVal, 0).UTC().Format(TimestampFormat)
 		}
-		return x.UnixTimestampVal
+		return time.Unix(x.UnixTimestampVal, 0).UTC()
 	case *types.Value_UnixTimestampListVal:
 		if timestampAsString {
 			timestamps := make([]string, len(x.UnixTimestampListVal.Val))
 			for i, ts := range x.UnixTimestampListVal.Val {
-				timestamps[i] = time.UnixMilli(ts).UTC().Format(TimestampFormat)
+				timestamps[i] = time.Unix(ts, 0).UTC().Format(TimestampFormat)
 			}
 			return timestamps
 		}
-		return x.UnixTimestampListVal.Val
+		timestamps := make([]time.Time, len(x.UnixTimestampListVal.Val))
+		for i, ts := range x.UnixTimestampListVal.Val {
+			timestamps[i] = time.Unix(ts, 0).UTC()
+		}
+		return timestamps
 	default:
 		return nil
 	}
