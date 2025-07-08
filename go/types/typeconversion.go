@@ -259,7 +259,7 @@ func ArrowListToProtoList(listArr *array.List, inputOffsets []int32) ([]*types.V
 	pos := int(inputOffsets[0])
 	values := make([]*types.Value, len(offsets))
 	for idx := 0; idx < len(offsets); idx++ {
-		if (listArr.IsNull(idx) ) {
+		if (listValues.IsNull(idx) ) {
 			values[idx] = &types.Value{}
 		} else {
 			switch listValues.DataType() {
