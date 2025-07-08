@@ -351,7 +351,7 @@ func TestGetFeatureViewsToUseByService_returnsErrorWithInvalidFeatures(t *testin
 	testRegistry.SetModels([]*core.FeatureService{}, []*core.Entity{}, []*core.FeatureView{viewA, viewB, viewC}, []*core.SortedFeatureView{viewS}, []*core.OnDemandFeatureView{onDemandView})
 
 	_, _, _, invalidFeaturesErr := GetFeatureViewsToUseByService(fs, testRegistry, projectName)
-	assert.EqualError(t, invalidFeaturesErr, "the projection for viewB cannot be applied because it contains featInvalid which the FeatureView doesn't have")
+	assert.EqualError(t, invalidFeaturesErr, "rpc error: code = InvalidArgument desc = the projection for viewB cannot be applied because it contains featInvalid which the FeatureView doesn't have")
 }
 
 func TestGetFeatureViewsToUseByService_returnsErrorWithInvalidOnDemandFeatures(t *testing.T) {
@@ -389,7 +389,7 @@ func TestGetFeatureViewsToUseByService_returnsErrorWithInvalidOnDemandFeatures(t
 	testRegistry.SetModels([]*core.FeatureService{}, []*core.Entity{}, []*core.FeatureView{viewA, viewB, viewC}, []*core.SortedFeatureView{viewS}, []*core.OnDemandFeatureView{onDemandView})
 
 	_, _, _, invalidFeaturesErr := GetFeatureViewsToUseByService(fs, testRegistry, projectName)
-	assert.EqualError(t, invalidFeaturesErr, "the projection for odfv cannot be applied because it contains featInvalid which the FeatureView doesn't have")
+	assert.EqualError(t, invalidFeaturesErr, "rpc error: code = InvalidArgument desc = the projection for odfv cannot be applied because it contains featInvalid which the FeatureView doesn't have")
 }
 
 func TestGetFeatureViewsToUseByService_returnsErrorWithInvalidSortedFeatures(t *testing.T) {
@@ -427,7 +427,7 @@ func TestGetFeatureViewsToUseByService_returnsErrorWithInvalidSortedFeatures(t *
 	testRegistry.SetModels([]*core.FeatureService{}, []*core.Entity{}, []*core.FeatureView{viewA, viewB, viewC}, []*core.SortedFeatureView{viewS}, []*core.OnDemandFeatureView{onDemandView})
 
 	_, _, _, invalidFeaturesErr := GetFeatureViewsToUseByService(fs, testRegistry, projectName)
-	assert.EqualError(t, invalidFeaturesErr, "the projection for viewS cannot be applied because it contains featInvalid which the FeatureView doesn't have")
+	assert.EqualError(t, invalidFeaturesErr, "rpc error: code = InvalidArgument desc = the projection for viewS cannot be applied because it contains featInvalid which the FeatureView doesn't have")
 }
 
 func TestGetFeatureViewsToUseByFeatureRefs_returnsErrorWithInvalidFeatures(t *testing.T) {
@@ -465,7 +465,7 @@ func TestGetFeatureViewsToUseByFeatureRefs_returnsErrorWithInvalidFeatures(t *te
 			"viewS:sortedFeatInvalid",
 		},
 		testRegistry, projectName)
-	assert.EqualError(t, fvErr, "requested features are not valid: viewB:featInvalid, odfv:odFeatInvalid, viewS:sortedFeatInvalid")
+	assert.EqualError(t, fvErr, "rpc error: code = InvalidArgument desc = requested features are not valid: viewB:featInvalid, odfv:odFeatInvalid, viewS:sortedFeatInvalid")
 }
 
 func TestValidateSortKeyFilters_ValidFilters(t *testing.T) {

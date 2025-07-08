@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/feast-dev/feast/go/internal/feast"
+	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
@@ -66,7 +67,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
-		return nil, err
+		return nil, errors.GrpcFromError(err)
 	}
 
 	resp := &serving.GetOnlineFeaturesResponse{
@@ -85,7 +86,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		values, err := types.ArrowValuesToProtoValues(vector.Values)
 		if err != nil {
 			logSpanContext.Error().Err(err).Msg("Error converting Arrow values to proto values")
-			return nil, err
+			return nil, errors.GrpcFromError(err)
 		}
 		if _, ok := request.Entities[vector.Name]; ok {
 			entityValuesMap[vector.Name] = values
@@ -148,7 +149,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")
-		return nil, err
+		return nil, errors.GrpcFromError(err)
 	}
 
 	entities := request.GetEntities()
@@ -161,7 +162,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
 		if err != nil {
 			logSpanContext.Error().Err(err).Msgf("Error converting feature '%s' from Arrow to Proto", vector.Name)
-			return nil, err
+			return nil, errors.GrpcFromError(err)
 		}
 
 		featureVector := &serving.GetOnlineFeaturesRangeResponse_RangeFeatureVector{
@@ -172,8 +173,8 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 			rangeStatuses := make([]*serving.RepeatedFieldStatus, len(rangeValues))
 			for j := range rangeValues {
 				statusValues := make([]serving.FieldStatus, len(vector.RangeStatuses[j]))
-				for k, status := range vector.RangeStatuses[j] {
-					statusValues[k] = status
+				for k, fieldStatus := range vector.RangeStatuses[j] {
+					statusValues[k] = fieldStatus
 				}
 				rangeStatuses[j] = &serving.RepeatedFieldStatus{Status: statusValues}
 			}
