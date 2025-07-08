@@ -4,6 +4,7 @@ package onlineserving
 
 import (
 	"fmt"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"path/filepath"
 	"runtime"
@@ -1242,6 +1243,8 @@ func TestValidateFeatureRefs(t *testing.T) {
 
 		err := ValidateFeatureRefs(requestedFeatures, false)
 		assert.Error(t, err, "Collisions without full feature names should result in an error")
+		_, errIsStatus := status.FromError(err)
+		assert.True(t, errIsStatus, "Collision error should be a grpc status error")
 		assert.Contains(t, err.Error(), "featureA", "Error should include the collided feature name")
 	})
 
@@ -1286,6 +1289,8 @@ func TestValidateFeatureRefs(t *testing.T) {
 
 		err := ValidateFeatureRefs(requestedFeatures, false)
 		assert.Error(t, err, "Multiple collisions should result in an error")
+		_, errIsStatus := status.FromError(err)
+		assert.True(t, errIsStatus, "Collision error should be a grpc status error")
 		assert.Contains(t, err.Error(), "featureA", "Error should include the collided feature name")
 		assert.Contains(t, err.Error(), "featureB", "Error should include the collided feature name")
 	})
@@ -1367,6 +1372,8 @@ func TestValidateSortedFeatureRefs(t *testing.T) {
 
 		err := ValidateSortedFeatureRefs(sortedViews, false)
 		assert.Error(t, err, "Collisions without full feature names should result in an error")
+		_, errIsStatus := status.FromError(err)
+		assert.True(t, errIsStatus, "Collision error should be a grpc status error")
 		assert.Contains(t, err.Error(), "featureA", "Error should include the collided feature name")
 	})
 
@@ -1419,6 +1426,8 @@ func TestValidateSortedFeatureRefs(t *testing.T) {
 
 		err := ValidateSortedFeatureRefs(sortedViews, false)
 		assert.Error(t, err, "Multiple collisions should result in an error")
+		_, errIsStatus := status.FromError(err)
+		assert.True(t, errIsStatus, "Collision error should be a grpc status error")
 		assert.Contains(t, err.Error(), "featureA", "Error should include the collided feature name")
 		assert.Contains(t, err.Error(), "featureB", "Error should include the collided feature name")
 	})

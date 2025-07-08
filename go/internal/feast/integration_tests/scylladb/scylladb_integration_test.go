@@ -150,7 +150,8 @@ func TestGetOnlineFeaturesRange_forNonExistentEntityKey(t *testing.T) {
 		assert.Equal(t, 1, len(featureResult.EventTimestamps))
 		for j, value := range featureResult.Values {
 			assert.NotNil(t, value)
-			assert.Nil(t, value.Val)
+			assert.Equal(t, 1, len(value.Val))
+			assert.Nil(t, value.Val[0].Val)
 			assert.Equal(t, serving.FieldStatus_NOT_FOUND, featureResult.Statuses[j].Status[0])
 		}
 	}
