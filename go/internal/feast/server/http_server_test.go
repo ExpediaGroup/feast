@@ -135,6 +135,36 @@ func TestUnmarshalRangeRequestJSON(t *testing.T) {
 	assert.Equal(t, int32(10), request.Limit)
 }
 
+func TestUnmarshalRangeRequestJSON_withEmptySortKeyFilters(t *testing.T) {
+	jsonData := `{      
+  "features": [            
+    "batch_mat_sorted_fv:feature_1",
+    "batch_mat_sorted_fv:feature_2",
+    "batch_mat_sorted_fv:feature_3"
+  ],      
+  "entities": {    
+    "entity_key": [  
+      "entity_key_4"
+    ]
+  },          
+  "sort_key_filters": [],
+  "reverse_sort_order": false,
+  "limit": 10,
+  "full_feature_names": true
+}`
+	var request getOnlineFeaturesRangeRequest
+	decoder := json.NewDecoder(strings.NewReader(jsonData))
+	err := decoder.Decode(&request)
+	assert.NoError(t, err, "Error unmarshalling JSON")
+
+	sortKeyFiltersProto, err := getSortKeyFiltersProto(request.SortKeyFilters)
+	assert.NoError(t, err, "Error converting to proto")
+
+	assert.Equal(t, 0, len(sortKeyFiltersProto))
+
+	assert.Equal(t, int32(10), request.Limit)
+}
+
 func TestUnmarshalRangeRequestJSON_InvalidSortKeyFilter(t *testing.T) {
 	jsonData := `{      
   "features": [            
