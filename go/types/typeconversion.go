@@ -259,7 +259,7 @@ func ArrowListToProtoList(listArr *array.List, inputOffsets []int32) ([]*types.V
 	pos := int(inputOffsets[0])
 	values := make([]*types.Value, len(offsets))
 	for idx := 0; idx < len(offsets); idx++ {
-		if (listValues.IsNull(idx) ) {
+		if listValues.IsNull(idx) {
 			values[idx] = &types.Value{}
 		} else {
 			switch listValues.DataType() {
@@ -425,7 +425,11 @@ func ArrowValuesToRepeatedProtoValues(arr arrow.Array) ([]*types.RepeatedValue, 
 	}
 
 	for _, val := range protoValues {
-		repeatedValues = append(repeatedValues, &types.RepeatedValue{Val: []*types.Value{val}})
+		if val.GetVal() == nil {
+			repeatedValues = append(repeatedValues, &types.RepeatedValue{})
+		} else {
+			repeatedValues = append(repeatedValues, &types.RepeatedValue{Val: []*types.Value{val}})
+		}
 	}
 
 	return repeatedValues, nil
