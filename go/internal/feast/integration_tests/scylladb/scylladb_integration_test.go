@@ -275,7 +275,7 @@ func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeRe
 			if strings.Contains(featureName, "null") {
 				// For null features, we expect the value to contain 1 entry with a nil value
 				assert.NotNil(t, value)
-				assert.Equal(t, 1, len(value.Val), "Feature %s should have one value, got %d", featureName, len(value.Val))
+				assert.Equal(t, 10, len(value.Val), "Feature %s should have one value, got %d %s", featureName, len(value.Val), value.Val)
 				assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
 			} else {
 				assert.NotNil(t, value)

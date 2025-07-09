@@ -766,6 +766,7 @@ func processFeatureRowData(
 
 	for i, val := range featureData.Values {
 		if val == nil {
+			//rangeValues[i] = &prototypes.Value{}
 			rangeValues[i] = nil
 			rangeStatuses[i] = serving.FieldStatus_NOT_FOUND
 			rangeTimestamps[i] = &timestamppb.Timestamp{}
@@ -781,6 +782,7 @@ func processFeatureRowData(
 		if i < len(featureData.Statuses) &&
 			(featureData.Statuses[i] == serving.FieldStatus_NOT_FOUND ||
 				featureData.Statuses[i] == serving.FieldStatus_NULL_VALUE) {
+			//rangeValues[i] = &prototypes.Value{}
 			rangeValues[i] = nil
 		} else {
 			rangeValues[i] = protoVal
