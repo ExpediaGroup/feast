@@ -619,8 +619,12 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 
 	numFeatures := len(groupRef.AliasedFeatureNames)
 	fvs := make(map[string]*model.FeatureView)
+	featureToType := make(map[string]prototypes.ValueType_Enum)
 	for _, viewAndRefs := range requestedFeatureViews {
 		fvs[viewAndRefs.View.Base.Name] = viewAndRefs.View
+		for _, feature := range viewAndRefs.View.Base.Features {
+			featureToType[viewAndRefs.View.Base.Name+feature.Name] = feature.Dtype
+		}
 	}
 
 	var featureData *onlinestore.FeatureData
@@ -640,22 +644,22 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 
 		for rowEntityIndex, outputIndexes := range groupRef.Indices {
 
+			featureData = &featureData2D[rowEntityIndex][featureIndex]
+			featureViewName = featureData.Reference.FeatureViewName
+			fv = fvs[featureViewName]
 			var (
 				value          *prototypes.Value
 				status         serving.FieldStatus
 				eventTimeStamp *timestamppb.Timestamp
 			)
 			if featureData2D[rowEntityIndex] == nil {
-				value = nil
+				value = getEmptyValue(featureToType[featureViewName+currentVector.Name])
 				status = serving.FieldStatus_NOT_FOUND
 				eventTimeStamp = &timestamppb.Timestamp{}
 			} else {
-				featureData = &featureData2D[rowEntityIndex][featureIndex]
 				eventTimeStamp = &timestamppb.Timestamp{Seconds: featureData.Timestamp.Seconds, Nanos: featureData.Timestamp.Nanos}
-				featureViewName = featureData.Reference.FeatureViewName
-				fv = fvs[featureViewName]
 				if _, ok := featureData.Value.Val.(*prototypes.Value_NullVal); ok {
-					value = nil
+					value = getEmptyValue(featureToType[featureViewName+currentVector.Name])
 					status = serving.FieldStatus_NOT_FOUND
 				} else if checkOutsideTtl(eventTimeStamp, timestamppb.Now(), fv.Ttl) {
 					value = &prototypes.Value{Val: featureData.Value.Val}
@@ -691,8 +695,12 @@ func TransposeRangeFeatureRowsIntoColumns(
 
 	numFeatures := len(groupRef.AliasedFeatureNames)
 	sfvs := make(map[string]*model.SortedFeatureView)
+	featureToType := make(map[string]prototypes.ValueType_Enum)
 	for _, viewAndRefs := range sortedViews {
 		sfvs[viewAndRefs.View.Base.Name] = viewAndRefs.View
+		for _, feature := range viewAndRefs.View.Base.Features {
+			featureToType[viewAndRefs.View.Base.Name+feature.Name] = feature.Dtype
+		}
 	}
 
 	vectors := make([]*RangeFeatureVector, numFeatures)
@@ -708,7 +716,7 @@ func TransposeRangeFeatureRowsIntoColumns(
 
 		for rowEntityIndex, outputIndexes := range groupRef.Indices {
 			rangeValues, rangeStatuses, rangeTimestamps, err := processFeatureRowData(
-				featureData2D, rowEntityIndex, featureIndex, sfvs)
+				featureData2D, rowEntityIndex, featureIndex, sfvs, featureToType)
 			if err != nil {
 				return nil, err
 			}
@@ -742,7 +750,8 @@ func processFeatureRowData(
 	featureData2D [][]onlinestore.RangeFeatureData,
 	rowEntityIndex int,
 	featureIndex int,
-	sfvs map[string]*model.SortedFeatureView) ([]*prototypes.Value, []serving.FieldStatus, []*timestamppb.Timestamp, error) {
+	sfvs map[string]*model.SortedFeatureView,
+	featureToType map[string]prototypes.ValueType_Enum) ([]*prototypes.Value, []serving.FieldStatus, []*timestamppb.Timestamp, error) {
 
 	if featureData2D[rowEntityIndex] == nil || len(featureData2D[rowEntityIndex]) <= featureIndex {
 		return make([]*prototypes.Value, 0),
@@ -766,8 +775,7 @@ func processFeatureRowData(
 
 	for i, val := range featureData.Values {
 		if val == nil {
-			//rangeValues[i] = &prototypes.Value{}
-			rangeValues[i] = nil
+			rangeValues[i] = getEmptyValue(featureToType[featureViewName+featureData.FeatureName])
 			if i < len(featureData.Statuses) {
 				rangeStatuses[i] = featureData.Statuses[i]
 			} else {
@@ -782,12 +790,11 @@ func processFeatureRowData(
 			return nil, nil, nil, fmt.Errorf("error converting value for feature %s: %v", featureData.FeatureName, err)
 		}
 
-		// Explicitly set to nil if status is NOT_FOUND
+		// Explicitly set to an empty value if status is NOT_FOUND
 		if i < len(featureData.Statuses) &&
 			(featureData.Statuses[i] == serving.FieldStatus_NOT_FOUND ||
 				featureData.Statuses[i] == serving.FieldStatus_NULL_VALUE) {
-			//rangeValues[i] = &prototypes.Value{}
-			rangeValues[i] = nil
+			rangeValues[i] = getEmptyValue(featureToType[featureViewName+featureData.FeatureName])
 		} else {
 			rangeValues[i] = protoVal
 		}
@@ -806,6 +813,45 @@ func processFeatureRowData(
 	}
 
 	return rangeValues, rangeStatuses, rangeTimestamps, nil
+}
+
+func getEmptyValue(valueType prototypes.ValueType_Enum) *prototypes.Value {
+	switch valueType {
+	case prototypes.ValueType_INT32:
+		return &prototypes.Value{Val: &prototypes.Value_Int32Val{}}
+	case prototypes.ValueType_INT64:
+		return &prototypes.Value{Val: &prototypes.Value_Int64Val{}}
+	case prototypes.ValueType_FLOAT:
+		return &prototypes.Value{Val: &prototypes.Value_FloatVal{}}
+	case prototypes.ValueType_DOUBLE:
+		return &prototypes.Value{Val: &prototypes.Value_DoubleVal{}}
+	case prototypes.ValueType_STRING:
+		return &prototypes.Value{Val: &prototypes.Value_StringVal{}}
+	case prototypes.ValueType_BOOL:
+		return &prototypes.Value{Val: &prototypes.Value_BoolVal{}}
+	case prototypes.ValueType_BYTES:
+		return &prototypes.Value{Val: &prototypes.Value_BytesVal{}}
+	case prototypes.ValueType_UNIX_TIMESTAMP:
+		return &prototypes.Value{Val: &prototypes.Value_UnixTimestampVal{}}
+	case prototypes.ValueType_INT32_LIST:
+		return &prototypes.Value{Val: &prototypes.Value_Int32ListVal{}}
+	case prototypes.ValueType_INT64_LIST:
+		return &prototypes.Value{Val: &prototypes.Value_Int64ListVal{}}
+	case prototypes.ValueType_FLOAT_LIST:
+		return &prototypes.Value{Val: &prototypes.Value_FloatListVal{}}
+	case prototypes.ValueType_DOUBLE_LIST:
+		return &prototypes.Value{Val: &prototypes.Value_DoubleListVal{}}
+	case prototypes.ValueType_STRING_LIST:
+		return &prototypes.Value{Val: &prototypes.Value_StringListVal{}}
+	case prototypes.ValueType_BOOL_LIST:
+		return &prototypes.Value{Val: &prototypes.Value_BoolListVal{}}
+	case prototypes.ValueType_BYTES_LIST:
+		return &prototypes.Value{Val: &prototypes.Value_BytesListVal{}}
+	case prototypes.ValueType_UNIX_TIMESTAMP_LIST:
+		return &prototypes.Value{Val: &prototypes.Value_UnixTimestampListVal{}}
+	default:
+		return &prototypes.Value{Val: &prototypes.Value_NullVal{}}
+	}
 }
 
 func getEventTimestamp(timestamps []timestamp.Timestamp, index int) *timestamppb.Timestamp {
