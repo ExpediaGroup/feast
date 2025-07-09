@@ -67,6 +67,16 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
 		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
 		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+	featureTypes := map[string]*types.Value{"int_val": &types.Value{Val: &types.Value_Int32Val{}}, "long_val": &types.Value{Val: &types.Value_Int64Val{}}, "float_val": &types.Value{Val: &types.Value_FloatVal{}}, "double_val": &types.Value{Val: &types.Value_DoubleVal{}},
+		"byte_val": &types.Value{Val: &types.Value_BytesVal{}}, "string_val": &types.Value{Val: &types.Value_StringVal{}}, "timestamp_val": &types.Value{Val: &types.Value_UnixTimestampVal{}}, "boolean_val": &types.Value{Val: &types.Value_BoolVal{}},
+		"null_int_val": &types.Value{Val: &types.Value_Int32Val{}}, "null_long_val": &types.Value{Val: &types.Value_Int64Val{}}, "null_float_val": &types.Value{Val: &types.Value_FloatVal{}}, "null_double_val": &types.Value{Val: &types.Value_DoubleVal{}},
+		"null_byte_val": &types.Value{Val: &types.Value_BytesVal{}}, "null_string_val": &types.Value{Val: &types.Value_StringVal{}}, "null_timestamp_val": &types.Value{Val: &types.Value_UnixTimestampVal{}}, "null_boolean_val": &types.Value{Val: &types.Value_BoolVal{}},
+		"null_array_int_val": &types.Value{Val: &types.Value_Int32ListVal{}}, "null_array_long_val": &types.Value{Val: &types.Value_Int64ListVal{}}, "null_array_float_val": &types.Value{Val: &types.Value_FloatListVal{}},
+		"null_array_double_val": &types.Value{Val: &types.Value_DoubleListVal{}}, "null_array_byte_val": &types.Value{Val: &types.Value_BytesListVal{}}, "null_array_string_val": &types.Value{Val: &types.Value_StringListVal{}},
+		"null_array_boolean_val": &types.Value{Val: &types.Value_BoolListVal{}}, "array_int_val": &types.Value{Val: &types.Value_Int32ListVal{}}, "array_long_val": &types.Value{Val: &types.Value_Int64ListVal{}},
+		"array_float_val": &types.Value{Val: &types.Value_FloatListVal{}}, "array_double_val": &types.Value{Val: &types.Value_DoubleListVal{}}, "array_string_val": &types.Value{Val: &types.Value_StringListVal{}},
+		"array_boolean_val": &types.Value{Val: &types.Value_BoolListVal{}}, "array_byte_val": &types.Value{Val: &types.Value_BytesListVal{}}, "array_timestamp_val": &types.Value{Val: &types.Value_UnixTimestampListVal{}},
+		"null_array_timestamp_val": &types.Value{Val: &types.Value_UnixTimestampListVal{}}}
 
 	var featureNamesWithFeatureView []string
 
@@ -96,7 +106,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	}
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
 	assert.NoError(t, err)
-	assertResponseData(t, response, featureNames, true)
+	assertResponseData(t, response, featureNames, featureTypes, true)
 }
 
 func TestGetOnlineFeaturesRange_forNonExistentEntityKey(t *testing.T) {
@@ -113,6 +123,16 @@ func TestGetOnlineFeaturesRange_forNonExistentEntityKey(t *testing.T) {
 		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
 		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
 		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+	featureTypes := map[string]*types.Value{"int_val": &types.Value{Val: &types.Value_Int32Val{}}, "long_val": &types.Value{Val: &types.Value_Int64Val{}}, "float_val": &types.Value{Val: &types.Value_FloatVal{}}, "double_val": &types.Value{Val: &types.Value_DoubleVal{}},
+		"byte_val": &types.Value{Val: &types.Value_BytesVal{}}, "string_val": &types.Value{Val: &types.Value_StringVal{}}, "timestamp_val": &types.Value{Val: &types.Value_UnixTimestampVal{}}, "boolean_val": &types.Value{Val: &types.Value_BoolVal{}},
+		"null_int_val": &types.Value{Val: &types.Value_Int32Val{}}, "null_long_val": &types.Value{Val: &types.Value_Int64Val{}}, "null_float_val": &types.Value{Val: &types.Value_FloatVal{}}, "null_double_val": &types.Value{Val: &types.Value_DoubleVal{}},
+		"null_byte_val": &types.Value{Val: &types.Value_BytesVal{}}, "null_string_val": &types.Value{Val: &types.Value_StringVal{}}, "null_timestamp_val": &types.Value{Val: &types.Value_UnixTimestampVal{}}, "null_boolean_val": &types.Value{Val: &types.Value_BoolVal{}},
+		"null_array_int_val": &types.Value{Val: &types.Value_Int32ListVal{}}, "null_array_long_val": &types.Value{Val: &types.Value_Int64ListVal{}}, "null_array_float_val": &types.Value{Val: &types.Value_FloatListVal{}},
+		"null_array_double_val": &types.Value{Val: &types.Value_DoubleListVal{}}, "null_array_byte_val": &types.Value{Val: &types.Value_BytesListVal{}}, "null_array_string_val": &types.Value{Val: &types.Value_StringListVal{}},
+		"null_array_boolean_val": &types.Value{Val: &types.Value_BoolListVal{}}, "array_int_val": &types.Value{Val: &types.Value_Int32ListVal{}}, "array_long_val": &types.Value{Val: &types.Value_Int64ListVal{}},
+		"array_float_val": &types.Value{Val: &types.Value_FloatListVal{}}, "array_double_val": &types.Value{Val: &types.Value_DoubleListVal{}}, "array_string_val": &types.Value{Val: &types.Value_StringListVal{}},
+		"array_boolean_val": &types.Value{Val: &types.Value_BoolListVal{}}, "array_byte_val": &types.Value{Val: &types.Value_BytesListVal{}}, "array_timestamp_val": &types.Value{Val: &types.Value_UnixTimestampListVal{}},
+		"null_array_timestamp_val": &types.Value{Val: &types.Value_UnixTimestampListVal{}}}
 
 	var featureNamesWithFeatureView []string
 
@@ -144,14 +164,14 @@ func TestGetOnlineFeaturesRange_forNonExistentEntityKey(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, response)
 	assert.Equal(t, 1, len(response.Entities))
-	for _, featureResult := range response.Results {
+	for i, featureResult := range response.Results {
 		assert.Equal(t, 1, len(featureResult.Values))
 		assert.Equal(t, 1, len(featureResult.Statuses))
 		assert.Equal(t, 1, len(featureResult.EventTimestamps))
 		for j, value := range featureResult.Values {
 			assert.NotNil(t, value)
 			assert.Equal(t, 1, len(value.Val))
-			assert.Nil(t, value.Val[0].Val)
+			assert.IsType(t, featureTypes[featureNames[i]].Val, value.Val[0].Val)
 			assert.Equal(t, serving.FieldStatus_NOT_FOUND, featureResult.Statuses[j].Status[0])
 		}
 	}
@@ -169,6 +189,7 @@ func TestGetOnlineFeaturesRange_includesDuplicatedRequestedFeatures(t *testing.T
 	}
 
 	featureNames := []string{"int_val", "int_val"}
+	featureTypes := map[string]*types.Value{"int_val": &types.Value{Val: &types.Value_Int32Val{}}}
 
 	var featureNamesWithFeatureView []string
 
@@ -197,7 +218,7 @@ func TestGetOnlineFeaturesRange_includesDuplicatedRequestedFeatures(t *testing.T
 	}
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
 	assert.NoError(t, err)
-	assertResponseData(t, response, featureNames, false)
+	assertResponseData(t, response, featureNames, featureTypes, false)
 }
 
 func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
@@ -216,6 +237,16 @@ func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
 		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
 		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
 		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+	featureTypes := map[string]*types.Value{"int_val": &types.Value{Val: &types.Value_Int32Val{}}, "long_val": &types.Value{Val: &types.Value_Int64Val{}}, "float_val": &types.Value{Val: &types.Value_FloatVal{}}, "double_val": &types.Value{Val: &types.Value_DoubleVal{}},
+		"byte_val": &types.Value{Val: &types.Value_BytesVal{}}, "string_val": &types.Value{Val: &types.Value_StringVal{}}, "timestamp_val": &types.Value{Val: &types.Value_UnixTimestampVal{}}, "boolean_val": &types.Value{Val: &types.Value_BoolVal{}},
+		"null_int_val": &types.Value{Val: &types.Value_Int32Val{}}, "null_long_val": &types.Value{Val: &types.Value_Int64Val{}}, "null_float_val": &types.Value{Val: &types.Value_FloatVal{}}, "null_double_val": &types.Value{Val: &types.Value_DoubleVal{}},
+		"null_byte_val": &types.Value{Val: &types.Value_BytesVal{}}, "null_string_val": &types.Value{Val: &types.Value_StringVal{}}, "null_timestamp_val": &types.Value{Val: &types.Value_UnixTimestampVal{}}, "null_boolean_val": &types.Value{Val: &types.Value_BoolVal{}},
+		"null_array_int_val": &types.Value{Val: &types.Value_Int32ListVal{}}, "null_array_long_val": &types.Value{Val: &types.Value_Int64ListVal{}}, "null_array_float_val": &types.Value{Val: &types.Value_FloatListVal{}},
+		"null_array_double_val": &types.Value{Val: &types.Value_DoubleListVal{}}, "null_array_byte_val": &types.Value{Val: &types.Value_BytesListVal{}}, "null_array_string_val": &types.Value{Val: &types.Value_StringListVal{}},
+		"null_array_boolean_val": &types.Value{Val: &types.Value_BoolListVal{}}, "array_int_val": &types.Value{Val: &types.Value_Int32ListVal{}}, "array_long_val": &types.Value{Val: &types.Value_Int64ListVal{}},
+		"array_float_val": &types.Value{Val: &types.Value_FloatListVal{}}, "array_double_val": &types.Value{Val: &types.Value_DoubleListVal{}}, "array_string_val": &types.Value{Val: &types.Value_StringListVal{}},
+		"array_boolean_val": &types.Value{Val: &types.Value_BoolListVal{}}, "array_byte_val": &types.Value{Val: &types.Value_BytesListVal{}}, "array_timestamp_val": &types.Value{Val: &types.Value_UnixTimestampListVal{}},
+		"null_array_timestamp_val": &types.Value{Val: &types.Value_UnixTimestampListVal{}}}
 
 	var featureNamesWithFeatureView []string
 
@@ -235,7 +266,7 @@ func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
 	}
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
 	assert.NoError(t, err)
-	assertResponseData(t, response, featureNames, false)
+	assertResponseData(t, response, featureNames, featureTypes, false)
 }
 
 func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
@@ -318,7 +349,7 @@ func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
 	assert.Equal(t, "rpc error: code = Unknown desc = GetOnlineFeaturesRange does not support standard feature views [all_dtypes]", err.Error(), "Expected error message for unsupported feature view")
 }
 
-func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string, includeMetadata bool) {
+func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string, featureTypes map[string]*types.Value, includeMetadata bool) {
 	assert.NotNil(t, response)
 	assert.Equal(t, 1, len(response.Entities), "Should have 1 entity")
 	indexIdEntity, exists := response.Entities["index_id"]
@@ -339,10 +370,12 @@ func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeRe
 				// For null features, we expect the value to contain 1 entry with a nil value
 				assert.NotNil(t, value)
 				assert.Equal(t, 10, len(value.Val), "Feature %s should have one value, got %d %s", featureName, len(value.Val), value.Val)
-				assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
 			} else {
 				assert.NotNil(t, value)
 				assert.Equal(t, 10, len(value.Val), "Feature %s should have 10 values, got %d", featureName, len(value.Val))
+			}
+			for _, val := range value.Val {
+				assert.IsType(t, featureTypes[featureName].Val, val.Val, "Feature %s should have type %T, got %T", featureName, featureTypes[featureName].Val, val.Val)
 			}
 
 			if includeMetadata {
