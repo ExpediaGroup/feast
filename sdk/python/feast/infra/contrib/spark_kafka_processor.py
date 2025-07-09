@@ -24,7 +24,7 @@ from feast.infra.materialization.contrib.spark.spark_materialization_engine impo
 from feast.infra.provider import get_provider
 from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
-
+from time import perf_counter
 
 class SparkProcessorConfig(ProcessorConfig):
     """spark_kafka_options, schema_registry_config and checkpoint_location are only used for ConfluentAvroFormat"""
@@ -276,12 +276,18 @@ class SparkKafkaProcessor(StreamProcessor):
             if self.preprocess_fn:
                 rows = self.preprocess_fn(rows)
 
+            write_start = perf_counter()
             # Finally persist the data to the online store and/or offline store.
             if rows.size > 0:
                 if to == PushMode.ONLINE or to == PushMode.ONLINE_AND_OFFLINE:
                     self.fs.write_to_online_store(self.sfv.name, rows)
                 if to == PushMode.OFFLINE or to == PushMode.ONLINE_AND_OFFLINE:
                     self.fs.write_to_offline_store(self.sfv.name, rows)
+
+            write_time = perf_counter() - write_start
+            print(
+                f"INFO: write_time: {write_time}."
+            )
 
         query = (
             df.writeStream.outputMode("update")
