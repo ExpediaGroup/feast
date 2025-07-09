@@ -539,6 +539,12 @@ class CassandraOnlineStore(OnlineStore):
                         online_store_config.write_batch_size is not None
                         and 0 < online_store_config.write_batch_size <= batch_count
                     ):
+                        print(
+                            f"configured_batch_size: {online_store_config.write_batch_size}."
+                        )
+                        print(
+                            f"batch_count: {batch_count}."
+                        )
                         CassandraOnlineStore._apply_batch(
                             rate_limiter,
                             batch,
@@ -552,6 +558,9 @@ class CassandraOnlineStore(OnlineStore):
                         batch_count = 0
 
                 if batch_count > 0:
+                    print(
+                        f"batch_count_out: {batch_count}."
+                    )
                     CassandraOnlineStore._apply_batch(
                         rate_limiter,
                         batch,
