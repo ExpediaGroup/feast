@@ -38,7 +38,7 @@ func TestMain(m *testing.M) {
 	ctx = context.Background()
 	var closer func()
 
-	client, closer = server.GetClient(ctx, "", dir, "")
+	client, closer = server.GetClient(ctx, dir, "")
 
 	// Run the tests
 	exitCode := m.Run()

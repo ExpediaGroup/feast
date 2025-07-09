@@ -371,6 +371,8 @@ def validate_objects_for_apply(
                     current = registry.get_feature_view(obj.name, project_name)  # type: ignore[assignment]
                 else:
                     current = None
+            # TODO: Add more exception types (FeatureServiceNotFoundException, etc.) as more compatibility checks are
+            #  added for more object types.
             except (SortedFeatureViewNotFoundException, FeatureViewNotFoundException):
                 logger.warning(
                     "'%s' not found in registry; treating as new object.",
