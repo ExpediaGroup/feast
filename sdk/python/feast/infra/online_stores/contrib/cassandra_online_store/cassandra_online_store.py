@@ -438,12 +438,12 @@ class CassandraOnlineStore(OnlineStore):
         fqtable = CassandraOnlineStore._fq_table_name(
             keyspace, project, table, table_name_version
         )
-        write_start = perf_counter()
+
         if isinstance(table, SortedFeatureView):
             # Split the data in to multiple batches, with each batch having the same entity key (partition key).
             # NOTE: It is not a good practice to have data from multiple partitions in the same batch.
             # Doing so can affect write latency and also data loss among other things.
-            write_start2 = perf_counter()
+
             entity_dict: Dict[
                 str,
                 List[
@@ -471,9 +471,9 @@ class CassandraOnlineStore(OnlineStore):
                 ).hex()
                 entity_dict[entity_key_bin].append(row)
 
-            entity_dict_time = perf_counter() - write_start2
+
             print(
-                f"entity_dict_time: {entity_dict_time}."
+                f"number_of_keys: {len(entity_dict)}."
             )
 
             # Get the list of feature names from data to use in the insert query
@@ -485,11 +485,12 @@ class CassandraOnlineStore(OnlineStore):
             sort_key_names = [sort_key.name for sort_key in table.sort_keys]
 
             for entity_key_bin, batch_to_write in entity_dict.items():
+                write_start = perf_counter()
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                 batch_count = 0
 
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
-                    write_start3 = perf_counter()
+
                     ttl = CassandraOnlineStore._get_ttl(
                         ttl_feature_view,
                         table.use_write_time_for_ttl,
@@ -541,21 +542,13 @@ class CassandraOnlineStore(OnlineStore):
                         params_str=params_str,
                     )
                     batch.add(insert_cql, feature_values)
-                    each_row_in_batch_creation_time = perf_counter() - write_start3
-                    print(
-                        f"each_row_in_batch_creation_time: {each_row_in_batch_creation_time}."
-                    )
                     batch_count += 1
 
                     if (
                         online_store_config.write_batch_size is not None
                         and 0 < online_store_config.write_batch_size <= batch_count
                     ):
-                        batch_creation_time = perf_counter() - write_start3
-                        print(
-                            f"batch_creation_time: {batch_creation_time}."
-                        )
-                        write_start4 = perf_counter()
+
                         CassandraOnlineStore._apply_batch(
                             rate_limiter,
                             batch,
@@ -567,13 +560,8 @@ class CassandraOnlineStore(OnlineStore):
                         )
                         batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                         batch_count = 0
-                        apply_batch_time = perf_counter() - write_start4
-                        print(
-                            f"apply_batch_time: {apply_batch_time}."
-                        )
 
                 if batch_count > 0:
-                    write_start5 = perf_counter()
                     CassandraOnlineStore._apply_batch(
                         rate_limiter,
                         batch,
@@ -583,7 +571,7 @@ class CassandraOnlineStore(OnlineStore):
                         on_success,
                         on_failure,
                     )
-                    apply_last_batch_time = perf_counter() - write_start5
+                    apply_last_batch_time = perf_counter() - write_start
                     print(
                         f"apply_last_batch_time: {apply_last_batch_time}."
                     )
