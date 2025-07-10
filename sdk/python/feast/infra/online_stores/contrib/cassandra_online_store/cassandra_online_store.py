@@ -468,6 +468,9 @@ class CassandraOnlineStore(OnlineStore):
                     row[0],
                     entity_key_serialization_version=config.entity_key_serialization_version,
                 ).hex()
+                print(
+                    f"entity_key_bin: {entity_key_bin}."
+                )
                 entity_dict[entity_key_bin].append(row)
 
             # Get the list of feature names from data to use in the insert query
@@ -481,6 +484,9 @@ class CassandraOnlineStore(OnlineStore):
             for entity_key_bin, batch_to_write in entity_dict.items():
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                 batch_count = 0
+                print(
+                    f"entity_key_bin_key.batch_to_write_len: {entity_key_bin}.{len(batch_to_write)}"
+                )
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
                     ttl = CassandraOnlineStore._get_ttl(
                         ttl_feature_view,
