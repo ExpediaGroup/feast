@@ -548,6 +548,36 @@ func TestValidateSortKeyFilters_ValidFilters(t *testing.T) {
 
 	err = ValidateSortKeyFilters(validFilters, sortedViews)
 	assert.NoError(t, err, "Valid filters should not produce an error")
+
+	validFilters = []*serving.SortKeyFilter{
+		{
+			SortKeyName: "timestamp",
+			Query: &serving.SortKeyFilter_Equals{
+				Equals: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 1640995200}},
+			},
+		},
+	}
+
+	err = ValidateSortKeyFilters(validFilters, sortedViews)
+	assert.NoError(t, err, "Valid filters should not produce an error")
+
+	validFilters = []*serving.SortKeyFilter{
+		{
+			SortKeyName: "timestamp",
+			Query: &serving.SortKeyFilter_Equals{
+				Equals: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 1640995200}},
+			},
+		},
+		{
+			SortKeyName: "name",
+			Query: &serving.SortKeyFilter_Equals{
+				Equals: &types.Value{Val: &types.Value_StringVal{StringVal: "John"}},
+			},
+		},
+	}
+
+	err = ValidateSortKeyFilters(validFilters, sortedViews)
+	assert.NoError(t, err, "Valid filters should not produce an error")
 }
 
 func TestValidateSortKeyFilters_EmptyFilters(t *testing.T) {

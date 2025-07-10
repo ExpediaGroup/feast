@@ -56,9 +56,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 
 	entities["index_id"] = &types.RepeatedValue{
 		Val: []*types.Value{
-			{Val: &types.Value_Int64Val{Int64Val: 1}},
 			{Val: &types.Value_Int64Val{Int64Val: 2}},
-			{Val: &types.Value_Int64Val{Int64Val: 3}},
 		},
 	}
 
@@ -66,7 +64,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
 		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
 		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
-		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
 
 	var featureNamesWithFeatureView []string
 
@@ -84,10 +82,8 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		SortKeyFilters: []*serving.SortKeyFilter{
 			{
 				SortKeyName: "event_timestamp",
-				Query: &serving.SortKeyFilter_Range{
-					Range: &serving.SortKeyFilter_RangeQuery{
-						RangeStart: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 0}},
-					},
+				Query: &serving.SortKeyFilter_Equals{
+					Equals: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 1744769171}},
 				},
 			},
 		},

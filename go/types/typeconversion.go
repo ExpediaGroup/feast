@@ -824,6 +824,8 @@ func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*ty
 		switch value.Val.(type) {
 		case *types.Value_UnixTimestampVal:
 			return value, nil
+		case *types.Value_Int32Val:
+			return &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: int64(value.GetInt32Val())}}, nil
 		case *types.Value_Int64Val:
 			return &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: value.GetInt64Val()}}, nil
 		}
