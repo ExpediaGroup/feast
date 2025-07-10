@@ -17,6 +17,7 @@
 package dev.feast;
 
 import com.google.common.collect.Lists;
+import dev.feast.exception.FeastException;
 import feast.proto.serving.ServingAPIProto;
 import feast.proto.serving.ServingAPIProto.FieldStatus;
 import feast.proto.serving.ServingAPIProto.GetFeastServingInfoRequest;
@@ -30,6 +31,7 @@ import feast.proto.serving.ServingServiceGrpc.ServingServiceBlockingStub;
 import feast.proto.types.ValueProto;
 import io.grpc.CallCredentials;
 import io.grpc.ManagedChannel;
+import io.grpc.StatusRuntimeException;
 import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import io.opentracing.contrib.grpc.TracingClientInterceptor;
@@ -303,7 +305,12 @@ public class FeastClient implements AutoCloseable {
     ServingServiceGrpc.ServingServiceBlockingStub timedStub =
         requestTimeout != 0 ? stub.withDeadlineAfter(requestTimeout, TimeUnit.MILLISECONDS) : stub;
 
-    GetOnlineFeaturesResponse response = timedStub.getOnlineFeatures(getOnlineFeaturesRequest);
+    GetOnlineFeaturesResponse response;
+    try {
+      response = timedStub.getOnlineFeatures(getOnlineFeaturesRequest);
+    } catch (StatusRuntimeException e) {
+      throw FeastException.fromStatusException(e);
+    }
 
     List<Row> results = Lists.newArrayList();
     if (response.getResultsCount() == 0) {
@@ -444,7 +451,12 @@ public class FeastClient implements AutoCloseable {
     ServingServiceGrpc.ServingServiceBlockingStub timedStub =
         requestTimeout != 0 ? stub.withDeadlineAfter(requestTimeout, TimeUnit.MILLISECONDS) : stub;
 
-    GetOnlineFeaturesRangeResponse response = timedStub.getOnlineFeaturesRange(request);
+    GetOnlineFeaturesRangeResponse response;
+    try {
+      response = timedStub.getOnlineFeaturesRange(request);
+    } catch (StatusRuntimeException e) {
+      throw FeastException.fromStatusException(e);
+    }
 
     List<RangeRow> results = Lists.newArrayList();
 

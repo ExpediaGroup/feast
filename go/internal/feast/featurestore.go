@@ -2,8 +2,8 @@ package feast
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/types"
 	"os"
 	"strings"
@@ -114,7 +114,7 @@ func entityTypeConversion(entityMap map[string]*prototypes.RepeatedValue, entity
 				for _, value := range entityValue.Val {
 					newVal, err := types.ConvertToValueType(value, entityColumn.Dtype)
 					if err != nil {
-						return fmt.Errorf("error converting entity value for %s: %w", entityName, err)
+						return errors.GrpcInternalErrorf("error converting entity value for %s: %v", entityName, err)
 					}
 					newEntityValue.Val = append(newEntityValue.Val, newVal)
 				}
@@ -134,7 +134,7 @@ func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKe
 			if filter.GetEquals() != nil {
 				equals, err := types.ConvertToValueType(filter.GetEquals(), sk.ValueType)
 				if err != nil {
-					return nil, fmt.Errorf("error converting sort key filter equals for %s: %w", sk.FieldName, err)
+					return nil, errors.GrpcInternalErrorf("error converting sort key filter equals for %s: %v", sk.FieldName, err)
 				}
 				newFilters[i] = &serving.SortKeyFilter{
 					SortKeyName: sk.FieldName,
@@ -147,14 +147,14 @@ func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKe
 			if filter.GetRange().GetRangeStart() != nil {
 				rangeStart, err = types.ConvertToValueType(filter.GetRange().GetRangeStart(), sk.ValueType)
 				if err != nil {
-					return nil, fmt.Errorf("error converting sort key filter range start for %s: %w", sk.FieldName, err)
+					return nil, errors.GrpcInternalErrorf("error converting sort key filter range start for %s: %v", sk.FieldName, err)
 				}
 			}
 			var rangeEnd *prototypes.Value
 			if filter.GetRange().GetRangeEnd() != nil {
 				rangeEnd, err = types.ConvertToValueType(filter.GetRange().GetRangeEnd(), sk.ValueType)
 				if err != nil {
-					return nil, fmt.Errorf("error converting sort key filter range end for %s: %w", sk.FieldName, err)
+					return nil, errors.GrpcInternalErrorf("error converting sort key filter range end for %s: %v", sk.FieldName, err)
 				}
 			}
 			newFilters[i] = &serving.SortKeyFilter{
@@ -169,7 +169,7 @@ func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKe
 				},
 			}
 		} else {
-			return nil, fmt.Errorf("sort key %s not found in sort keys", filter.SortKeyName)
+			return nil, errors.GrpcInvalidArgumentErrorf("sort key %s not found in sort keys", filter.SortKeyName)
 		}
 	}
 	return newFilters, nil
@@ -205,11 +205,11 @@ func (fs *FeatureStore) GetOnlineFeatures(
 		for i, sfv := range requestedSortedFeatureViews {
 			sfvNames[i] = sfv.View.Base.Name
 		}
-		return nil, fmt.Errorf("GetOnlineFeatures does not support sorted feature views %v", sfvNames)
+		return nil, errors.GrpcInvalidArgumentErrorf("GetOnlineFeatures does not support sorted feature views %v", sfvNames)
 	}
 
 	if len(requestedFeatureViews) == 0 {
-		return nil, fmt.Errorf("no feature views found for the requested features")
+		return nil, errors.GrpcNotFoundErrorf("no feature views found for the requested features")
 	}
 
 	entityColumnMap := make(map[string]*model.Field)
@@ -263,7 +263,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 	for _, groupRef := range groupedRefs {
 		featureData, err := fs.readFromOnlineStore(ctx, groupRef.EntityKeys, groupRef.FeatureViewNames, groupRef.FeatureNames)
 		if err != nil {
-			return nil, err
+			return nil, errors.GrpcFromError(err)
 		}
 
 		vectors, err := onlineserving.TransposeFeatureRowsIntoColumns(
@@ -293,7 +293,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 			fullFeatureNames,
 		)
 		if err != nil {
-			return nil, err
+			return nil, errors.GrpcFromError(err)
 		}
 		result = append(result, onDemandFeatures...)
 	}
@@ -342,11 +342,11 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		for i, fv := range requestedFeatureViews {
 			fvNames[i] = fv.View.Base.Name
 		}
-		return nil, fmt.Errorf("GetOnlineFeaturesRange does not support standard feature views %v", fvNames)
+		return nil, errors.GrpcInvalidArgumentErrorf("GetOnlineFeaturesRange does not support standard feature views %v", fvNames)
 	}
 
 	if len(requestedSortedFeatureViews) == 0 {
-		return nil, fmt.Errorf("no sorted feature views found for the requested features")
+		return nil, errors.GrpcNotFoundErrorf("no sorted feature views found for the requested features")
 	}
 
 	// Note: We're ignoring on-demand feature views for now.
@@ -377,7 +377,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	}
 
 	if len(expectedJoinKeysSet) == 0 {
-		return nil, fmt.Errorf("no entity join keys found, check feature view entity definition is well defined")
+		return nil, errors.GrpcInvalidArgumentErrorf("no entity join keys found, check feature view entity definition is well defined")
 	}
 
 	err = onlineserving.ValidateSortedFeatureRefs(requestedSortedFeatureViews, fullFeatureNames)
@@ -387,11 +387,11 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 
 	numRows, err := onlineserving.ValidateEntityValues(joinKeyToEntityValues, requestData, expectedJoinKeysSet)
 	if err != nil {
-		return nil, fmt.Errorf("entity validation failed: %w", err)
+		return nil, errors.GrpcInvalidArgumentErrorf("entity validation failed: %v", err)
 	}
 
 	if numRows <= 0 {
-		return nil, fmt.Errorf("invalid number of entity rows: %d", numRows)
+		return nil, errors.GrpcInvalidArgumentErrorf("invalid number of entity rows: %d", numRows)
 	}
 
 	err = onlineserving.ValidateSortKeyFilters(sortKeyFilters, requestedSortedFeatureViews)
@@ -400,7 +400,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	}
 
 	if limit < 0 {
-		return nil, fmt.Errorf("limit must be non-negative, got %d", limit)
+		return nil, errors.GrpcInvalidArgumentErrorf("limit must be non-negative, got %d", limit)
 	}
 
 	entitylessCase := checkEntitylessCase(requestedSortedFeatureViews)
@@ -425,7 +425,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	for _, groupRef := range groupedRangeRefs {
 		featureData, err := fs.readRangeFromOnlineStore(ctx, groupRef)
 		if err != nil {
-			return nil, err
+			return nil, errors.GrpcFromError(err)
 		}
 
 		vectors, err := onlineserving.TransposeRangeFeatureRowsIntoColumns(
@@ -480,7 +480,7 @@ func (fs *FeatureStore) ParseFeatures(kind interface{}) (*Features, error) {
 		}
 		return &Features{FeaturesRefs: nil, FeatureService: featureService}, nil
 	default:
-		return nil, errors.New("cannot parse 'kind' of either a Feature Service or list of Features from request")
+		return nil, errors.GrpcInvalidArgumentErrorf("cannot parse 'kind' of either a Feature Service or list of Features from request")
 	}
 }
 

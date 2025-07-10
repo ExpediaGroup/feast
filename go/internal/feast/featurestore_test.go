@@ -449,9 +449,9 @@ func TestEntityTypeConversion_WithInvalidValues(t *testing.T) {
 		{"bytes": {Name: "bytes", Dtype: types.ValueType_BYTES}},
 	}
 	expectedErrors := []string{
-		"error converting entity value for int32: unsupported value type for conversion: INT32 for actual value type: *types.Value_StringVal",
-		"error converting entity value for float: unsupported value type for conversion: FLOAT for actual value type: *types.Value_Int64Val",
-		"error converting entity value for bytes: unsupported value type for conversion: BYTES for actual value type: *types.Value_Int64Val",
+		"rpc error: code = Internal desc = error converting entity value for int32: unsupported value type for conversion: INT32 for actual value type: *types.Value_StringVal",
+		"rpc error: code = Internal desc = error converting entity value for float: unsupported value type for conversion: FLOAT for actual value type: *types.Value_Int64Val",
+		"rpc error: code = Internal desc = error converting entity value for bytes: unsupported value type for conversion: BYTES for actual value type: *types.Value_Int64Val",
 	}
 
 	for i, entityMap := range entityMaps {

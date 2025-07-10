@@ -2,8 +2,10 @@ package onlineserving
 
 import (
 	"crypto/sha256"
-	"errors"
 	"fmt"
+	"github.com/feast-dev/feast/go/internal/feast/errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"sort"
 	"strings"
 
@@ -155,7 +157,7 @@ func GetFeatureViewsToUseByService(
 			}
 		} else {
 			log.Error().Errs("any feature view", []error{fvErr, sortedFvErr, odFvErr}).Msgf("Feature view %s not found", featureViewName)
-			return nil, nil, nil, fmt.Errorf("the provided feature service %s contains a reference to a feature View"+
+			return nil, nil, nil, errors.GrpcInvalidArgumentErrorf("the provided feature service %s contains a reference to a feature View"+
 				"%s which doesn't exist, please make sure that you have created the feature View"+
 				"%s and that you have registered it by running \"apply\"", featureService.Name, featureViewName, featureViewName)
 		}
@@ -253,13 +255,13 @@ func GetFeatureViewsToUseByFeatureRefs(
 				odFvToProjectWithFeatures[odfv.Base.Name] = odfv
 			}
 		} else {
-			return nil, nil, nil, fmt.Errorf("feature View %s doesn't exist, please make sure that you have created the"+
+			return nil, nil, nil, errors.GrpcInvalidArgumentErrorf("feature View %s doesn't exist, please make sure that you have created the"+
 				" feature View %s and that you have registered it by running \"apply\"", featureViewName, featureViewName)
 		}
 	}
 
 	if len(invalidFeatures) > 0 {
-		return nil, nil, nil, fmt.Errorf("requested features are not valid: %s", strings.Join(invalidFeatures, ", "))
+		return nil, nil, nil, errors.GrpcInvalidArgumentErrorf("requested features are not valid: %s", strings.Join(invalidFeatures, ", "))
 	}
 
 	odFvsToUse := make([]*model.OnDemandFeatureView, 0)
@@ -356,7 +358,7 @@ func GetEntityMaps(requestedFeatureViews []*FeatureViewAndRefs, registry *regist
 		for _, entityName := range featureView.EntityNames {
 			entity, err := registry.GetEntity(projectName, entityName)
 			if err != nil {
-				return nil, nil, fmt.Errorf("entity %s doesn't exist in the registry", entityName)
+				return nil, nil, errors.GrpcNotFoundErrorf("entity %s doesn't exist in the registry", entityName)
 			}
 			entityNameToJoinKeyMap[entityName] = entity.JoinKey
 
@@ -387,7 +389,7 @@ func GetEntityMapsForSortedViews(sortedViews []*SortedFeatureViewAndRefs, regist
 		for _, entityName := range featureView.EntityNames {
 			entity, err := registry.GetEntity(projectName, entityName)
 			if err != nil {
-				return nil, nil, fmt.Errorf("entity %s doesn't exist in the registry", entityName)
+				return nil, nil, err
 			}
 			entityNameToJoinKeyMap[entityName] = entity.JoinKey
 
@@ -418,7 +420,7 @@ func ValidateEntityValues(joinKeyValues map[string]*prototypes.RepeatedValue,
 			if numRows < 0 {
 				numRows = len(values.Val)
 			} else if len(values.Val) != numRows {
-				return -1, errors.New("valueError: All entity rows must have the same columns")
+				return -1, errors.GrpcInvalidArgumentErrorf("valueError: All entity rows must have the same columns")
 			}
 
 		}
@@ -486,6 +488,10 @@ func ValidateSortedFeatureRefs(sortedViews []*SortedFeatureViewAndRefs, fullFeat
 }
 
 func ValidateSortKeyFilters(filters []*serving.SortKeyFilter, sortedViews []*SortedFeatureViewAndRefs) error {
+	if len(filters) == 0 {
+		return nil
+	}
+
 	sortKeyTypes := make(map[string]prototypes.ValueType_Enum)
 
 	for _, sortedView := range sortedViews {
@@ -497,29 +503,29 @@ func ValidateSortKeyFilters(filters []*serving.SortKeyFilter, sortedViews []*Sor
 	for _, filter := range filters {
 		expectedType, exists := sortKeyTypes[filter.SortKeyName]
 		if !exists {
-			return fmt.Errorf("sort key '%s' not found in any of the requested sorted feature views",
+			return errors.GrpcInvalidArgumentErrorf("sort key '%s' not found in any of the requested sorted feature views",
 				filter.SortKeyName)
 		}
 
 		if filter.GetEquals() != nil {
 			if !isValueTypeCompatible(filter.GetEquals(), expectedType, false) {
-				return fmt.Errorf("equals value for sort key '%s' has incompatible type: expected %s",
+				return errors.GrpcInvalidArgumentErrorf("equals value for sort key '%s' has incompatible type: expected %s",
 					filter.SortKeyName, valueTypeToString(expectedType))
 			}
 		} else if filter.GetRange() == nil {
-			return fmt.Errorf("sort key filter for sort key '%s' must have either equals or range_query set",
+			return errors.GrpcInvalidArgumentErrorf("sort key filter for sort key '%s' must have either equals or range_query set",
 				filter.SortKeyName)
 		} else {
 			if filter.GetRange().RangeStart != nil {
 				if !isValueTypeCompatible(filter.GetRange().RangeStart, expectedType, true) {
-					return fmt.Errorf("range_start value for sort key '%s' has incompatible type: expected %s",
+					return errors.GrpcInvalidArgumentErrorf("range_start value for sort key '%s' has incompatible type: expected %s",
 						filter.SortKeyName, valueTypeToString(expectedType))
 				}
 			}
 
 			if filter.GetRange().RangeEnd != nil {
 				if !isValueTypeCompatible(filter.GetRange().RangeEnd, expectedType, true) {
-					return fmt.Errorf("range_end value for sort key '%s' has incompatible type: expected %s",
+					return errors.GrpcInvalidArgumentErrorf("range_end value for sort key '%s' has incompatible type: expected %s",
 						filter.SortKeyName, valueTypeToString(expectedType))
 				}
 			}
@@ -545,11 +551,11 @@ func ValidateSortKeyFilterOrder(filters []*serving.SortKeyFilter, sortedViews []
 
 			for i, filter := range orderedFilters[:len(orderedFilters)-1] {
 				if filter == nil {
-					return fmt.Errorf("specify sort key filter in request for sort key: '%s' with query type equals", sortedView.View.SortKeys[i].FieldName)
+					return errors.GrpcInvalidArgumentErrorf("specify sort key filter in request for sort key: '%s' with query type equals", sortedView.View.SortKeys[i].FieldName)
 				}
 
 				if filter.GetEquals() == nil {
-					return fmt.Errorf("sort key filter for sort key '%s' must have query type equals instead of range",
+					return errors.GrpcInvalidArgumentErrorf("sort key filter for sort key '%s' must have query type equals instead of range",
 						filter.SortKeyName)
 				}
 			}
@@ -673,7 +679,7 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 		}
 		arrowValues, err := types.ProtoValuesToArrowArray(protoValues, arrowAllocator, numRows)
 		if err != nil {
-			return nil, err
+			return nil, errors.GrpcFromError(err)
 		}
 		currentVector.Values = arrowValues
 	}
@@ -722,7 +728,7 @@ func TransposeRangeFeatureRowsIntoColumns(
 
 		arrowRangeValues, err := types.RepeatedProtoValuesToArrowArray(rangeValuesByRow, arrowAllocator, numRows)
 		if err != nil {
-			return nil, err
+			return nil, errors.GrpcFromError(err)
 		}
 		currentVector.RangeValues = arrowRangeValues
 	}
@@ -756,7 +762,7 @@ func processFeatureRowData(
 
 	sfv, exists := sfvs[featureViewName]
 	if !exists {
-		return nil, nil, nil, fmt.Errorf("feature view '%s' not found in the provided sorted feature views", featureViewName)
+		return nil, nil, nil, errors.GrpcNotFoundErrorf("feature view '%s' not found in the provided sorted feature views", featureViewName)
 	}
 
 	numValues := len(featureData.Values)
@@ -778,7 +784,7 @@ func processFeatureRowData(
 
 		protoVal, err := types.InterfaceToProtoValue(val)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("error converting value for feature %s: %v", featureData.FeatureName, err)
+			return nil, nil, nil, errors.GrpcInternalErrorf("error converting value for feature %s: %v", featureData.FeatureName, err)
 		}
 
 		// Explicitly set to nil if status is NOT_FOUND
@@ -835,7 +841,7 @@ func KeepOnlyRequestedFeatures[T any](
 		} else if rangeFeatureVector, ok := any(vector).(*RangeFeatureVector); ok {
 			vectorsByName[rangeFeatureVector.Name] = vector
 		} else {
-			return nil, fmt.Errorf("unsupported vector type: %T", vector)
+			return nil, errors.GrpcInternalErrorf("unsupported vector type: %T", vector)
 		}
 	}
 
@@ -855,7 +861,7 @@ func KeepOnlyRequestedFeatures[T any](
 		}
 		qualifiedName := getQualifiedFeatureName(viewName, featureName, fullFeatureNames)
 		if _, ok := vectorsByName[qualifiedName]; !ok {
-			return nil, fmt.Errorf("requested feature %s can't be retrieved", featureRef)
+			return nil, errors.GrpcInternalErrorf("requested feature %s can't be retrieved", featureRef)
 		}
 		expectedVectors = append(expectedVectors, vectorsByName[qualifiedName])
 		usedVectors[qualifiedName] = true
@@ -872,7 +878,7 @@ func KeepOnlyRequestedFeatures[T any](
 				rangeFeatureVector.RangeValues.Release()
 			}
 		} else {
-			return nil, fmt.Errorf("unsupported vector type: %T", vector)
+			return nil, errors.GrpcInternalErrorf("unsupported vector type: %T", vector)
 		}
 	}
 
@@ -890,7 +896,7 @@ func EntitiesToFeatureVectors(entityColumns map[string]*prototypes.RepeatedValue
 	for entityName, values := range entityColumns {
 		arrowColumn, err := types.ProtoValuesToArrowArray(values.Val, arrowAllocator, numRows)
 		if err != nil {
-			return nil, err
+			return nil, errors.GrpcFromError(err)
 		}
 		vectors = append(vectors, &FeatureVector{
 			Name:       entityName,
@@ -940,7 +946,7 @@ func ParseFeatureReference(featureRef string) (featureViewName, featureName stri
 	parsedFeatureName := strings.Split(featureRef, ":")
 
 	if len(parsedFeatureName) == 0 {
-		e = errors.New("featureReference should be in the format: 'FeatureViewName:FeatureName'")
+		e = errors.GrpcInvalidArgumentErrorf("featureReference should be in the format: 'FeatureViewName:FeatureName'")
 	} else if len(parsedFeatureName) == 1 {
 		featureName = parsedFeatureName[0]
 	} else {
@@ -1012,7 +1018,7 @@ func GroupFeatureRefs(requestedFeatureViews []*FeatureViewAndRefs,
 			}
 
 			if _, ok := joinKeyValues[joinKeyOrAlias]; !ok {
-				return nil, fmt.Errorf("key %s is missing in provided entity rows for view %s", joinKey, fv.Base.Name)
+				return nil, errors.GrpcInvalidArgumentErrorf("key %s is missing in provided entity rows for view %s", joinKey, fv.Base.Name)
 			}
 			joinKeysValuesProjection[joinKey] = joinKeyValues[joinKeyOrAlias]
 		}
@@ -1103,7 +1109,7 @@ func GroupSortedFeatureRefs(
 			}
 
 			if _, ok := joinKeyValues[joinKeyOrAlias]; !ok {
-				return nil, fmt.Errorf("key %s is missing in provided entity rows", joinKey)
+				return nil, errors.GrpcInvalidArgumentErrorf("key %s is missing in provided entity rows", joinKey)
 			}
 			joinKeysValuesProjection[joinKey] = joinKeyValues[joinKeyOrAlias]
 		}
@@ -1194,7 +1200,7 @@ func getUniqueEntityRows(joinKeysProto []*prototypes.EntityKey) ([]*prototypes.E
 	for index, entityKey := range joinKeysProto {
 		serializedRow, err := proto.Marshal(entityKey)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, errors.GrpcFromError(err)
 		}
 
 		rowHash := sha256.Sum256(serializedRow)
@@ -1241,4 +1247,8 @@ type featureNameCollisionError struct {
 
 func (e featureNameCollisionError) Error() string {
 	return fmt.Sprintf("featureNameCollisionError: %s; %t", strings.Join(e.featureRefCollisions, ", "), e.fullFeatureNames)
+}
+
+func (e featureNameCollisionError) GRPCStatus() *status.Status {
+	return status.New(codes.InvalidArgument, e.Error())
 }

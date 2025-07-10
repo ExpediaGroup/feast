@@ -255,7 +255,7 @@ func SetupInitializedRepo(basePath string) error {
 		return err
 	}
 	// Pause to ensure apply completes
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 	applyCommand.Dir = featureRepoPath
 	out, err := applyCommand.CombinedOutput()
 	if err != nil {
@@ -277,7 +277,7 @@ func SetupInitializedRepo(basePath string) error {
 		return err
 	}
 	// Pause to ensure materialization completes
-	time.Sleep(5 * time.Second)
+	time.Sleep(1 * time.Second)
 	return nil
 }
 
