@@ -5,6 +5,7 @@ package valkey
 import (
 	"context"
 	fmt "fmt"
+	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -21,6 +22,17 @@ import (
 var client serving.ServingServiceClient
 var ctx context.Context
 var dir string
+
+var featureTypes = map[string]types.ValueType_Enum{"int_val": types.ValueType_INT32, "long_val": types.ValueType_INT64, "float_val": types.ValueType_FLOAT,
+	"double_val": types.ValueType_DOUBLE, "byte_val": types.ValueType_BYTES, "string_val": types.ValueType_STRING, "timestamp_val": types.ValueType_UNIX_TIMESTAMP,
+	"boolean_val": types.ValueType_BOOL, "null_int_val": types.ValueType_INT32, "null_long_val": types.ValueType_INT64, "null_float_val": types.ValueType_FLOAT,
+	"null_double_val": types.ValueType_DOUBLE, "null_byte_val": types.ValueType_BYTES, "null_string_val": types.ValueType_STRING, "null_timestamp_val": types.ValueType_UNIX_TIMESTAMP,
+	"null_boolean_val": types.ValueType_BOOL, "null_array_int_val": types.ValueType_INT32_LIST, "null_array_long_val": types.ValueType_INT64_LIST,
+	"null_array_float_val": types.ValueType_FLOAT_LIST, "null_array_double_val": types.ValueType_DOUBLE_LIST, "null_array_byte_val": types.ValueType_BYTES_LIST,
+	"null_array_string_val": types.ValueType_STRING_LIST, "null_array_boolean_val": types.ValueType_BOOL_LIST, "array_int_val": types.ValueType_INT32_LIST,
+	"array_long_val": types.ValueType_INT64_LIST, "array_float_val": types.ValueType_FLOAT_LIST, "array_double_val": types.ValueType_DOUBLE_LIST,
+	"array_string_val": types.ValueType_STRING_LIST, "array_boolean_val": types.ValueType_BOOL_LIST, "array_byte_val": types.ValueType_BYTES_LIST,
+	"array_timestamp_val": types.ValueType_UNIX_TIMESTAMP_LIST, "null_array_timestamp_val": types.ValueType_UNIX_TIMESTAMP_LIST}
 
 func TestMain(m *testing.M) {
 	var err error
@@ -105,30 +117,41 @@ func TestGetOnlineFeaturesValkey(t *testing.T) {
 		for _, value := range entities["index_id"].Val {
 			filteredRow := test.FilterRowsByColumn(rows, "index_id", value.GetInt64Val())
 			if len(filteredRow) == 0 {
-				if feature == "array_int_val" {
-					expectedResponse = append(expectedResponse, &types.Value{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: nil}}})
-				} else if feature == "array_long_val" {
-					expectedResponse = append(expectedResponse, &types.Value{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: nil}}})
-				} else if feature == "array_float_val" {
-					expectedResponse = append(expectedResponse, &types.Value{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: nil}}})
-				} else if feature == "array_double_val" {
-					expectedResponse = append(expectedResponse, &types.Value{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: nil}}})
-				} else if feature == "array_string_val" {
-					expectedResponse = append(expectedResponse, &types.Value{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: nil}}})
-				} else if feature == "array_boolean_val" {
-					expectedResponse = append(expectedResponse, &types.Value{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: nil}}})
-				} else if feature == "array_byte_val" {
-					expectedResponse = append(expectedResponse, &types.Value{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: nil}}})
-				} else if feature == "array_timestamp_val" {
-					expectedResponse = append(expectedResponse, &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: nil}}})
-				} else {
-					expectedResponse = append(expectedResponse, &types.Value{})
-				}
+				expectedResponse = append(expectedResponse, onlineserving.GetEmptyValue(featureTypes[feature]))
 			} else {
-				expectedResponse = append(expectedResponse, getValueType(filteredRow[0][feature], feature))
+				expectedResponse = append(expectedResponse, getValueType(filteredRow[0][feature], feature, featureTypes))
 			}
 		}
-		assert.True(t, reflect.DeepEqual(response.Results[featureIndex+1].Values, expectedResponse), feature+" has mismatch")
+		// For some reason DeepEqual fails for null list values even when the values match, so we handle them separately
+		if strings.Contains(feature, "null_array") {
+			assert.Equal(t, len(expectedResponse), len(response.Results[featureIndex+1].Values), "Expected response length for feature %s does not feature count", feature)
+			for i, expectedValue := range expectedResponse {
+				actualValue := response.Results[featureIndex+1].Values[i]
+				assert.IsType(t, expectedValue.Val, actualValue.Val, "Expected value type for feature %s does not match", feature)
+				switch expectedValue.Val.(type) {
+				case *types.Value_Int32ListVal:
+					assert.Nil(t, actualValue.GetInt32ListVal().Val, "Expected value for feature %s to be nil", feature)
+				case *types.Value_Int64ListVal:
+					assert.Nil(t, actualValue.GetInt64ListVal().Val, "Expected value for feature %s to be nil", feature)
+				case *types.Value_FloatListVal:
+					assert.Nil(t, actualValue.GetFloatListVal().Val, "Expected value for feature %s to be nil", feature)
+				case *types.Value_DoubleListVal:
+					assert.Nil(t, actualValue.GetDoubleListVal().Val, "Expected value for feature %s to be nil", feature)
+				case *types.Value_StringListVal:
+					assert.Nil(t, actualValue.GetStringListVal().Val, "Expected value for feature %s to be nil", feature)
+				case *types.Value_BoolListVal:
+					assert.Nil(t, actualValue.GetBoolListVal().Val, "Expected value for feature %s to be nil", feature)
+				case *types.Value_BytesListVal:
+					assert.Nil(t, actualValue.GetBytesListVal().Val, "Expected value for feature %s to be nil", feature)
+				case *types.Value_UnixTimestampListVal:
+					assert.Nil(t, actualValue.GetUnixTimestampListVal().Val, "Expected value for feature %s to be nil", feature)
+				default:
+					assert.Fail(t, fmt.Sprintf("Unexpected value type for feature %s: %T", feature, actualValue.Val))
+				}
+			}
+		} else {
+			assert.True(t, reflect.DeepEqual(response.Results[featureIndex+1].Values, expectedResponse), "%s has mismatch: %v != %v", feature, response.Results[featureIndex+1].Values, expectedResponse)
+		}
 	}
 	assert.True(t, reflect.DeepEqual(response.Metadata.FeatureNames.Val, expectedFeatureNamesResp))
 	assert.True(t, reflect.DeepEqual(response.Results[0].Values, expectedEntityValuesResp))
@@ -136,9 +159,9 @@ func TestGetOnlineFeaturesValkey(t *testing.T) {
 	assert.Equal(t, len(response.Results), len(featureNames)+1)
 }
 
-func getValueType(value interface{}, featureName string) *types.Value {
+func getValueType(value interface{}, featureName string, featureTypes map[string]types.ValueType_Enum) *types.Value {
 	if value == nil {
-		return &types.Value{}
+		return onlineserving.GetEmptyValue(featureTypes[featureName])
 	}
 	switch value.(type) {
 	case int32:
@@ -149,7 +172,7 @@ func getValueType(value interface{}, featureName string) *types.Value {
 			return &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: value.(int64)}}
 		} else {
 			if value == nil {
-				return &types.Value{}
+				return onlineserving.GetEmptyValue(featureTypes[featureName])
 			}
 			return &types.Value{Val: &types.Value_Int64Val{Int64Val: value.(int64)}}
 		}
@@ -225,10 +248,10 @@ func getValueType(value interface{}, featureName string) *types.Value {
 			return &types.Value{Val: &types.Value_BytesListVal{&types.BytesList{Val: arrayValue}}}
 
 		default:
-			return &types.Value{}
+			return onlineserving.GetEmptyValue(featureTypes[featureName])
 		}
 
 	default:
-		return &types.Value{}
+		return onlineserving.GetEmptyValue(featureTypes[featureName])
 	}
 }

@@ -653,13 +653,13 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 				eventTimeStamp *timestamppb.Timestamp
 			)
 			if featureData2D[rowEntityIndex] == nil {
-				value = getEmptyValue(featureToType[featureViewName+currentVector.Name])
+				value = GetEmptyValue(featureToType[featureViewName+currentVector.Name])
 				status = serving.FieldStatus_NOT_FOUND
 				eventTimeStamp = &timestamppb.Timestamp{}
 			} else {
 				eventTimeStamp = &timestamppb.Timestamp{Seconds: featureData.Timestamp.Seconds, Nanos: featureData.Timestamp.Nanos}
 				if _, ok := featureData.Value.Val.(*prototypes.Value_NullVal); ok {
-					value = getEmptyValue(featureToType[featureViewName+currentVector.Name])
+					value = GetEmptyValue(featureToType[featureViewName+currentVector.Name])
 					status = serving.FieldStatus_NOT_FOUND
 				} else if checkOutsideTtl(eventTimeStamp, timestamppb.Now(), fv.Ttl) {
 					value = &prototypes.Value{Val: featureData.Value.Val}
@@ -775,7 +775,7 @@ func processFeatureRowData(
 
 	for i, val := range featureData.Values {
 		if val == nil {
-			rangeValues[i] = getEmptyValue(featureToType[featureViewName+featureData.FeatureName])
+			rangeValues[i] = GetEmptyValue(featureToType[featureViewName+featureData.FeatureName])
 			if i < len(featureData.Statuses) {
 				rangeStatuses[i] = featureData.Statuses[i]
 			} else {
@@ -794,7 +794,7 @@ func processFeatureRowData(
 		if i < len(featureData.Statuses) &&
 			(featureData.Statuses[i] == serving.FieldStatus_NOT_FOUND ||
 				featureData.Statuses[i] == serving.FieldStatus_NULL_VALUE) {
-			rangeValues[i] = getEmptyValue(featureToType[featureViewName+featureData.FeatureName])
+			rangeValues[i] = GetEmptyValue(featureToType[featureViewName+featureData.FeatureName])
 		} else {
 			rangeValues[i] = protoVal
 		}
@@ -815,24 +815,25 @@ func processFeatureRowData(
 	return rangeValues, rangeStatuses, rangeTimestamps, nil
 }
 
-func getEmptyValue(valueType prototypes.ValueType_Enum) *prototypes.Value {
+func GetEmptyValue(valueType prototypes.ValueType_Enum) *prototypes.Value {
 	switch valueType {
-	case prototypes.ValueType_INT32:
-		return &prototypes.Value{Val: &prototypes.Value_Int32Val{}}
-	case prototypes.ValueType_INT64:
-		return &prototypes.Value{Val: &prototypes.Value_Int64Val{}}
-	case prototypes.ValueType_FLOAT:
-		return &prototypes.Value{Val: &prototypes.Value_FloatVal{}}
-	case prototypes.ValueType_DOUBLE:
-		return &prototypes.Value{Val: &prototypes.Value_DoubleVal{}}
-	case prototypes.ValueType_STRING:
-		return &prototypes.Value{Val: &prototypes.Value_StringVal{}}
-	case prototypes.ValueType_BOOL:
-		return &prototypes.Value{Val: &prototypes.Value_BoolVal{}}
-	case prototypes.ValueType_BYTES:
-		return &prototypes.Value{Val: &prototypes.Value_BytesVal{}}
-	case prototypes.ValueType_UNIX_TIMESTAMP:
-		return &prototypes.Value{Val: &prototypes.Value_UnixTimestampVal{}}
+	// Empty primitive types fill in the default value, so we need to use the generic empty Value to represent null.
+	//case prototypes.ValueType_INT32:
+	//	return &prototypes.Value{Val: &prototypes.Value_Int32Val{}}
+	//case prototypes.ValueType_INT64:
+	//	return &prototypes.Value{Val: &prototypes.Value_Int64Val{}}
+	//case prototypes.ValueType_FLOAT:
+	//	return &prototypes.Value{Val: &prototypes.Value_FloatVal{}}
+	//case prototypes.ValueType_DOUBLE:
+	//	return &prototypes.Value{Val: &prototypes.Value_DoubleVal{}}
+	//case prototypes.ValueType_STRING:
+	//	return &prototypes.Value{Val: &prototypes.Value_StringVal{}}
+	//case prototypes.ValueType_BOOL:
+	//	return &prototypes.Value{Val: &prototypes.Value_BoolVal{}}
+	//case prototypes.ValueType_BYTES:
+	//	return &prototypes.Value{Val: &prototypes.Value_BytesVal{}}
+	//case prototypes.ValueType_UNIX_TIMESTAMP:
+	//	return &prototypes.Value{Val: &prototypes.Value_UnixTimestampVal{}}
 	case prototypes.ValueType_INT32_LIST:
 		return &prototypes.Value{Val: &prototypes.Value_Int32ListVal{}}
 	case prototypes.ValueType_INT64_LIST:
@@ -850,7 +851,7 @@ func getEmptyValue(valueType prototypes.ValueType_Enum) *prototypes.Value {
 	case prototypes.ValueType_UNIX_TIMESTAMP_LIST:
 		return &prototypes.Value{Val: &prototypes.Value_UnixTimestampListVal{}}
 	default:
-		return &prototypes.Value{Val: &prototypes.Value_NullVal{}}
+		return &prototypes.Value{}
 	}
 }
 
