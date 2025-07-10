@@ -134,7 +134,7 @@ func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKe
 			if filter.GetEquals() != nil {
 				equals, err := types.ConvertToValueType(filter.GetEquals(), sk.ValueType)
 				if err != nil {
-					return nil, errors.GrpcInvalidArgumentErrorf("error converting sort key filter equals for %s: %v", sk.FieldName, err)
+					return nil, errors.GrpcInternalErrorf("error converting sort key filter equals for %s: %v", sk.FieldName, err)
 				}
 				newFilters[i] = &serving.SortKeyFilter{
 					SortKeyName: sk.FieldName,
@@ -147,14 +147,14 @@ func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKe
 			if filter.GetRange().GetRangeStart() != nil {
 				rangeStart, err = types.ConvertToValueType(filter.GetRange().GetRangeStart(), sk.ValueType)
 				if err != nil {
-					return nil, errors.GrpcInvalidArgumentErrorf("error converting sort key filter range start for %s: %v", sk.FieldName, err)
+					return nil, errors.GrpcInternalErrorf("error converting sort key filter range start for %s: %v", sk.FieldName, err)
 				}
 			}
 			var rangeEnd *prototypes.Value
 			if filter.GetRange().GetRangeEnd() != nil {
 				rangeEnd, err = types.ConvertToValueType(filter.GetRange().GetRangeEnd(), sk.ValueType)
 				if err != nil {
-					return nil, errors.GrpcInvalidArgumentErrorf("error converting sort key filter range end for %s: %v", sk.FieldName, err)
+					return nil, errors.GrpcInternalErrorf("error converting sort key filter range end for %s: %v", sk.FieldName, err)
 				}
 			}
 			newFilters[i] = &serving.SortKeyFilter{
@@ -208,11 +208,11 @@ func (fs *FeatureStore) GetOnlineFeatures(
 		for i, sfv := range requestedSortedFeatureViews {
 			sfvNames[i] = sfv.View.Base.Name
 		}
-		return nil, fmt.Errorf("GetOnlineFeatures does not support sorted feature views %v", sfvNames)
+		return nil, errors.GrpcInvalidArgumentErrorf("GetOnlineFeatures does not support sorted feature views %v", sfvNames)
 	}
 
 	if len(requestedFeatureViews) == 0 {
-		return nil, fmt.Errorf("no feature views found for the requested features")
+		return nil, errors.GrpcNotFoundErrorf("no feature views found for the requested features")
 	}
 
 	entityColumnMap := make(map[string]*model.Field)
@@ -345,7 +345,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		for i, fv := range requestedFeatureViews {
 			fvNames[i] = fv.View.Base.Name
 		}
-		return nil, fmt.Errorf("GetOnlineFeaturesRange does not support standard feature views %v", fvNames)
+		return nil, errors.GrpcInvalidArgumentErrorf("GetOnlineFeaturesRange does not support standard feature views %v", fvNames)
 	}
 
 	if len(requestedSortedFeatureViews) == 0 {

@@ -178,7 +178,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
 		if err != nil {
 			logSpanContext.Error().Err(err).Msgf("Error converting feature '%s' from Arrow to Proto", vector.Name)
-			return nil, err
+			return nil, errors.GrpcFromError(err)
 		}
 
 		featureVector := &serving.GetOnlineFeaturesRangeResponse_RangeFeatureVector{
@@ -189,8 +189,8 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 			rangeStatuses := make([]*serving.RepeatedFieldStatus, len(rangeValues))
 			for j := range rangeValues {
 				statusValues := make([]serving.FieldStatus, len(vector.RangeStatuses[j]))
-				for k, status := range vector.RangeStatuses[j] {
-					statusValues[k] = status
+				for k, fieldStatus := range vector.RangeStatuses[j] {
+					statusValues[k] = fieldStatus
 				}
 				rangeStatuses[j] = &serving.RepeatedFieldStatus{Status: statusValues}
 			}

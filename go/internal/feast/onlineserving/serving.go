@@ -141,8 +141,8 @@ func GetFeatureViewsToUseByService(
 				return nil, nil, err
 			}
 		} else {
-			log.Error().Errs("any feature view", []error{fvErr, odFvErr}).Msgf("Feature view %s not found", featureViewName)
-			return nil, nil, errors.GrpcInvalidArgumentErrorf("the provided feature service %s contains a reference to a feature View"+
+			log.Error().Errs("any feature view", []error{fvErr, sortedFvErr, odFvErr}).Msgf("Feature view %s not found", featureViewName)
+			return nil, nil, nil, errors.GrpcInvalidArgumentErrorf("the provided feature service %s contains a reference to a feature View"+
 				"%s which doesn't exist, please make sure that you have created the feature View"+
 				"%s and that you have registered it by running \"apply\"", featureService.Name, featureViewName, featureViewName)
 		}
@@ -290,28 +290,13 @@ func GetFeatureViewsToUseByFeatureRefs(
 				odFvToProjectWithFeatures[odfv.Base.Name] = odfv
 			}
 		} else {
-			odfv, odfvErr := registry.GetOnDemandFeatureView(projectName, featureViewName)
-
-			if odfvErr == nil {
-				err := validateFeatures(
-					featureViewName,
-					requestedFeatureNames,
-					odfv.Base.Features)
-				if err != nil {
-					return nil, nil, err
-				}
-
-				odFvToFeatures[odfv.Base.Name] = requestedFeatureNames
-				odFvToProjectWithFeatures[odfv.Base.Name] = odfv
-			} else {
-				return nil, nil, errors.GrpcInvalidArgumentErrorf("feature view %s doesn't exist, please make sure that you have created the"+
-					" feature view %s and that you have registered it by running \"apply\"", featureViewName, featureViewName)
-			}
+			return nil, nil, nil, errors.GrpcInvalidArgumentErrorf("feature View %s doesn't exist, please make sure that you have created the"+
+				" feature View %s and that you have registered it by running \"apply\"", featureViewName, featureViewName)
 		}
 	}
 
 	if len(invalidFeatures) > 0 {
-		return nil, nil, nil, fmt.Errorf("requested features are not valid: %s", strings.Join(invalidFeatures, ", "))
+		return nil, nil, nil, errors.GrpcInvalidArgumentErrorf("requested features are not valid: %s", strings.Join(invalidFeatures, ", "))
 	}
 
 	odFvsToUse := make([]*model.OnDemandFeatureView, 0)
@@ -676,11 +661,6 @@ func ValidateSortKeyFilterOrder(filters []*serving.SortKeyFilter, sortedViews []
 					return errors.GrpcInvalidArgumentErrorf("specify sort key filter in request for sort key: '%s' with query type equals", sortedView.View.SortKeys[i].FieldName)
 				}
 
-				if filter.SortKeyName == lastFilter {
-					// Once the last filter is reached, we can ignore any further checks
-					break
-				}
-
 				if filter.GetEquals() == nil {
 					return errors.GrpcInvalidArgumentErrorf("sort key filter for sort key '%s' must have query type equals instead of range",
 						filter.SortKeyName)
@@ -919,9 +899,10 @@ func processFeatureRowData(
 			continue
 		}
 
-		for i, val := range featureData.Values {
-			eventTimestamp := getEventTimestamp(featureData.EventTimestamps, i)
-			fieldStatus := featureData.Statuses[i]
+		protoVal, err := types.InterfaceToProtoValue(val)
+		if err != nil {
+			return nil, nil, nil, errors.GrpcInternalErrorf("error converting value for feature %s: %v", featureData.FeatureName, err)
+		}
 
 			if val == nil {
 				rangeValues[i] = nil
@@ -970,7 +951,7 @@ func KeepOnlyRequestedFeatures[T any](
 		} else if rangeFeatureVector, ok := any(vector).(*RangeFeatureVector); ok {
 			vectorsByName[rangeFeatureVector.Name] = vector
 		} else {
-			return nil, fmt.Errorf("unsupported vector type: %T", vector)
+			return nil, errors.GrpcInternalErrorf("unsupported vector type: %T", vector)
 		}
 	}
 
@@ -1007,7 +988,7 @@ func KeepOnlyRequestedFeatures[T any](
 				rangeFeatureVector.RangeValues.Release()
 			}
 		} else {
-			return nil, fmt.Errorf("unsupported vector type: %T", vector)
+			return nil, errors.GrpcInternalErrorf("unsupported vector type: %T", vector)
 		}
 	}
 

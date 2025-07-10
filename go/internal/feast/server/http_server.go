@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/feast-dev/feast/go/internal/feast/version"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
@@ -691,7 +690,29 @@ func recoverMiddleware(next http.Handler) http.Handler {
 				// Log the stack trace
 				logStackTrace()
 
-				writeJSONError(w, fmt.Errorf("Internal Server Error: %v", r), http.StatusInternalServerError)
+				errorType := "Internal Server Error"
+				errorCode := http.StatusInternalServerError
+				var errVar error
+				if err := r.(error); err != nil {
+					if statusErr, ok := status.FromError(err); ok {
+						switch statusErr.Code() {
+						case codes.InvalidArgument:
+							errorType = "Invalid Argument"
+							errorCode = http.StatusBadRequest
+						case codes.NotFound:
+							errorType = "Not Found"
+							errorCode = http.StatusNotFound
+						default:
+							// For other gRPC errors, we can map them to Internal Server Error
+						}
+						errVar = statusErr.Err()
+					} else {
+						errVar = err
+					}
+				} else {
+					errVar = fmt.Errorf("%v", r)
+				}
+				writeJSONError(w, fmt.Errorf("%s: %v", errorType, errVar), errorCode)
 			}
 		}()
 		next.ServeHTTP(w, r)
