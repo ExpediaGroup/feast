@@ -720,13 +720,18 @@ func TransposeRangeFeatureRowsIntoColumns(
 			}
 
 			for _, rowIndex := range outputIndexes {
-				rangeValuesByRow[rowIndex] = &prototypes.RepeatedValue{Val: rangeValues}
+				if rangeValues == nil {
+					// Represents NOT FOUND status values as NULL
+					rangeValuesByRow[rowIndex] = &prototypes.RepeatedValue{}
+				} else {
+					rangeValuesByRow[rowIndex] = &prototypes.RepeatedValue{Val: rangeValues}
+				}
 				currentVector.RangeStatuses[rowIndex] = rangeStatuses
 				currentVector.RangeTimestamps[rowIndex] = rangeTimestamps
 			}
 		}
 
-		arrowRangeValues, err := types.RepeatedProtoValuesToArrowArray(rangeValuesByRow, arrowAllocator, numRows)
+		arrowRangeValues, err := types.RepeatedProtoValuesToArrowArray(rangeValuesByRow, arrowAllocator)
 		if err != nil {
 			return nil, errors.GrpcFromError(err)
 		}
@@ -756,7 +761,6 @@ func processFeatureRowData(
 			make([]*timestamppb.Timestamp, 0),
 			nil
 	}
-
 	featureData := featureData2D[rowEntityIndex][featureIndex]
 	featureViewName := featureData.FeatureView
 
@@ -765,53 +769,47 @@ func processFeatureRowData(
 		return nil, nil, nil, errors.GrpcNotFoundErrorf("feature view '%s' not found in the provided sorted feature views", featureViewName)
 	}
 
-	numValues := len(featureData.Values)
-	rangeValues := make([]*prototypes.Value, numValues)
-	rangeStatuses := make([]serving.FieldStatus, numValues)
-	rangeTimestamps := make([]*timestamppb.Timestamp, numValues)
+	// When values are not found, it's represented as nil
+	if featureData.Values == nil {
+		rangeStatuses := make([]serving.FieldStatus, 1)
+		rangeStatuses[0] = serving.FieldStatus_NOT_FOUND
+		rangeTimestamps := make([]*timestamppb.Timestamp, 1)
+		rangeTimestamps[0] = &timestamppb.Timestamp{}
+		return nil, rangeStatuses, rangeTimestamps, nil
+	} else {
+		numValues := len(featureData.Values)
+		rangeValues := make([]*prototypes.Value, numValues)
+		rangeStatuses := make([]serving.FieldStatus, numValues)
+		rangeTimestamps := make([]*timestamppb.Timestamp, numValues)
 
-	for i, val := range featureData.Values {
-		if val == nil {
-			//rangeValues[i] = &prototypes.Value{}
-			rangeValues[i] = nil
-			if i < len(featureData.Statuses) {
-				rangeStatuses[i] = featureData.Statuses[i]
-			} else {
+		for i, val := range featureData.Values {
+			if val == nil {
+				//rangeValues[i] = &prototypes.Value{}
+				rangeValues[i] = nil
 				rangeStatuses[i] = serving.FieldStatus_NOT_FOUND
+				rangeTimestamps[i] = &timestamppb.Timestamp{}
+				continue
 			}
-			rangeTimestamps[i] = &timestamppb.Timestamp{}
-			continue
-		}
 
-		protoVal, err := types.InterfaceToProtoValue(val)
-		if err != nil {
-			return nil, nil, nil, errors.GrpcInternalErrorf("error converting value for feature %s: %v", featureData.FeatureName, err)
-		}
-
-		// Explicitly set to nil if status is NOT_FOUND
-		if i < len(featureData.Statuses) &&
-			(featureData.Statuses[i] == serving.FieldStatus_NOT_FOUND ||
-				featureData.Statuses[i] == serving.FieldStatus_NULL_VALUE) {
-			//rangeValues[i] = &prototypes.Value{}
-			rangeValues[i] = nil
-		} else {
+			protoVal, err := types.InterfaceToProtoValue(val)
+			if err != nil {
+				return nil, nil, nil, fmt.Errorf("error converting value for feature %s: %v", featureData.FeatureName, err)
+			}
 			rangeValues[i] = protoVal
+
+			eventTimestamp := getEventTimestamp(featureData.EventTimestamps, i)
+
+			status := serving.FieldStatus_PRESENT
+			if i < len(featureData.Statuses) {
+				status = featureData.Statuses[i]
+			} else if eventTimestamp.GetSeconds() > 0 && checkOutsideTtl(eventTimestamp, timestamppb.Now(), sfv.FeatureView.Ttl) {
+				status = serving.FieldStatus_OUTSIDE_MAX_AGE
+			}
+			rangeStatuses[i] = status
+			rangeTimestamps[i] = eventTimestamp
 		}
-
-		eventTimestamp := getEventTimestamp(featureData.EventTimestamps, i)
-
-		status := serving.FieldStatus_PRESENT
-		if i < len(featureData.Statuses) {
-			status = featureData.Statuses[i]
-		} else if eventTimestamp.GetSeconds() > 0 && checkOutsideTtl(eventTimestamp, timestamppb.Now(), sfv.FeatureView.Ttl) {
-			status = serving.FieldStatus_OUTSIDE_MAX_AGE
-		}
-
-		rangeStatuses[i] = status
-		rangeTimestamps[i] = eventTimestamp
+		return rangeValues, rangeStatuses, rangeTimestamps, nil
 	}
-
-	return rangeValues, rangeStatuses, rangeTimestamps, nil
 }
 
 func getEventTimestamp(timestamps []timestamp.Timestamp, index int) *timestamppb.Timestamp {
@@ -928,7 +926,7 @@ func EntitiesToRangeFeatureVectors(
 			rangeTimestamps[idx] = []*timestamppb.Timestamp{timestamppb.Now()}
 		}
 
-		arrowRangeValues, err := types.RepeatedProtoValuesToArrowArray(entityRangeValues, arrowAllocator, numRows)
+		arrowRangeValues, err := types.RepeatedProtoValuesToArrowArray(entityRangeValues, arrowAllocator)
 		if err != nil {
 			return nil, err
 		}

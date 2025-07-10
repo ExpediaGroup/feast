@@ -805,7 +805,7 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 						results[rowIdx][prepCtx.featureNamesToIdx[featName]] = RangeFeatureData{
 							FeatureView: prepCtx.featureViewName,
 							FeatureName: featName,
-							Values:      []interface{}{nil},
+							Values:      nil,
 							Statuses:    []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
 							EventTimestamps: []timestamppb.Timestamp{
 								{Seconds: 0, Nanos: 0},

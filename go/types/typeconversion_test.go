@@ -89,7 +89,8 @@ var (
 
 var (
 	REPEATED_PROTO_VALUES = []*types.RepeatedValue{
-		{Val: []*types.Value{}},
+		nil,
+		{Val: []*types.Value{}}, // Use this way to represent empty repeated values instead of {}
 		{Val: []*types.Value{nil_or_null_val}},
 		{Val: []*types.Value{nil_or_null_val, nil_or_null_val}},
 		{Val: []*types.Value{{}, {}}},
@@ -281,7 +282,7 @@ func TestRepeatedValueRoundTrip(t *testing.T) {
 	pool := memory.NewGoAllocator()
 
 	for i, repeatedValue := range REPEATED_PROTO_VALUES {
-		arrowArray, err := RepeatedProtoValuesToArrowArray([]*types.RepeatedValue{repeatedValue}, pool, 1)
+		arrowArray, err := RepeatedProtoValuesToArrowArray([]*types.RepeatedValue{repeatedValue}, pool)
 		assert.Nil(t, err, "Error creating Arrow array for case %d", i)
 
 		result, err := ArrowValuesToRepeatedProtoValues(arrowArray)
@@ -297,7 +298,7 @@ func TestMultipleRepeatedValueRoundTrip(t *testing.T) {
 	pool := memory.NewGoAllocator()
 
 	for i, batch := range MULTIPLE_REPEATED_PROTO_VALUES {
-		arrowArray, err := RepeatedProtoValuesToArrowArray(batch, pool, len(batch))
+		arrowArray, err := RepeatedProtoValuesToArrowArray(batch, pool)
 		assert.Nil(t, err, "Error creating Arrow array for batch %d", i)
 
 		results, err := ArrowValuesToRepeatedProtoValues(arrowArray)
@@ -314,7 +315,6 @@ func TestEmptyAndNullRepeatedValues(t *testing.T) {
 	pool := memory.NewGoAllocator()
 
 	testCases := [][]*types.RepeatedValue{
-		{},
 		{{Val: []*types.Value{}}},
 		{{Val: []*types.Value{}}, {Val: []*types.Value{}}},
 		{{Val: []*types.Value{nil_or_null_val}}},
@@ -323,7 +323,7 @@ func TestEmptyAndNullRepeatedValues(t *testing.T) {
 	}
 
 	for i, testCase := range testCases {
-		arrowArray, err := RepeatedProtoValuesToArrowArray(testCase, pool, len(testCase))
+		arrowArray, err := RepeatedProtoValuesToArrowArray(testCase, pool)
 		assert.Nil(t, err, "Error creating Arrow array for case %d", i)
 
 		result, err := ArrowValuesToRepeatedProtoValues(arrowArray)
@@ -343,38 +343,6 @@ func TestEmptyAndNullRepeatedValues(t *testing.T) {
 						t.Errorf("Case %d, row %d: Expected empty or single null, got %d values",
 							i, j, len(result[j].Val))
 					}
-				}
-			}
-		}
-	}
-}
-
-func TestProtoValuesToRepeatedConversion(t *testing.T) {
-	pool := memory.NewGoAllocator()
-
-	testCases := [][]*types.Value{
-		{{Val: &types.Value_Int32Val{Int32Val: 10}}, {Val: &types.Value_Int32Val{Int32Val: 20}}},
-		{{Val: &types.Value_StringVal{StringVal: "test"}}},
-		{nil_or_null_val, {Val: &types.Value_BoolVal{BoolVal: true}}},
-	}
-
-	for i, protoValues := range testCases {
-		arrowArray, err := ProtoValuesToArrowArray(protoValues, pool, len(protoValues))
-		assert.Nil(t, err, "Error creating Arrow array for case %d", i)
-
-		result, err := ArrowValuesToRepeatedProtoValues(arrowArray)
-		assert.Nil(t, err, "Error converting to RepeatedProtoValues for case %d", i)
-		assert.Equal(t, len(protoValues), len(result),
-			"Result count mismatch for case %d", i)
-
-		for j := 0; j < len(protoValues); j++ {
-			if protoValues[j] != nil && protoValues[j].Val != nil {
-				assert.Equal(t, 1, len(result[j].Val),
-					"Expected single value in RepeatedValue for case %d, row %d", i, j)
-
-				if len(result[j].Val) > 0 {
-					assert.True(t, proto.Equal(protoValues[j], result[j].Val[0]),
-						"Value mismatch in case %d, row %d", i, j)
 				}
 			}
 		}
