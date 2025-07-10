@@ -293,9 +293,13 @@ class PassthroughProvider(Provider):
             entity.name: entity.dtype.to_value_type()
             for entity in feature_view.entity_columns
         }
+        write_start2 = perf_counter()
 
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
-
+        arrow_to_proto_conversion_time = perf_counter() - write_start2
+        logger.info(
+            f"arrow_to_proto_conversion_time: {arrow_to_proto_conversion_time}."
+        )
 
         write_start3 = perf_counter()
 

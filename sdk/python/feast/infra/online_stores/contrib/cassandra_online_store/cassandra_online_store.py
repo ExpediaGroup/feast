@@ -483,7 +483,8 @@ class CassandraOnlineStore(OnlineStore):
 
             # Write each batch with same entity key in to the online store
             sort_key_names = [sort_key.name for sort_key in table.sort_keys]
-
+            write_start1 = perf_counter()
+            total_microbatch_time_counter = 0.0
             for entity_key_bin, batch_to_write in entity_dict.items():
                 write_start = perf_counter()
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
@@ -572,6 +573,7 @@ class CassandraOnlineStore(OnlineStore):
                         on_failure,
                     )
                     apply_last_batch_time = perf_counter() - write_start
+                    total_microbatch_time_counter = total_microbatch_time_counter+apply_last_batch_time
                     print(
                         f"apply_last_batch_time: {apply_last_batch_time}."
                     )
@@ -628,9 +630,12 @@ class CassandraOnlineStore(OnlineStore):
                         on_failure,
                     )
 
-        batch_preparation_time = perf_counter() - write_start
+        batch_preparation_time = perf_counter() - write_start1
         print(
             f"all_batch_submission_time: {batch_preparation_time}."
+        )
+        print(
+            f"total_microbatch_time_counter: {total_microbatch_time_counter}."
         )
         if ex:
             raise ex
@@ -653,7 +658,7 @@ class CassandraOnlineStore(OnlineStore):
                 f"wait_time: {wait_time}."
             )
 
-            scylla_microbatch_write_time = perf_counter() - write_start
+            scylla_microbatch_write_time = perf_counter() - write_start1
             print(
                 f"scylla_microbatch_write_time: {scylla_microbatch_write_time}."
             )
