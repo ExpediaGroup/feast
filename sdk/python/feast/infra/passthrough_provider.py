@@ -282,7 +282,12 @@ class PassthroughProvider(Provider):
         feature_view: FeatureView,
         df: pd.DataFrame,
     ):
+        write_start = perf_counter()
         table = pa.Table.from_pandas(df)
+        df_table_conversion_time = perf_counter() - write_start
+        logger.info(
+            f"df_table_conversion_time: {df_table_conversion_time}."
+        )
 
         if feature_view.batch_source.field_mapping is not None:
             table = _run_pyarrow_field_mapping(
