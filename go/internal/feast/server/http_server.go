@@ -187,39 +187,23 @@ func processFeatureVectors(
 		result["values"] = simplifiedValues
 
 		if includeMetadata {
-			if len(vector.RangeStatuses) > 0 {
-				statusValues := make([][]string, len(vector.RangeStatuses))
-				for j, entityStatuses := range vector.RangeStatuses {
-					statusValues[j] = make([]string, len(entityStatuses))
-					for k, stat := range entityStatuses {
-						statusValues[j][k] = stat.String()
-					}
+			statusValues := make([][]string, len(vector.RangeStatuses))
+			for j, entityStatuses := range vector.RangeStatuses {
+				statusValues[j] = make([]string, len(entityStatuses))
+				for k, stat := range entityStatuses {
+					statusValues[j][k] = stat.String()
 				}
-				result["statuses"] = statusValues
-			} else {
-				result["statuses"] = [][]string{}
 			}
+			result["statuses"] = statusValues
 
-			if len(vector.RangeTimestamps) > 0 {
-				timestampValues := make([][]interface{}, len(vector.RangeTimestamps))
-				for j, entityTimestamps := range vector.RangeTimestamps {
-					timestampValues[j] = make([]interface{}, len(entityTimestamps))
-					for k, ts := range entityTimestamps {
-						if j < len(vector.RangeStatuses) && k < len(vector.RangeStatuses[j]) {
-							statusCode := vector.RangeStatuses[j][k]
-							if statusCode == serving.FieldStatus_NOT_FOUND ||
-								statusCode == serving.FieldStatus_NULL_VALUE {
-								timestampValues[j][k] = nil
-								continue
-							}
-						}
-						timestampValues[j][k] = ts.AsTime().Format(time.RFC3339)
-					}
+			timestampValues := make([][]interface{}, len(vector.RangeTimestamps))
+			for j, entityTimestamps := range vector.RangeTimestamps {
+				timestampValues[j] = make([]interface{}, len(entityTimestamps))
+				for k, ts := range entityTimestamps {
+					timestampValues[j][k] = ts.AsTime().Format(time.RFC3339)
 				}
-				result["event_timestamps"] = timestampValues
-			} else {
-				result["event_timestamps"] = [][]interface{}{}
 			}
+			result["event_timestamps"] = timestampValues
 		}
 
 		results = append(results, result)

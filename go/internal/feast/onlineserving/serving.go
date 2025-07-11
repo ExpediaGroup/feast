@@ -769,7 +769,6 @@ func processFeatureRowData(
 		return nil, nil, nil, errors.GrpcNotFoundErrorf("feature view '%s' not found in the provided sorted feature views", featureViewName)
 	}
 
-	// When values are not found, it's represented as nil
 	if featureData.Values == nil {
 		rangeStatuses := make([]serving.FieldStatus, 1)
 		rangeStatuses[0] = serving.FieldStatus_NOT_FOUND
@@ -782,30 +781,32 @@ func processFeatureRowData(
 		rangeStatuses := make([]serving.FieldStatus, numValues)
 		rangeTimestamps := make([]*timestamppb.Timestamp, numValues)
 
+		if len(featureData.Values) != len(featureData.Statuses) {
+			return nil, nil, nil, errors.GrpcInternalErrorf("mismatch in number of values and statuses for feature %s in feature view %s", featureData.FeatureName, featureViewName)
+		}
+
 		for i, val := range featureData.Values {
+			eventTimestamp := getEventTimestamp(featureData.EventTimestamps, i)
+			fieldStatus := featureData.Statuses[i]
+
 			if val == nil {
-				//rangeValues[i] = &prototypes.Value{}
 				rangeValues[i] = nil
-				rangeStatuses[i] = serving.FieldStatus_NOT_FOUND
-				rangeTimestamps[i] = &timestamppb.Timestamp{}
+				rangeStatuses[i] = featureData.Statuses[i]
+				rangeTimestamps[i] = eventTimestamp
 				continue
 			}
 
 			protoVal, err := types.InterfaceToProtoValue(val)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("error converting value for feature %s: %v", featureData.FeatureName, err)
+				return nil, nil, nil, errors.GrpcInternalErrorf("error converting to ProtoValue for feature %s: %v", featureData.FeatureName, err)
 			}
 			rangeValues[i] = protoVal
 
-			eventTimestamp := getEventTimestamp(featureData.EventTimestamps, i)
-
-			status := serving.FieldStatus_PRESENT
-			if i < len(featureData.Statuses) {
-				status = featureData.Statuses[i]
-			} else if eventTimestamp.GetSeconds() > 0 && checkOutsideTtl(eventTimestamp, timestamppb.Now(), sfv.FeatureView.Ttl) {
-				status = serving.FieldStatus_OUTSIDE_MAX_AGE
+			if eventTimestamp.GetSeconds() > 0 && checkOutsideTtl(eventTimestamp, timestamppb.Now(), sfv.FeatureView.Ttl) {
+				fieldStatus = serving.FieldStatus_OUTSIDE_MAX_AGE
 			}
-			rangeStatuses[i] = status
+
+			rangeStatuses[i] = fieldStatus
 			rangeTimestamps[i] = eventTimestamp
 		}
 		return rangeValues, rangeStatuses, rangeTimestamps, nil
