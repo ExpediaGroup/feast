@@ -484,6 +484,7 @@ class CassandraOnlineStore(OnlineStore):
             write_start1 = perf_counter()
             process_time_counter = 0.0
             apply_batch_time_counter = 0.0
+            apply_queue_callback_counter = 0.0
             for entity_key_bin, batch_to_write in entity_dict.items():
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                 batch_count = 0
@@ -566,17 +567,35 @@ class CassandraOnlineStore(OnlineStore):
 
                 if batch_count > 0:
                     write_start3 = perf_counter()
-                    CassandraOnlineStore._apply_batch(
-                        rate_limiter,
-                        batch,
-                        progress,
-                        session,
-                        concurrent_queue,
-                        on_success,
-                        on_failure,
+
+                    if not rate_limiter.acquire():
+                        while not rate_limiter.acquire():
+                            time.sleep(0.001)
+
+                    future = session.execute_async(batch)
+                    apply_execute_async = perf_counter() - write_start3
+                    apply_execute_async_counter = apply_batch_time_counter + apply_execute_async
+
+                    write_start4 = perf_counter()
+                    concurrent_queue.put(future)
+                    future.add_callbacks(
+                        partial(
+                            on_success,
+                            concurrent_queue=concurrent_queue,
+                        ),
+                        partial(
+                            on_failure,
+                            concurrent_queue=concurrent_queue,
+                        ),
                     )
-                    apply_batch_time= perf_counter()-write_start3
-                    apply_batch_time_counter=apply_batch_time_counter+apply_batch_time
+
+                    # this happens N-1 times, will be corrected outside:
+                    if progress:
+                        progress(1)
+                    apply_queue_call_back = perf_counter() - write_start4
+                    apply_queue_call_back_counter = apply_queue_callback_counter + apply_queue_call_back
+
+
 
         else:
             insert_cql = self._get_cql_statement(
@@ -639,7 +658,10 @@ class CassandraOnlineStore(OnlineStore):
             f"process_time_counter: {process_time_counter}."
         )
         print(
-            f"apply_batch_time_counter: {apply_batch_time_counter}."
+            f"apply_execute_async_counter: {apply_execute_async_counter}."
+        )
+        print(
+            f"apply_queue_call_back_counter: {apply_queue_call_back_counter}."
         )
 
         if ex:
