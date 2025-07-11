@@ -802,6 +802,8 @@ func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*ty
 		}
 	case types.ValueType_INT64:
 		switch value.Val.(type) {
+		case *types.Value_Int32Val:
+			return &types.Value{Val: &types.Value_Int64Val{Int64Val: int64(value.GetInt32Val())}}, nil
 		case *types.Value_Int64Val:
 			return value, nil
 		}
@@ -817,6 +819,8 @@ func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*ty
 		}
 	case types.ValueType_DOUBLE:
 		switch value.Val.(type) {
+		case *types.Value_FloatVal:
+			return &types.Value{Val: &types.Value_DoubleVal{DoubleVal: float64(value.GetFloatVal())}}, nil
 		case *types.Value_DoubleVal:
 			return value, nil
 		}
@@ -868,6 +872,13 @@ func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*ty
 		}
 	case types.ValueType_INT64_LIST:
 		switch value.Val.(type) {
+		case *types.Value_Int32ListVal:
+			int32List := value.GetInt32ListVal().GetVal()
+			int64List := make([]int64, len(int32List))
+			for i, v := range int32List {
+				int64List[i] = int64(v)
+			}
+			return &types.Value{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: int64List}}}, nil
 		case *types.Value_Int64ListVal:
 			return value, nil
 		}
@@ -888,6 +899,13 @@ func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*ty
 		}
 	case types.ValueType_DOUBLE_LIST:
 		switch value.Val.(type) {
+		case *types.Value_FloatListVal:
+			floatList := value.GetFloatListVal().GetVal()
+			doubleList := make([]float64, len(floatList))
+			for i, v := range floatList {
+				doubleList[i] = float64(v)
+			}
+			return &types.Value{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: doubleList}}}, nil
 		case *types.Value_DoubleListVal:
 			return value, nil
 		}
@@ -895,6 +913,13 @@ func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*ty
 		switch value.Val.(type) {
 		case *types.Value_UnixTimestampListVal:
 			return value, nil
+		case *types.Value_Int32ListVal:
+			int32List := value.GetInt32ListVal().GetVal()
+			unixTimestampList := make([]int64, len(int32List))
+			for i, v := range int32List {
+				unixTimestampList[i] = int64(v)
+			}
+			return &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: unixTimestampList}}}, nil
 		case *types.Value_Int64ListVal:
 			return &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: value.GetInt64ListVal().GetVal()}}}, nil
 		}
