@@ -482,11 +482,15 @@ class CassandraOnlineStore(OnlineStore):
             # Write each batch with same entity key in to the online store
             sort_key_names = [sort_key.name for sort_key in table.sort_keys]
             write_start1 = perf_counter()
+            process_time_counter = 0.0
+            apply_batch_time_counter = 0.0
             for entity_key_bin, batch_to_write in entity_dict.items():
                 batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                 batch_count = 0
 
+
                 for entity_key, feat_dict, timestamp, created_ts in batch_to_write:
+                    write_start2 = perf_counter()
 
                     ttl = CassandraOnlineStore._get_ttl(
                         ttl_feature_view,
@@ -540,6 +544,8 @@ class CassandraOnlineStore(OnlineStore):
                     )
                     batch.add(insert_cql, feature_values)
                     batch_count += 1
+                    process_time = perf_counter()-write_start2
+                    process_time_counter = process_time_counter+process_time
 
                     if (
                         online_store_config.write_batch_size is not None
@@ -559,6 +565,7 @@ class CassandraOnlineStore(OnlineStore):
                         batch_count = 0
 
                 if batch_count > 0:
+                    write_start3 = perf_counter()
                     CassandraOnlineStore._apply_batch(
                         rate_limiter,
                         batch,
@@ -568,6 +575,8 @@ class CassandraOnlineStore(OnlineStore):
                         on_success,
                         on_failure,
                     )
+                    apply_batch_time= perf_counter()-write_start3
+                    apply_batch_time_counter=apply_batch_time_counter+apply_batch_time
 
         else:
             insert_cql = self._get_cql_statement(
@@ -625,6 +634,12 @@ class CassandraOnlineStore(OnlineStore):
         all_batch_submission_time = perf_counter() - write_start1
         print(
             f"all_batch_submission_time: {all_batch_submission_time}."
+        )
+        print(
+            f"process_time_counter: {process_time_counter}."
+        )
+        print(
+            f"apply_batch_time_counter: {apply_batch_time_counter}."
         )
 
         if ex:
