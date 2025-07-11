@@ -410,6 +410,7 @@ func TestValueTypeToGoType(t *testing.T) {
 		nil,
 		{},
 		{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{}}}},
+		{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{1, 2, 3}}}},
 	}
 
 	expectedTypes := []interface{}{
@@ -434,6 +435,8 @@ func TestValueTypeToGoType(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
+		[]int32{1, 2, 3},
 	}
 
 	for i, testCase := range testCases {
