@@ -185,34 +185,62 @@ var (
 		{
 			{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{10, 11}}}}}},
 			{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 21}}}}}},
+			{Val: []*types.Value{}},
+			{},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: []int64{100, 101}}}}}},
 			{Val: []*types.Value{{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: []int64{200, 201}}}}}},
+			{Val: []*types.Value{}},
+			{},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{1.1, 1.2}}}}}},
 			{Val: []*types.Value{{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{2.1, 2.2}}}}}},
+			{Val: []*types.Value{}},
+			{},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{1.1, 1.2}}}}}},
 			{Val: []*types.Value{{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{2.1, 2.2}}}}}},
+			{Val: []*types.Value{}},
+			{},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{1, 2}, {3, 4}}}}}}},
 			{Val: []*types.Value{{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{5, 6}, {7, 8}}}}}}},
+			{Val: []*types.Value{}},
+			{},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"row1", "row2"}}}}}},
 			{Val: []*types.Value{{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"row3", "row4"}}}}}},
+			{Val: []*types.Value{}},
+			{},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{true, false}}}}}},
 			{Val: []*types.Value{{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{false, true}}}}}},
+			{Val: []*types.Value{}},
+			{},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{time.Now().Unix()}}}}}},
 			{Val: []*types.Value{{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{time.Now().Unix() + 3600}}}}}},
+			{Val: []*types.Value{}},
+			{},
+		},
+		{
+			{Val: []*types.Value{}},
+			{Val: []*types.Value{}},
+			{Val: []*types.Value{}},
+			{Val: []*types.Value{}},
+		},
+		{
+			{},
+			{},
+			{},
+			{},
 		},
 	}
 )
@@ -484,6 +512,7 @@ func TestValueTypeToGoType(t *testing.T) {
 		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp.Unix(), timestamp.Unix() + 3600}}}},
 		{Val: &types.Value_NullVal{NullVal: types.Null_NULL}},
 		nil,
+		{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{}}}},
 	}
 
 	expectedTypes := []interface{}{
@@ -503,6 +532,7 @@ func TestValueTypeToGoType(t *testing.T) {
 		[]float64{9.3, 10.4},
 		[]bool{true, false},
 		[]time.Time{timestamp, timestamp.Add(3600 * time.Second)},
+		nil,
 		nil,
 		nil,
 	}
