@@ -175,7 +175,7 @@ func processFeatureVectors(
 
 			rangeForEntity := make([]interface{}, len(repeatedValue.Val))
 			for k, val := range repeatedValue.Val {
-				goValue := types.ValueTypeToGoType(val)
+				goValue := types.ValueTypeToGoTypeTimestampAsString(val)
 				if goValue == nil {
 					rangeForEntity[k] = nil
 				} else {

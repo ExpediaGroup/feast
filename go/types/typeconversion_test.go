@@ -448,6 +448,8 @@ func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
 	testCases := []*types.Value{
 		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: timestamp}},
 		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600}}}},
+		{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: math.MinInt64}},
+		{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{timestamp, timestamp + 3600, math.MinInt64}}}},
 	}
 
 	expectedTypes := []interface{}{
@@ -455,6 +457,12 @@ func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
 		[]string{
 			time.Unix(timestamp, 0).UTC().Format(TimestampFormat),
 			time.Unix(timestamp+3600, 0).UTC().Format(TimestampFormat),
+		},
+		"292277026596-12-04 15:30:08Z",
+		[]string{
+			time.Unix(timestamp, 0).UTC().Format(TimestampFormat),
+			time.Unix(timestamp+3600, 0).UTC().Format(TimestampFormat),
+			"292277026596-12-04 15:30:08Z",
 		},
 	}
 
