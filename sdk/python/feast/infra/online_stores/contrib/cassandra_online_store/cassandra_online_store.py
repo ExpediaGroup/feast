@@ -574,7 +574,7 @@ class CassandraOnlineStore(OnlineStore):
 
                     future = session.execute_async(batch)
                     apply_execute_async = perf_counter() - write_start3
-                    apply_execute_async_counter = apply_batch_time_counter + apply_execute_async
+                    apply_batch_time_counter = apply_batch_time_counter + apply_execute_async
 
                     write_start4 = perf_counter()
                     concurrent_queue.put(future)
@@ -593,7 +593,7 @@ class CassandraOnlineStore(OnlineStore):
                     if progress:
                         progress(1)
                     apply_queue_call_back = perf_counter() - write_start4
-                    apply_queue_call_back_counter = apply_queue_callback_counter + apply_queue_call_back
+                    apply_queue_callback_counter = apply_queue_callback_counter + apply_queue_call_back
 
 
 
@@ -658,10 +658,10 @@ class CassandraOnlineStore(OnlineStore):
             f"process_time_counter: {process_time_counter}."
         )
         print(
-            f"apply_execute_async_counter: {apply_execute_async_counter}."
+            f"apply_execute_async_counter: {apply_batch_time_counter}."
         )
         print(
-            f"apply_queue_call_back_counter: {apply_queue_call_back_counter}."
+            f"apply_queue_call_back_counter: {apply_queue_callback_counter}."
         )
 
         if ex:
