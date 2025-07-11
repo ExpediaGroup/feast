@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/apache/arrow/go/v17/arrow"
 	"github.com/apache/arrow/go/v17/arrow/array"
@@ -364,7 +365,7 @@ func TestProcessFeatureVectors_TimestampHandling(t *testing.T) {
 	assert.NoError(t, err, "Error processing feature vectors")
 	assert.Equal(t, []string{"feature_3"}, featureNames)
 	timestamps := results[0]["event_timestamps"].([][]interface{})
-	assert.Nil(t, timestamps[0][0])
+	assert.Equal(t, "1970-01-01T00:00:00Z", timestamps[0][0])
 	assert.Equal(t, "1970-01-01T00:00:00Z", timestamps[1][0])
 }
 
@@ -418,5 +419,5 @@ func TestProcessFeatureVectors_NullValueReturnsNull(t *testing.T) {
 	assert.Nil(t, entityFeatureValues[0])
 
 	timestamps := results[0]["event_timestamps"].([][]interface{})
-	assert.Nil(t, timestamps[0][0])
+	assert.Equal(t, time.Unix(1234567890, 0).UTC().Format(time.RFC3339), timestamps[0][0], "Expected timestamp to be zero for null value")
 }

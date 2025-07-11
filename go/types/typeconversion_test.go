@@ -196,6 +196,8 @@ var (
 			{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 30}}}}}},
 			nil,
 			{Val: []*types.Value{}},
+			// TODO: Fix tests to render correctly for below case
+			//{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 21}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{30, 31}}}}, nil_or_null_val}},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: []int64{100, 101}}}}}},

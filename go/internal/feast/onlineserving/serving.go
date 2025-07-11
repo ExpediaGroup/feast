@@ -721,7 +721,6 @@ func TransposeRangeFeatureRowsIntoColumns(
 
 			for _, rowIndex := range outputIndexes {
 				if rangeValues == nil {
-					// Represents NOT FOUND status values as NULL
 					rangeValuesByRow[rowIndex] = nil
 				} else {
 					rangeValuesByRow[rowIndex] = &prototypes.RepeatedValue{Val: rangeValues}
