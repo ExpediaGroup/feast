@@ -282,12 +282,9 @@ class PassthroughProvider(Provider):
         feature_view: FeatureView,
         df: pd.DataFrame,
     ):
-        write_start = perf_counter()
+
         table = pa.Table.from_pandas(df)
-        df_table_conversion_time = perf_counter() - write_start
-        logger.info(
-            f"df_table_conversion_time: {df_table_conversion_time}."
-        )
+
 
         if feature_view.batch_source.field_mapping is not None:
             table = _run_pyarrow_field_mapping(
@@ -298,24 +295,15 @@ class PassthroughProvider(Provider):
             entity.name: entity.dtype.to_value_type()
             for entity in feature_view.entity_columns
         }
-        write_start2 = perf_counter()
+
 
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
-        arrow_to_proto_conversion_time = perf_counter() - write_start2
-        logger.info(
-            f"arrow_to_proto_conversion_time: {arrow_to_proto_conversion_time}."
-        )
 
-        write_start3 = perf_counter()
 
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
         )
 
-        online_write_batch_time = perf_counter() - write_start3
-        logger.info(
-            f"online_write_batch_time: {online_write_batch_time}."
-        )
 
     def ingest_df_to_offline_store(self, feature_view: FeatureView, table: pa.Table):
         if feature_view.batch_source.field_mapping is not None:
