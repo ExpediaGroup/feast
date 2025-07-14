@@ -500,7 +500,8 @@ func TestConvertToValueType_Bytes(t *testing.T) {
 	}{
 		{input: &types.Value{Val: &types.Value_BytesVal{BytesVal: []byte{1, 2, 3}}}, expected: []byte{1, 2, 3}},
 		{input: &types.Value{Val: &types.Value_BytesVal{BytesVal: nil}}, expected: []byte(nil)},
-		{input: &types.Value{Val: &types.Value_StringVal{StringVal: "test"}}, expected: []byte("test")},
+		{input: &types.Value{Val: &types.Value_StringVal{StringVal: "\u0001\u0002\u0003"}}, expected: []byte{1, 2, 3}},
+		{input: &types.Value{Val: &types.Value_StringVal{StringVal: "dGVzdA=="}}, expected: []byte("test")},
 	}
 
 	for _, tc := range testCases {
@@ -632,7 +633,8 @@ func TestConvertToValueType_BytesList(t *testing.T) {
 	}{
 		{input: &types.Value{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{1, 2}, {3, 4}}}}}, expected: [][]byte{{1, 2}, {3, 4}}},
 		{input: &types.Value{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{}}}}, expected: [][]byte{}},
-		{input: &types.Value{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"a", "b", "c"}}}}, expected: [][]byte{[]byte("a"), []byte("b"), []byte("c")}},
+		{input: &types.Value{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"\u0001\u0002", "\u0003\u0004"}}}}, expected: [][]byte{{1, 2}, {3, 4}}},
+		{input: &types.Value{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"YQ==", "Yg==", "Yw=="}}}}, expected: [][]byte{[]byte("a"), []byte("b"), []byte("c")}},
 		{input: &types.Value{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{}}}}, expected: [][]byte{}},
 	}
 

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/base64"
 	"fmt"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"math"
@@ -797,6 +798,15 @@ func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bo
 	}
 }
 
+func transformStringToBytes(str string) []byte {
+	bytes, decodeErr := base64.StdEncoding.DecodeString(str)
+	if decodeErr != nil {
+		// If base64 decoding fails, try as a byte string
+		bytes = []byte(str)
+	}
+	return bytes
+}
+
 func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*types.Value, error) {
 	if valueType != types.ValueType_NULL {
 		if value == nil || value.Val == nil {
@@ -821,7 +831,7 @@ func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*ty
 		case *types.Value_BytesVal:
 			return value, nil
 		case *types.Value_StringVal:
-			return &types.Value{Val: &types.Value_BytesVal{BytesVal: []byte(value.GetStringVal())}}, nil
+			return &types.Value{Val: &types.Value_BytesVal{BytesVal: transformStringToBytes(value.GetStringVal())}}, nil
 		}
 	case types.ValueType_INT32:
 		switch value.Val.(type) {
@@ -884,7 +894,7 @@ func ConvertToValueType(value *types.Value, valueType types.ValueType_Enum) (*ty
 			stringList := value.GetStringListVal().GetVal()
 			bytesList := make([][]byte, len(stringList))
 			for i, str := range stringList {
-				bytesList[i] = []byte(str)
+				bytesList[i] = transformStringToBytes(str)
 			}
 			return &types.Value{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: bytesList}}}, nil
 		}
