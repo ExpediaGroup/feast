@@ -66,7 +66,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
 		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
 		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
-		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
 
 	var featureNamesWithFeatureView []string
 
@@ -96,7 +96,70 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	}
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
 	assert.NoError(t, err)
-	assertResponseData(t, response, featureNames, true)
+	assertResponseData(t, response, featureNames, 3, true)
+}
+
+func TestGetOnlineFeaturesRange_withOnlyEqualsFilter(t *testing.T) {
+	entities := make(map[string]*types.RepeatedValue)
+
+	entities["index_id"] = &types.RepeatedValue{
+		Val: []*types.Value{
+			{Val: &types.Value_Int64Val{Int64Val: 2}},
+		},
+	}
+
+	featureNames := []string{"int_val", "long_val", "float_val", "double_val", "byte_val", "string_val", "timestamp_val", "boolean_val",
+		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
+		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
+		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
+		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
+
+	var featureNamesWithFeatureView []string
+
+	for _, featureName := range featureNames {
+		featureNamesWithFeatureView = append(featureNamesWithFeatureView, "all_dtypes_sorted:"+featureName)
+	}
+
+	request := &serving.GetOnlineFeaturesRangeRequest{
+		Kind: &serving.GetOnlineFeaturesRangeRequest_Features{
+			Features: &serving.FeatureList{
+				Val: featureNamesWithFeatureView,
+			},
+		},
+		Entities: entities,
+		SortKeyFilters: []*serving.SortKeyFilter{
+			{
+				SortKeyName: "event_timestamp",
+				Query: &serving.SortKeyFilter_Equals{
+					Equals: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 1744769171}},
+				},
+			},
+		},
+		Limit:           10,
+		IncludeMetadata: true,
+	}
+	response, err := client.GetOnlineFeaturesRange(ctx, request)
+	assert.NoError(t, err)
+	assert.NotNil(t, response)
+	assert.Equal(t, 1, len(response.Entities))
+	for i, featureResult := range response.Results {
+		assert.Equal(t, 1, len(featureResult.Values))
+		assert.Equal(t, 1, len(featureResult.Statuses))
+		assert.Equal(t, 1, len(featureResult.EventTimestamps))
+		for j, value := range featureResult.Values {
+			assert.NotNil(t, value)
+			assert.Equal(t, 1, len(value.Val))
+			featureName := featureNames[i]
+			if strings.Contains(featureName, "null") {
+				// For null features, we expect the value to contain 1 entry with a nil value
+				assert.Nil(t, value.Val[0].Val, "Feature %s should have a nil value", featureName)
+				assert.Equal(t, serving.FieldStatus_NULL_VALUE, featureResult.Statuses[j].Status[0], "Feature %s should have a NULL_VALUE status but was %s", featureName, featureResult.Statuses[j].Status[0])
+			} else {
+				assert.NotNil(t, value.Val[0].Val, "Feature %s should have a non-nil value", featureName)
+				assert.Equal(t, serving.FieldStatus_PRESENT, featureResult.Statuses[j].Status[0], "Feature %s should have a PRESENT status but was %s", featureName, featureResult.Statuses[j].Status[0])
+			}
+		}
+	}
 }
 
 func TestGetOnlineFeaturesRange_forNonExistentEntityKey(t *testing.T) {
@@ -197,7 +260,7 @@ func TestGetOnlineFeaturesRange_includesDuplicatedRequestedFeatures(t *testing.T
 	}
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
 	assert.NoError(t, err)
-	assertResponseData(t, response, featureNames, false)
+	assertResponseData(t, response, featureNames, 3, false)
 }
 
 func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
@@ -235,7 +298,7 @@ func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
 	}
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
 	assert.NoError(t, err)
-	assertResponseData(t, response, featureNames, false)
+	assertResponseData(t, response, featureNames, 3, false)
 }
 
 func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
@@ -318,20 +381,20 @@ func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
 	assert.Equal(t, "rpc error: code = InvalidArgument desc = GetOnlineFeaturesRange does not support standard feature views [all_dtypes]", err.Error(), "Expected error message for unsupported feature view")
 }
 
-func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string, includeMetadata bool) {
+func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string, entitiesRequested int, includeMetadata bool) {
 	assert.NotNil(t, response)
-	assert.Equal(t, 1, len(response.Entities), "Should have 1 entity")
+	assert.Equal(t, 1, len(response.Entities), "Should have 1 list of entity")
 	indexIdEntity, exists := response.Entities["index_id"]
 	assert.True(t, exists, "Should have index_id entity")
 	assert.NotNil(t, indexIdEntity)
-	assert.Equal(t, 3, len(indexIdEntity.Val), "Entity should have 3 values")
+	assert.Equal(t, entitiesRequested, len(indexIdEntity.Val), "Entity should have %d values", entitiesRequested)
 	assert.Equal(t, len(featureNames), len(response.Results), "Should have expected number of features")
 
 	for i, featureResult := range response.Results {
-		assert.Equal(t, 3, len(featureResult.Values))
+		assert.Equal(t, entitiesRequested, len(featureResult.Values))
 		if includeMetadata {
-			assert.Equal(t, 3, len(featureResult.Statuses))
-			assert.Equal(t, 3, len(featureResult.EventTimestamps), "Feature %s should have 3 event timestamps", featureNames[i])
+			assert.Equal(t, entitiesRequested, len(featureResult.Statuses))
+			assert.Equal(t, entitiesRequested, len(featureResult.EventTimestamps), "Feature %s should have %d event timestamps", featureNames[i], entitiesRequested)
 		}
 		for j, value := range featureResult.Values {
 			featureName := featureNames[i]

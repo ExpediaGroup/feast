@@ -544,14 +544,23 @@ func ValidateSortKeyFilterOrder(filters []*serving.SortKeyFilter, sortedViews []
 	for _, sortedView := range sortedViews {
 		if len(sortedView.View.SortKeys) > 1 {
 			orderedFilters := make([]*serving.SortKeyFilter, 0)
+			var lastFilter string
 
 			for _, sortKey := range sortedView.View.SortKeys {
 				orderedFilters = append(orderedFilters, filtersByName[sortKey.FieldName])
+				if f, ok := filtersByName[sortKey.FieldName]; ok {
+					lastFilter = f.SortKeyName
+				}
 			}
 
-			for i, filter := range orderedFilters[:len(orderedFilters)-1] {
+			for i, filter := range orderedFilters {
 				if filter == nil {
 					return errors.GrpcInvalidArgumentErrorf("specify sort key filter in request for sort key: '%s' with query type equals", sortedView.View.SortKeys[i].FieldName)
+				}
+
+				if filter.SortKeyName == lastFilter {
+					// Once the last filter is reached, we can ignore any further checks
+					break
 				}
 
 				if filter.GetEquals() == nil {
