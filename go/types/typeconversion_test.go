@@ -134,7 +134,8 @@ var (
 var (
 	MULTIPLE_REPEATED_PROTO_VALUES = [][]*types.RepeatedValue{
 		{
-			{Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 10}}, {Val: &types.Value_Int32Val{}}}},
+			// nil and {} are represented as same during Arrow conversion
+			{Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 10}}, {Val: &types.Value_Int32Val{}}, nil, {}}},
 			{Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 20}}}},
 			{Val: []*types.Value{}}, // Empty Array
 			nil,                     // NULL or Not Found Values
@@ -197,7 +198,9 @@ var (
 			nil,
 			{Val: []*types.Value{}},
 			// TODO: Fix tests to render correctly for below case
-			//{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 21}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{30, 31}}}}, nil_or_null_val}},
+			// Arrow List Builder is of specific Type (Ex: Int32).
+			// So nil or null values are represented as Empty Arrays
+			//{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 21}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{30, 31}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{}}}, nil, {}}},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: []int64{100, 101}}}}}},

@@ -377,35 +377,32 @@ func ArrowValuesToRepeatedProtoValues(arr arrow.Array) ([]*types.RepeatedValue, 
 			values := make([]*types.Value, 0, end-start)
 
 			for j := start; j < end; j++ {
-
-				if listValues.IsNull(j) {
-					values = append(values, &types.Value{})
-					continue
-				}
-
 				var protoVal *types.Value
-
-				switch listValues.DataType() {
-				case arrow.PrimitiveTypes.Int32:
-					protoVal = &types.Value{Val: &types.Value_Int32Val{Int32Val: listValues.(*array.Int32).Value(j)}}
-				case arrow.PrimitiveTypes.Int64:
-					protoVal = &types.Value{Val: &types.Value_Int64Val{Int64Val: listValues.(*array.Int64).Value(j)}}
-				case arrow.PrimitiveTypes.Float32:
-					protoVal = &types.Value{Val: &types.Value_FloatVal{FloatVal: listValues.(*array.Float32).Value(j)}}
-				case arrow.PrimitiveTypes.Float64:
-					protoVal = &types.Value{Val: &types.Value_DoubleVal{DoubleVal: listValues.(*array.Float64).Value(j)}}
-				case arrow.BinaryTypes.Binary:
-					protoVal = &types.Value{Val: &types.Value_BytesVal{BytesVal: listValues.(*array.Binary).Value(j)}}
-				case arrow.BinaryTypes.String:
-					protoVal = &types.Value{Val: &types.Value_StringVal{StringVal: listValues.(*array.String).Value(j)}}
-				case arrow.FixedWidthTypes.Boolean:
-					protoVal = &types.Value{Val: &types.Value_BoolVal{BoolVal: listValues.(*array.Boolean).Value(j)}}
-				case arrow.FixedWidthTypes.Timestamp_s:
-					protoVal = &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: int64(listValues.(*array.Timestamp).Value(j))}}
-				case arrow.Null:
+				if listValues.IsNull(j) {
 					protoVal = &types.Value{}
-				default:
-					return nil, fmt.Errorf("unsupported data type in list: %s", listValues.DataType())
+				} else {
+					switch listValues.DataType() {
+					case arrow.PrimitiveTypes.Int32:
+						protoVal = &types.Value{Val: &types.Value_Int32Val{Int32Val: listValues.(*array.Int32).Value(j)}}
+					case arrow.PrimitiveTypes.Int64:
+						protoVal = &types.Value{Val: &types.Value_Int64Val{Int64Val: listValues.(*array.Int64).Value(j)}}
+					case arrow.PrimitiveTypes.Float32:
+						protoVal = &types.Value{Val: &types.Value_FloatVal{FloatVal: listValues.(*array.Float32).Value(j)}}
+					case arrow.PrimitiveTypes.Float64:
+						protoVal = &types.Value{Val: &types.Value_DoubleVal{DoubleVal: listValues.(*array.Float64).Value(j)}}
+					case arrow.BinaryTypes.Binary:
+						protoVal = &types.Value{Val: &types.Value_BytesVal{BytesVal: listValues.(*array.Binary).Value(j)}}
+					case arrow.BinaryTypes.String:
+						protoVal = &types.Value{Val: &types.Value_StringVal{StringVal: listValues.(*array.String).Value(j)}}
+					case arrow.FixedWidthTypes.Boolean:
+						protoVal = &types.Value{Val: &types.Value_BoolVal{BoolVal: listValues.(*array.Boolean).Value(j)}}
+					case arrow.FixedWidthTypes.Timestamp_s:
+						protoVal = &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: int64(listValues.(*array.Timestamp).Value(j))}}
+					case arrow.Null:
+						protoVal = &types.Value{}
+					default:
+						return nil, fmt.Errorf("unsupported data type in list: %s", listValues.DataType())
+					}
 				}
 				values = append(values, protoVal)
 			}
