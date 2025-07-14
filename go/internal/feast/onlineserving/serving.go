@@ -661,6 +661,11 @@ func ValidateSortKeyFilterOrder(filters []*serving.SortKeyFilter, sortedViews []
 					return errors.GrpcInvalidArgumentErrorf("specify sort key filter in request for sort key: '%s' with query type equals", sortedView.View.SortKeys[i].FieldName)
 				}
 
+				if filter.SortKeyName == lastFilter {
+					// Once the last filter is reached, we can ignore any further checks
+					break
+				}
+
 				if filter.GetEquals() == nil {
 					return errors.GrpcInvalidArgumentErrorf("sort key filter for sort key '%s' must have query type equals instead of range",
 						filter.SortKeyName)

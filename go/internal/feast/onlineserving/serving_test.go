@@ -863,35 +863,6 @@ func TestValidateSortKeyFilters_EmptyFilters(t *testing.T) {
 	assert.NoError(t, err, "Valid filters should not produce an error")
 }
 
-func TestValidateSortKeyFilters_EmptyFilters(t *testing.T) {
-	sortKey1 := test.CreateSortKeyProto("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
-	sortKey2 := test.CreateSortKeyProto("price", core.SortOrder_ASC, types.ValueType_DOUBLE)
-	sortKey3 := test.CreateSortKeyProto("name", core.SortOrder_ASC, types.ValueType_STRING)
-
-	entity1 := test.CreateEntityProto("driver", types.ValueType_INT64, "driver")
-	entity2 := test.CreateEntityProto("customer", types.ValueType_STRING, "customer")
-	sfv1 := test.CreateSortedFeatureViewModel("sfv1", []*core.Entity{entity1},
-		[]*core.SortKey{sortKey1, sortKey2},
-		test.CreateFeature("f1", types.ValueType_DOUBLE))
-
-	sfv2 := test.CreateSortedFeatureViewModel("sfv2", []*core.Entity{entity2},
-		[]*core.SortKey{sortKey3},
-		test.CreateFeature("f2", types.ValueType_STRING))
-
-	sortedViews := []*SortedFeatureViewAndRefs{
-		{View: sfv1, FeatureRefs: []string{"f1"}},
-		{View: sfv2, FeatureRefs: []string{"f2"}},
-	}
-
-	validFilters := make([]*serving.SortKeyFilter, 0)
-
-	err := ValidateSortKeyFilters(validFilters, sortedViews)
-	assert.NoError(t, err, "Valid filters should not produce an error")
-
-	err = ValidateSortKeyFilters(nil, sortedViews)
-	assert.NoError(t, err, "Valid filters should not produce an error")
-}
-
 func TestValidateSortKeyFilters_NonExistentKey(t *testing.T) {
 	sortKey1 := test.CreateSortKeyProto("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
 	sortKey2 := test.CreateSortKeyProto("price", core.SortOrder_ASC, types.ValueType_DOUBLE)
