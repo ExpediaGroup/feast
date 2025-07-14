@@ -348,92 +348,76 @@ func ProtoValuesToArrowArray(protoValues []*types.Value, arrowAllocator memory.A
 }
 
 func ArrowValuesToRepeatedProtoValues(arr arrow.Array) ([]*types.RepeatedValue, error) {
+	if arr.Len() == 0 && arr.DataType() == arrow.Null {
+		return []*types.RepeatedValue{nil}, nil
+	}
 	repeatedValues := make([]*types.RepeatedValue, 0, arr.Len())
 
-	if listArr, ok := arr.(*array.List); ok {
-		listValues := listArr.ListValues()
-		offsets := listArr.Offsets()[1:]
-		pos := 0
-		for i := 0; i < listArr.Len(); i++ {
-			if listArr.IsNull(i) {
-				repeatedValues = append(repeatedValues, &types.RepeatedValue{Val: make([]*types.Value, 0)})
-				continue
+	listArray := arr.(*array.List)
+	listValues := listArray.ListValues()
+
+	for i := 0; i < listArray.Len(); i++ {
+		if listArray.IsNull(i) {
+			// Null RepeatedValue
+			repeatedValues = append(repeatedValues, nil)
+			continue
+		}
+		if listOfLists, ok := listValues.(*array.List); ok {
+			start, end := listArray.ValueOffsets(i)
+			subOffsets := listOfLists.Offsets()[start : end+1]
+			values, err := ArrowListToProtoList(listOfLists, subOffsets)
+			if err != nil {
+				return nil, fmt.Errorf("error converting list to proto Value: %v", err)
 			}
+			repeatedValues = append(repeatedValues, &types.RepeatedValue{Val: values})
+		} else {
+			start := int(listArray.Offsets()[i])
+			end := int(listArray.Offsets()[i+1])
 
-			values := make([]*types.Value, 0, int(offsets[i])-pos)
+			values := make([]*types.Value, 0, end-start)
 
-			if listOfLists, ok := listValues.(*array.List); ok {
-				start, end := listArr.ValueOffsets(i)
-				subOffsets := listOfLists.Offsets()[start : end+1]
-				var err error
-				values, err = ArrowListToProtoList(listOfLists, subOffsets)
-				if err != nil {
-					return nil, fmt.Errorf("error converting list to proto Value: %v", err)
-				}
-				repeatedValues = append(repeatedValues, &types.RepeatedValue{Val: values})
-				continue
-			}
-
-			for j := pos; j < int(offsets[i]); j++ {
-				if listValues.IsNull(j) {
-					values = append(values, &types.Value{})
-					continue
-				}
-
+			for j := start; j < end; j++ {
 				var protoVal *types.Value
-
-				switch listValues.DataType() {
-				case arrow.PrimitiveTypes.Int32:
-					protoVal = &types.Value{Val: &types.Value_Int32Val{Int32Val: listValues.(*array.Int32).Value(j)}}
-				case arrow.PrimitiveTypes.Int64:
-					protoVal = &types.Value{Val: &types.Value_Int64Val{Int64Val: listValues.(*array.Int64).Value(j)}}
-				case arrow.PrimitiveTypes.Float32:
-					protoVal = &types.Value{Val: &types.Value_FloatVal{FloatVal: listValues.(*array.Float32).Value(j)}}
-				case arrow.PrimitiveTypes.Float64:
-					protoVal = &types.Value{Val: &types.Value_DoubleVal{DoubleVal: listValues.(*array.Float64).Value(j)}}
-				case arrow.BinaryTypes.Binary:
-					protoVal = &types.Value{Val: &types.Value_BytesVal{BytesVal: listValues.(*array.Binary).Value(j)}}
-				case arrow.BinaryTypes.String:
-					protoVal = &types.Value{Val: &types.Value_StringVal{StringVal: listValues.(*array.String).Value(j)}}
-				case arrow.FixedWidthTypes.Boolean:
-					protoVal = &types.Value{Val: &types.Value_BoolVal{BoolVal: listValues.(*array.Boolean).Value(j)}}
-				case arrow.FixedWidthTypes.Timestamp_s:
-					protoVal = &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: int64(listValues.(*array.Timestamp).Value(j))}}
-				default:
-					return nil, fmt.Errorf("unsupported data type in list: %s", listValues.DataType())
+				if listValues.IsNull(j) {
+					protoVal = &types.Value{}
+				} else {
+					switch listValues.DataType() {
+					case arrow.PrimitiveTypes.Int32:
+						protoVal = &types.Value{Val: &types.Value_Int32Val{Int32Val: listValues.(*array.Int32).Value(j)}}
+					case arrow.PrimitiveTypes.Int64:
+						protoVal = &types.Value{Val: &types.Value_Int64Val{Int64Val: listValues.(*array.Int64).Value(j)}}
+					case arrow.PrimitiveTypes.Float32:
+						protoVal = &types.Value{Val: &types.Value_FloatVal{FloatVal: listValues.(*array.Float32).Value(j)}}
+					case arrow.PrimitiveTypes.Float64:
+						protoVal = &types.Value{Val: &types.Value_DoubleVal{DoubleVal: listValues.(*array.Float64).Value(j)}}
+					case arrow.BinaryTypes.Binary:
+						protoVal = &types.Value{Val: &types.Value_BytesVal{BytesVal: listValues.(*array.Binary).Value(j)}}
+					case arrow.BinaryTypes.String:
+						protoVal = &types.Value{Val: &types.Value_StringVal{StringVal: listValues.(*array.String).Value(j)}}
+					case arrow.FixedWidthTypes.Boolean:
+						protoVal = &types.Value{Val: &types.Value_BoolVal{BoolVal: listValues.(*array.Boolean).Value(j)}}
+					case arrow.FixedWidthTypes.Timestamp_s:
+						protoVal = &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: int64(listValues.(*array.Timestamp).Value(j))}}
+					case arrow.Null:
+						protoVal = &types.Value{}
+					default:
+						return nil, fmt.Errorf("unsupported data type in list: %s", listValues.DataType())
+					}
 				}
-
 				values = append(values, protoVal)
 			}
-
 			repeatedValues = append(repeatedValues, &types.RepeatedValue{Val: values})
-			// set the end of current element as start of the next
-			pos = int(offsets[i])
 		}
-
-		return repeatedValues, nil
 	}
-
-	protoValues, err := ArrowValuesToProtoValues(arr)
-	if err != nil {
-		return nil, fmt.Errorf("error converting values to proto Values: %v", err)
-	}
-
-	for _, val := range protoValues {
-		repeatedValues = append(repeatedValues, &types.RepeatedValue{Val: []*types.Value{val}})
-	}
-
 	return repeatedValues, nil
 }
 
-func RepeatedProtoValuesToArrowArray(repeatedValues []*types.RepeatedValue, allocator memory.Allocator, numRows int) (arrow.Array, error) {
-	if len(repeatedValues) == 0 {
-		return array.NewNull(numRows), nil
-	}
-
+func RepeatedProtoValuesToArrowArray(repeatedValues []*types.RepeatedValue, allocator memory.Allocator) (arrow.Array, error) {
 	var valueType arrow.DataType
 	var protoValue *types.Value
+	var err error
 
+	// Find the first non-nil proto value in repeatedValues
 	for _, rv := range repeatedValues {
 		if rv != nil && len(rv.Val) > 0 {
 			for _, val := range rv.Val {
@@ -448,37 +432,61 @@ func RepeatedProtoValuesToArrowArray(repeatedValues []*types.RepeatedValue, allo
 		}
 	}
 
-	if protoValue == nil {
-		return array.NewNull(numRows), nil
-	}
-
-	var err error
-	valueType, err = ProtoTypeToArrowType(protoValue)
-	if err != nil {
-		return nil, err
-	}
-
-	listBuilder := array.NewListBuilder(allocator, valueType)
-	defer listBuilder.Release()
-	valueBuilder := listBuilder.ValueBuilder()
-
-	for _, repeatedValue := range repeatedValues {
-		listBuilder.Append(true)
-
-		if repeatedValue == nil || len(repeatedValue.Val) == 0 {
-			continue
-		}
-		err = CopyProtoValuesToArrowArray(valueBuilder, repeatedValue.Val)
+	if protoValue != nil {
+		// Determine the value type from the first non-nil proto value
+		valueType, err = ProtoTypeToArrowType(protoValue)
 		if err != nil {
-			return nil, fmt.Errorf("error copying proto values to arrow array: %v", err)
+			return nil, err
+		}
+
+		listBuilder := array.NewListBuilder(allocator, valueType)
+		defer listBuilder.Release()
+		valueBuilder := listBuilder.ValueBuilder()
+
+		for _, repeatedValue := range repeatedValues {
+			if repeatedValue == nil {
+				listBuilder.AppendNull()
+				continue
+			}
+
+			if len(repeatedValue.Val) == 0 && repeatedValue.Val == nil {
+				return nil, fmt.Errorf("represent it as an empty array instead of nil")
+			}
+			listBuilder.Append(true)
+
+			err = CopyProtoValuesToArrowArray(valueBuilder, repeatedValue.Val)
+			if err != nil {
+				return nil, fmt.Errorf("error copying proto values to arrow array: %v", err)
+			}
+		}
+		return listBuilder.NewArray(), nil
+
+	} else {
+		if len(repeatedValues) == 0 {
+			return array.NewNull(0), nil
+		} else {
+			nullListBuilder := array.NewListBuilder(allocator, arrow.Null)
+			defer nullListBuilder.Release()
+			nullValueBuilder := nullListBuilder.ValueBuilder()
+			for _, repeatedVal := range repeatedValues {
+
+				if repeatedVal == nil {
+					nullListBuilder.AppendNull()
+					continue
+				}
+
+				if len(repeatedVal.Val) == 0 && repeatedVal.Val == nil {
+					return nil, fmt.Errorf("represent it as an empty array instead of nil")
+				}
+
+				nullListBuilder.Append(true)
+				for _, _ = range repeatedVal.Val {
+					nullValueBuilder.AppendNull()
+				}
+			}
+			return nullListBuilder.NewArray(), nil
 		}
 	}
-
-	for i := len(repeatedValues); i < numRows; i++ {
-		listBuilder.Append(true)
-	}
-
-	return listBuilder.NewArray(), nil
 }
 
 func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
@@ -728,18 +736,39 @@ func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bo
 	case *types.Value_BoolVal:
 		return x.BoolVal
 	case *types.Value_BoolListVal:
+		if len(x.BoolListVal.Val) == 0 {
+			return nil
+		}
 		return x.BoolListVal.Val
 	case *types.Value_StringListVal:
+		if len(x.StringListVal.Val) == 0 {
+			return nil
+		}
 		return x.StringListVal.Val
 	case *types.Value_BytesListVal:
+		if len(x.BytesListVal.Val) == 0 {
+			return nil
+		}
 		return x.BytesListVal.Val
 	case *types.Value_Int32ListVal:
+		if len(x.Int32ListVal.Val) == 0 {
+			return nil
+		}
 		return x.Int32ListVal.Val
 	case *types.Value_Int64ListVal:
+		if len(x.Int64ListVal.Val) == 0 {
+			return nil
+		}
 		return x.Int64ListVal.Val
 	case *types.Value_FloatListVal:
+		if len(x.FloatListVal.Val) == 0 {
+			return nil
+		}
 		return x.FloatListVal.Val
 	case *types.Value_DoubleListVal:
+		if len(x.DoubleListVal.Val) == 0 {
+			return nil
+		}
 		return x.DoubleListVal.Val
 	case *types.Value_UnixTimestampVal:
 		if timestampAsString {
@@ -753,6 +782,10 @@ func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bo
 				timestamps[i] = time.Unix(ts, 0).UTC().Format(TimestampFormat)
 			}
 			return timestamps
+		}
+
+		if len(x.UnixTimestampListVal.Val) == 0 {
+			return nil
 		}
 		timestamps := make([]time.Time, len(x.UnixTimestampListVal.Val))
 		for i, ts := range x.UnixTimestampListVal.Val {
