@@ -1456,7 +1456,7 @@ func TestTransposeRangeFeatureRowsIntoColumns(t *testing.T) {
 				FeatureName: "f1",
 				Values:      []interface{}{42.5, 43.2},
 				Statuses:    []serving.FieldStatus{serving.FieldStatus_PRESENT, serving.FieldStatus_PRESENT},
-				EventTimestamps: []timestamppb.Timestamp{
+				EventTimestamps: []timestamp.Timestamp{
 					{Seconds: nowTime.Unix()},
 					{Seconds: yesterdayTime.Unix()},
 				},
@@ -1468,7 +1468,7 @@ func TestTransposeRangeFeatureRowsIntoColumns(t *testing.T) {
 				FeatureName: "f1",
 				Values:      []interface{}{99.9},
 				Statuses:    []serving.FieldStatus{serving.FieldStatus_PRESENT},
-				EventTimestamps: []timestamppb.Timestamp{
+				EventTimestamps: []timestamp.Timestamp{
 					{Seconds: nowTime.Unix()},
 				},
 			},
