@@ -527,12 +527,21 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	startTime := time.Now()
+	log.Info().Msg("Starting getOnlineFeaturesRange request within http server")
+
+	defer func() {
+		elapsed := time.Since(startTime)
+		log.Info().Dur("latency", elapsed).Msg("Completed getOnlineFeaturesRange request from within http server")
+	}()
+
 	includeMetadata, err := parseIncludeMetadata(r)
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error parsing includeMetadata query parameter")
 		writeJSONError(w, fmt.Errorf("error parsing includeMetadata query parameter: %w", err), http.StatusBadRequest)
 		return
 	}
+	log.Info().Dur("latency", time.Since(startTime)).Msg("Parsed includeMetadata")
 
 	decoder := json.NewDecoder(r.Body)
 	var request getOnlineFeaturesRangeRequest
@@ -542,6 +551,7 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, fmt.Errorf("error decoding JSON request data: %w", err), http.StatusInternalServerError)
 		return
 	}
+	log.Info().Dur("latency", time.Since(startTime)).Msg("Decoded JSON request")
 
 	// TODO: Implement support for feature services with range queries
 	var featureService *model.FeatureService
@@ -580,17 +590,18 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		requestContextProto,
 		request.FullFeatureNames)
 
-	defer func() {
-		if rangeFeatureVectors != nil {
-			go releaseCGORangeMemory(rangeFeatureVectors)
-		}
-	}()
-
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
 		writeJSONError(w, fmt.Errorf("error getting range feature vectors: %w", err), http.StatusInternalServerError)
 		return
 	}
+	log.Info().Dur("latency", time.Since(startTime)).Msg("Fetched range feature vectors within http server")
+
+	defer func() {
+		if rangeFeatureVectors != nil {
+			go releaseCGORangeMemory(rangeFeatureVectors)
+		}
+	}()
 
 	featureNames, entities, results, err := processFeatureVectors(
 		rangeFeatureVectors, includeMetadata, entitiesProto)
@@ -599,6 +610,7 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
+	log.Info().Dur("latency", time.Since(startTime)).Msg("Processed feature vectors within http server")
 
 	response := map[string]interface{}{
 		"metadata": map[string]interface{}{

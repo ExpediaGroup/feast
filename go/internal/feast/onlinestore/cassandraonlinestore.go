@@ -705,6 +705,14 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 		return nil, err
 	}
 
+	startTime := time.Now()
+	log.Info().Msg("Starting OnlineReadRange from within Scylladb store")
+
+	defer func() {
+		elapsed := time.Since(startTime)
+		log.Info().Dur("latency", elapsed).Msg("Completed OnlineReadRange from within Scylladb store")
+	}()
+
 	results := make([][]RangeFeatureData, len(groupedRefs.EntityKeys))
 	for i := range results {
 		results[i] = make([]RangeFeatureData, len(groupedRefs.FeatureNames))
@@ -731,6 +739,8 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 			prepCtx.tableName, groupedRefs.FeatureNames, len(keyBatch), groupedRefs.SortKeyFilters, groupedRefs.Limit, groupedRefs.IsReverseSortOrder,
 		)
 
+		log.Info().Dur("latency", time.Since(startTime)).Msg("Prepared CQL statement for range read")
+
 		queryParams := append([]interface{}{}, keyBatch...)
 		queryParams = append(queryParams, rangeParams...)
 		seenKeys := make(map[string]bool)
@@ -739,10 +749,19 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 		go func(stmt string, params []interface{}, batchKeys []any) {
 			defer waitGroup.Done()
 
+			queryStart := time.Now()
 			iter := c.session.Query(stmt, params...).WithContext(ctx).Iter()
+			log.Info().Dur("query_latency", time.Since(queryStart)).
+				Str("query", stmt).
+				Int("batch_size", len(batchKeys)).
+				Msg("Executed Cassandra range query")
+
+			scanStart := time.Now()
 			readValues := make(map[string]interface{})
+			rowCount := 0
 
 			for iter.MapScan(readValues) {
+				rowCount++
 				entityKey := readValues["entity_key"].(string)
 				eventTs := readValues["event_ts"].(time.Time)
 
@@ -814,6 +833,11 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 					}
 				}
 			}
+
+			log.Info().
+				Dur("scan_latency", time.Since(scanStart)).
+				Int("rows_scanned", rowCount).
+				Msg("Completed scanning Cassandra range query results")
 
 		}(cqlStatement, queryParams, keyBatch)
 	}

@@ -3,13 +3,13 @@ package feast
 import (
 	"context"
 	"fmt"
+	"github.com/apache/arrow/go/v17/arrow/memory"
 	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/types"
+	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 	"os"
 	"strings"
-
-	"github.com/apache/arrow/go/v17/arrow/memory"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
+	"time"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
@@ -18,6 +18,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/transformation"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
+	"github.com/rs/zerolog/log"
 )
 
 type FeatureStore struct {
@@ -323,6 +324,14 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		requestData = make(map[string]*prototypes.RepeatedValue)
 	}
 
+	startTime := time.Now()
+	log.Info().Msg("Starting GetOnlineFeaturesRange within go feature store")
+
+	defer func() {
+		elapsed := time.Since(startTime)
+		log.Info().Dur("latency", elapsed).Msg("Completed getOnlineFeaturesRange request from within go feature store")
+	}()
+
 	var err error
 	var requestedSortedFeatureViews []*onlineserving.SortedFeatureViewAndRefs
 	var requestedFeatureViews []*onlineserving.FeatureViewAndRefs
@@ -375,6 +384,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	if err != nil {
 		return nil, err
 	}
+	log.Info().Dur("latency", time.Since(startTime)).Msg("Retrieved entity maps for sorted fvs in go feature store")
 
 	if len(expectedJoinKeysSet) == 0 {
 		return nil, errors.GrpcInvalidArgumentErrorf("no entity join keys found, check feature view entity definition is well defined")
@@ -399,6 +409,8 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		return nil, err
 	}
 
+	log.Info().Dur("latency", time.Since(startTime)).Msg("Performed all input validations in go feature store")
+
 	if limit < 0 {
 		return nil, errors.GrpcInvalidArgumentErrorf("limit must be non-negative, got %d", limit)
 	}
@@ -422,8 +434,11 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		return nil, err
 	}
 
+	log.Info().Dur("latency", time.Since(startTime)).Msg("Grouped sorted feature refs in go feature store")
+
 	for _, groupRef := range groupedRangeRefs {
 		featureData, err := fs.readRangeFromOnlineStore(ctx, groupRef)
+		log.Info().Dur("latency", time.Since(startTime)).Msg("Read range from online store in go feature store")
 		if err != nil {
 			return nil, errors.GrpcFromError(err)
 		}
@@ -441,6 +456,8 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 
 		result = append(result, vectors...)
 	}
+
+	log.Info().Dur("latency", time.Since(startTime)).Msg("Transposed range feature rows into columns in go feature store")
 
 	result, err = onlineserving.KeepOnlyRequestedFeatures(result, featureRefs, featureService, fullFeatureNames)
 	if err != nil {
