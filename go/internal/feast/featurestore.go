@@ -325,13 +325,19 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	}
 
 	startTime := time.Now()
-	log.Info().Msg("Starting GetOnlineFeaturesRange within go feature store")
+	log.Info().
+		Int("feature_refs_count", len(featureRefs)).
+		Int("entity_count", len(joinKeyToEntityValues)).
+		Int("sort_key_filters_count", len(sortKeyFilters)).
+		Int32("limit", limit).
+		Bool("reverse_sort", reverseSortOrder).
+		Msg("Starting GetOnlineFeaturesRange within FeatureStore")
 
 	defer func() {
-		elapsed := time.Since(startTime)
-		log.Info().Dur("latency", elapsed).Msg("Completed getOnlineFeaturesRange request from within go feature store")
+		log.Info().Dur("total_latency", time.Since(startTime)).Msg("Completed GetOnlineFeaturesRange within FeatureStore")
 	}()
 
+	featureViewStart := time.Now()
 	var err error
 	var requestedSortedFeatureViews []*onlineserving.SortedFeatureViewAndRefs
 	var requestedFeatureViews []*onlineserving.FeatureViewAndRefs
@@ -342,10 +348,17 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		requestedFeatureViews, requestedSortedFeatureViews, _, err =
 			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fs.registry, fs.config.Project)
 	}
+	log.Info().
+		Dur("feature_view_retrieval_latency", time.Since(featureViewStart)).
+		Int("sorted_views_count", len(requestedSortedFeatureViews)).
+		Int("standard_views_count", len(requestedFeatureViews)).
+		Msg("Retrieved feature views")
+
 	if err != nil {
 		return nil, err
 	}
 
+	validateStart := time.Now()
 	if len(requestedFeatureViews) > 0 {
 		fvNames := make([]string, len(requestedFeatureViews))
 		for i, fv := range requestedFeatureViews {
@@ -357,9 +370,8 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	if len(requestedSortedFeatureViews) == 0 {
 		return nil, errors.GrpcNotFoundErrorf("no sorted feature views found for the requested features")
 	}
-
-	// Note: We're ignoring on-demand feature views for now.
-
+	log.Info().Dur("view_validation_latency", time.Since(validateStart)).Msg("Validated feature views")
+	mappingStart := time.Now()
 	entityColumnMap := make(map[string]*model.Field)
 	sortKeyMap := make(map[string]*model.SortKey)
 	for _, featuresAndView := range requestedSortedFeatureViews {
@@ -370,6 +382,13 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 			sortKeyMap[sk.FieldName] = sk
 		}
 	}
+	log.Info().
+		Dur("mapping_latency", time.Since(mappingStart)).
+		Int("entity_columns", len(entityColumnMap)).
+		Int("sort_keys", len(sortKeyMap)).
+		Msg("Created entity and sort key mappings")
+
+	conversionStart := time.Now()
 	err = entityTypeConversion(joinKeyToEntityValues, entityColumnMap)
 	if err != nil {
 		return nil, err
@@ -378,20 +397,21 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	if err != nil {
 		return nil, err
 	}
+	log.Info().Dur("type_conversion_latency", time.Since(conversionStart)).Msg("Completed type conversions")
 
+	entityMapsStart := time.Now()
 	entityNameToJoinKeyMap, expectedJoinKeysSet, err := onlineserving.GetEntityMapsForSortedViews(
 		requestedSortedFeatureViews, fs.registry, fs.config.Project)
 	if err != nil {
 		return nil, err
 	}
-	log.Info().Dur("latency", time.Since(startTime)).Msg("Retrieved entity maps for sorted fvs in go feature store")
+	log.Info().
+		Dur("entity_maps_latency", time.Since(entityMapsStart)).
+		Int("join_keys_count", len(expectedJoinKeysSet)).
+		Msg("Retrieved entity maps")
 
-	if len(expectedJoinKeysSet) == 0 {
-		return nil, errors.GrpcInvalidArgumentErrorf("no entity join keys found, check feature view entity definition is well defined")
-	}
-
-	err = onlineserving.ValidateSortedFeatureRefs(requestedSortedFeatureViews, fullFeatureNames)
-	if err != nil {
+	coreValidateStart := time.Now()
+	if err := onlineserving.ValidateSortedFeatureRefs(requestedSortedFeatureViews, fullFeatureNames); err != nil {
 		return nil, err
 	}
 
@@ -400,27 +420,18 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		return nil, errors.GrpcInvalidArgumentErrorf("entity validation failed: %v", err)
 	}
 
-	if numRows <= 0 {
-		return nil, errors.GrpcInvalidArgumentErrorf("invalid number of entity rows: %d", numRows)
-	}
-
-	err = onlineserving.ValidateSortKeyFilters(sortKeyFilters, requestedSortedFeatureViews)
-	if err != nil {
+	if err := onlineserving.ValidateSortKeyFilters(sortKeyFilters, requestedSortedFeatureViews); err != nil {
 		return nil, err
 	}
+	log.Info().
+		Dur("core_validation_latency", time.Since(coreValidateStart)).
+		Int("num_rows", numRows).
+		Msg("Completed core validations")
 
-	log.Info().Dur("latency", time.Since(startTime)).Msg("Performed all input validations in go feature store")
-
-	if limit < 0 {
-		return nil, errors.GrpcInvalidArgumentErrorf("limit must be non-negative, got %d", limit)
-	}
-
+	prepStart := time.Now()
 	entitylessCase := checkEntitylessCase(requestedSortedFeatureViews)
 	addDummyEntityIfNeeded(entitylessCase, joinKeyToEntityValues, numRows)
-
 	arrowMemory := memory.NewGoAllocator()
-
-	result := make([]*onlineserving.RangeFeatureVector, 0)
 
 	groupedRangeRefs, err := onlineserving.GroupSortedFeatureRefs(
 		requestedSortedFeatureViews,
@@ -433,16 +444,25 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	if err != nil {
 		return nil, err
 	}
+	log.Info().
+		Dur("preparation_latency", time.Since(prepStart)).
+		Int("grouped_refs_count", len(groupedRangeRefs)).
+		Msg("Prepared for query execution")
 
-	log.Info().Dur("latency", time.Since(startTime)).Msg("Grouped sorted feature refs in go feature store")
-
-	for _, groupRef := range groupedRangeRefs {
+	result := make([]*onlineserving.RangeFeatureVector, 0)
+	for i, groupRef := range groupedRangeRefs {
+		queryStart := time.Now()
 		featureData, err := fs.readRangeFromOnlineStore(ctx, groupRef)
-		log.Info().Dur("latency", time.Since(startTime)).Msg("Read range from online store in go feature store")
 		if err != nil {
 			return nil, errors.GrpcFromError(err)
 		}
+		log.Info().
+			Dur("query_latency", time.Since(queryStart)).
+			Int("group_index", i).
+			Int("rows_returned", len(featureData)).
+			Msg("Executed range query")
 
+		processStart := time.Now()
 		vectors, err := onlineserving.TransposeRangeFeatureRowsIntoColumns(
 			featureData,
 			groupRef,
@@ -453,16 +473,23 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 		if err != nil {
 			return nil, err
 		}
+		log.Info().
+			Dur("processing_latency", time.Since(processStart)).
+			Int("vectors_processed", len(vectors)).
+			Msg("Processed query results")
 
 		result = append(result, vectors...)
 	}
 
-	log.Info().Dur("latency", time.Since(startTime)).Msg("Transposed range feature rows into columns in go feature store")
-
+	filterStart := time.Now()
 	result, err = onlineserving.KeepOnlyRequestedFeatures(result, featureRefs, featureService, fullFeatureNames)
 	if err != nil {
 		return nil, err
 	}
+	log.Info().
+		Dur("filter_latency", time.Since(filterStart)).
+		Int("final_feature_count", len(result)).
+		Msg("Filtered final features")
 
 	return result, nil
 }
