@@ -21,23 +21,23 @@ func LogWithSpanContext(span tracer.Span) zerolog.Logger {
 	return logger
 }
 
-func CommonHttpHandlers(s *httpServer, healthCheckHandler http.HandlerFunc) []Handler {
+func CommonHttpHandlers(s *HttpServer, healthCheckHandler http.HandlerFunc) []Handler {
 	return []Handler{
 		{
-			path:        "/get-online-features",
-			handlerFunc: recoverMiddleware(http.HandlerFunc(s.getOnlineFeatures)),
+			Path:        "/get-online-features",
+			HandlerFunc: recoverMiddleware(http.HandlerFunc(s.getOnlineFeatures)),
 		},
 		{
-			path:        "/get-online-features-range",
-			handlerFunc: recoverMiddleware(http.HandlerFunc(s.getOnlineFeaturesRange)),
+			Path:        "/get-online-features-range",
+			HandlerFunc: recoverMiddleware(http.HandlerFunc(s.getOnlineFeaturesRange)),
 		},
 		{
-			path:        "/metrics",
-			handlerFunc: promhttp.Handler(),
+			Path:        "/metrics",
+			HandlerFunc: promhttp.Handler(),
 		},
 		{
-			path:        "/health",
-			handlerFunc: healthCheckHandler,
+			Path:        "/health",
+			HandlerFunc: healthCheckHandler,
 		},
 	}
 }

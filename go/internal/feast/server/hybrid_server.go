@@ -15,7 +15,7 @@ import (
 var defaultCheckTimeout = 2 * time.Second
 
 // Register default HTTP handlers specific to the hybrid server configuration.
-func DefaultHybridHandlers(s *httpServer, port int) []Handler {
+func DefaultHybridHandlers(s *HttpServer, port int) []Handler {
 	return CommonHttpHandlers(s, combinedHealthCheck(port))
 }
 
