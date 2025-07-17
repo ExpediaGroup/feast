@@ -36,7 +36,7 @@ func TestGetFeastServingInfo(t *testing.T) {
 	defer closer()
 	response, err := client.GetFeastServingInfo(ctx, &serving.GetFeastServingInfoRequest{})
 	assert.Nil(t, err)
-	assert.Equal(t, feastServerVersion, response.Version)
+	assert.Equal(t, "dev", response.Version)
 }
 
 func TestGetOnlineFeaturesSqlite(t *testing.T) {
