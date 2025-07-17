@@ -29,7 +29,7 @@ service ServingService {
     // Get information about this Feast serving.
     rpc GetFeastServingInfo (GetFeastServingInfoRequest) returns (GetFeastServingInfoResponse);
     // Get Version information of this Feature Server
-    rpc GetVersionInfo (GetFeastServingInfoRequest) returns (GetFeastServingInfoResponseV2);
+    rpc GetVersionInfo (GetVersionInfoRequest) returns (GetVersionInfoResponse);
     // Get online features synchronously.
     rpc GetOnlineFeatures (GetOnlineFeaturesRequest) returns (GetOnlineFeaturesResponse);
     // Get online features synchronously with range queries.
@@ -43,7 +43,9 @@ message GetFeastServingInfoResponse {
     string version = 1;
 }
 
-message GetFeastServingInfoResponseV2 {
+message GetVersionInfoRequest {}
+
+message GetVersionInfoResponse {
     string version = 1;
     string build_time=2;
     string commit_hash=3;

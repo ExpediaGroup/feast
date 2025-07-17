@@ -41,12 +41,12 @@ func (s *grpcServingServiceServer) GetFeastServingInfo(ctx context.Context, requ
 }
 
 // GetVersionInfo Returns GO Binary Version Information
-func (s *grpcServingServiceServer) GetVersionInfo(ctx context.Context, request *serving.GetFeastServingInfoRequest) (*serving.GetFeastServingInfoResponseV2, error) {
+func (s *grpcServingServiceServer) GetVersionInfo(ctx context.Context, request *serving.GetVersionInfoRequest) (*serving.GetVersionInfoResponse, error) {
 	span, ctx := tracer.StartSpanFromContext(ctx, "gerVersionInfo", tracer.ResourceName("ServingService/GetVersionInfo"))
 	defer span.Finish()
 
 	versionInfo := version.GetVersionInfo()
-	return &serving.GetFeastServingInfoResponseV2{
+	return &serving.GetVersionInfoResponse{
 		Version:    versionInfo.Version,
 		BuildTime:  versionInfo.BuildTime,
 		CommitHash: versionInfo.CommitHash,
