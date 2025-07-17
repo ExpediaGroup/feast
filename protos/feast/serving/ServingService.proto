@@ -27,7 +27,7 @@ option go_package = "github.com/feast-dev/feast/go/protos/feast/serving";
 
 service ServingService {
     // Get information about this Feast serving.
-    rpc GetFeastServingInfo (GetFeastServingInfoRequest) returns (GetFeastServingInfoResponse);
+    rpc GetFeastServingInfo (GetFeastServingInfoRequest) returns (GetFeastServingInfoResponseV2);
     // Get online features synchronously.
     rpc GetOnlineFeatures (GetOnlineFeaturesRequest) returns (GetOnlineFeaturesResponse);
     // Get online features synchronously with range queries.
@@ -39,6 +39,14 @@ message GetFeastServingInfoRequest {}
 message GetFeastServingInfoResponse {
     // Feast version of this serving deployment.
     string version = 1;
+}
+
+message GetFeastServingInfoResponseV2 {
+    string version = 1;
+    string build_time=2;
+    string commit_hash=3;
+    string go_version=4;
+    string server_type=5;
 }
 
 message FeatureReferenceV2 {

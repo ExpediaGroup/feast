@@ -32,6 +32,10 @@ func CommonHttpHandlers(s *httpServer, healthCheckHandler http.HandlerFunc) []Ha
 			handlerFunc: recoverMiddleware(http.HandlerFunc(s.getOnlineFeaturesRange)),
 		},
 		{
+			path:        "/version",
+			handlerFunc: recoverMiddleware(http.HandlerFunc(s.getVersion)),
+		},
+		{
 			path:        "/metrics",
 			handlerFunc: promhttp.Handler(),
 		},

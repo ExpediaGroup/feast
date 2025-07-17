@@ -6,6 +6,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast"
 	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
+	"github.com/feast-dev/feast/go/internal/feast/version"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/feast-dev/feast/go/types"
@@ -21,8 +22,6 @@ import (
 	grpcTrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/google.golang.org/grpc"
 )
 
-const feastServerVersion = "0.0.1"
-
 type grpcServingServiceServer struct {
 	fs             *feast.FeatureStore
 	loggingService *logging.LoggingService
@@ -33,9 +32,17 @@ func NewGrpcServingServiceServer(fs *feast.FeatureStore, loggingService *logging
 	return &grpcServingServiceServer{fs: fs, loggingService: loggingService}
 }
 
-func (s *grpcServingServiceServer) GetFeastServingInfo(ctx context.Context, request *serving.GetFeastServingInfoRequest) (*serving.GetFeastServingInfoResponse, error) {
-	return &serving.GetFeastServingInfoResponse{
-		Version: feastServerVersion,
+func (s *grpcServingServiceServer) GetFeastServingInfo(ctx context.Context, request *serving.GetFeastServingInfoRequest) (*serving.GetFeastServingInfoResponseV2, error) {
+	span, ctx := tracer.StartSpanFromContext(ctx, "getOnlineFeatures", tracer.ResourceName("ServingService/GetOnlineFeatures"))
+	defer span.Finish()
+
+	versionInfo := version.GetVersionInfo()
+	return &serving.GetFeastServingInfoResponseV2{
+		Version:    versionInfo.Version,
+		BuildTime:  versionInfo.BuildTime,
+		CommitHash: versionInfo.CommitHash,
+		GoVersion:  versionInfo.GoVersion,
+		ServerType: versionInfo.ServerType,
 	}, nil
 }
 

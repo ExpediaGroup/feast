@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/feast-dev/feast/go/internal/feast/version"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
@@ -332,6 +333,27 @@ func parseIncludeMetadata(r *http.Request) (bool, error) {
 		return false, nil
 	}
 	return strconv.ParseBool(raw)
+}
+
+func (s *httpServer) getVersion(w http.ResponseWriter, r *http.Request) {
+	span, _ := tracer.StartSpanFromContext(r.Context(), "getVersion", tracer.ResourceName("/get-version"))
+	defer span.Finish()
+
+	logSpanContext := LogWithSpanContext(span)
+
+	if r.Method != "GET" {
+		http.NotFound(w, r)
+		return
+	}
+
+	versionInfo := version.GetVersionInfo()
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(versionInfo)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Error encoding version response")
+		writeJSONError(w, fmt.Errorf("error encoding version response: %+v", err), http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
