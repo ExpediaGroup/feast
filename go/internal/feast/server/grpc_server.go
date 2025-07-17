@@ -22,6 +22,8 @@ import (
 	grpcTrace "gopkg.in/DataDog/dd-trace-go.v1/contrib/google.golang.org/grpc"
 )
 
+const feastServerVersion = "0.0.1"
+
 type grpcServingServiceServer struct {
 	fs             *feast.FeatureStore
 	loggingService *logging.LoggingService
@@ -32,8 +34,14 @@ func NewGrpcServingServiceServer(fs *feast.FeatureStore, loggingService *logging
 	return &grpcServingServiceServer{fs: fs, loggingService: loggingService}
 }
 
-func (s *grpcServingServiceServer) GetFeastServingInfo(ctx context.Context, request *serving.GetFeastServingInfoRequest) (*serving.GetFeastServingInfoResponseV2, error) {
-	span, ctx := tracer.StartSpanFromContext(ctx, "getOnlineFeatures", tracer.ResourceName("ServingService/GetOnlineFeatures"))
+func (s *grpcServingServiceServer) GetFeastServingInfo(ctx context.Context, request *serving.GetFeastServingInfoRequest) (*serving.GetFeastServingInfoResponse, error) {
+	return &serving.GetFeastServingInfoResponse{
+		Version: feastServerVersion,
+	}, nil
+}
+
+func (s *grpcServingServiceServer) GetVersionInfo(ctx context.Context, request *serving.GetFeastServingInfoRequest) (*serving.GetFeastServingInfoResponseV2, error) {
+	span, ctx := tracer.StartSpanFromContext(ctx, "gerVersionInfo", tracer.ResourceName("ServingService/GetVersionInfo"))
 	defer span.Finish()
 
 	versionInfo := version.GetVersionInfo()
