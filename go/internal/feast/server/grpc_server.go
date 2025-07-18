@@ -6,6 +6,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast"
 	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
+	"github.com/feast-dev/feast/go/internal/feast/version"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/feast-dev/feast/go/types"
@@ -36,6 +37,21 @@ func NewGrpcServingServiceServer(fs *feast.FeatureStore, loggingService *logging
 func (s *grpcServingServiceServer) GetFeastServingInfo(ctx context.Context, request *serving.GetFeastServingInfoRequest) (*serving.GetFeastServingInfoResponse, error) {
 	return &serving.GetFeastServingInfoResponse{
 		Version: feastServerVersion,
+	}, nil
+}
+
+// GetVersionInfo Returns GO Binary Version Information
+func (s *grpcServingServiceServer) GetVersionInfo(ctx context.Context, request *serving.GetVersionInfoRequest) (*serving.GetVersionInfoResponse, error) {
+	span, ctx := tracer.StartSpanFromContext(ctx, "gerVersionInfo", tracer.ResourceName("ServingService/GetVersionInfo"))
+	defer span.Finish()
+
+	versionInfo := version.GetVersionInfo()
+	return &serving.GetVersionInfoResponse{
+		Version:    versionInfo.Version,
+		BuildTime:  versionInfo.BuildTime,
+		CommitHash: versionInfo.CommitHash,
+		GoVersion:  versionInfo.GoVersion,
+		ServerType: versionInfo.ServerType,
 	}, nil
 }
 
