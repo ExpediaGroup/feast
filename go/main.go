@@ -31,17 +31,14 @@ type ServerStarter interface {
 type RealServerStarter struct{}
 
 func (s *RealServerStarter) StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error {
-	version.ServerType = "http"
 	return StartHttpServer(fs, host, port, loggingService)
 }
 
 func (s *RealServerStarter) StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error {
-	version.ServerType = "grpc"
 	return StartGrpcServer(fs, host, port, loggingService)
 }
 
 func (s *RealServerStarter) StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService) error {
-	version.ServerType = "hybrid"
 	return StartHybridServer(fs, host, httpPort, grpcPort, loggingService)
 }
 
@@ -68,6 +65,8 @@ func main() {
 	flag.BoolVar(&printVersion, "version", printVersion, "Print the version information and exit")
 	flag.Parse()
 
+	version.ServerType = serverType
+
 	versionInfo := version.GetVersionInfo()
 
 	if printVersion && flag.NFlag() == 1 && flag.NArg() == 0 {
@@ -80,6 +79,7 @@ func main() {
 	log.Info().Msgf("Build Time: %s", versionInfo.BuildTime)
 	log.Info().Msgf("Commit Hash: %s", versionInfo.CommitHash)
 	log.Info().Msgf("Go Version: %s", versionInfo.GoVersion)
+	log.Info().Msgf("Server Type: %s", versionInfo.ServerType)
 
 	version.PublishVersionInfoToDatadog()
 
