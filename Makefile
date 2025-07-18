@@ -23,6 +23,10 @@ endif
 TRINO_VERSION ?= 376
 PYTHON_VERSION = ${shell python --version | grep -Eo '[0-9]\.[0-9]+'}
 
+COMMIT = $(shell git rev-parse HEAD)
+BUILD_TIME = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+FEATURE_SERVER_VERSION = dev-$(shell git rev-parse --abbrev-ref HEAD)-$(shell date -u +%Y%m%d%H%M%S)
+
 # General
 
 format: format-python format-java format-go
@@ -435,7 +439,11 @@ install-feast-ci-locally:
 	pip install -e ".[ci]"
 
 build-go: compile-protos-go
-	go build -o feast ./go/main.go
+	go build -o feast \
+		-ldflags "-X github.com/feast-dev/feast/go/internal/feast/version.Version=$(FEATURE_SERVER_VERSION) \
+			-X github.com/feast-dev/feast/go/internal/feast/version.CommitHash=$(COMMIT) \
+			-X github.com/feast-dev/feast/go/internal/feast/version.BuildTime=$(BUILD_TIME)" \
+		./go/main.go
 
 test-go: compile-protos-go compile-protos-python install-feast-ci-locally
 	CGO_ENABLED=1 go test -tags=unit -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html
