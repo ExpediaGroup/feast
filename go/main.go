@@ -137,7 +137,12 @@ func publishVersionInfoToDatadog(info *version.Info) {
 				return
 			}
 			defer func(client *statsd.Client) {
-				err := client.Close()
+				var err error
+				err = client.Flush()
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to flush heartbeat to statsd client")
+				}
+				err = client.Close()
 				if err != nil {
 					log.Error().Err(err).Msg("Failed to close statsd client")
 				}
