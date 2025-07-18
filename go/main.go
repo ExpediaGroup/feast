@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/DataDog/datadog-go/v5/statsd"
 	"net"
 	"net/http"
 	"os"
@@ -81,7 +82,7 @@ func main() {
 	log.Info().Msgf("Go Version: %s", versionInfo.GoVersion)
 	log.Info().Msgf("Server Type: %s", versionInfo.ServerType)
 
-	version.PublishVersionInfoToDatadog()
+	go publishVersionInfoToDatadog(versionInfo)
 
 	repoConfig, err := registry.NewRepoConfigFromFile(repoPath)
 	if err != nil {
@@ -123,6 +124,42 @@ func main() {
 
 }
 
+func datadogTracingEnabled() bool {
+	return strings.ToLower(os.Getenv("ENABLE_DATADOG_TRACING")) == "true"
+}
+
+func publishVersionInfoToDatadog(info *version.Info) {
+	if datadogTracingEnabled() {
+		if statsdHost, ok := os.LookupEnv("DD_AGENT_HOST"); ok {
+			var client, err = statsd.New(fmt.Sprintf("%s:8125", statsdHost))
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to connect to statsd")
+				return
+			}
+			defer func(client *statsd.Client) {
+				err := client.Close()
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to close statsd client")
+				}
+			}(client)
+			tags := []string{
+				"feast_version:" + info.Version,
+				"build_time:" + info.BuildTime,
+				"commit_hash:" + info.CommitHash,
+				"go_version:" + info.GoVersion,
+				"server_type:" + info.ServerType,
+			}
+			err = client.Gauge("featureserver.heartbeat", 1, tags, 1)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to publish feature server heartbeat info to datadog")
+			}
+		} else {
+			log.Info().Msg("DD_AGENT_HOST environment variable is not set, skipping publishing version info to Datadog")
+		}
+	}
+
+}
+
 func constructLoggingService(fs *feast.FeatureStore, writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback, loggingOpts *logging.LoggingOptions) (*logging.LoggingService, error) {
 	var loggingService *logging.LoggingService = nil
 	if writeLoggedFeaturesCallback != nil {
@@ -146,7 +183,7 @@ func constructLoggingService(fs *feast.FeatureStore, writeLoggedFeaturesCallback
 
 // StartGrpcServerWithLogging creates a gRPC server with enabled feature logging
 func StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error {
-	if strings.ToLower(os.Getenv("ENABLE_DATADOG_TRACING")) == "true" {
+	if datadogTracingEnabled() {
 		tracer.Start(tracer.WithRuntimeMetrics())
 		defer tracer.Stop()
 	}
@@ -215,7 +252,7 @@ func StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingServi
 // Handlers for these are defined in hybrid_server.go
 // Stops both servers if a stop signal is received.
 func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService) error {
-	if strings.ToLower(os.Getenv("ENABLE_DATADOG_TRACING")) == "true" {
+	if datadogTracingEnabled() {
 		tracer.Start(tracer.WithRuntimeMetrics())
 		defer tracer.Stop()
 	}
