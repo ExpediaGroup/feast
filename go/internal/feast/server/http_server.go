@@ -26,18 +26,18 @@ import (
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 )
 
-type httpServer struct {
+type HttpServer struct {
 	fs             *feast.FeatureStore
 	loggingService *logging.LoggingService
 	server         *http.Server
 }
 
-// This represents mapping between a path and an http Handler.
+// This represents mapping between a Path and an http Handler.
 // Note a handler can be created out of any func with type signature
 // func(w http.ResponseWriter, r *http.Request) via HandleFunc()
 type Handler struct {
-	path        string
-	handlerFunc http.Handler
+	Path        string
+	HandlerFunc http.Handler
 }
 
 // Some Feast types aren't supported during JSON conversion
@@ -319,8 +319,8 @@ type getOnlineFeaturesRequest struct {
 	RequestContext   map[string]repeatedValue `json:"request_context"`
 }
 
-func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingService) *httpServer {
-	return &httpServer{fs: fs, loggingService: loggingService}
+func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingService) *HttpServer {
+	return &HttpServer{fs: fs, loggingService: loggingService}
 }
 
 func parseIncludeMetadata(r *http.Request) (bool, error) {
@@ -335,7 +335,7 @@ func parseIncludeMetadata(r *http.Request) (bool, error) {
 	return strconv.ParseBool(raw)
 }
 
-func (s *httpServer) getVersion(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) getVersion(w http.ResponseWriter, r *http.Request) {
 	span, _ := tracer.StartSpanFromContext(r.Context(), "getVersion", tracer.ResourceName("/get-version"))
 	defer span.Finish()
 
@@ -356,7 +356,7 @@ func (s *httpServer) getVersion(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var featureVectors []*onlineserving.FeatureVector
 
@@ -536,7 +536,7 @@ func getSortKeyFiltersProto(filters []sortKeyFilter) ([]*serving.SortKeyFilter, 
 	return sortKeyFiltersProto, nil
 }
 
-func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Request) {
 	var err error
 
 	span, ctx := tracer.StartSpanFromContext(r.Context(), "getOnlineFeaturesRange", tracer.ResourceName("/get-online-features-range"))
@@ -565,11 +565,14 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// TODO: Implement support for feature services with range queries
 	var featureService *model.FeatureService
 	if request.FeatureService != nil {
-		writeJSONError(w, fmt.Errorf("feature services are not supported for range queries"), http.StatusBadRequest)
-		return
+		featureService, err = s.fs.GetFeatureService(*request.FeatureService)
+		if err != nil {
+			logSpanContext.Error().Err(err).Msg("Error getting feature service from registry")
+			writeJSONError(w, fmt.Errorf("Error getting feature service from registry: %+v", err), http.StatusNotFound)
+			return
+		}
 	}
 
 	entitiesProto := make(map[string]*prototypes.RepeatedValue)
@@ -587,7 +590,7 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 	sortKeyFiltersProto, err := getSortKeyFiltersProto(request.SortKeyFilters)
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error converting sort key filter to protobuf")
-		writeJSONError(w, fmt.Errorf("error converting sort key filter to protobuf: %w", err), http.StatusInternalServerError)
+		writeJSONError(w, err, http.StatusBadRequest)
 		return
 	}
 
@@ -610,7 +613,7 @@ func (s *httpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
-		writeJSONError(w, fmt.Errorf("error getting range feature vectors: %w", err), http.StatusInternalServerError)
+		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
 
@@ -667,8 +670,22 @@ func logStackTrace() {
 }
 
 func writeJSONError(w http.ResponseWriter, err error, statusCode int) {
+	errorString := fmt.Sprintf("%+v", err)
+	if statusErr, ok := status.FromError(err); ok {
+		switch statusErr.Code() {
+		case codes.InvalidArgument:
+			errorString = statusErr.Message()
+			statusCode = http.StatusBadRequest
+		case codes.NotFound:
+			errorString = statusErr.Message()
+			statusCode = http.StatusNotFound
+		default:
+			errorString = statusErr.Message()
+			statusCode = http.StatusInternalServerError
+		}
+	}
 	errMap := map[string]interface{}{
-		"error":       fmt.Sprintf("%+v", err),
+		"error":       errorString,
 		"status_code": statusCode,
 	}
 	errJSON, _ := json.Marshal(errMap)
@@ -686,36 +703,14 @@ func recoverMiddleware(next http.Handler) http.Handler {
 				// Log the stack trace
 				logStackTrace()
 
-				errorType := "Internal Server Error"
-				errorCode := http.StatusInternalServerError
-				var errVar error
-				if err := r.(error); err != nil {
-					if statusErr, ok := status.FromError(err); ok {
-						switch statusErr.Code() {
-						case codes.InvalidArgument:
-							errorType = "Invalid Argument"
-							errorCode = http.StatusBadRequest
-						case codes.NotFound:
-							errorType = "Not Found"
-							errorCode = http.StatusNotFound
-						default:
-							// For other gRPC errors, we can map them to Internal Server Error
-						}
-						errVar = statusErr.Err()
-					} else {
-						errVar = err
-					}
-				} else {
-					errVar = fmt.Errorf("%v", r)
-				}
-				writeJSONError(w, fmt.Errorf("%s: %v", errorType, errVar), errorCode)
+				writeJSONError(w, fmt.Errorf("Internal Server Error: %v", r), http.StatusInternalServerError)
 			}
 		}()
 		next.ServeHTTP(w, r)
 	})
 }
 
-func (s *httpServer) Serve(host string, port int, handlers []Handler) error {
+func (s *HttpServer) Serve(host string, port int, handlers []Handler) error {
 	if strings.ToLower(os.Getenv("ENABLE_DATADOG_TRACING")) == "true" {
 		tracer.Start(tracer.WithRuntimeMetrics())
 		defer tracer.Stop()
@@ -723,7 +718,7 @@ func (s *httpServer) Serve(host string, port int, handlers []Handler) error {
 	mux := httptrace.NewServeMux()
 
 	for _, handler := range handlers {
-		mux.Handle(handler.path, handler.handlerFunc)
+		mux.Handle(handler.Path, handler.HandlerFunc)
 	}
 
 	s.server = &http.Server{Addr: fmt.Sprintf("%s:%d", host, port), Handler: mux, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 15 * time.Second}
@@ -736,7 +731,7 @@ func (s *httpServer) Serve(host string, port int, handlers []Handler) error {
 	return err
 }
 
-func DefaultHttpHandlers(s *httpServer) []Handler {
+func DefaultHttpHandlers(s *HttpServer) []Handler {
 	return CommonHttpHandlers(s, healthCheckHandler)
 }
 
@@ -745,7 +740,7 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Healthy")
 }
 
-func (s *httpServer) Stop() error {
+func (s *HttpServer) Stop() error {
 	if s.server != nil {
 		return s.server.Shutdown(context.Background())
 	}
