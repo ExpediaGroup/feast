@@ -335,7 +335,7 @@ func parseIncludeMetadata(r *http.Request) (bool, error) {
 	return strconv.ParseBool(raw)
 }
 
-func (s *httpServer) getVersion(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) getVersion(w http.ResponseWriter, r *http.Request) {
 	span, _ := tracer.StartSpanFromContext(r.Context(), "getVersion", tracer.ResourceName("/get-version"))
 	defer span.Finish()
 
@@ -356,7 +356,7 @@ func (s *httpServer) getVersion(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *httpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
+func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	var err error
 	var featureVectors []*onlineserving.FeatureVector
 
@@ -713,29 +713,7 @@ func recoverMiddleware(next http.Handler) http.Handler {
 				// Log the stack trace
 				logStackTrace()
 
-				errorType := "Internal Server Error"
-				errorCode := http.StatusInternalServerError
-				var errVar error
-				if err := r.(error); err != nil {
-					if statusErr, ok := status.FromError(err); ok {
-						switch statusErr.Code() {
-						case codes.InvalidArgument:
-							errorType = "Invalid Argument"
-							errorCode = http.StatusBadRequest
-						case codes.NotFound:
-							errorType = "Not Found"
-							errorCode = http.StatusNotFound
-						default:
-							// For other gRPC errors, we can map them to Internal Server Error
-						}
-						errVar = statusErr.Err()
-					} else {
-						errVar = err
-					}
-				} else {
-					errVar = fmt.Errorf("%v", r)
-				}
-				writeJSONError(w, fmt.Errorf("%s: %v", errorType, errVar), errorCode)
+				writeJSONError(w, fmt.Errorf("Internal Server Error: %v", r), http.StatusInternalServerError)
 			}
 		}()
 		next.ServeHTTP(w, r)

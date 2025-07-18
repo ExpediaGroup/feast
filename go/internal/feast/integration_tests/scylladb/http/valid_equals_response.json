@@ -14,14 +14,6 @@
       "string_val",
       "timestamp_val",
       "boolean_val",
-      "array_int_val",
-      "array_long_val",
-      "array_float_val",
-      "array_double_val",
-      "array_byte_val",
-      "array_string_val",
-      "array_timestamp_val",
-      "array_boolean_val",
       "null_int_val",
       "null_long_val",
       "null_float_val",
@@ -36,8 +28,16 @@
       "null_array_double_val",
       "null_array_byte_val",
       "null_array_string_val",
-      "null_array_timestamp_val",
       "null_array_boolean_val",
+      "array_int_val",
+      "array_long_val",
+      "array_float_val",
+      "array_double_val",
+      "array_string_val",
+      "array_boolean_val",
+      "array_byte_val",
+      "array_timestamp_val",
+      "null_array_timestamp_val",
       "event_timestamp"
     ]
   },
@@ -95,6 +95,111 @@
       "values": [
         [
           true
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
+        ]
+      ]
+    },
+    {
+      "values": [
+        [
+          null
         ]
       ]
     },
@@ -174,24 +279,6 @@
       "values": [
         [
           [
-            "v3CHIwQTKOsPlg==",
-            "9NpAUZtBRhQQdg==",
-            "mFIS2ujOt3nMNw==",
-            "cLpMChXX44TEqQ==",
-            "/QYIT7SunvM/BQ==",
-            "Ia6pzqLJsN+i/g==",
-            "LtVpAouLocySHw==",
-            "1SqOKGMZEXm/BQ==",
-            "xL95J5LcB6QmFw==",
-            "RpbGjz9Lo64HMA=="
-          ]
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          [
             "9QECZ",
             "GLPQJ",
             "RWCS4",
@@ -202,24 +289,6 @@
             "CPILQ",
             "9QPKL",
             "ZJELB"
-          ]
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          [
-            "2024-06-05 02:04:31Z",
-            "2024-09-20 02:04:31Z",
-            "2024-10-16 02:04:31Z",
-            "2024-05-26 02:04:31Z",
-            "2024-08-21 02:04:31Z",
-            "2025-01-11 03:04:31Z",
-            "2025-01-12 03:04:31Z",
-            "2025-04-16 02:04:31Z",
-            "2024-10-21 02:04:31Z",
-            "2025-04-07 02:04:31Z"
           ]
         ]
       ]
@@ -245,105 +314,36 @@
     {
       "values": [
         [
-          null
+          [
+            "v3CHIwQTKOsPlg==",
+            "9NpAUZtBRhQQdg==",
+            "mFIS2ujOt3nMNw==",
+            "cLpMChXX44TEqQ==",
+            "/QYIT7SunvM/BQ==",
+            "Ia6pzqLJsN+i/g==",
+            "LtVpAouLocySHw==",
+            "1SqOKGMZEXm/BQ==",
+            "xL95J5LcB6QmFw==",
+            "RpbGjz9Lo64HMA=="
+          ]
         ]
       ]
     },
     {
       "values": [
         [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
-        ]
-      ]
-    },
-    {
-      "values": [
-        [
-          null
+          [
+            "2024-06-05 02:04:31Z",
+            "2024-09-20 02:04:31Z",
+            "2024-10-16 02:04:31Z",
+            "2024-05-26 02:04:31Z",
+            "2024-08-21 02:04:31Z",
+            "2025-01-11 03:04:31Z",
+            "2025-01-12 03:04:31Z",
+            "2025-04-16 02:04:31Z",
+            "2024-10-21 02:04:31Z",
+            "2025-04-07 02:04:31Z"
+          ]
         ]
       ]
     },
