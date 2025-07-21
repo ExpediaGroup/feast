@@ -4,6 +4,8 @@ go 1.23.0
 
 toolchain go1.23.8
 
+replace github.com/redis/go-redis/v9 v9.7.0 => github.com/EXPEbdodla/go-redis/v9 v9.5.3-0.20241122194359-c6d0fffedbe9
+
 require (
 	github.com/apache/arrow/go/v17 v17.0.0
 	github.com/ghodss/yaml v1.0.0
