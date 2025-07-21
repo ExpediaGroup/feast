@@ -12,6 +12,7 @@ import (
 	"github.com/apache/arrow/go/v17/arrow/memory"
 	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
+	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/internal/feast/onlinestore"
