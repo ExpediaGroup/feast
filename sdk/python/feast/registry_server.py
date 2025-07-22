@@ -800,11 +800,16 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ExpediaSearchProjects(
         self, request: RegistryServer_pb2.ExpediaSearchProjectsRequest, context
     ):
+        # Convert gRPC Timestamp to Python datetime
+        updated_at = request.updated_at.ToDatetime()
+        # empty gRPC int defaults to 0, which breaks the search
+        page_size = request.page_size if request.page_size > 0 else 10
+        
         # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
         response = self.proxied_registry.expedia_search_projects(  # type: ignore[attr-defined]
             search_text=request.search_text,
-            updated_at=request.updated_at,
-            page_size=request.page_size,
+            updated_at=updated_at,
+            page_size=page_size,
             page_index=request.page_index,
         )
         return response.to_proto()
@@ -812,15 +817,25 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ExpediaSearchFeatureViews(
         self, request: RegistryServer_pb2.ExpediaSearchFeatureViewsRequest, context
     ):
+        # request.online is of type google.protobuf.BoolValue to handle empty values default them to None
+        online = request.online.value if request.HasField('online') else None
+
+        # Convert google.protobuf.Timestamp to Python datetime
+        created_at = request.created_at.ToDatetime()
+        updated_at = request.updated_at.ToDatetime()
+
+        # empty gRPC int defaults to 0, which breaks the search
+        page_size = request.page_size if request.page_size > 0 else 10
+
         # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
         response = self.proxied_registry.expedia_search_feature_views(  # type: ignore[attr-defined]
             search_text=request.search_text,
-            online=request.online,
+            online=online,
             application=request.application,
             team=request.team,
-            created_at=request.created_at,
-            updated_at=request.updated_at,
-            page_size=request.page_size,
+            created_at=created_at,
+            updated_at=updated_at,
+            page_size=page_size,
             page_index=request.page_index,
         )
         return response.to_proto()
