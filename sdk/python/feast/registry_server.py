@@ -800,7 +800,8 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ExpediaSearchProjects(
         self, request: RegistryServer_pb2.ExpediaSearchProjectsRequest, context
     ):
-        response = self.proxied_registry.expedia_search_projects(
+        # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
+        response = self.proxied_registry.expedia_search_projects(  # type: ignore[attr-defined]
             search_text=request.search_text,
             updated_at=request.updated_at,
             page_size=request.page_size,
@@ -811,7 +812,8 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ExpediaSearchFeatureViews(
         self, request: RegistryServer_pb2.ExpediaSearchFeatureViewsRequest, context
     ):
-        response = self.proxied_registry.expedia_search_feature_views(
+        # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
+        response = self.proxied_registry.expedia_search_feature_views(  # type: ignore[attr-defined]
             search_text=request.search_text,
             online=request.online,
             application=request.application,
