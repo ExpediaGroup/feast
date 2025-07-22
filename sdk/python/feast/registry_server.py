@@ -797,6 +797,32 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def Proto(self, request, context):
         return self.proxied_registry.proto()
 
+    def ExpediaSearchProjects(
+        self, request: RegistryServer_pb2.ExpediaSearchProjectsRequest, context
+    ):
+        response = self.proxied_registry.expedia_search_projects(
+            search_text=request.search_text,
+            updated_at=request.updated_at,
+            page_size=request.page_size,
+            page_index=request.page_index,
+        )
+        return response.to_proto()
+
+    def ExpediaSearchFeatureViews(
+        self, request: RegistryServer_pb2.ExpediaSearchFeatureViewsRequest, context
+    ):
+        response = self.proxied_registry.expedia_search_feature_views(
+            search_text=request.search_text,
+            online=request.online,
+            application=request.application,
+            team=request.team,
+            created_at=request.created_at,
+            updated_at=request.updated_at,
+            page_size=request.page_size,
+            page_index=request.page_index,
+        )
+        return response.to_proto()
+
 
 def start_server(store: FeatureStore, port: int, wait_for_termination: bool = True):
     auth_manager_type = str_to_auth_manager_type(store.config.auth_config.type)

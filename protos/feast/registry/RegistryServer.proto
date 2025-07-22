@@ -4,6 +4,7 @@ package feast.registry;
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 import "feast/core/DataSource.proto";
 import "feast/core/Entity.proto";
 import "feast/core/FeatureService.proto";
@@ -92,6 +93,10 @@ service RegistryServer{
   rpc Commit (google.protobuf.Empty) returns (google.protobuf.Empty) {}
   rpc Refresh (RefreshRequest) returns (google.protobuf.Empty) {}
   rpc Proto (google.protobuf.Empty) returns (feast.core.Registry) {}
+
+  // Expedia Search RPCs
+  rpc ExpediaSearchProjects (ExpediaSearchProjectsRequest) returns (ExpediaSearchProjectsResponse) {}
+  rpc ExpediaSearchFeatureViews (ExpediaSearchFeatureViewsRequest) returns (ExpediaSearchFeatureViewsResponse) {}
 
 }
 
@@ -448,4 +453,41 @@ message ListProjectsResponse {
 message DeleteProjectRequest {
   string name = 1;
   bool commit = 2;
+}
+
+// Expedia Search
+
+message ExpediaProjectAndRelatedFeatureViews {
+  feast.core.Project project = 1;
+  repeated feast.core.FeatureView feature_views = 2;
+}
+
+message ExpediaSearchFeatureViewsRequest {
+  string search_text = 1;
+  google.protobuf.BoolValue online = 2;
+  string application = 3;
+  string team = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+  int32 page_size = 7;
+  int32 page_index = 8;
+}
+
+message ExpediaSearchFeatureViewsResponse {
+  repeated feast.core.FeatureView feature_views = 1;
+  int32 total_feature_views = 2;
+  int32 total_page_indices = 3;
+}
+
+message ExpediaSearchProjectsRequest {
+  string search_text = 1;
+  google.protobuf.Timestamp updated_at = 2;
+  int32 page_size = 3;
+  int32 page_index = 4;
+}
+
+message ExpediaSearchProjectsResponse {
+  repeated ExpediaProjectAndRelatedFeatureViews projects_and_related_feature_views = 1;
+  int32 total_projects = 3;
+  int32 total_page_indices = 4;
 }
