@@ -330,8 +330,9 @@ func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
 		Limit: 10,
 	}
 	_, err := client.GetOnlineFeaturesRange(ctx, request)
-	require.Error(t, err, "Expected an error due to regular feature view requested for range query")
-	assert.Equal(t, "rpc error: code = InvalidArgument desc = GetOnlineFeaturesRange does not support standard feature views [all_dtypes]", err.Error(), "Expected error message for unsupported feature view")
+	require.Error(t, err, "Expected an error due to feature services not being supported for range queries")
+	assert.Equal(t, "rpc error: code = InvalidArgument desc = GetOnlineFeaturesRange does not support feature services yet",
+		err.Error(), "Expected error message for unsupported feature service")
 }
 
 func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
@@ -378,7 +379,8 @@ func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
 	}
 	_, err := client.GetOnlineFeaturesRange(ctx, request)
 	require.Error(t, err, "Expected an error due to regular feature view requested for range query")
-	assert.Equal(t, "rpc error: code = InvalidArgument desc = GetOnlineFeaturesRange does not support standard feature views [all_dtypes]", err.Error(), "Expected error message for unsupported feature view")
+	assert.Contains(t, err.Error(), "sorted feature view all_dtypes doesn't exist",
+		"Expected error message for non-existent sorted feature view")
 }
 
 func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string, entitiesRequested int, includeMetadata bool) {
