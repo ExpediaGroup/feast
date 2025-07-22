@@ -43,7 +43,9 @@ from feast.errors import (
 )
 from feast.expedia_search import (
     ExpediaProjectAndRelatedFeatureViews,
+    ExpediaSearchFeatureViewsRequest,
     ExpediaSearchFeatureViewsResponse,
+    ExpediaSearchProjectsRequest,
     ExpediaSearchProjectsResponse,
 )
 from feast.expediagroup.pydantic_models.project_metadata_model import (
@@ -1448,11 +1450,16 @@ class SqlRegistry(CachingRegistry):
 
     def expedia_search_projects(
         self,
-        search_text: str = "",
-        updated_at: Optional[datetime] = None,
-        page_size: int = 10,
-        page_index: int = 0,
+        request: ExpediaSearchProjectsRequest,
     ) -> ExpediaSearchProjectsResponse:
+        # Unpack fields from the request object
+        (
+            search_text,
+            updated_at,
+            page_size,
+            page_index,
+        ) = request
+
         # 1. Query projects table for matching projects
         with self.read_engine.begin() as conn:
             count_stmt = select(func.count(projects.c.project_id.distinct()))
@@ -1542,15 +1549,20 @@ class SqlRegistry(CachingRegistry):
 
     def expedia_search_feature_views(
         self,
-        search_text: Optional[str] = None,
-        online: Optional[bool] = None,
-        application: Optional[str] = None,
-        team: Optional[str] = None,
-        created_at: Optional[datetime] = None,
-        updated_at: Optional[datetime] = None,
-        page_size: int = 10,
-        page_index: int = 0,
+        request: ExpediaSearchFeatureViewsRequest,
     ) -> ExpediaSearchFeatureViewsResponse:
+        # Unpack fields from the request object
+        (
+            search_text,
+            online,
+            application,
+            team,
+            created_at,
+            updated_at,
+            page_size,
+            page_index,
+        ) = request
+
         offset = page_index * page_size
         results = []
         filtered_results = []
