@@ -804,7 +804,7 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
         updated_at = request.updated_at.ToDatetime()
         # empty gRPC int defaults to 0, which breaks the search
         page_size = request.page_size if request.page_size > 0 else 10
-        
+
         # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
         response = self.proxied_registry.expedia_search_projects(  # type: ignore[attr-defined]
             search_text=request.search_text,
@@ -818,7 +818,7 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
         self, request: RegistryServer_pb2.ExpediaSearchFeatureViewsRequest, context
     ):
         # request.online is of type google.protobuf.BoolValue to handle empty values default them to None
-        online = request.online.value if request.HasField('online') else None
+        online = request.online.value if request.HasField("online") else None
 
         # Convert google.protobuf.Timestamp to Python datetime
         created_at = request.created_at.ToDatetime()
