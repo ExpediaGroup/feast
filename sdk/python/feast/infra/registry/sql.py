@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -18,6 +18,7 @@ from sqlalchemy import (  # type: ignore
     Table,
     create_engine,
     delete,
+    func,
     insert,
     select,
     update,
@@ -39,6 +40,11 @@ from feast.errors import (
     SavedDatasetNotFound,
     SortedFeatureViewNotFoundException,
     ValidationReferenceNotFound,
+)
+from feast.expedia_search import (
+    ExpediaProjectAndRelatedFeatureViews,
+    ExpediaSearchFeatureViewsResponse,
+    ExpediaSearchProjectsResponse,
 )
 from feast.expediagroup.pydantic_models.project_metadata_model import (
     ProjectMetadataModel,
@@ -1439,3 +1445,199 @@ class SqlRegistry(CachingRegistry):
                             datetime.utcfromtimestamp(int(metadata_value))
                         )
         return project_metadata_model
+
+    def expedia_search_projects(
+        self,
+        search_text: str = "",
+        updated_at: Optional[datetime] = None,
+        page_size: int = 10,
+        page_index: int = 0,
+    ) -> ExpediaSearchProjectsResponse:
+        # 1. Query projects table for matching projects
+        with self.engine.begin() as conn:
+            count_stmt = select(func.count(projects.c.project_id.distinct()))
+            if search_text:
+                count_stmt = count_stmt.where(
+                    projects.c.project_id.like(f"%{search_text}%")
+                )
+            if updated_at is not None:
+                updated_at_timestamp = int(updated_at.timestamp())
+                count_stmt = count_stmt.where(
+                    projects.c.last_updated_timestamp >= updated_at_timestamp
+                )
+            total_count = conn.execute(count_stmt).scalar() or 0
+            total_page_indices = (total_count + page_size - 1) // page_size
+
+            stmt = (
+                select(
+                    projects.c.project_id,
+                    projects.c.project_proto,
+                )
+                .order_by(projects.c.project_id)
+                .limit(page_size)
+                .offset(page_index * page_size)
+            )
+            if search_text:
+                stmt = stmt.where(projects.c.project_id.like(f"%{search_text}%"))
+            if updated_at is not None:
+                updated_at_timestamp = int(updated_at.timestamp())
+                stmt = stmt.where(
+                    projects.c.last_updated_timestamp >= updated_at_timestamp
+                )
+            rows = conn.execute(stmt).all()
+
+            project_objs = []
+            project_ids = []
+            for row in rows:
+                project_id = row._mapping["project_id"]
+                project_proto = ProjectProto.FromString(row._mapping["project_proto"])
+                project = Project.from_proto(project_proto)
+                project_objs.append(project)
+                project_ids.append(project_id)
+
+        # 2. Fetch all feature views for these projects
+        with self.engine.begin() as conn:
+            feature_views_stmt = select(
+                feature_views.c.project_id, feature_views.c.feature_view_proto
+            ).where(feature_views.c.project_id.in_(project_ids))
+            feature_view_rows = conn.execute(feature_views_stmt).all()
+
+        feature_views_by_project: Dict[str, List[FeatureView]] = {}
+        for row in feature_view_rows:
+            project_id = row._mapping["project_id"]
+            feature_view_proto = FeatureViewProto.FromString(
+                row._mapping["feature_view_proto"]
+            )
+            feature_view_proto.spec.project = project_id
+            fv = FeatureView.from_proto(feature_view_proto)
+            feature_views_by_project.setdefault(project_id, []).append(fv)
+
+        # 3. Build ExpediaProjectAndRelatedFeatureViews objects
+        def process_project(project):
+            return ExpediaProjectAndRelatedFeatureViews(
+                project=project,
+                feature_views=feature_views_by_project.get(project.name, []),
+            )
+
+        projects_and_related_feature_views = []
+        with ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(process_project, project) for project in project_objs
+            ]
+            for future in as_completed(futures):
+                try:
+                    projects_and_related_feature_views.append(future.result())
+                except Exception as e:
+                    logger.error(f"Error processing project: {e}")
+
+        projects_and_related_feature_views.sort(
+            key=lambda x: x.project.name.lower() if hasattr(x.project, "name") else ""
+        )
+
+        return ExpediaSearchProjectsResponse(
+            projects_and_related_feature_views=projects_and_related_feature_views,
+            total_projects=total_count,
+            total_page_indices=total_page_indices,
+        )
+
+    def expedia_search_feature_views(
+        self,
+        search_text: Optional[str] = None,
+        online: Optional[bool] = None,
+        application: Optional[str] = None,
+        team: Optional[str] = None,
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
+        page_size: int = 10,
+        page_index: int = 0,
+    ) -> ExpediaSearchFeatureViewsResponse:
+        offset = page_index * page_size
+        results = []
+        filtered_results = []
+
+        in_memory_filtering_required = any(
+            [online is not None, application, team, created_at, updated_at]
+        )
+
+        with self.engine.begin() as conn:
+            if not in_memory_filtering_required:
+                stmt = (
+                    select(feature_views)
+                    .where(feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                    .order_by(feature_views.c.feature_view_name)
+                    .limit(page_size)
+                    .offset(offset)
+                )
+
+                rows = conn.execute(stmt).all()
+
+                for row in rows:
+                    feature_view_proto = FeatureViewProto.FromString(
+                        row._mapping["feature_view_proto"]
+                    )
+                    feature_view_proto.spec.project = row._mapping["project_id"]
+                    fv = FeatureView.from_proto(feature_view_proto)
+                    results.append(fv)
+
+                total_stmt = (
+                    select(func.count())
+                    .select_from(feature_views)
+                    .where(feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                )
+                total_count = conn.execute(total_stmt).scalar() or 0
+                total_page_indices = (total_count + page_size - 1) // page_size
+
+                return ExpediaSearchFeatureViewsResponse(
+                    feature_views=results,
+                    total_feature_views=total_count,
+                    total_page_indices=total_page_indices,
+                )
+
+            stmt = select(feature_views)
+            if search_text:
+                stmt = stmt.where(
+                    feature_views.c.feature_view_name.like(f"%{search_text}%")
+                ).order_by(feature_views.c.feature_view_name)
+
+            rows = conn.execute(stmt).all()
+
+            for row in rows:
+                feature_view_proto = FeatureViewProto.FromString(
+                    row._mapping["feature_view_proto"]
+                )
+                feature_view_proto.spec.project = row._mapping["project_id"]
+                fv = FeatureView.from_proto(feature_view_proto)
+                add_to_results = True
+
+                if online is not None and fv.online != online:
+                    add_to_results = False
+
+                if application and fv.tags.get("application") != application:
+                    add_to_results = False
+
+                if team and fv.tags.get("team") != team:
+                    add_to_results = False
+
+                if created_at:
+                    if fv.created_timestamp and fv.created_timestamp < created_at:
+                        add_to_results = False
+
+                if updated_at is not None:
+                    if (
+                        fv.last_updated_timestamp
+                        and fv.last_updated_timestamp < updated_at
+                    ):
+                        add_to_results = False
+
+                if add_to_results:
+                    filtered_results.append(fv)
+
+            total_count = len(filtered_results)
+            total_page_indices = (total_count + page_size - 1) // page_size
+            paginated_results = filtered_results[offset : offset + page_size]
+
+        return ExpediaSearchFeatureViewsResponse(
+            feature_views=paginated_results,
+            total_feature_views=total_count,
+            total_page_indices=total_page_indices,
+        )
