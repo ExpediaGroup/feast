@@ -1454,7 +1454,7 @@ class SqlRegistry(CachingRegistry):
         page_index: int = 0,
     ) -> ExpediaSearchProjectsResponse:
         # 1. Query projects table for matching projects
-        with self.engine.begin() as conn:
+        with self.read_engine.begin() as conn:
             count_stmt = select(func.count(projects.c.project_id.distinct()))
             if search_text:
                 count_stmt = count_stmt.where(
@@ -1496,7 +1496,7 @@ class SqlRegistry(CachingRegistry):
                 project_ids.append(project_id)
 
         # 2. Fetch all feature views for these projects
-        with self.engine.begin() as conn:
+        with self.read_engine.begin() as conn:
             feature_views_stmt = select(
                 feature_views.c.project_id, feature_views.c.feature_view_proto
             ).where(feature_views.c.project_id.in_(project_ids))
@@ -1559,7 +1559,7 @@ class SqlRegistry(CachingRegistry):
             [online is not None, application, team, created_at, updated_at]
         )
 
-        with self.engine.begin() as conn:
+        with self.read_engine.begin() as conn:
             if not in_memory_filtering_required:
                 stmt = (
                     select(feature_views)
