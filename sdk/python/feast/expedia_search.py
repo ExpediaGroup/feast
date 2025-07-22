@@ -1,6 +1,6 @@
+from datetime import datetime
 from typing import List, Optional
 
-from google.protobuf.timestamp_pb2 import Timestamp
 from google.protobuf.wrappers_pb2 import BoolValue
 
 from feast.feature_view import FeatureView
@@ -93,8 +93,8 @@ class ExpediaSearchFeatureViewsRequest:
     online: Optional[bool]
     application: str
     team: str
-    created_at: Optional[Timestamp]
-    updated_at: Optional[Timestamp]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
     page_size: int
     page_index: int
 
@@ -104,8 +104,8 @@ class ExpediaSearchFeatureViewsRequest:
         online: Optional[bool] = None,
         application: str = "",
         team: str = "",
-        created_at: Optional[Timestamp] = None,
-        updated_at: Optional[Timestamp] = None,
+        created_at: Optional[datetime] = None,
+        updated_at: Optional[datetime] = None,
         page_size: int = 10,
         page_index: int = 0,
     ):
@@ -131,6 +131,21 @@ class ExpediaSearchFeatureViewsRequest:
         self.page_size = page_size
         self.page_index = page_index
 
+    def __iter__(self):
+        """
+        Allows iteration over the attributes of the request.
+        """
+        yield from (
+            self.search_text,
+            self.online,
+            self.application,
+            self.team,
+            self.created_at,
+            self.updated_at,
+            self.page_size,
+            self.page_index,
+        )
+
     @classmethod
     def from_proto(cls, proto: ExpediaSearchFeatureViewsRequestProto):
         """
@@ -143,8 +158,13 @@ class ExpediaSearchFeatureViewsRequest:
             ExpediaSearchFeatureViewsRequest object.
         """
         online = proto.online.value if proto.HasField("online") else None
-        created_at = proto.created_at if proto.HasField("created_at") else None
-        updated_at = proto.updated_at if proto.HasField("updated_at") else None
+        created_at = (
+            proto.created_at.ToDatetime() if proto.HasField("created_at") else None
+        )
+        updated_at = (
+            proto.updated_at.ToDatetime() if proto.HasField("updated_at") else None
+        )
+        page_size = proto.page_size if proto.page_size > 0 else 10
         return cls(
             search_text=proto.search_text,
             online=online,
@@ -152,7 +172,7 @@ class ExpediaSearchFeatureViewsRequest:
             team=proto.team,
             created_at=created_at,
             updated_at=updated_at,
-            page_size=proto.page_size,
+            page_size=page_size,
             page_index=proto.page_index,
         )
 
@@ -172,9 +192,9 @@ class ExpediaSearchFeatureViewsRequest:
         if self.online is not None:
             proto.online.CopyFrom(BoolValue(value=self.online))
         if self.created_at is not None:
-            proto.created_at.CopyFrom(self.created_at)
+            proto.created_at.FromDatetime(self.created_at)
         if self.updated_at is not None:
-            proto.updated_at.CopyFrom(self.updated_at)
+            proto.updated_at.FromDatetime(self.updated_at)
         return proto
 
 
@@ -253,14 +273,14 @@ class ExpediaSearchProjectsRequest:
     """
 
     search_text: str
-    updated_at: Optional[Timestamp]
+    updated_at: Optional[datetime]
     page_size: int
     page_index: int
 
     def __init__(
         self,
         search_text: str = "",
-        updated_at: Optional[Timestamp] = None,
+        updated_at: Optional[datetime] = None,
         page_size: int = 10,
         page_index: int = 0,
     ):
@@ -278,6 +298,17 @@ class ExpediaSearchProjectsRequest:
         self.page_size = page_size
         self.page_index = page_index
 
+    def __iter__(self):
+        """
+        Allows iteration over the attributes of the request.
+        """
+        yield from (
+            self.search_text,
+            self.updated_at,
+            self.page_size,
+            self.page_index,
+        )
+
     @classmethod
     def from_proto(cls, proto: ExpediaSearchProjectsRequestProto):
         """
@@ -289,11 +320,14 @@ class ExpediaSearchProjectsRequest:
         Returns:
             ExpediaSearchProjectsRequest object.
         """
-        updated_at = proto.updated_at if proto.HasField("updated_at") else None
+        updated_at = (
+            proto.updated_at.ToDatetime() if proto.HasField("updated_at") else None
+        )
+        page_size = proto.page_size if proto.page_size > 0 else 10
         return cls(
             search_text=proto.search_text,
             updated_at=updated_at,
-            page_size=proto.page_size,
+            page_size=page_size,
             page_index=proto.page_index,
         )
 
@@ -309,7 +343,7 @@ class ExpediaSearchProjectsRequest:
         proto.page_size = self.page_size
         proto.page_index = self.page_index
         if self.updated_at is not None:
-            proto.updated_at.CopyFrom(self.updated_at)
+            proto.updated_at.FromDatetime(self.updated_at)
         return proto
 
 
