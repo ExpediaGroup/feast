@@ -41,7 +41,7 @@ from feast.errors import (
     SortedFeatureViewNotFoundException,
     ValidationReferenceNotFound,
 )
-from feast.expedia_search import (
+from feast.expediagroup.search import (
     ExpediaProjectAndRelatedFeatureViews,
     ExpediaSearchFeatureViewsRequest,
     ExpediaSearchFeatureViewsResponse,
