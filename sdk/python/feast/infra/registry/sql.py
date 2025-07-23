@@ -41,15 +41,15 @@ from feast.errors import (
     SortedFeatureViewNotFoundException,
     ValidationReferenceNotFound,
 )
+from feast.expediagroup.pydantic_models.project_metadata_model import (
+    ProjectMetadataModel,
+)
 from feast.expediagroup.search import (
     ExpediaProjectAndRelatedFeatureViews,
     ExpediaSearchFeatureViewsRequest,
     ExpediaSearchFeatureViewsResponse,
     ExpediaSearchProjectsRequest,
     ExpediaSearchProjectsResponse,
-)
-from feast.expediagroup.pydantic_models.project_metadata_model import (
-    ProjectMetadataModel,
 )
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView

@@ -44,11 +44,13 @@ class ExpediaProjectAndRelatedFeatureViews:
         """
         self.project = project
         self.feature_views = feature_views
-    
+
     def __eq__(self, other):
         if not isinstance(other, ExpediaProjectAndRelatedFeatureViews):
             return False
-        return self.project == other.project and self.feature_views == other.feature_views
+        return (
+            self.project == other.project and self.feature_views == other.feature_views
+        )
 
     @classmethod
     def from_proto(cls, proto: ExpediaProjectAndRelatedFeatureViewsProto):
@@ -206,20 +208,28 @@ class ExpediaSearchFeatureViewsRequest:
         if not isinstance(other, ExpediaSearchFeatureViewsRequest):
             return False
         return (
-            self.search_text == other.search_text and
-            self.online == other.online and
-            self.application == other.application and
-            self.team == other.team and
-            (
-                (self.created_at is None and other.created_at is None) or
-                (self.created_at is not None and other.created_at is not None and self.created_at.timestamp() == other.created_at.timestamp())
-            ) and
-            (
-                (self.updated_at is None and other.updated_at is None) or
-                (self.updated_at is not None and other.updated_at is not None and self.updated_at.timestamp() == other.updated_at.timestamp())
-            ) and
-            self.page_size == other.page_size and
-            self.page_index == other.page_index
+            self.search_text == other.search_text
+            and self.online == other.online
+            and self.application == other.application
+            and self.team == other.team
+            and (
+                (self.created_at is None and other.created_at is None)
+                or (
+                    self.created_at is not None
+                    and other.created_at is not None
+                    and self.created_at.timestamp() == other.created_at.timestamp()
+                )
+            )
+            and (
+                (self.updated_at is None and other.updated_at is None)
+                or (
+                    self.updated_at is not None
+                    and other.updated_at is not None
+                    and self.updated_at.timestamp() == other.updated_at.timestamp()
+                )
+            )
+            and self.page_size == other.page_size
+            and self.page_index == other.page_index
         )
 
 
@@ -289,9 +299,9 @@ class ExpediaSearchFeatureViewsResponse:
         if not isinstance(other, ExpediaSearchFeatureViewsResponse):
             return False
         return (
-            self.feature_views == other.feature_views and
-            self.total_feature_views == other.total_feature_views and
-            self.total_page_indices == other.total_page_indices
+            self.feature_views == other.feature_views
+            and self.total_feature_views == other.total_feature_views
+            and self.total_page_indices == other.total_page_indices
         )
 
 
@@ -384,13 +394,17 @@ class ExpediaSearchProjectsRequest:
         if not isinstance(other, ExpediaSearchProjectsRequest):
             return False
         return (
-            self.search_text == other.search_text and
-            (
-                (self.updated_at is None and other.updated_at is None) or
-                (self.updated_at is not None and other.updated_at is not None and self.updated_at.timestamp() == other.updated_at.timestamp())
-            ) and
-            self.page_size == other.page_size and
-            self.page_index == other.page_index
+            self.search_text == other.search_text
+            and (
+                (self.updated_at is None and other.updated_at is None)
+                or (
+                    self.updated_at is not None
+                    and other.updated_at is not None
+                    and self.updated_at.timestamp() == other.updated_at.timestamp()
+                )
+            )
+            and self.page_size == other.page_size
+            and self.page_index == other.page_index
         )
 
 
@@ -465,7 +479,8 @@ class ExpediaSearchProjectsResponse:
         if not isinstance(other, ExpediaSearchProjectsResponse):
             return False
         return (
-            self.projects_and_related_feature_views == other.projects_and_related_feature_views and
-            self.total_projects == other.total_projects and
-            self.total_page_indices == other.total_page_indices
+            self.projects_and_related_feature_views
+            == other.projects_and_related_feature_views
+            and self.total_projects == other.total_projects
+            and self.total_page_indices == other.total_page_indices
         )
