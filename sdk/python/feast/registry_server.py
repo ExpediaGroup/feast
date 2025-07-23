@@ -12,7 +12,7 @@ from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource
 from feast.entity import Entity
 from feast.errors import FeatureViewNotFoundException
-from feast.expedia_search import (
+from feast.expediagroup.search import (
     ExpediaSearchFeatureViewsRequest,
     ExpediaSearchProjectsRequest,
 )
