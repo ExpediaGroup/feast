@@ -1,3 +1,4 @@
+import logging
 from concurrent import futures
 from datetime import datetime, timezone
 from typing import Optional, Union, cast
@@ -42,6 +43,8 @@ from feast.protos.feast.registry import RegistryServer_pb2, RegistryServer_pb2_g
 from feast.saved_dataset import SavedDataset, ValidationReference
 from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
+
+_logger = logging.getLogger(__name__)
 
 
 def _build_any_feature_view_proto(feature_view: BaseFeatureView):
@@ -850,6 +853,7 @@ def start_server(store: FeatureStore, port: int, wait_for_termination: bool = Tr
 
     server.add_insecure_port(f"[::]:{port}")
     server.start()
+    _logger.info(f"Registry server started on port {port}")
     if wait_for_termination:
         server.wait_for_termination()
     else:
