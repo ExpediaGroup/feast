@@ -44,7 +44,8 @@ from feast.saved_dataset import SavedDataset, ValidationReference
 from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
 
-_logger = logging.getLogger(__name__).setLevel(logging.INFO)
+_logger = logging.getLogger(__name__)
+_logger.setLevel(logging.INFO)
 
 
 def _build_any_feature_view_proto(feature_view: BaseFeatureView):
