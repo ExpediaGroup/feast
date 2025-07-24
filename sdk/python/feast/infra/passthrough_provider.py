@@ -287,7 +287,7 @@ class PassthroughProvider(Provider):
 
         table = pa.Table.from_pandas(df)
 
-        cpu_ct = multiprocessing.cpu_count()
+        cpu_ct = 4
         logger.info(
             f"processor count: {cpu_ct}"
         )
