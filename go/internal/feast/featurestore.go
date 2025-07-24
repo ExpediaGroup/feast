@@ -134,7 +134,7 @@ func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKe
 			if filter.GetEquals() != nil {
 				equals, err := types.ConvertToValueType(filter.GetEquals(), sk.ValueType)
 				if err != nil {
-					return nil, errors.GrpcInternalErrorf("error converting sort key filter equals for %s: %v", sk.FieldName, err)
+					return nil, errors.GrpcInvalidArgumentErrorf("error converting sort key filter equals for %s: %v", sk.FieldName, err)
 				}
 				newFilters[i] = &serving.SortKeyFilter{
 					SortKeyName: sk.FieldName,
@@ -147,14 +147,14 @@ func sortKeyFilterTypeConversion(sortKeyFilters []*serving.SortKeyFilter, sortKe
 			if filter.GetRange().GetRangeStart() != nil {
 				rangeStart, err = types.ConvertToValueType(filter.GetRange().GetRangeStart(), sk.ValueType)
 				if err != nil {
-					return nil, errors.GrpcInternalErrorf("error converting sort key filter range start for %s: %v", sk.FieldName, err)
+					return nil, errors.GrpcInvalidArgumentErrorf("error converting sort key filter range start for %s: %v", sk.FieldName, err)
 				}
 			}
 			var rangeEnd *prototypes.Value
 			if filter.GetRange().GetRangeEnd() != nil {
 				rangeEnd, err = types.ConvertToValueType(filter.GetRange().GetRangeEnd(), sk.ValueType)
 				if err != nil {
-					return nil, errors.GrpcInternalErrorf("error converting sort key filter range end for %s: %v", sk.FieldName, err)
+					return nil, errors.GrpcInvalidArgumentErrorf("error converting sort key filter range end for %s: %v", sk.FieldName, err)
 				}
 			}
 			newFilters[i] = &serving.SortKeyFilter{

@@ -50,6 +50,7 @@ var (
 			{Val: &types.Value_Int32ListVal{&types.Int32List{Val: []int32{0, 1, 2}}}},
 			{Val: &types.Value_Int32ListVal{&types.Int32List{Val: []int32{3, 4, 5}}}},
 			{Val: &types.Value_Int32ListVal{&types.Int32List{Val: []int32{}}}},
+			{},
 		},
 		{
 			{Val: &types.Value_Int64ListVal{&types.Int64List{Val: []int64{0, 1, 2, 553248634761893728}}}},
@@ -90,7 +91,7 @@ var (
 var (
 	REPEATED_PROTO_VALUES = []*types.RepeatedValue{
 		nil,
-		{Val: []*types.Value{}}, // Use this way to represent empty repeated values instead of {}
+		{Val: []*types.Value{}},
 		{Val: []*types.Value{nil_or_null_val}},
 		{Val: []*types.Value{nil_or_null_val, nil_or_null_val}},
 		{Val: []*types.Value{{}, {}}},
@@ -100,6 +101,7 @@ var (
 		{Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 10}}, nil_or_null_val}},
 		{Val: []*types.Value{nil_or_null_val, {Val: &types.Value_Int32Val{Int32Val: 20}}}},
 		{Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 10}}, nil_or_null_val, {Val: &types.Value_Int32Val{Int32Val: 30}}}},
+		{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 21}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{30, 31}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{}}}, {}}},
 		{Val: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 10}}}},
 		{Val: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 10}}, {Val: &types.Value_Int64Val{Int64Val: 20}}}},
 		{Val: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 10}}, nil_or_null_val}},
@@ -134,8 +136,7 @@ var (
 var (
 	MULTIPLE_REPEATED_PROTO_VALUES = [][]*types.RepeatedValue{
 		{
-			// nil and {} are represented as same during Arrow conversion
-			{Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 10}}, {Val: &types.Value_Int32Val{}}, nil, {}}},
+			{Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 10}}, {Val: &types.Value_Int32Val{}}, {}}},
 			{Val: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 20}}}},
 			{Val: []*types.Value{}}, // Empty Array
 			nil,                     // NULL or Not Found Values
@@ -197,10 +198,7 @@ var (
 			{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 30}}}}}},
 			nil,
 			{Val: []*types.Value{}},
-			// TODO: Fix tests to render correctly for below case
-			// Arrow List Builder is of specific Type (Ex: Int32).
-			// So nil or null values are represented as Empty Arrays
-			//{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 21}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{30, 31}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{}}}, nil, {}}},
+			{Val: []*types.Value{{Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{20, 21}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{30, 31}}}}, {Val: &types.Value_Int32ListVal{Int32ListVal: &types.Int32List{Val: []int32{}}}}, {}}},
 		},
 		{
 			{Val: []*types.Value{{Val: &types.Value_Int64ListVal{Int64ListVal: &types.Int64List{Val: []int64{100, 101}}}}}},
@@ -437,14 +435,12 @@ func TestValueTypeToGoType(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		nil,
-		nil,
-		nil,
+		[]int32{},
 	}
 
 	for i, testCase := range testCases {
 		actual := ValueTypeToGoType(testCase)
-		assert.Equal(t, expectedTypes[i], actual)
+		assert.Equal(t, expectedTypes[i], actual, "Expected type mismatch for test case %d", i)
 	}
 }
 
