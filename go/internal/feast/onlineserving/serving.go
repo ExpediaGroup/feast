@@ -218,11 +218,13 @@ func GetFeatureViewsToUseByFeatureRefs(
 		if fvErr == nil {
 			addFeaturesToValidationMap(fv.Base.Name, fv.Base.Features, viewToFeaturesValidationMap)
 			validFeatures := make([]string, 0)
+			seenFeatures := make(map[string]bool)
 			for _, featureName := range requestedFeatureNames {
 				if !viewToFeaturesValidationMap[fv.Base.Name][featureName] {
 					invalidFeatures = append(invalidFeatures, fmt.Sprintf("%s:%s", featureViewName, featureName))
-				} else {
+				} else if !seenFeatures[featureName] {
 					validFeatures = append(validFeatures, featureName)
+					seenFeatures[featureName] = true
 				}
 			}
 
@@ -243,12 +245,16 @@ func GetFeatureViewsToUseByFeatureRefs(
 
 			if odfvErr == nil {
 				addFeaturesToValidationMap(odfv.Base.Name, odfv.Base.Features, viewToFeaturesValidationMap)
+
 				validFeatures := make([]string, 0)
+				seenFeatures := make(map[string]bool)
+
 				for _, featureName := range requestedFeatureNames {
 					if !viewToFeaturesValidationMap[odfv.Base.Name][featureName] {
 						invalidFeatures = append(invalidFeatures, fmt.Sprintf("%s:%s", featureViewName, featureName))
-					} else {
+					} else if !seenFeatures[featureName] {
 						validFeatures = append(validFeatures, featureName)
+						seenFeatures[featureName] = true
 					}
 				}
 
@@ -331,24 +337,20 @@ func GetSortedFeatureViewsToUseByFeatureRefs(
 
 		addFeaturesToValidationMap(sortedFv.Base.Name, sortedFv.Base.Features, viewToFeaturesValidationMap)
 		validFeatures := make([]string, 0)
+		seenFeatures := make(map[string]bool)
 		for _, featureName := range featureNames {
 			if !viewToFeaturesValidationMap[sortedFv.Base.Name][featureName] {
 				invalidFeatures = append(invalidFeatures, fmt.Sprintf("%s:%s", featureViewName, featureName))
-			} else {
+			} else if !seenFeatures[featureName] {
 				validFeatures = append(validFeatures, featureName)
+				seenFeatures[featureName] = true
 			}
 		}
 
 		if len(validFeatures) > 0 {
-			if existing, ok := viewNameToSortedViewAndRefs[sortedFv.Base.Name]; ok {
-				for _, feat := range validFeatures {
-					existing.FeatureRefs = addStringIfNotContains(existing.FeatureRefs, feat)
-				}
-			} else {
-				viewNameToSortedViewAndRefs[sortedFv.Base.Name] = &SortedFeatureViewAndRefs{
-					View:        sortedFv,
-					FeatureRefs: validFeatures,
-				}
+			viewNameToSortedViewAndRefs[sortedFv.Base.Name] = &SortedFeatureViewAndRefs{
+				View:        sortedFv,
+				FeatureRefs: validFeatures,
 			}
 		}
 	}
