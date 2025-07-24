@@ -343,35 +343,7 @@ func TestGetOnlineFeaturesRange_Http_withFeatureService(t *testing.T) {
 
 	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
 	assert.Equal(t, responseRecorder.Code, http.StatusBadRequest)
-	assert.Equal(t, `{"error":"GetOnlineFeaturesRange does not support standard feature views [all_dtypes]","status_code":400}`, responseRecorder.Body.String(), "Response body does not match expected error message")
-}
-
-func TestGetOnlineFeaturesRange_Http_withInvalidFeatureView(t *testing.T) {
-	requestJson := []byte(`{
-	  "features": [
-		"all_dtypes:int_val"
-	  ],
-	  "entities": {
-		"index_id": [1, 2, 3]
-	  },
-	  "sort_key_filters": [
-		{
-		  "sort_key_name": "event_timestamp",
-		  "range": {
-			"range_start": 0
-		  }
-		}
-	  ],
-	  "limit": 10
-	}`)
-
-	request := httptest.NewRequest(http.MethodPost, "/get-online-features-range", bytes.NewBuffer(requestJson))
-	responseRecorder := httptest.NewRecorder()
-
-	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
-	assert.Equal(t, responseRecorder.Code, http.StatusBadRequest, "Expected HTTP status code 400 BadRequest response body is: %s", responseRecorder.Body.String())
-	expectedErrorMessage := `{"error":"GetOnlineFeaturesRange does not support standard feature views [all_dtypes]","status_code":400}`
-	assert.Equal(t, expectedErrorMessage, responseRecorder.Body.String(), "Response body does not match expected error message")
+	assert.Equal(t, `{"error":"GetOnlineFeaturesRange does not support feature services yet","status_code":400}`, responseRecorder.Body.String(), "Response body does not match expected error message")
 }
 
 func TestGetOnlineFeaturesRange_Http_withInvalidSortKeyFilter(t *testing.T) {
