@@ -83,6 +83,8 @@ class SparkOfflineStore(OfflineStore):
 
         from_expression = data_source.get_table_query_string()
 
+        print(f"Pulling data from the table: {from_expression}")
+
         partition_by_join_key_string = ", ".join(join_key_columns)
         if partition_by_join_key_string != "":
             partition_by_join_key_string = (
