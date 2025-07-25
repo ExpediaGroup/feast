@@ -38,8 +38,6 @@ from feast.utils import (
     _run_pyarrow_field_mapping,
     make_tzaware,
 )
-import multiprocessing
-from multiprocessing import Pool
 from time import perf_counter
 
 logger = logging.getLogger(__name__)
@@ -287,23 +285,6 @@ class PassthroughProvider(Provider):
 
         table = pa.Table.from_pandas(df)
 
-        cpu_ct = 7
-        logger.info(
-            f"processor count: {cpu_ct}"
-        )
-        total = table.num_rows
-        size = total // cpu_ct  # base size
-        remainder = total % cpu_ct  # extra rows to distribute
-
-        parts = []
-        offset = 0
-        for i in range(cpu_ct):
-            # Distribute the remainder one per split until exhausted
-            length = size + (1 if i < remainder else 0)
-            parts.append(table.slice(offset, length))
-            offset += length
-
-
 
         if feature_view.batch_source.field_mapping is not None:
             table = _run_pyarrow_field_mapping(
@@ -315,18 +296,12 @@ class PassthroughProvider(Provider):
             for entity in feature_view.entity_columns
         }
 
-        data = [(table, feature_view, join_keys ) for table in parts]
-
-        with Pool(processes=7) as pool:
-            pool.starmap(self.process_chunk, data)
-
-
-    def process_chunk(self, table, feature_view: FeatureView, join_keys):
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
 
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
         )
+
 
     def ingest_df_to_offline_store(self, feature_view: FeatureView, table: pa.Table):
         if feature_view.batch_source.field_mapping is not None:
