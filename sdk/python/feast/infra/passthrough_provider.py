@@ -287,7 +287,7 @@ class PassthroughProvider(Provider):
 
         table = pa.Table.from_pandas(df)
 
-        cpu_ct = 4
+        cpu_ct = 7
         logger.info(
             f"processor count: {cpu_ct}"
         )
@@ -317,7 +317,7 @@ class PassthroughProvider(Provider):
 
         data = [(table, feature_view, join_keys ) for table in parts]
 
-        with Pool() as pool:
+        with Pool(processes=7) as pool:
             pool.starmap(self.process_chunk, data)
 
 
