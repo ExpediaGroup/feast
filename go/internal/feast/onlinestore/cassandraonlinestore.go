@@ -40,9 +40,6 @@ type CassandraOnlineStore struct {
 	// The number of keys to include in a single CQL query for retrieval from the database
 	KeyBatchSize int
 
-	// The max number of concurrent feature views to parallelize at a time. Defaults to zero.
-	maxConcurrentReads int
-
 	// The version of the table name format
 	tableNameFormatVersion int
 
@@ -419,7 +416,6 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 	if err != nil {
 		return nil, fmt.Errorf("error when serializing entity keys for Cassandra: %v", err)
 	}
-
 	results := make([][]FeatureData, len(entityKeys))
 	for i := range results {
 		results[i] = make([]FeatureData, len(featureNames))
@@ -434,7 +430,6 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 	for i, viewName := range featureViewNames {
 		viewGroups[viewName] = append(viewGroups[viewName], featureNames[i])
 	}
-
 	g, ctx := errgroup.WithContext(ctx)
 	// Batch over featureView, execute each batch within separate goroutine.
 	// Results write to separate locations by virtue of the structure of the data.
@@ -450,16 +445,21 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 		}
 
 		for i, batch := range batches {
+			var cqlForBatch string
 			if i == 0 || len(batch) != prevBatchLength {
-				cqlStatement = c.getMultiKeyCQLStatement(tableName, currentFeatureNames, len(batch))
+				cqlForBatch = c.getMultiKeyCQLStatement(tableName, currentFeatureNames, len(batch))
 				prevBatchLength = len(batch)
+			} else {
+				cqlForBatch = cqlStatement
 			}
-
-			g.Go(func(viewName, tableName string, featureNames []string, batch []any) func() error {
+			// remove from closure
+			batchCopy := batch
+			g.Go(func(viewName, tableName string, featureNames []string, batch []any, cqlStmt string, batchIdx int) func() error {
 				return func() error {
-					return c.executeBatch(ctx, viewName, cqlStatement, featureNames, batch, serializedEntityKeyToIndex, results, featureNamesToIdx)
+					err := c.executeBatch(ctx, viewName, cqlStmt, featureNames, batch, serializedEntityKeyToIndex, results, featureNamesToIdx)
+					return err
 				}
-			}(viewName, tableName, currentFeatureNames, batch))
+			}(viewName, tableName, currentFeatureNames, batchCopy, cqlForBatch, i))
 		}
 	}
 	// This will fail-fast in the event that a single goroutine fails.
