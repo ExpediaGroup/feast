@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/feast/utils"
@@ -391,13 +392,27 @@ func (c *CassandraOnlineStore) validateUniqueFeatureNames(featureViewNames []str
 	return nil
 }
 
-func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string) ([][]FeatureData, error) {
-	if err := c.validateUniqueFeatureNames(featureViewNames); err != nil {
-		return nil, err
+func (c *CassandraOnlineStore) createBatches(serializedEntityKeys []any) [][]any {
+	nKeys := len(serializedEntityKeys)
+	batchSize := c.KeyBatchSize
+	nBatches := int(math.Ceil(float64(nKeys) / float64(batchSize)))
+	batches := make([][]any, nBatches)
+
+	nAssigned := 0
+	for i := 0; i < nBatches; i++ {
+		thisBatchSize := int(math.Min(float64(batchSize), float64(nKeys-nAssigned)))
+		nAssigned += thisBatchSize
+		batches[i] = make([]any, thisBatchSize)
+		for j := 0; j < thisBatchSize; j++ {
+			batches[i][j] = serializedEntityKeys[i*batchSize+j]
+		}
 	}
 
-	serializedEntityKeys, serializedEntityKeyToIndex, err := c.buildCassandraEntityKeys(entityKeys)
+	return batches
+}
 
+func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string) ([][]FeatureData, error) {
+	serializedEntityKeys, serializedEntityKeyToIndex, err := c.buildCassandraEntityKeys(entityKeys)
 	if err != nil {
 		return nil, fmt.Errorf("error when serializing entity keys for Cassandra: %v", err)
 	}
@@ -411,135 +426,134 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 		featureNamesToIdx[name] = idx
 	}
 
-	featureViewName := featureViewNames[0]
+	viewGroups := make(map[string][]string)
+	for i, viewName := range featureViewNames {
+		viewGroups[viewName] = append(viewGroups[viewName], featureNames[i])
+	}
+	g, ctx := errgroup.WithContext(ctx)
+	// Batch over featureView, execute each batch within separate goroutine.
+	// Results write to separate locations by virtue of the structure of the data.
+	// Each set of featureNames correspond to a unique featureView, i.e FV:FN, M:N, M <= N
+	for viewName, currentFeatureNames := range viewGroups {
+		var prevBatchLength int
+		var cqlStatement string
+		batches := c.createBatches(serializedEntityKeys)
 
-	// Prepare the query
-	tableName, err := c.getFqTableName(c.clusterConfigs.Keyspace, c.project, featureViewName, c.tableNameFormatVersion)
-	if err != nil {
+		tableName, err := c.getFqTableName(c.clusterConfigs.Keyspace, c.project, viewName, c.tableNameFormatVersion)
+		if err != nil {
+			return nil, err
+		}
+
+		for i, batch := range batches {
+			var cqlForBatch string
+			if i == 0 || len(batch) != prevBatchLength {
+				cqlForBatch = c.getMultiKeyCQLStatement(tableName, currentFeatureNames, len(batch))
+				prevBatchLength = len(batch)
+			} else {
+				cqlForBatch = cqlStatement
+			}
+			// remove from closure
+			batchCopy := batch
+			g.Go(func(viewName, tableName string, featureNames []string, batch []any, cqlStmt string, batchIdx int) func() error {
+				return func() error {
+					err := c.executeBatch(ctx, viewName, cqlStmt, featureNames, batch, serializedEntityKeyToIndex, results, featureNamesToIdx)
+					return err
+				}
+			}(viewName, tableName, currentFeatureNames, batchCopy, cqlForBatch, i))
+		}
+	}
+	// This will fail-fast in the event that a single goroutine fails.
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	// Key batching
-	nKeys := len(serializedEntityKeys)
-	batchSize := c.KeyBatchSize
-	nBatches := int(math.Ceil(float64(nKeys) / float64(batchSize)))
-	batches := make([][]any, nBatches)
-	nAssigned := 0
-	for i := 0; i < nBatches; i++ {
-		thisBatchSize := int(math.Min(float64(batchSize), float64(nKeys-nAssigned)))
-		nAssigned += thisBatchSize
-		batches[i] = make([]any, thisBatchSize)
-		for j := 0; j < thisBatchSize; j++ {
-			batches[i][j] = serializedEntityKeys[i*batchSize+j]
-		}
-	}
-
-	var waitGroup sync.WaitGroup
-	waitGroup.Add(nBatches)
-
-	errorsChannel := make(chan error, nBatches)
-	var currentBatchLength int
-	var prevBatchLength int
-	var cqlStatement string
-	for _, batch := range batches {
-		currentBatchLength = len(batch)
-		if currentBatchLength != prevBatchLength {
-			cqlStatement = c.getMultiKeyCQLStatement(tableName, featureNames, currentBatchLength)
-			prevBatchLength = currentBatchLength
-		}
-		go func(keyBatch []any, statement string) {
-			defer waitGroup.Done()
-			iter := c.session.Query(statement, keyBatch...).WithContext(ctx).Iter()
-
-			scanner := iter.Scanner()
-			var entityKey string
-			var featureName string
-			var eventTs time.Time
-			var valueStr []byte
-			var deserializedValue *types.Value
-			// key 1: entityKey - key 2: featureName
-			batchFeatures := make(map[string]map[string]*FeatureData)
-			for scanner.Next() {
-				err := scanner.Scan(&entityKey, &featureName, &eventTs, &valueStr)
-				if err != nil {
-					errorsChannel <- errors.New("could not read row in query for (entity key, feature name, value, event ts)")
-					return
-				}
-				deserializedValue, _, err = UnmarshalStoredProto(valueStr)
-				if err != nil {
-					errorsChannel <- err
-					return
-				}
-
-				if deserializedValue.Val != nil {
-					if batchFeatures[entityKey] == nil {
-						batchFeatures[entityKey] = make(map[string]*FeatureData)
-					}
-					batchFeatures[entityKey][featureName] = &FeatureData{
-						Reference: serving.FeatureReferenceV2{
-							FeatureViewName: featureViewName,
-							FeatureName:     featureName,
-						},
-						Timestamp: timestamppb.Timestamp{Seconds: eventTs.Unix(), Nanos: int32(eventTs.Nanosecond())},
-						Value: types.Value{
-							Val: deserializedValue.Val,
-						},
-					}
-				}
-			}
-
-			if err := scanner.Err(); err != nil {
-				errorsChannel <- errors.New("failed to scan features: " + err.Error())
-				return
-			}
-
-			for _, serializedEntityKey := range keyBatch {
-				for _, featName := range featureNames {
-					keyString := serializedEntityKey.(string)
-
-					if featureData, exists := batchFeatures[keyString][featName]; exists {
-						results[serializedEntityKeyToIndex[keyString]][featureNamesToIdx[featName]] = FeatureData{
-							Reference: serving.FeatureReferenceV2{
-								FeatureViewName: featureData.Reference.FeatureViewName,
-								FeatureName:     featureData.Reference.FeatureName,
-							},
-							Timestamp: timestamppb.Timestamp{Seconds: featureData.Timestamp.Seconds, Nanos: featureData.Timestamp.Nanos},
-							Value: types.Value{
-								Val: featureData.Value.Val,
-							},
-						}
-					} else {
-						results[serializedEntityKeyToIndex[keyString]][featureNamesToIdx[featName]] = FeatureData{
-							Reference: serving.FeatureReferenceV2{
-								FeatureViewName: featureViewName,
-								FeatureName:     featName,
-							},
-							Value: types.Value{
-								Val: &types.Value_NullVal{
-									NullVal: types.Null_NULL,
-								},
-							},
-						}
-					}
-				}
-			}
-		}(batch, cqlStatement)
-	}
-	// wait until all concurrent single-key queries are done
-	waitGroup.Wait()
-	close(errorsChannel)
-
-	var collectedErrors []error
-	for err := range errorsChannel {
-		if err != nil {
-			collectedErrors = append(collectedErrors, err)
-		}
-	}
-	if len(collectedErrors) > 0 {
-		return nil, errors.Join(collectedErrors...)
-	}
-
 	return results, nil
+}
+
+func (c *CassandraOnlineStore) executeBatch(
+	ctx context.Context,
+	featureViewName string,
+	statement string,
+	featureNames []string,
+	keyBatch []any,
+	serializedEntityKeyToIndex map[string]int,
+	results [][]FeatureData,
+	featureNamesToIdx map[string]int,
+) error {
+	iter := c.session.Query(statement, keyBatch...).WithContext(ctx).Iter()
+	defer iter.Close()
+
+	scanner := iter.Scanner()
+	var entityKey string
+	var featureName string
+	var eventTs time.Time
+	var valueStr []byte
+	var deserializedValue *types.Value
+
+	batchFeatures := make(map[string]map[string]*FeatureData)
+	for scanner.Next() {
+		err := scanner.Scan(&entityKey, &featureName, &eventTs, &valueStr)
+		if err != nil {
+			return fmt.Errorf("could not read row in query for (entity key, feature name, value, event ts): %w", err)
+		}
+		deserializedValue, _, err = UnmarshalStoredProto(valueStr)
+		if err != nil {
+			return fmt.Errorf("error unmarshaling stored proto: %w", err)
+		}
+
+		if deserializedValue.Val != nil {
+			if batchFeatures[entityKey] == nil {
+				batchFeatures[entityKey] = make(map[string]*FeatureData)
+			}
+			batchFeatures[entityKey][featureName] = &FeatureData{
+				Reference: serving.FeatureReferenceV2{
+					FeatureViewName: featureViewName,
+					FeatureName:     featureName,
+				},
+				Timestamp: timestamppb.Timestamp{Seconds: eventTs.Unix(), Nanos: int32(eventTs.Nanosecond())},
+				Value: types.Value{
+					Val: deserializedValue.Val,
+				},
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("failed to scan features: %w", err)
+	}
+
+	for _, serializedEntityKey := range keyBatch {
+		for _, featName := range featureNames {
+			keyString := serializedEntityKey.(string)
+
+			if featureData, exists := batchFeatures[keyString][featName]; exists {
+				results[serializedEntityKeyToIndex[keyString]][featureNamesToIdx[featName]] = FeatureData{
+					Reference: serving.FeatureReferenceV2{
+						FeatureViewName: featureData.Reference.FeatureViewName,
+						FeatureName:     featureData.Reference.FeatureName,
+					},
+					Timestamp: timestamppb.Timestamp{Seconds: featureData.Timestamp.Seconds, Nanos: featureData.Timestamp.Nanos},
+					Value: types.Value{
+						Val: featureData.Value.Val,
+					},
+				}
+			} else {
+				results[serializedEntityKeyToIndex[keyString]][featureNamesToIdx[featName]] = FeatureData{
+					Reference: serving.FeatureReferenceV2{
+						FeatureViewName: featureViewName,
+						FeatureName:     featName,
+					},
+					Value: types.Value{
+						Val: &types.Value_NullVal{
+							NullVal: types.Null_NULL,
+						},
+					},
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func (c *CassandraOnlineStore) rangeFilterToCQL(filter *model.SortKeyFilter) (string, []interface{}) {
