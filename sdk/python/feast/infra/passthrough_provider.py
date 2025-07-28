@@ -304,8 +304,8 @@ class PassthroughProvider(Provider):
             offset += length
 
         total_table_len = 0
-        for table in parts:
-            total_table_len = total_table_len + table.num_rows
+        for small_table in parts:
+            total_table_len = total_table_len + small_table.num_rows
 
         logger.info(
             f"Table List length: {len(parts)}, Total table length: {total_table_len}, Total input table length:{table.num_rows}"
