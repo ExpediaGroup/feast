@@ -776,6 +776,10 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 								val, status, err = UnmarshalStoredProto(v)
 							case string:
 								val, status, err = UnmarshalStoredProto([]byte(v))
+							case int, int32, int64, float32, float64, bool:
+								val, status, err = UnmarshalStoredProto(v)
+							case []string, []int32, []int64, []float32, []float64, []bool, [][]byte:
+								val, status, err = UnmarshalStoredProto(v)
 							default:
 								errorsChannel <- fmt.Errorf("unexpected type for feature value: %T", valueStr)
 								return
