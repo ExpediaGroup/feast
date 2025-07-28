@@ -303,8 +303,12 @@ class PassthroughProvider(Provider):
             parts.append(table.slice(offset, length))
             offset += length
 
+        total_table_len = 0
+        for table in parts:
+            total_table_len = total_table_len + table.num_rows
+
         logger.info(
-            f"Table num records: {parts[0].num_rows}"
+            f"Table List length: {len(parts)}, Total table length: {total_table_len}, Total input table length:{table.num_rows}"
         )
 
 

@@ -464,7 +464,7 @@ class CassandraOnlineStore(OnlineStore):
                     ]
                 ]
             )
-            
+
             for row in data:
                 entity_key_bin = serialize_entity_key(
                     row[0],
@@ -475,10 +475,6 @@ class CassandraOnlineStore(OnlineStore):
             print(
                 f"Batch size: {len(entity_dict)}."
             )
-            print(
-                f"Batch size: {entity_dict.keys()}."
-            )
-
 
 
             # Get the list of feature names from data to use in the insert query
