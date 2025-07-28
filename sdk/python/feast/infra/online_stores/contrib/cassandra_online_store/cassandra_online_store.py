@@ -464,9 +464,7 @@ class CassandraOnlineStore(OnlineStore):
                     ]
                 ]
             )
-            print(
-                f"Batch size: {len(entity_dict)}."
-            )
+            
             for row in data:
                 entity_key_bin = serialize_entity_key(
                     row[0],
@@ -474,6 +472,12 @@ class CassandraOnlineStore(OnlineStore):
                 ).hex()
                 entity_dict[entity_key_bin].append(row)
 
+            print(
+                f"Batch size: {len(entity_dict)}."
+            )
+            print(
+                f"Batch size: {entity_dict.keys()}."
+            )
 
 
 
