@@ -303,6 +303,9 @@ class PassthroughProvider(Provider):
             parts.append(table.slice(offset, length))
             offset += length
 
+        logger.info(
+            f"Table num records: {parts[0].num_rows}"
+        )
 
 
         if feature_view.batch_source.field_mapping is not None:
@@ -323,6 +326,10 @@ class PassthroughProvider(Provider):
 
     def process_chunk(self, table, feature_view: FeatureView, join_keys):
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
+
+        logger.info(
+            f"rows_to_write: {len(rows_to_write)}"
+        )
 
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
