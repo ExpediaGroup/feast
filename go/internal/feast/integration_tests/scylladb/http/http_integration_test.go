@@ -342,8 +342,43 @@ func TestGetOnlineFeaturesRange_Http_withFeatureService(t *testing.T) {
 	responseRecorder := httptest.NewRecorder()
 
 	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
-	assert.Equal(t, responseRecorder.Code, http.StatusBadRequest)
-	assert.Equal(t, `{"error":"GetOnlineFeaturesRange does not support feature services yet","status_code":400}`, responseRecorder.Body.String(), "Response body does not match expected error message")
+	assert.Equal(t, responseRecorder.Code, http.StatusOK, "Expected HTTP status code 200 OK response body is: %s", responseRecorder.Body.String())
+	expectedResponse, err := loadResponse("valid_feature_service_response.json")
+	require.NoError(t, err, "Failed to load expected response from file")
+	assert.JSONEq(t, string(expectedResponse), responseRecorder.Body.String(), "Response body does not match expected JSON")
+}
+
+func TestGetOnlineFeaturesRange_Http_withInvalidSortedFeatureView(t *testing.T) {
+	url := fmt.Sprintf("http://localhost:%d", httpPort)
+
+	request := map[string]interface{}{
+		"features": []string{"invalid_sorted_view:some_feature"},
+		"entities": map[string][]interface{}{
+			"index_id": {1, 2, 3},
+		},
+		"sort_key_filters": []map[string]interface{}{
+			{
+				"sort_key_name": "event_timestamp",
+				"range": map[string]interface{}{
+					"range_start": map[string]interface{}{
+						"unix_timestamp_val": 0,
+					},
+				},
+			},
+		},
+		"limit": 10,
+	}
+
+	body, _ := json.Marshal(request)
+	resp, err := http.Post(url+"/get-online-features-range", "application/json", bytes.NewBuffer(body))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	responseBody, _ := io.ReadAll(resp.Body)
+	expectedError := `{"error":"sorted feature view invalid_sorted_view doesn't exist, please make sure that you have created the sorted feature view invalid_sorted_view and that you have registered it by running \"apply\"","status_code":400}`
+	assert.JSONEq(t, expectedError, string(responseBody), "Response body does not match expected error message")
 }
 
 func TestGetOnlineFeaturesRange_Http_withInvalidSortKeyFilter(t *testing.T) {

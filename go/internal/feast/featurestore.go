@@ -321,10 +321,12 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	var requestedSortedFeatureViews []*onlineserving.SortedFeatureViewAndRefs
 
 	if featureService != nil {
-		// TODO: When sorted feature views are supported by feature services, we'll need to implement
-		//   onlineserving.GetSortedFeatureViewsToUseByService(...) and call it here.
-		//   For now, feature services don't support sorted feature views
-		return nil, errors.GrpcInvalidArgumentErrorf("GetOnlineFeaturesRange does not support feature services yet")
+		requestedSortedFeatureViews, err =
+			onlineserving.GetSortedFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
+		if err != nil {
+			return nil, err
+		}
+
 	} else {
 		requestedSortedFeatureViews, err = onlineserving.GetSortedFeatureViewsToUseByFeatureRefs(
 			featureRefs, fs.registry, fs.config.Project)

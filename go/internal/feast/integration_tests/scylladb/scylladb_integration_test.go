@@ -329,10 +329,12 @@ func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
 		},
 		Limit: 10,
 	}
-	_, err := client.GetOnlineFeaturesRange(ctx, request)
-	require.Error(t, err, "Expected an error due to feature services not being supported for range queries")
-	assert.Equal(t, "rpc error: code = InvalidArgument desc = GetOnlineFeaturesRange does not support feature services yet",
-		err.Error(), "Expected error message for unsupported feature service")
+	response, err := client.GetOnlineFeaturesRange(ctx, request)
+	assert.NoError(t, err)
+
+	featureNames := []string{"int_val", "long_val", "float_val", "double_val", "byte_val",
+		"string_val", "timestamp_val", "boolean_val"}
+	assertResponseData(t, response, featureNames, 3, false)
 }
 
 func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {

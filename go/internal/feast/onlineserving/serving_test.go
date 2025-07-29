@@ -420,9 +420,7 @@ func TestGetFeatureViewsToUseByFeatureRefs_returnsErrorWithInvalidFeatures(t *te
 		},
 		testRegistry, projectName)
 	assert.Error(t, fvErr)
-	assert.Contains(t, fvErr.Error(), "rpc error: code = InvalidArgument desc = requested features are not valid")
-	assert.Contains(t, fvErr.Error(), "viewB:featInvalid")
-	assert.Contains(t, fvErr.Error(), "odfv:odFeatInvalid")
+	assert.Contains(t, fvErr.Error(), "rpc error: code = InvalidArgument desc = feature featInvalid does not exist in feature view viewB")
 }
 
 func TestValidateSortKeyFilters_ValidFilters(t *testing.T) {
