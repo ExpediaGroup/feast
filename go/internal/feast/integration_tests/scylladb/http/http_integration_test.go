@@ -349,36 +349,31 @@ func TestGetOnlineFeaturesRange_Http_withFeatureService(t *testing.T) {
 }
 
 func TestGetOnlineFeaturesRange_Http_withInvalidSortedFeatureView(t *testing.T) {
-	url := fmt.Sprintf("http://localhost:%d", httpPort)
+	requestJson := []byte(`{
+        "features": ["invalid_sorted_view:some_feature"],
+        "entities": {
+            "index_id": [1, 2, 3]
+        },
+        "sort_key_filters": [
+            {
+                "sort_key_name": "event_timestamp",
+                "range": {
+                    "range_start": {
+                        "unix_timestamp_val": 0
+                    }
+                }
+            }
+        ],
+        "limit": 10
+    }`)
 
-	request := map[string]interface{}{
-		"features": []string{"invalid_sorted_view:some_feature"},
-		"entities": map[string][]interface{}{
-			"index_id": {1, 2, 3},
-		},
-		"sort_key_filters": []map[string]interface{}{
-			{
-				"sort_key_name": "event_timestamp",
-				"range": map[string]interface{}{
-					"range_start": map[string]interface{}{
-						"unix_timestamp_val": 0,
-					},
-				},
-			},
-		},
-		"limit": 10,
-	}
+	request := httptest.NewRequest(http.MethodPost, "/get-online-features-range", bytes.NewBuffer(requestJson))
+	responseRecorder := httptest.NewRecorder()
 
-	body, _ := json.Marshal(request)
-	resp, err := http.Post(url+"/get-online-features-range", "application/json", bytes.NewBuffer(body))
-	require.NoError(t, err)
-	defer resp.Body.Close()
-
-	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-
-	responseBody, _ := io.ReadAll(resp.Body)
-	expectedError := `{"error":"sorted feature view invalid_sorted_view doesn't exist, please make sure that you have created the sorted feature view invalid_sorted_view and that you have registered it by running \"apply\"","status_code":400}`
-	assert.JSONEq(t, expectedError, string(responseBody), "Response body does not match expected error message")
+	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
+	assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+	expectedErrorMessage := `{"error":"sorted feature view invalid_sorted_view doesn't exist, please make sure that you have created the sorted feature view invalid_sorted_view and that you have registered it by running \"apply\"","status_code":400}`
+	assert.JSONEq(t, expectedErrorMessage, responseRecorder.Body.String(), "Response body does not match expected error message")
 }
 
 func TestGetOnlineFeaturesRange_Http_withInvalidSortKeyFilter(t *testing.T) {

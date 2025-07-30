@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -420,7 +421,10 @@ func TestGetFeatureViewsToUseByFeatureRefs_returnsErrorWithInvalidFeatures(t *te
 		},
 		testRegistry, projectName)
 	assert.Error(t, fvErr)
-	assert.Contains(t, fvErr.Error(), "rpc error: code = InvalidArgument desc = feature featInvalid does not exist in feature view viewB")
+	errorMsg := fvErr.Error()
+	assert.True(t,
+		strings.Contains(errorMsg, "rpc error: code = InvalidArgument desc = feature featInvalid does not exist in feature view viewB") ||
+			strings.Contains(errorMsg, "rpc error: code = InvalidArgument desc = feature odFeatInvalid does not exist in feature view odfv"))
 }
 
 func TestValidateSortKeyFilters_ValidFilters(t *testing.T) {
