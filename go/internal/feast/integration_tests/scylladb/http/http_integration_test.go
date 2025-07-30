@@ -343,7 +343,7 @@ func TestGetOnlineFeaturesRange_Http_withFeatureService(t *testing.T) {
 
 	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
 	assert.Equal(t, responseRecorder.Code, http.StatusOK, "Expected HTTP status code 200 OK response body is: %s", responseRecorder.Body.String())
-	expectedResponse, err := loadResponse("valid_feature_service_response.json")
+	expectedResponse, err := loadResponse("valid_response.json")
 	require.NoError(t, err, "Failed to load expected response from file")
 	assert.JSONEq(t, string(expectedResponse), responseRecorder.Body.String(), "Response body does not match expected JSON")
 }
