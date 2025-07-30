@@ -6,6 +6,7 @@ import warnings
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
+import logging
 from typing import (
     Any,
     Dict,
@@ -49,7 +50,7 @@ if typing.TYPE_CHECKING:
     from feast.feature_view import FeatureView
     from feast.on_demand_feature_view import OnDemandFeatureView
 
-
+logger = logging.getLogger(__name__)
 APPLICATION_NAME = "feast-dev/feast"
 USER_AGENT = "{}/{}".format(APPLICATION_NAME, get_version())
 
@@ -253,6 +254,10 @@ def _convert_arrow_to_proto(
     join_keys: Dict[str, ValueType],
 ) -> List[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]]:
     # Avoid ChunkedArrays which guarantees `zero_copy_only` available.
+    logger.info(
+        f"table length in utils: {table.num_rows}."
+    )
+
     if isinstance(table, pyarrow.Table):
         table = table.to_batches()[0]
 

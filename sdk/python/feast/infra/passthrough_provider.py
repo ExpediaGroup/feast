@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 import pyarrow as pa
 from tqdm import tqdm
+import uuid
 
 from feast import importer
 from feast.batch_feature_view import BatchFeatureView
@@ -286,6 +287,7 @@ class PassthroughProvider(Provider):
     ):
 
         table = pa.Table.from_pandas(df)
+        batch_id = uuid.uuid4()
 
         cpu_ct = 7
         logger.info(
@@ -303,12 +305,14 @@ class PassthroughProvider(Provider):
             parts.append(table.slice(offset, length))
             offset += length
 
+
         total_table_len = 0
         for small_table in parts:
+            print(f"batch_id:{batch_id}, small table length: {small_table.num_rows}")
             total_table_len = total_table_len + small_table.num_rows
 
         logger.info(
-            f"Table List length: {len(parts)}, Total table length: {total_table_len}, Total input table length:{table.num_rows}"
+            f"batch_id:{batch_id} ,Table List length: {len(parts)}, Total table length: {total_table_len}, Total input table length:{table.num_rows}"
         )
 
 
@@ -322,17 +326,20 @@ class PassthroughProvider(Provider):
             for entity in feature_view.entity_columns
         }
 
-        data = [(table, feature_view, join_keys ) for table in parts]
+        data = [(table, feature_view, join_keys,batch_id ) for table in parts]
 
         with Pool(processes=7) as pool:
             pool.starmap(self.process_chunk, data)
 
 
-    def process_chunk(self, table, feature_view: FeatureView, join_keys):
+    def process_chunk(self, table, feature_view: FeatureView, join_keys, batch_id):
+        logger.info(
+            f"batch_id:{batch_id},table_length_process_chunk: {len(table.num_rows)}"
+        )
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
 
         logger.info(
-            f"rows_to_write: {len(rows_to_write)}"
+            f"batch_id:{batch_id},rows_to_write: {len(rows_to_write)}"
         )
 
         self.online_write_batch(
