@@ -336,7 +336,7 @@ func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
 		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
 		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
 		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
-		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
 	assertResponseData(t, response, featureNames, 3, false)
 }
 
