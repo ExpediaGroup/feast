@@ -334,7 +334,7 @@ class PassthroughProvider(Provider):
 
     def process_chunk(self, table, feature_view: FeatureView, join_keys, batch_id):
         logger.info(
-            f"batch_id:{batch_id},table_length_process_chunk: {len(table.num_rows)}"
+            f"batch_id:{batch_id},table_length_process_chunk: {table.num_rows}"
         )
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
 
