@@ -323,7 +323,7 @@ func TestGetOnlineFeaturesRange_Http_withEmptySortKeyFilter(t *testing.T) {
 
 func TestGetOnlineFeaturesRange_Http_withFeatureService(t *testing.T) {
 	requestJson := []byte(`{
-	  "feature_service": "test_service",
+	  "feature_service": "test_sorted_service",
 	  "entities": {
 		"index_id": [1, 2, 3]
 	  },

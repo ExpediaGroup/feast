@@ -314,7 +314,7 @@ func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
 
 	request := &serving.GetOnlineFeaturesRangeRequest{
 		Kind: &serving.GetOnlineFeaturesRangeRequest_FeatureService{
-			FeatureService: "test_service",
+			FeatureService: "test_sorted_service",
 		},
 		Entities: entities,
 		SortKeyFilters: []*serving.SortKeyFilter{

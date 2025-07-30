@@ -142,5 +142,10 @@ mlpfs_test_all_datatypes_sorted_view: SortedFeatureView = SortedFeatureView(
 
 mlpfs_test_all_datatypes_service = FeatureService(
     name="test_service",
-    features=[mlpfs_test_all_datatypes_view, mlpfs_test_all_datatypes_sorted_view],
+    features=[mlpfs_test_all_datatypes_view],
+)
+
+mlpfs_test_all_datatypes_sorted_service = FeatureService(
+    name="test_sorted_service",
+    features=[mlpfs_test_all_datatypes_sorted_view],
 )
