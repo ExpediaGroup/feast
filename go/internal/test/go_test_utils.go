@@ -8,8 +8,40 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+type OrderedProjection struct {
+	ViewName   string
+	Alias      string
+	Features   []*core.FeatureSpecV2
+	JoinKeyMap map[string]string
+}
+
 func CreateFeatureService(serviceName string, viewProjections map[string][]*core.FeatureSpecV2) *model.FeatureService {
 	fsProto := CreateFeatureServiceProto(serviceName, viewProjections)
+	return model.NewFeatureServiceFromProto(fsProto)
+}
+
+func CreateFeatureServiceWithOrderedProjections(name string, orderedProjections []OrderedProjection) *model.FeatureService {
+	projections := make([]*core.FeatureViewProjection, len(orderedProjections))
+	for i, proj := range orderedProjections {
+		projections[i] = &core.FeatureViewProjection{
+			FeatureViewName:      proj.ViewName,
+			FeatureViewNameAlias: proj.Alias,
+			FeatureColumns:       proj.Features,
+			JoinKeyMap:           proj.JoinKeyMap,
+		}
+	}
+
+	fsProto := &core.FeatureService{
+		Spec: &core.FeatureServiceSpec{
+			Name:     name,
+			Features: projections,
+		},
+		Meta: &core.FeatureServiceMeta{
+			CreatedTimestamp:     timestamppb.Now(),
+			LastUpdatedTimestamp: timestamppb.Now(),
+		},
+	}
+
 	return model.NewFeatureServiceFromProto(fsProto)
 }
 
