@@ -385,6 +385,114 @@ func TestGetFeatureViewsToUseByService_returnsErrorWithInvalidOnDemandFeatures(t
 	assert.EqualError(t, invalidFeaturesErr, "rpc error: code = InvalidArgument desc = the projection for odfv cannot be applied because it contains featInvalid which the FeatureView doesn't have")
 }
 
+func TestGetSortedFeatureViewsToUseByService(t *testing.T) {
+	projectName := "test_project"
+	testRegistry, err := createRegistry(projectName)
+	assert.NoError(t, err)
+
+	featASpec := test.CreateFeature("featA", types.ValueType_INT32)
+	featBSpec := test.CreateFeature("featB", types.ValueType_INT32)
+	featCSpec := test.CreateFeature("featC", types.ValueType_INT32)
+	featDSpec := test.CreateFeature("featD", types.ValueType_INT32)
+	featESpec := test.CreateFeature("featE", types.ValueType_FLOAT)
+
+	sortKeyA := test.CreateSortKeyProto("featS", core.SortOrder_DESC, types.ValueType_FLOAT)
+	sortKeyB := test.CreateSortKeyProto("timestamp", core.SortOrder_ASC, types.ValueType_UNIX_TIMESTAMP)
+
+	entities := []*core.Entity{test.CreateEntityProto("entity", types.ValueType_INT32, "entity")}
+
+	sortedViewA := test.CreateSortedFeatureViewProto("sortedViewA", entities, []*core.SortKey{sortKeyA}, featASpec, featBSpec)
+	sortedViewB := test.CreateSortedFeatureViewProto("sortedViewB", entities, []*core.SortKey{sortKeyB}, featCSpec, featDSpec)
+	sortedViewC := test.CreateSortedFeatureViewProto("sortedViewC", entities, []*core.SortKey{sortKeyA}, featESpec)
+
+	fs := test.CreateFeatureService("sorted_service", map[string][]*core.FeatureSpecV2{
+		"sortedViewA": {featASpec, featBSpec},
+		"sortedViewB": {featCSpec},
+		"sortedViewC": {featESpec},
+	})
+
+	testRegistry.SetModels([]*core.FeatureService{}, []*core.Entity{}, []*core.FeatureView{}, []*core.SortedFeatureView{sortedViewA, sortedViewB, sortedViewC}, []*core.OnDemandFeatureView{})
+
+	sfvs, err := GetSortedFeatureViewsToUseByService(fs, testRegistry, projectName)
+
+	assert.Nil(t, err)
+	assert.Len(t, sfvs, 3)
+
+	sfvsByName := make(map[string]*SortedFeatureViewAndRefs)
+	for _, sfv := range sfvs {
+		sfvsByName[sfv.View.Base.Name] = sfv
+	}
+
+	assert.Equal(t, []string{"featA", "featB"}, sfvsByName["sortedViewA"].FeatureRefs)
+	assert.Equal(t, []string{"featC"}, sfvsByName["sortedViewB"].FeatureRefs)
+	assert.Equal(t, []string{"featE"}, sfvsByName["sortedViewC"].FeatureRefs)
+	assert.Equal(t, "featS", sfvsByName["sortedViewA"].View.SortKeys[0].FieldName)
+	assert.Equal(t, core.SortOrder_DESC, *sfvsByName["sortedViewA"].View.SortKeys[0].Order.Order.Enum())
+	assert.Equal(t, "timestamp", sfvsByName["sortedViewB"].View.SortKeys[0].FieldName)
+	assert.Equal(t, core.SortOrder_ASC, *sfvsByName["sortedViewB"].View.SortKeys[0].Order.Order.Enum())
+}
+
+func TestGetSortedFeatureViewsToUseByService_ReturnsErrorWithInvalidFeatures(t *testing.T) {
+	projectName := "test_project"
+	testRegistry, err := createRegistry(projectName)
+	assert.NoError(t, err)
+
+	featASpec := test.CreateFeature("featA", types.ValueType_INT32)
+	featBSpec := test.CreateFeature("featB", types.ValueType_INT32)
+	featInvalidSpec := test.CreateFeature("featInvalid", types.ValueType_INT32)
+
+	sortKeyA := test.CreateSortKeyProto("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
+	entities := []*core.Entity{test.CreateEntityProto("entity", types.ValueType_INT32, "entity")}
+	sortedViewA := test.CreateSortedFeatureViewProto("sortedViewA", entities, []*core.SortKey{sortKeyA}, featASpec, featBSpec)
+
+	fs := test.CreateFeatureService("invalid_sorted_service", map[string][]*core.FeatureSpecV2{
+		"sortedViewA": {featASpec, featBSpec, featInvalidSpec},
+	})
+
+	testRegistry.SetModels([]*core.FeatureService{}, []*core.Entity{}, []*core.FeatureView{}, []*core.SortedFeatureView{sortedViewA}, []*core.OnDemandFeatureView{})
+
+	_, invalidFeaturesErr := GetSortedFeatureViewsToUseByService(fs, testRegistry, projectName)
+	assert.Error(t, invalidFeaturesErr)
+	assert.Contains(t, invalidFeaturesErr.Error(), "rpc error: code = InvalidArgument desc")
+	assert.Contains(t, invalidFeaturesErr.Error(), "featInvalid which the FeatureView doesn't have")
+}
+
+func TestGetSortedFeatureViewsToUseByService_MaintainsOrder(t *testing.T) {
+	projectName := "test_project"
+	testRegistry, err := createRegistry(projectName)
+	assert.NoError(t, err)
+
+	featASpec := test.CreateFeature("featA", types.ValueType_INT32)
+	featBSpec := test.CreateFeature("featB", types.ValueType_INT32)
+	featCSpec := test.CreateFeature("featC", types.ValueType_INT32)
+
+	sortKeyA := test.CreateSortKeyProto("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
+	entities := []*core.Entity{test.CreateEntityProto("entity", types.ValueType_INT32, "entity")}
+
+	sortedViewA := test.CreateSortedFeatureViewProto("sortedViewA", entities, []*core.SortKey{sortKeyA}, featASpec)
+	sortedViewB := test.CreateSortedFeatureViewProto("sortedViewB", entities, []*core.SortKey{sortKeyA}, featBSpec)
+	sortedViewC := test.CreateSortedFeatureViewProto("sortedViewC", entities, []*core.SortKey{sortKeyA}, featCSpec)
+
+	fs := test.CreateFeatureService("ordered_sorted_service", map[string][]*core.FeatureSpecV2{
+		"sortedViewC": {featCSpec},
+		"sortedViewA": {featASpec},
+		"sortedViewB": {featBSpec},
+	})
+
+	// Intentionally set the order of sorted views to be different from alphabetical order
+	testRegistry.SetModels([]*core.FeatureService{}, []*core.Entity{}, []*core.FeatureView{}, []*core.SortedFeatureView{sortedViewC, sortedViewA, sortedViewB}, []*core.OnDemandFeatureView{})
+
+	sfvs, err := GetSortedFeatureViewsToUseByService(fs, testRegistry, projectName)
+
+	assert.Nil(t, err)
+	assert.Len(t, sfvs, 3)
+
+	// Verify that the order follows the service projection order, not alphabetical
+	assert.Equal(t, "sortedViewC", sfvs[0].View.Base.Name)
+	assert.Equal(t, "sortedViewA", sfvs[1].View.Base.Name)
+	assert.Equal(t, "sortedViewB", sfvs[2].View.Base.Name)
+}
+
 func TestGetFeatureViewsToUseByFeatureRefs_returnsErrorWithInvalidFeatures(t *testing.T) {
 	projectName := "test_project"
 	testRegistry, err := createRegistry(projectName)
@@ -423,6 +531,81 @@ func TestGetFeatureViewsToUseByFeatureRefs_returnsErrorWithInvalidFeatures(t *te
 	assert.Contains(t, fvErr.Error(), "rpc error: code = InvalidArgument desc")
 	// Fail only on the first invalid feature
 	assert.Contains(t, fvErr.Error(), "featInvalid does not exist in feature view viewB")
+}
+
+func TestGetSortedFeatureViewsToUseByFeatureRefs(t *testing.T) {
+	projectName := "test_project"
+	testRegistry, err := createRegistry(projectName)
+	assert.NoError(t, err)
+
+	featASpec := test.CreateFeature("featA", types.ValueType_INT32)
+	featBSpec := test.CreateFeature("featB", types.ValueType_INT32)
+	featCSpec := test.CreateFeature("featC", types.ValueType_INT32)
+	featDSpec := test.CreateFeature("featD", types.ValueType_INT32)
+	featESpec := test.CreateFeature("featE", types.ValueType_FLOAT)
+
+	sortKeyA := test.CreateSortKeyProto("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
+	sortKeyB := test.CreateSortKeyProto("price", core.SortOrder_ASC, types.ValueType_DOUBLE)
+
+	entities := []*core.Entity{test.CreateEntityProto("entity", types.ValueType_INT32, "entity")}
+
+	sortedViewA := test.CreateSortedFeatureViewProto("sortedViewA", entities, []*core.SortKey{sortKeyA}, featASpec, featBSpec)
+	sortedViewB := test.CreateSortedFeatureViewProto("sortedViewB", entities, []*core.SortKey{sortKeyB}, featCSpec, featDSpec)
+	sortedViewC := test.CreateSortedFeatureViewProto("sortedViewC", entities, []*core.SortKey{sortKeyA}, featESpec)
+
+	testRegistry.SetModels([]*core.FeatureService{}, []*core.Entity{}, []*core.FeatureView{}, []*core.SortedFeatureView{sortedViewA, sortedViewB, sortedViewC}, []*core.OnDemandFeatureView{})
+
+	sfvs, err := GetSortedFeatureViewsToUseByFeatureRefs(
+		[]string{
+			"sortedViewA:featA",
+			"sortedViewA:featB",
+			"sortedViewB:featC",
+			"sortedViewC:featE",
+		},
+		testRegistry, projectName)
+
+	assert.Nil(t, err)
+	assert.Len(t, sfvs, 3)
+
+	sfvsByName := make(map[string]*SortedFeatureViewAndRefs)
+	for _, sfv := range sfvs {
+		sfvsByName[sfv.View.Base.Name] = sfv
+	}
+
+	assert.Equal(t, []string{"featA", "featB"}, sfvsByName["sortedViewA"].FeatureRefs)
+	assert.Equal(t, []string{"featC"}, sfvsByName["sortedViewB"].FeatureRefs)
+	assert.Equal(t, []string{"featE"}, sfvsByName["sortedViewC"].FeatureRefs)
+	assert.Equal(t, "timestamp", sfvsByName["sortedViewA"].View.SortKeys[0].FieldName)
+	assert.Equal(t, "price", sfvsByName["sortedViewB"].View.SortKeys[0].FieldName)
+	assert.Equal(t, "timestamp", sfvsByName["sortedViewC"].View.SortKeys[0].FieldName)
+}
+
+func TestGetSortedFeatureViewsToUseByFeatureRefs_ReturnsErrorWithInvalidFeatures(t *testing.T) {
+	projectName := "test_project"
+	testRegistry, err := createRegistry(projectName)
+	assert.NoError(t, err)
+
+	featASpec := test.CreateFeature("featA", types.ValueType_INT32)
+	featBSpec := test.CreateFeature("featB", types.ValueType_INT32)
+
+	sortKeyA := test.CreateSortKeyProto("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
+	entities := []*core.Entity{test.CreateEntityProto("entity", types.ValueType_INT32, "entity")}
+
+	sortedViewA := test.CreateSortedFeatureViewProto("sortedViewA", entities, []*core.SortKey{sortKeyA}, featASpec, featBSpec)
+
+	testRegistry.SetModels([]*core.FeatureService{}, []*core.Entity{}, []*core.FeatureView{}, []*core.SortedFeatureView{sortedViewA}, []*core.OnDemandFeatureView{})
+
+	_, sfvErr := GetSortedFeatureViewsToUseByFeatureRefs(
+		[]string{
+			"sortedViewA:featA",
+			"sortedViewA:featB",
+			"sortedViewA:featInvalid",
+		},
+		testRegistry, projectName)
+
+	assert.Error(t, sfvErr)
+	assert.Contains(t, sfvErr.Error(), "rpc error: code = InvalidArgument desc")
+	assert.Contains(t, sfvErr.Error(), "featInvalid does not exist in feature view sortedViewA")
 }
 
 func TestValidateSortKeyFilters_ValidFilters(t *testing.T) {
