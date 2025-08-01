@@ -289,7 +289,11 @@ class PassthroughProvider(Provider):
         table = pa.Table.from_pandas(df)
         batch_id = uuid.uuid4()
 
+
+
         cpu_ct = 7
+        if table.num_rows <cpu_ct:
+            cpu_ct = table.num_rows
         logger.info(
             f"processor count: {cpu_ct}"
         )

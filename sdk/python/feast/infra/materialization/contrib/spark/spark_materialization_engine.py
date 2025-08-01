@@ -8,6 +8,9 @@ import pandas as pd
 import pyarrow
 from tqdm import tqdm
 
+from multiprocessing import Pool
+import uuid
+
 from feast.batch_feature_view import BatchFeatureView
 from feast.entity import Entity
 from feast.feature_view import FeatureView
@@ -287,6 +290,36 @@ def _map_by_partition(
         # convert to pyarrow table
         table = pyarrow.Table.from_pandas(pdf)
 
+        batch_id = uuid.uuid4()
+
+        cpu_ct = 7
+        if table.num_rows < cpu_ct:
+            cpu_ct = table.num_rows
+        print(
+            f"processor count: {cpu_ct}"
+        )
+        total = table.num_rows
+        size = total // cpu_ct  # base size
+        remainder = total % cpu_ct  # extra rows to distribute
+
+        parts = []
+        offset = 0
+        for i in range(cpu_ct):
+            # Distribute the remainder one per split until exhausted
+            length = size + (1 if i < remainder else 0)
+            parts.append(table.slice(offset, length))
+            offset += length
+
+        total_table_len = 0
+        for small_table in parts:
+            print(f"batch_id:{batch_id}, small table length: {small_table.num_rows}")
+            total_table_len = total_table_len + small_table.num_rows
+
+        print(
+            f"batch_id:{batch_id} ,Table List length: {len(parts)}, Total table length: {total_table_len}, Total input table length:{table.num_rows}"
+        )
+
+
         if feature_view.batch_source.field_mapping is not None:
             # Spark offline store does the field mapping during pull_latest_from_table_or_query
             # This is for the case where the offline store is not spark
@@ -299,15 +332,10 @@ def _map_by_partition(
             for entity in feature_view.entity_columns
         }
 
-        rows_to_write = _convert_arrow_to_proto(
-            table, feature_view, join_key_to_value_type
-        )
-        online_store.online_write_batch(
-            repo_config,
-            feature_view,
-            rows_to_write,
-            lambda x: None,
-        )
+        data = [(table, feature_view, join_key_to_value_type, batch_id, repo_config, online_store) for table in parts]
+
+        with Pool(processes=7) as pool:
+            pool.starmap(process_chunk, data)
 
         batch_time = time.perf_counter() - start_time
 
@@ -346,6 +374,19 @@ def _map_by_partition(
         [pd.Series(range(1, 2))]
     )  # dummy result because mapInPandas needs to return something
 
+def process_chunk(table, feature_view: FeatureView, join_key_to_value_type, batch_id, repo_config, online_store):
+    print(
+        f"batch_id:{batch_id},table_length_process_chunk: {table.num_rows}"
+    )
+    rows_to_write = _convert_arrow_to_proto(table, feature_view, join_key_to_value_type)
+
+    print(
+        f"batch_id:{batch_id},rows_to_write: {len(rows_to_write)}"
+    )
+
+    online_store.online_write_batch(
+        repo_config, feature_view, rows_to_write, progress=None
+    )
 
 def update_exec_stats(
     total_batches,
