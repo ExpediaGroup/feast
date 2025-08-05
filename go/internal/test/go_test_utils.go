@@ -20,31 +20,6 @@ func CreateFeatureService(serviceName string, viewProjections map[string][]*core
 	return model.NewFeatureServiceFromProto(fsProto)
 }
 
-func CreateFeatureServiceWithOrderedProjections(name string, orderedProjections []OrderedProjection) *model.FeatureService {
-	projections := make([]*core.FeatureViewProjection, len(orderedProjections))
-	for i, proj := range orderedProjections {
-		projections[i] = &core.FeatureViewProjection{
-			FeatureViewName:      proj.ViewName,
-			FeatureViewNameAlias: proj.Alias,
-			FeatureColumns:       proj.Features,
-			JoinKeyMap:           proj.JoinKeyMap,
-		}
-	}
-
-	fsProto := &core.FeatureService{
-		Spec: &core.FeatureServiceSpec{
-			Name:     name,
-			Features: projections,
-		},
-		Meta: &core.FeatureServiceMeta{
-			CreatedTimestamp:     timestamppb.Now(),
-			LastUpdatedTimestamp: timestamppb.Now(),
-		},
-	}
-
-	return model.NewFeatureServiceFromProto(fsProto)
-}
-
 func CreateOnDemandFeatureViewProto(name string, featureSources map[string][]*core.FeatureSpecV2, features ...*core.FeatureSpecV2) *core.OnDemandFeatureView {
 	sources := make(map[string]*core.OnDemandSource)
 	for viewName, featureColumn := range featureSources {

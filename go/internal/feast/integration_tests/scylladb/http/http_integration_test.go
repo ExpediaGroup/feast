@@ -348,6 +348,32 @@ func TestGetOnlineFeaturesRange_Http_withFeatureService(t *testing.T) {
 	assert.JSONEq(t, string(expectedResponse), responseRecorder.Body.String(), "Response body does not match expected JSON")
 }
 
+func TestGetOnlineFeaturesRange_Http_withInvalidFeatureService(t *testing.T) {
+	requestJson := []byte(`{
+        "feature_service": "invalid_service",
+        "entities": {
+            "index_id": [1, 2, 3]
+        },
+        "sort_key_filters": [
+            {
+                "sort_key_name": "event_timestamp",
+                "range": {
+                    "range_start": 0
+                }
+            }
+        ],
+        "limit": 10
+    }`)
+
+	request := httptest.NewRequest(http.MethodPost, "/get-online-features-range", bytes.NewBuffer(requestJson))
+	responseRecorder := httptest.NewRecorder()
+
+	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
+	assert.Equal(t, http.StatusNotFound, responseRecorder.Code)
+	expectedErrorMessage := `{"error":"Error getting feature service from registry: feature service not found","status_code":404}`
+	assert.JSONEq(t, expectedErrorMessage, responseRecorder.Body.String(), "Response body does not match expected error message")
+}
+
 func TestGetOnlineFeaturesRange_Http_withInvalidSortedFeatureView(t *testing.T) {
 	requestJson := []byte(`{
         "features": ["invalid_sorted_view:some_feature"],

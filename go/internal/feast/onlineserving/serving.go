@@ -62,6 +62,16 @@ type SortedFeatureViewAndRefs struct {
 	FeatureRefs []string
 }
 
+type ViewFeatures struct {
+	ViewName string
+	Features []string
+}
+
+type ViewProjections struct {
+	ViewName    string
+	Projections []*model.FeatureViewProjection
+}
+
 /*
 We group all features from a single request by entities they attached to.
 Thus, we will be able to call online retrieval per entity and not per each feature View.
@@ -94,12 +104,13 @@ func GetFeatureViewsToUseByService(
 	registry *registry.Registry,
 	projectName string) ([]*FeatureViewAndRefs, []*model.OnDemandFeatureView, error) {
 
-	viewNameToProjections, viewNameOrder := buildViewNameToProjectionsMap(featureService)
+	viewProjectionsList := buildViewProjectionsList(featureService)
 	viewNameToViewAndRefs := make(map[string]*FeatureViewAndRefs)
 	odFvsToUse := make([]*model.OnDemandFeatureView, 0)
 
-	for _, featureViewName := range viewNameOrder {
-		projections := viewNameToProjections[featureViewName]
+	for _, vp := range viewProjectionsList {
+		featureViewName := vp.ViewName
+		projections := vp.Projections
 
 		if fv, fvErr := registry.GetFeatureView(projectName, featureViewName); fvErr == nil {
 			for _, featureProjection := range projections {
@@ -186,11 +197,12 @@ func GetSortedFeatureViewsToUseByService(
 	registry *registry.Registry,
 	projectName string) ([]*SortedFeatureViewAndRefs, error) {
 
-	viewNameToProjections, viewNameOrder := buildViewNameToProjectionsMap(featureService)
+	viewProjectionsList := buildViewProjectionsList(featureService)
 	viewNameToSortedViewAndRefs := make(map[string]*SortedFeatureViewAndRefs)
 
-	for _, featureViewName := range viewNameOrder {
-		projections := viewNameToProjections[featureViewName]
+	for _, vp := range viewProjectionsList {
+		featureViewName := vp.ViewName
+		projections := vp.Projections
 
 		if sfv, err := registry.GetSortedFeatureView(projectName, featureViewName); err == nil {
 			for _, featureProjection := range projections {
@@ -278,7 +290,7 @@ func GetFeatureViewsToUseByFeatureRefs(
 	registry *registry.Registry,
 	projectName string) ([]*FeatureViewAndRefs, []*model.OnDemandFeatureView, error) {
 
-	viewNameToFeatureNames, viewNameOrder, err := buildDeduplicatedFeatureNamesMap(features)
+	viewFeatures, err := buildDeduplicatedFeatureNamesMap(features)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -287,8 +299,9 @@ func GetFeatureViewsToUseByFeatureRefs(
 	odFvToFeatures := make(map[string][]string)
 	odFvToProjectWithFeatures := make(map[string]*model.OnDemandFeatureView)
 
-	for _, featureViewName := range viewNameOrder {
-		requestedFeatureNames := viewNameToFeatureNames[featureViewName]
+	for _, vf := range viewFeatures {
+		featureViewName := vf.ViewName
+		requestedFeatureNames := vf.Features
 
 		if fv, fvErr := registry.GetFeatureView(projectName, featureViewName); fvErr == nil {
 			validFeatures, err := validateFeatures(
@@ -328,53 +341,38 @@ func GetFeatureViewsToUseByFeatureRefs(
 		}
 	}
 
-	odFvOrder := make([]string, 0)
-	for _, featureViewName := range viewNameOrder {
-		if _, ok := odFvToFeatures[featureViewName]; ok {
-			odFvOrder = append(odFvOrder, featureViewName)
-		}
-	}
-
 	odFvsToUse := make([]*model.OnDemandFeatureView, 0)
-	for _, odFvName := range odFvOrder {
-		featureNames := odFvToFeatures[odFvName]
-		projectedOdFv, err := odFvToProjectWithFeatures[odFvName].ProjectWithFeatures(featureNames)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		err = extractOdFvDependencies(
-			projectedOdFv,
-			registry,
-			projectName,
-			viewNameToViewAndRefs)
-		if err != nil {
-			return nil, nil, err
-		}
-		odFvsToUse = append(odFvsToUse, projectedOdFv)
-	}
-
-	fvsOrder := make([]string, 0)
-	seenFvs := make(map[string]bool)
-
-	for _, featureViewName := range viewNameOrder {
-		if _, ok := viewNameToViewAndRefs[featureViewName]; ok {
-			if !seenFvs[featureViewName] {
-				seenFvs[featureViewName] = true
-				fvsOrder = append(fvsOrder, featureViewName)
+	for _, vf := range viewFeatures {
+		if featureNames, ok := odFvToFeatures[vf.ViewName]; ok {
+			projectedOdFv, err := odFvToProjectWithFeatures[vf.ViewName].ProjectWithFeatures(featureNames)
+			if err != nil {
+				return nil, nil, err
 			}
-		}
-	}
 
-	for name := range viewNameToViewAndRefs {
-		if !seenFvs[name] {
-			fvsOrder = append(fvsOrder, name)
+			err = extractOdFvDependencies(
+				projectedOdFv,
+				registry,
+				projectName,
+				viewNameToViewAndRefs)
+			if err != nil {
+				return nil, nil, err
+			}
+			odFvsToUse = append(odFvsToUse, projectedOdFv)
 		}
 	}
 
 	fvsToUse := make([]*FeatureViewAndRefs, 0, len(viewNameToViewAndRefs))
-	for _, name := range fvsOrder {
-		if viewAndRef, ok := viewNameToViewAndRefs[name]; ok {
+	seen := make(map[string]bool)
+
+	for _, vf := range viewFeatures {
+		if viewAndRef, ok := viewNameToViewAndRefs[vf.ViewName]; ok && !seen[vf.ViewName] {
+			fvsToUse = append(fvsToUse, viewAndRef)
+			seen[vf.ViewName] = true
+		}
+	}
+
+	for name, viewAndRef := range viewNameToViewAndRefs {
+		if !seen[name] {
 			fvsToUse = append(fvsToUse, viewAndRef)
 		}
 	}
@@ -394,14 +392,16 @@ func GetSortedFeatureViewsToUseByFeatureRefs(
 	registry *registry.Registry,
 	projectName string) ([]*SortedFeatureViewAndRefs, error) {
 
-	viewNameToFeatureNames, viewNameOrder, err := buildDeduplicatedFeatureNamesMap(features)
+	viewFeatures, err := buildDeduplicatedFeatureNamesMap(features)
 	if err != nil {
 		return nil, err
 	}
 
 	viewNameToSortedViewAndRefs := make(map[string]*SortedFeatureViewAndRefs)
-	for _, featureViewName := range viewNameOrder {
-		featureNames := viewNameToFeatureNames[featureViewName]
+
+	for _, vf := range viewFeatures {
+		featureViewName := vf.ViewName
+		featureNames := vf.Features
 
 		sortedFv, err := registry.GetSortedFeatureView(projectName, featureViewName)
 		if err != nil {
@@ -426,8 +426,8 @@ func GetSortedFeatureViewsToUseByFeatureRefs(
 	}
 
 	sortedFvsToUse := make([]*SortedFeatureViewAndRefs, 0, len(viewNameToSortedViewAndRefs))
-	for _, featureViewName := range viewNameOrder {
-		if viewAndRef, ok := viewNameToSortedViewAndRefs[featureViewName]; ok {
+	for _, vf := range viewFeatures {
+		if viewAndRef, ok := viewNameToSortedViewAndRefs[vf.ViewName]; ok {
 			sortedFvsToUse = append(sortedFvsToUse, viewAndRef)
 		}
 	}
@@ -994,51 +994,55 @@ func getEventTimestamp(timestamps []timestamp.Timestamp, index int) *timestamppb
 	return &timestamppb.Timestamp{}
 }
 
-func buildViewNameToProjectionsMap(featureService *model.FeatureService) (map[string][]*model.FeatureViewProjection, []string) {
-	viewNameToProjections := make(map[string][]*model.FeatureViewProjection)
-	viewNameOrder := make([]string, 0)
+func buildViewProjectionsList(featureService *model.FeatureService) []ViewProjections {
+	var result []ViewProjections
+	viewIndex := make(map[string]int)
 
 	for _, featureProjection := range featureService.Projections {
 		featureViewName := featureProjection.Name
-		if _, exists := viewNameToProjections[featureViewName]; !exists {
-			viewNameToProjections[featureViewName] = make([]*model.FeatureViewProjection, 0)
-			viewNameOrder = append(viewNameOrder, featureViewName)
+
+		if idx, exists := viewIndex[featureViewName]; exists {
+			result[idx].Projections = append(result[idx].Projections, featureProjection)
+		} else {
+			viewIndex[featureViewName] = len(result)
+			result = append(result, ViewProjections{
+				ViewName:    featureViewName,
+				Projections: []*model.FeatureViewProjection{featureProjection},
+			})
 		}
-		viewNameToProjections[featureViewName] = append(viewNameToProjections[featureViewName], featureProjection)
 	}
 
-	return viewNameToProjections, viewNameOrder
+	return result
 }
 
-func buildDeduplicatedFeatureNamesMap(features []string) (map[string][]string, []string, error) {
-	viewNameOrder := make([]string, 0)
-	viewNameToFeatureOrder := make(map[string][]string)
-	viewNameToFeatureSet := make(map[string]map[string]bool)
+func buildDeduplicatedFeatureNamesMap(features []string) ([]ViewFeatures, error) {
+	var result []ViewFeatures
+	viewIndex := make(map[string]int)
+	featureSet := make(map[string]map[string]bool)
 
 	for _, featureRef := range features {
 		featureViewName, featureName, err := ParseFeatureReference(featureRef)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
-		if _, exists := viewNameToFeatureSet[featureViewName]; !exists {
-			viewNameToFeatureSet[featureViewName] = make(map[string]bool)
-			viewNameToFeatureOrder[featureViewName] = make([]string, 0)
-			viewNameOrder = append(viewNameOrder, featureViewName)
-		}
-
-		if !viewNameToFeatureSet[featureViewName][featureName] {
-			viewNameToFeatureSet[featureViewName][featureName] = true
-			viewNameToFeatureOrder[featureViewName] = append(viewNameToFeatureOrder[featureViewName], featureName)
+		if idx, exists := viewIndex[featureViewName]; exists {
+			if !featureSet[featureViewName][featureName] {
+				result[idx].Features = append(result[idx].Features, featureName)
+				featureSet[featureViewName][featureName] = true
+			}
+		} else {
+			viewIndex[featureViewName] = len(result)
+			result = append(result, ViewFeatures{
+				ViewName: featureViewName,
+				Features: []string{featureName},
+			})
+			featureSet[featureViewName] = make(map[string]bool)
+			featureSet[featureViewName][featureName] = true
 		}
 	}
 
-	result := make(map[string][]string)
-	for viewName, features := range viewNameToFeatureOrder {
-		result[viewName] = features
-	}
-
-	return result, viewNameOrder, nil
+	return result, nil
 }
 
 func KeepOnlyRequestedFeatures[T any](
