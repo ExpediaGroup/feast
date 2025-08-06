@@ -135,7 +135,11 @@ class HttpRegistry(BaseRegistry):
         logger.exception("Request failed with exception: %s", repr(exception))
         # If it's already an HTTPStatusError, re-raise it as is
         if isinstance(exception, HTTPStatusError):
-            raise exception
+            raise HTTPStatusError(
+                "Request failed with exception: " + repr(exception),
+                request=exception.request,
+                response=exception.response,
+            ) from exception
         raise httpx.HTTPError(
             "Request failed with exception: " + repr(exception)
         ) from exception
