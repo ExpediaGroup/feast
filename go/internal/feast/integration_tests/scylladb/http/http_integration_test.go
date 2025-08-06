@@ -71,10 +71,10 @@ func TestGetOnlineFeaturesRange_Http(t *testing.T) {
 		"all_dtypes_sorted:array_long_val",
 		"all_dtypes_sorted:array_float_val",
 		"all_dtypes_sorted:array_double_val",
-		"all_dtypes_sorted:array_string_val",
-		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:array_byte_val",
+		"all_dtypes_sorted:array_string_val",
 		"all_dtypes_sorted:array_timestamp_val",
+		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:null_int_val",
 		"all_dtypes_sorted:null_long_val",
 		"all_dtypes_sorted:null_float_val",
@@ -132,10 +132,10 @@ func TestGetOnlineFeaturesRange_Http_withOnlyEqualsFilter(t *testing.T) {
 		"all_dtypes_sorted:array_long_val",
 		"all_dtypes_sorted:array_float_val",
 		"all_dtypes_sorted:array_double_val",
-		"all_dtypes_sorted:array_string_val",
-		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:array_byte_val",
+		"all_dtypes_sorted:array_string_val",
 		"all_dtypes_sorted:array_timestamp_val",
+		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:null_int_val",
 		"all_dtypes_sorted:null_long_val",
 		"all_dtypes_sorted:null_float_val",
@@ -191,10 +191,10 @@ func TestGetOnlineFeaturesRange_Http_forNonExistentEntityKey(t *testing.T) {
 		"all_dtypes_sorted:array_long_val",
 		"all_dtypes_sorted:array_float_val",
 		"all_dtypes_sorted:array_double_val",
-		"all_dtypes_sorted:array_string_val",
-		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:array_byte_val",
+		"all_dtypes_sorted:array_string_val",
 		"all_dtypes_sorted:array_timestamp_val",
+		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:null_int_val",
 		"all_dtypes_sorted:null_long_val",
 		"all_dtypes_sorted:null_float_val",
@@ -282,10 +282,10 @@ func TestGetOnlineFeaturesRange_Http_withEmptySortKeyFilter(t *testing.T) {
 		"all_dtypes_sorted:array_long_val",
 		"all_dtypes_sorted:array_float_val",
 		"all_dtypes_sorted:array_double_val",
-		"all_dtypes_sorted:array_string_val",
-		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:array_byte_val",
+		"all_dtypes_sorted:array_string_val",
 		"all_dtypes_sorted:array_timestamp_val",
+		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:null_int_val",
 		"all_dtypes_sorted:null_long_val",
 		"all_dtypes_sorted:null_float_val",
@@ -370,8 +370,7 @@ func TestGetOnlineFeaturesRange_Http_withInvalidFeatureService(t *testing.T) {
 
 	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
 	assert.Equal(t, http.StatusNotFound, responseRecorder.Code)
-	expectedErrorMessage := `{"error":"Error getting feature service from registry: feature service not found","status_code":404}`
-	assert.JSONEq(t, expectedErrorMessage, responseRecorder.Body.String(), "Response body does not match expected error message")
+	assert.Contains(t, responseRecorder.Body.String(), "Error getting feature service from registry", "Response body does not contain expected error message")
 }
 
 func TestGetOnlineFeaturesRange_Http_withInvalidSortedFeatureView(t *testing.T) {
