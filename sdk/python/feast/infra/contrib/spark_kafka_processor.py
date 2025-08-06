@@ -253,6 +253,9 @@ class SparkKafkaProcessor(StreamProcessor):
         def batch_write(row: DataFrame, batch_id: int):
 
             rows: pd.DataFrame = row.toPandas()
+            print(
+                f"Spark kafka processor pdf row count: {len(rows)}"
+            )
 
 
             # Extract the latest feature values for each unique entity row (i.e. the join keys).
