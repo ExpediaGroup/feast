@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 import pandas as pd
 import pyarrow as pa
 from tqdm import tqdm
+import uuid
 
 from feast import importer
 from feast.batch_feature_view import BatchFeatureView
@@ -38,11 +39,13 @@ from feast.utils import (
     _run_pyarrow_field_mapping,
     make_tzaware,
 )
-from time import perf_counter
 import multiprocessing
 from multiprocessing import Pool
+from time import perf_counter
 
 logger = logging.getLogger(__name__)
+logging.getLogger("py4j").setLevel(logging.ERROR)
+logging.getLogger("py4j.java_gateway").setLevel(logging.ERROR)
 
 DEFAULT_BATCH_SIZE = 10_000
 
@@ -286,6 +289,37 @@ class PassthroughProvider(Provider):
     ):
 
         table = pa.Table.from_pandas(df)
+        batch_id = uuid.uuid4()
+
+
+
+        cpu_ct = 7
+        if table.num_rows <cpu_ct:
+            cpu_ct = table.num_rows
+        logger.info(
+            f"processor count: {cpu_ct}"
+        )
+        total = table.num_rows
+        size = total // cpu_ct  # base size
+        remainder = total % cpu_ct  # extra rows to distribute
+
+        parts = []
+        offset = 0
+        for i in range(cpu_ct):
+            # Distribute the remainder one per split until exhausted
+            length = size + (1 if i < remainder else 0)
+            parts.append(table.slice(offset, length))
+            offset += length
+
+
+        total_table_len = 0
+        for small_table in parts:
+            print(f"batch_id:{batch_id}, small table length: {small_table.num_rows}")
+            total_table_len = total_table_len + small_table.num_rows
+
+        logger.info(
+            f"batch_id:{batch_id} ,Table List length: {len(parts)}, Total table length: {total_table_len}, Total input table length:{table.num_rows}"
+        )
 
 
         if feature_view.batch_source.field_mapping is not None:
@@ -298,25 +332,25 @@ class PassthroughProvider(Provider):
             for entity in feature_view.entity_columns
         }
 
-        write_start2 = perf_counter()
+        data = [(table, feature_view, join_keys,batch_id ) for table in parts]
 
+        with Pool(processes=7) as pool:
+            pool.starmap(self.process_chunk, data)
+
+
+    def process_chunk(self, table, feature_view: FeatureView, join_keys, batch_id):
+        logger.info(
+            f"batch_id:{batch_id},table_length_process_chunk: {table.num_rows}"
+        )
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
 
-        arrow_to_proto_conversion_time = perf_counter() - write_start2
         logger.info(
-            f"arrow_to_proto_conversion_time: {arrow_to_proto_conversion_time}."
+            f"batch_id:{batch_id},rows_to_write: {len(rows_to_write)}"
         )
-
-        write_start3 = perf_counter()
 
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
         )
-        online_write_batch_time = perf_counter() - write_start3
-        logger.info(
-            f"online_write_batch_time: {online_write_batch_time}."
-        )
-
 
     def ingest_df_to_offline_store(self, feature_view: FeatureView, table: pa.Table):
         if feature_view.batch_source.field_mapping is not None:
