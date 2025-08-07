@@ -314,7 +314,6 @@ class PassthroughProvider(Provider):
                 pool.starmap(self.process_chunk, chunks_to_parallelize)
         else:
             rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
-
             self.online_write_batch(
                 self.repo_config, feature_view, rows_to_write, progress=None
             )
@@ -335,7 +334,6 @@ class PassthroughProvider(Provider):
 
     def process_chunk(self, table, feature_view: FeatureView, join_keys):
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
-
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
         )
