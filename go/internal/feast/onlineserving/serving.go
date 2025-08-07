@@ -120,6 +120,7 @@ func GetFeatureViewsToUseByService(
 				featureRefs = addStringIfNotContains(featureRefs, feature.Name)
 			}
 
+			// Note: fvsToUse is modified during call to extractOdFvDependencies().
 			fvsToUse = append(fvsToUse, &FeatureViewAndRefs{
 				View:        view,
 				FeatureRefs: featureRefs,
@@ -130,14 +131,15 @@ func GetFeatureViewsToUseByService(
 				return nil, nil, err
 			}
 			odFvsToUse = append(odFvsToUse, projectedOdFv)
-			err = extractOdFvDependencies(
+			newFvsToUse, err := extractOdFvDependencies(
 				projectedOdFv,
 				registry,
 				projectName,
-				&fvsToUse)
+				fvsToUse)
 			if err != nil {
 				return nil, nil, err
 			}
+			fvsToUse = newFvsToUse
 		} else {
 			log.Error().Errs("any feature view", []error{fvErr, odFvErr}).Msgf("Feature view %s not found", featureViewName)
 			return nil, nil, errors.GrpcInvalidArgumentErrorf("the provided feature service %s contains a reference to a feature View"+
@@ -232,6 +234,7 @@ func GetFeatureViewsToUseByFeatureRefs(
 				return nil, nil, err
 			}
 
+			// Note: fvsToUse is modified during call to extractOdFvDependencies()
 			fvsToUse = append(fvsToUse, &FeatureViewAndRefs{
 				View:        fv,
 				FeatureRefs: requestedFeatureNames,
@@ -253,14 +256,15 @@ func GetFeatureViewsToUseByFeatureRefs(
 					return nil, nil, err
 				}
 
-				err = extractOdFvDependencies(
+				newFvsToUse, err := extractOdFvDependencies(
 					projectedOdFv,
 					registry,
 					projectName,
-					&fvsToUse)
+					fvsToUse)
 				if err != nil {
 					return nil, nil, err
 				}
+				fvsToUse = newFvsToUse
 				odFvsToUse = append(odFvsToUse, projectedOdFv)
 			} else {
 				return nil, nil, errors.GrpcInvalidArgumentErrorf("feature view %s doesn't exist, please make sure that you have created the"+
@@ -322,51 +326,47 @@ func extractOdFvDependencies(
 	odFv *model.OnDemandFeatureView,
 	registry *registry.Registry,
 	projectName string,
-	fvsToUse *[]*FeatureViewAndRefs,
-) error {
+	fvsToUse []*FeatureViewAndRefs,
+) ([]*FeatureViewAndRefs, error) {
+	projectionIndex := make(map[string]int)
+	for i, fvAndRefs := range fvsToUse {
+		name := fvAndRefs.View.Base.Name
+		if fvAndRefs.View.Base.Projection != nil {
+			name = fvAndRefs.View.Base.Projection.NameToUse()
+		}
+		projectionIndex[name] = i
+	}
 
 	for _, sourceFvProjection := range odFv.SourceFeatureViewProjections {
 		fv, err := registry.GetFeatureView(projectName, sourceFvProjection.Name)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		base, err := fv.Base.WithProjection(sourceFvProjection)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		newFv := fv.NewFeatureViewFromBase(base)
 		projectionName := sourceFvProjection.NameToUse()
-		existingIndex := -1
-		for i, fvAndRefs := range *fvsToUse {
-			currentProjectionName := fvAndRefs.View.Base.Name
-			if fvAndRefs.View.Base.Projection != nil {
-				currentProjectionName = fvAndRefs.View.Base.Projection.NameToUse()
-			}
-			if currentProjectionName == projectionName {
-				existingIndex = i
-				break
-			}
-		}
 
-		if existingIndex >= 0 {
+		if idx, exists := projectionIndex[projectionName]; exists {
 			for _, feature := range sourceFvProjection.Features {
-				(*fvsToUse)[existingIndex].FeatureRefs = addStringIfNotContains(
-					(*fvsToUse)[existingIndex].FeatureRefs, feature.Name)
+				fvsToUse[idx].FeatureRefs = addStringIfNotContains(fvsToUse[idx].FeatureRefs, feature.Name)
 			}
 		} else {
 			featureRefs := make([]string, 0)
 			for _, feature := range sourceFvProjection.Features {
 				featureRefs = addStringIfNotContains(featureRefs, feature.Name)
 			}
-
-			*fvsToUse = append(*fvsToUse, &FeatureViewAndRefs{
+			fvsToUse = append(fvsToUse, &FeatureViewAndRefs{
 				View:        newFv,
 				FeatureRefs: featureRefs,
 			})
+			projectionIndex[projectionName] = len(fvsToUse) - 1
 		}
 	}
 
-	return nil
+	return fvsToUse, nil
 }
 
 func addStringIfNotContains(slice []string, element string) []string {
