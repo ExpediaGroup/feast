@@ -118,7 +118,7 @@ class PassthroughProvider(Provider):
             return _batch_engine
 
     def plan_infra(
-        self, config: RepoConfig, desired_registry_proto: RegistryProto
+            self, config: RepoConfig, desired_registry_proto: RegistryProto
     ) -> Infra:
         infra = Infra()
         if self.online_store:
@@ -129,13 +129,13 @@ class PassthroughProvider(Provider):
         return infra
 
     def update_infra(
-        self,
-        project: str,
-        tables_to_delete: Sequence[FeatureView],
-        tables_to_keep: Sequence[FeatureView],
-        entities_to_delete: Sequence[Entity],
-        entities_to_keep: Sequence[Entity],
-        partial: bool,
+            self,
+            project: str,
+            tables_to_delete: Sequence[FeatureView],
+            tables_to_keep: Sequence[FeatureView],
+            entities_to_delete: Sequence[Entity],
+            entities_to_keep: Sequence[Entity],
+            partial: bool,
     ):
         # Call update only if there is an online store
         if self.online_store:
@@ -157,10 +157,10 @@ class PassthroughProvider(Provider):
             )
 
     def teardown_infra(
-        self,
-        project: str,
-        tables: Sequence[FeatureView],
-        entities: Sequence[Entity],
+            self,
+            project: str,
+            tables: Sequence[FeatureView],
+            entities: Sequence[Entity],
     ) -> None:
         if self.online_store:
             self.online_store.teardown(self.repo_config, tables, entities)
@@ -168,23 +168,23 @@ class PassthroughProvider(Provider):
             self.batch_engine.teardown_infra(project, tables, entities)
 
     def online_write_batch(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        data: List[
-            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-        ],
-        progress: Optional[Callable[[int], Any]],
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            data: List[
+                Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+            ],
+            progress: Optional[Callable[[int], Any]],
     ) -> None:
         if self.online_store:
             self.online_store.online_write_batch(config, table, data, progress)
 
     def offline_write_batch(
-        self,
-        config: RepoConfig,
-        feature_view: FeatureView,
-        data: pa.Table,
-        progress: Optional[Callable[[int], Any]],
+            self,
+            config: RepoConfig,
+            feature_view: FeatureView,
+            data: pa.Table,
+            progress: Optional[Callable[[int], Any]],
     ) -> None:
         if self.offline_store:
             self.offline_store.__class__.offline_write_batch(
@@ -192,11 +192,11 @@ class PassthroughProvider(Provider):
             )
 
     def online_read(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        entity_keys: List[EntityKeyProto],
-        requested_features: Optional[List[str]] = None,
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            entity_keys: List[EntityKeyProto],
+            requested_features: Optional[List[str]] = None,
     ) -> List:
         result = []
         if self.online_store:
@@ -206,16 +206,16 @@ class PassthroughProvider(Provider):
         return result
 
     def get_online_features(
-        self,
-        config: RepoConfig,
-        features: Union[List[str], FeatureService],
-        entity_rows: Union[
-            List[Dict[str, Any]],
-            Mapping[str, Union[Sequence[Any], Sequence[ValueProto], RepeatedValue]],
-        ],
-        registry: BaseRegistry,
-        project: str,
-        full_feature_names: bool = False,
+            self,
+            config: RepoConfig,
+            features: Union[List[str], FeatureService],
+            entity_rows: Union[
+                List[Dict[str, Any]],
+                Mapping[str, Union[Sequence[Any], Sequence[ValueProto], RepeatedValue]],
+            ],
+            registry: BaseRegistry,
+            project: str,
+            full_feature_names: bool = False,
     ) -> OnlineResponse:
         return self.online_store.get_online_features(
             config=config,
@@ -227,16 +227,16 @@ class PassthroughProvider(Provider):
         )
 
     async def get_online_features_async(
-        self,
-        config: RepoConfig,
-        features: Union[List[str], FeatureService],
-        entity_rows: Union[
-            List[Dict[str, Any]],
-            Mapping[str, Union[Sequence[Any], Sequence[ValueProto], RepeatedValue]],
-        ],
-        registry: BaseRegistry,
-        project: str,
-        full_feature_names: bool = False,
+            self,
+            config: RepoConfig,
+            features: Union[List[str], FeatureService],
+            entity_rows: Union[
+                List[Dict[str, Any]],
+                Mapping[str, Union[Sequence[Any], Sequence[ValueProto], RepeatedValue]],
+            ],
+            registry: BaseRegistry,
+            project: str,
+            full_feature_names: bool = False,
     ) -> OnlineResponse:
         return await self.online_store.get_online_features_async(
             config=config,
@@ -248,11 +248,11 @@ class PassthroughProvider(Provider):
         )
 
     async def online_read_async(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        entity_keys: List[EntityKeyProto],
-        requested_features: Optional[List[str]] = None,
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            entity_keys: List[EntityKeyProto],
+            requested_features: Optional[List[str]] = None,
     ) -> List:
         result = []
         if self.online_store:
@@ -262,13 +262,13 @@ class PassthroughProvider(Provider):
         return result
 
     def retrieve_online_documents(
-        self,
-        config: RepoConfig,
-        table: FeatureView,
-        requested_feature: str,
-        query: List[float],
-        top_k: int,
-        distance_metric: Optional[str] = None,
+            self,
+            config: RepoConfig,
+            table: FeatureView,
+            requested_feature: str,
+            query: List[float],
+            top_k: int,
+            distance_metric: Optional[str] = None,
     ) -> List:
         result = []
         if self.online_store:
@@ -283,46 +283,12 @@ class PassthroughProvider(Provider):
         return result
 
     def ingest_df(
-        self,
-        feature_view: FeatureView,
-        df: pd.DataFrame,
+            self,
+            feature_view: FeatureView,
+            df: pd.DataFrame,
     ):
 
         table = pa.Table.from_pandas(df)
-        batch_id = uuid.uuid4()
-
-
-
-        cpu_ct = 7
-        if table.num_rows <cpu_ct:
-            cpu_ct = table.num_rows
-        logger.info(
-            f"processor count: {cpu_ct}"
-        )
-
-        print("Driver Cores from passthrough provider get:", os.environ.get("DRIVER_CORES"))
-        total = table.num_rows
-        size = total // cpu_ct  # base size
-        remainder = total % cpu_ct  # extra rows to distribute
-
-        parts = []
-        offset = 0
-        for i in range(cpu_ct):
-            # Distribute the remainder one per split until exhausted
-            length = size + (1 if i < remainder else 0)
-            parts.append(table.slice(offset, length))
-            offset += length
-
-
-        total_table_len = 0
-        for small_table in parts:
-            print(f"batch_id:{batch_id}, small table length: {small_table.num_rows}")
-            total_table_len = total_table_len + small_table.num_rows
-
-        logger.info(
-            f"batch_id:{batch_id} ,Table List length: {len(parts)}, Total table length: {total_table_len}, Total input table length:{table.num_rows}"
-        )
-
 
         if feature_view.batch_source.field_mapping is not None:
             table = _run_pyarrow_field_mapping(
@@ -334,21 +300,45 @@ class PassthroughProvider(Provider):
             for entity in feature_view.entity_columns
         }
 
-        data = [(table, feature_view, join_keys,batch_id ) for table in parts]
+        num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
 
-        with Pool(processes=7) as pool:
-            pool.starmap(self.process_chunk, data)
+        if num_spark_driver_cores > 3:
+            # Leaving a couple of cores for operating system and other background processes
+            num_processes = num_spark_driver_cores - 2
 
+            if table.num_rows < num_processes:
+                num_processes = table.num_rows
 
-    def process_chunk(self, table, feature_view: FeatureView, join_keys, batch_id):
-        logger.info(
-            f"batch_id:{batch_id},table_length_process_chunk: {table.num_rows}"
-        )
+            # Input table is split into smaller chunks and processed in parallel
+            chunks = self.split_table(num_processes, table)
+
+            chunks_to_parallelize = [(chunk, feature_view, join_keys) for chunk in chunks]
+
+            with Pool(processes=num_processes) as pool:
+                pool.starmap(self.process_chunk, chunks_to_parallelize)
+        else:
+            rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
+
+            self.online_write_batch(
+                self.repo_config, feature_view, rows_to_write, progress=None
+            )
+
+    def split_table(self, num_processes, table):
+        num_table_rows = table.num_rows
+        size = num_table_rows // num_processes  # base size of each chunk
+        remainder = num_table_rows % num_processes  # extra rows to distribute
+
+        chunks = []
+        offset = 0
+        for i in range(num_processes):
+            # Distribute the remainder one per split until exhausted
+            length = size + (1 if i < remainder else 0)
+            chunks.append(table.slice(offset, length))
+            offset += length
+        return chunks
+
+    def process_chunk(self, table, feature_view: FeatureView, join_keys):
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
-
-        logger.info(
-            f"batch_id:{batch_id},rows_to_write: {len(rows_to_write)}"
-        )
 
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
@@ -363,20 +353,20 @@ class PassthroughProvider(Provider):
         self.offline_write_batch(self.repo_config, feature_view, table, None)
 
     def materialize_single_feature_view(
-        self,
-        config: RepoConfig,
-        feature_view: FeatureView,
-        start_date: datetime,
-        end_date: datetime,
-        registry: BaseRegistry,
-        project: str,
-        tqdm_builder: Callable[[int], tqdm],
+            self,
+            config: RepoConfig,
+            feature_view: FeatureView,
+            start_date: datetime,
+            end_date: datetime,
+            registry: BaseRegistry,
+            project: str,
+            tqdm_builder: Callable[[int], tqdm],
     ) -> None:
         assert (
-            isinstance(feature_view, BatchFeatureView)
-            or isinstance(feature_view, SortedFeatureView)
-            or isinstance(feature_view, StreamFeatureView)
-            or isinstance(feature_view, FeatureView)
+                isinstance(feature_view, BatchFeatureView)
+                or isinstance(feature_view, SortedFeatureView)
+                or isinstance(feature_view, StreamFeatureView)
+                or isinstance(feature_view, FeatureView)
         ), f"Unexpected type for {feature_view.name}: {type(feature_view)}"
 
         if getattr(config.online_store, "lazy_table_creation", False):
@@ -408,14 +398,14 @@ class PassthroughProvider(Provider):
             raise e
 
     def get_historical_features(
-        self,
-        config: RepoConfig,
-        feature_views: List[FeatureView],
-        feature_refs: List[str],
-        entity_df: Union[pd.DataFrame, str],
-        registry: BaseRegistry,
-        project: str,
-        full_feature_names: bool,
+            self,
+            config: RepoConfig,
+            feature_views: List[FeatureView],
+            feature_refs: List[str],
+            entity_df: Union[pd.DataFrame, str],
+            registry: BaseRegistry,
+            project: str,
+            full_feature_names: bool,
     ) -> RetrievalJob:
         job = self.offline_store.get_historical_features(
             config=config,
@@ -430,7 +420,7 @@ class PassthroughProvider(Provider):
         return job
 
     def retrieve_saved_dataset(
-        self, config: RepoConfig, dataset: SavedDataset
+            self, config: RepoConfig, dataset: SavedDataset
     ) -> RetrievalJob:
         feature_name_columns = [
             ref.replace(":", "__") if dataset.full_feature_names else ref.split(":")[1]
@@ -451,11 +441,11 @@ class PassthroughProvider(Provider):
         )
 
     def write_feature_service_logs(
-        self,
-        feature_service: FeatureService,
-        logs: Union[pa.Table, str],
-        config: RepoConfig,
-        registry: BaseRegistry,
+            self,
+            feature_service: FeatureService,
+            logs: Union[pa.Table, str],
+            config: RepoConfig,
+            registry: BaseRegistry,
     ):
         assert feature_service.logging_config is not None, (
             "Logging should be configured for the feature service before calling this function"
@@ -470,12 +460,12 @@ class PassthroughProvider(Provider):
         )
 
     def retrieve_feature_service_logs(
-        self,
-        feature_service: FeatureService,
-        start_date: datetime,
-        end_date: datetime,
-        config: RepoConfig,
-        registry: BaseRegistry,
+            self,
+            feature_service: FeatureService,
+            start_date: datetime,
+            end_date: datetime,
+            config: RepoConfig,
+            registry: BaseRegistry,
     ) -> RetrievalJob:
         assert feature_service.logging_config is not None, (
             "Logging should be configured for the feature service before calling this function"
@@ -498,8 +488,8 @@ class PassthroughProvider(Provider):
         )
 
     def validate_data_source(
-        self,
-        config: RepoConfig,
-        data_source: DataSource,
+            self,
+            config: RepoConfig,
+            data_source: DataSource,
     ):
         self.offline_store.validate_data_source(config=config, data_source=data_source)

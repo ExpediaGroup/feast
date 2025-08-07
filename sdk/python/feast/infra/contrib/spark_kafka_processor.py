@@ -26,6 +26,7 @@ from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
 from time import perf_counter
 
+
 class SparkProcessorConfig(ProcessorConfig):
     """spark_kafka_options, schema_registry_config and checkpoint_location are only used for ConfluentAvroFormat"""
 
@@ -45,9 +46,9 @@ def _from_confluent_avro(column: Column, abris_config) -> Column:
 
 
 def _to_abris_config(
-    schema_registry_config: dict,
-    record_name: str,
-    record_namespace: str,
+        schema_registry_config: dict,
+        record_name: str,
+        record_namespace: str,
 ):
     """:return: za.co.absa.abris.config.FromAvroConfig"""
     topic = schema_registry_config["schema.registry.topic"]
@@ -70,12 +71,12 @@ class SparkKafkaProcessor(StreamProcessor):
     join_keys: List[str]
 
     def __init__(
-        self,
-        *,
-        fs: FeatureStore,
-        sfv: Union[StreamFeatureView, FeatureView],
-        config: ProcessorConfig,
-        preprocess_fn: Optional[MethodType] = None,
+            self,
+            *,
+            fs: FeatureStore,
+            sfv: Union[StreamFeatureView, FeatureView],
+            config: ProcessorConfig,
+            preprocess_fn: Optional[MethodType] = None,
     ):
         if not isinstance(sfv.stream_source, KafkaSource):
             raise ValueError("data source is not kafka source")
@@ -117,7 +118,7 @@ class SparkKafkaProcessor(StreamProcessor):
 
     def _create_infra_if_necessary(self):
         if self.fs.config.online_store is not None and getattr(
-            self.fs.config.online_store, "lazy_table_creation", False
+                self.fs.config.online_store, "lazy_table_creation", False
         ):
             print(
                 f"Online store {self.fs.config.online_store.__class__.__name__} supports lazy table creation and it is enabled"
@@ -133,7 +134,7 @@ class SparkKafkaProcessor(StreamProcessor):
             )
 
     def ingest_stream_feature_view(
-        self, to: PushMode = PushMode.ONLINE
+            self, to: PushMode = PushMode.ONLINE
     ) -> StreamingQuery:
         self._create_infra_if_necessary()
         ingested_stream_df = self._ingest_stream_data()
@@ -218,8 +219,8 @@ class SparkKafkaProcessor(StreamProcessor):
             if self.sfv.stream_source is not None:
                 if self.sfv.stream_source.field_mapping is not None:
                     for (
-                        field_mapping_key,
-                        field_mapping_value,
+                            field_mapping_key,
+                            field_mapping_value,
                     ) in self.sfv.stream_source.field_mapping.items():
                         df = df.withColumn(field_mapping_value, df[field_mapping_key])
 
@@ -257,20 +258,10 @@ class SparkKafkaProcessor(StreamProcessor):
                 f"Spark kafka processor pdf row count: {len(rows)}"
             )
 
+            num_driver_cores = self.spark.sparkContext.getConf().get("spark.driver.cores")
 
-            driver_cores: str | None = self.spark.sparkContext.getConf().get("spark.driver.cores")
-
-            print(
-                f"Driver cores: {driver_cores}"
-            )
-
-            if driver_cores is not None:
-                os.environ["DRIVER_CORES"] = driver_cores
-            else:
-                # Handle the case where it's None, e.g., assign a default value or raise an error
-                pass
-
-
+            if num_driver_cores is not None:
+                os.environ["SPARK_DRIVER_CORES"] = num_driver_cores
 
             # Extract the latest feature values for each unique entity row (i.e. the join keys).
             # Also add a 'created' column.
@@ -294,7 +285,6 @@ class SparkKafkaProcessor(StreamProcessor):
             # Optionally execute preprocessor before writing to the online store.
             if self.preprocess_fn:
                 rows = self.preprocess_fn(rows)
-
 
             # Finally persist the data to the online store and/or offline store.
             if rows.size > 0:
