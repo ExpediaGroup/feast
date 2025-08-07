@@ -8,13 +8,6 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-type OrderedProjection struct {
-	ViewName   string
-	Alias      string
-	Features   []*core.FeatureSpecV2
-	JoinKeyMap map[string]string
-}
-
 func CreateFeatureService(serviceName string, viewProjections map[string][]*core.FeatureSpecV2) *model.FeatureService {
 	fsProto := CreateFeatureServiceProto(serviceName, viewProjections)
 	return model.NewFeatureServiceFromProto(fsProto)
