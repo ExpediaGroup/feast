@@ -1,3 +1,4 @@
+import os
 from types import MethodType
 from typing import List, Optional, Set, Union, no_type_check
 
@@ -252,6 +253,13 @@ class SparkKafkaProcessor(StreamProcessor):
         # Validation occurs at the fs.write_to_online_store() phase against the stream feature view schema.
         def batch_write(row: DataFrame, batch_id: int):
             rows: pd.DataFrame = row.toPandas()
+
+            num_driver_cores = self.spark.sparkContext.getConf().get(
+                "spark.driver.cores"
+            )
+            if num_driver_cores is not None:
+                # This environment variable is used in passthrough provider to determine the number of processes to spawn
+                os.environ["SPARK_DRIVER_CORES"] = num_driver_cores
 
             # Extract the latest feature values for each unique entity row (i.e. the join keys).
             # Also add a 'created' column.
