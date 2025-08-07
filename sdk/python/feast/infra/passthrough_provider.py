@@ -6,7 +6,7 @@ import pandas as pd
 import pyarrow as pa
 from tqdm import tqdm
 import uuid
-
+import os
 from feast import importer
 from feast.batch_feature_view import BatchFeatureView
 from feast.data_source import DataSource
@@ -299,6 +299,8 @@ class PassthroughProvider(Provider):
         logger.info(
             f"processor count: {cpu_ct}"
         )
+
+        print("Driver Cores from passthrough provider get:", os.environ.get("DRIVER_CORES"))
         total = table.num_rows
         size = total // cpu_ct  # base size
         remainder = total % cpu_ct  # extra rows to distribute

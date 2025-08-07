@@ -8,7 +8,7 @@ from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.column import Column, _to_java_column
 from pyspark.sql.functions import col, from_json
 from pyspark.sql.streaming import StreamingQuery
-
+import os
 from feast import FeatureView
 from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat, StreamFormat
 from feast.data_source import KafkaSource, PushMode
@@ -256,6 +256,20 @@ class SparkKafkaProcessor(StreamProcessor):
             print(
                 f"Spark kafka processor pdf row count: {len(rows)}"
             )
+
+
+            driver_cores: str | None = self.spark.sparkContext.getConf().get("spark.driver.cores")
+
+            print(
+                f"Driver cores: {driver_cores}"
+            )
+
+            if driver_cores is not None:
+                os.environ["DRIVER_CORES"] = driver_cores
+            else:
+                # Handle the case where it's None, e.g., assign a default value or raise an error
+                pass
+
 
 
             # Extract the latest feature values for each unique entity row (i.e. the join keys).
