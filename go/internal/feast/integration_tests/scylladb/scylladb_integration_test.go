@@ -17,6 +17,11 @@ import (
 	"testing"
 )
 
+const (
+	ALL_SORTED_FEATURE_NAMES  = "int_val,long_val,float_val,double_val,byte_val,string_val,timestamp_val,boolean_val,array_int_val,array_long_val,array_float_val,array_double_val,array_byte_val,array_string_val,array_timestamp_val,array_boolean_val,null_int_val,null_long_val,null_float_val,null_double_val,null_byte_val,null_string_val,null_timestamp_val,null_boolean_val,null_array_int_val,null_array_long_val,null_array_float_val,null_array_double_val,null_array_byte_val,null_array_string_val,null_array_timestamp_val,null_array_boolean_val,event_timestamp"
+	ALL_REGULAR_FEATURE_NAMES = "int_val,long_val,float_val,double_val,byte_val,string_val,timestamp_val,boolean_val,array_int_val,array_long_val,array_float_val,array_double_val,array_byte_val,array_string_val,array_timestamp_val,array_boolean_val,null_int_val,null_long_val,null_float_val,null_double_val,null_byte_val,null_string_val,null_timestamp_val,null_boolean_val,null_array_int_val,null_array_long_val,null_array_float_val,null_array_double_val,null_array_byte_val,null_array_string_val,null_array_timestamp_val,null_array_boolean_val"
+)
+
 var client serving.ServingServiceClient
 var ctx context.Context
 
@@ -62,11 +67,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		},
 	}
 
-	featureNames := []string{"int_val", "long_val", "float_val", "double_val", "byte_val", "string_val", "timestamp_val", "boolean_val",
-		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
-		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
-		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
-		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
+	featureNames := getAllSortedFeatureNames()
 
 	var featureNamesWithFeatureView []string
 
@@ -108,11 +109,7 @@ func TestGetOnlineFeaturesRange_withOnlyEqualsFilter(t *testing.T) {
 		},
 	}
 
-	featureNames := []string{"int_val", "long_val", "float_val", "double_val", "byte_val", "string_val", "timestamp_val", "boolean_val",
-		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
-		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
-		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
-		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val", "event_timestamp"}
+	featureNames := getAllSortedFeatureNames()
 
 	var featureNamesWithFeatureView []string
 
@@ -171,11 +168,7 @@ func TestGetOnlineFeaturesRange_forNonExistentEntityKey(t *testing.T) {
 		},
 	}
 
-	featureNames := []string{"int_val", "long_val", "float_val", "double_val", "byte_val", "string_val", "timestamp_val", "boolean_val",
-		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
-		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
-		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
-		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+	featureNames := getAllRegularFeatureNames()
 
 	var featureNamesWithFeatureView []string
 
@@ -274,11 +267,7 @@ func TestGetOnlineFeaturesRange_withEmptySortKeyFilter(t *testing.T) {
 		},
 	}
 
-	featureNames := []string{"int_val", "long_val", "float_val", "double_val", "byte_val", "string_val", "timestamp_val", "boolean_val",
-		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
-		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
-		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
-		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+	featureNames := getAllRegularFeatureNames()
 
 	var featureNamesWithFeatureView []string
 
@@ -314,7 +303,7 @@ func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
 
 	request := &serving.GetOnlineFeaturesRangeRequest{
 		Kind: &serving.GetOnlineFeaturesRangeRequest_FeatureService{
-			FeatureService: "test_service",
+			FeatureService: "test_sorted_service",
 		},
 		Entities: entities,
 		SortKeyFilters: []*serving.SortKeyFilter{
@@ -329,9 +318,11 @@ func TestGetOnlineFeaturesRange_withFeatureService(t *testing.T) {
 		},
 		Limit: 10,
 	}
-	_, err := client.GetOnlineFeaturesRange(ctx, request)
-	require.Error(t, err, "Expected an error due to regular feature view requested for range query")
-	assert.Equal(t, "rpc error: code = InvalidArgument desc = GetOnlineFeaturesRange does not support standard feature views [all_dtypes]", err.Error(), "Expected error message for unsupported feature view")
+	response, err := client.GetOnlineFeaturesRange(ctx, request)
+	assert.NoError(t, err)
+
+	featureNames := getAllSortedFeatureNames()
+	assertResponseData(t, response, featureNames, 3, false)
 }
 
 func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
@@ -345,11 +336,7 @@ func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
 		},
 	}
 
-	featureNames := []string{"int_val", "long_val", "float_val", "double_val", "byte_val", "string_val", "timestamp_val", "boolean_val",
-		"null_int_val", "null_long_val", "null_float_val", "null_double_val", "null_byte_val", "null_string_val", "null_timestamp_val", "null_boolean_val",
-		"null_array_int_val", "null_array_long_val", "null_array_float_val", "null_array_double_val", "null_array_byte_val", "null_array_string_val",
-		"null_array_boolean_val", "array_int_val", "array_long_val", "array_float_val", "array_double_val", "array_string_val", "array_boolean_val",
-		"array_byte_val", "array_timestamp_val", "null_array_timestamp_val"}
+	featureNames := getAllRegularFeatureNames()
 
 	var featureNamesWithFeatureView []string
 
@@ -378,7 +365,8 @@ func TestGetOnlineFeaturesRange_withFeatureViewThrowsError(t *testing.T) {
 	}
 	_, err := client.GetOnlineFeaturesRange(ctx, request)
 	require.Error(t, err, "Expected an error due to regular feature view requested for range query")
-	assert.Equal(t, "rpc error: code = InvalidArgument desc = GetOnlineFeaturesRange does not support standard feature views [all_dtypes]", err.Error(), "Expected error message for unsupported feature view")
+	assert.Contains(t, err.Error(), "sorted feature view all_dtypes doesn't exist",
+		"Expected error message for non-existent sorted feature view")
 }
 
 func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string, entitiesRequested int, includeMetadata bool) {
@@ -419,4 +407,12 @@ func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeRe
 			}
 		}
 	}
+}
+
+func getAllSortedFeatureNames() []string {
+	return strings.Split(ALL_SORTED_FEATURE_NAMES, ",")
+}
+
+func getAllRegularFeatureNames() []string {
+	return strings.Split(ALL_REGULAR_FEATURE_NAMES, ",")
 }

@@ -62,6 +62,11 @@ type SortedFeatureViewAndRefs struct {
 	FeatureRefs []string
 }
 
+type ViewFeatures struct {
+	ViewName string
+	Features []string
+}
+
 /*
 We group all features from a single request by entities they attached to.
 Thus, we will be able to call online retrieval per entity and not per each feature View.
@@ -92,20 +97,20 @@ existed in the registry
 func GetFeatureViewsToUseByService(
 	featureService *model.FeatureService,
 	registry *registry.Registry,
-	projectName string) ([]*FeatureViewAndRefs, []*SortedFeatureViewAndRefs, []*model.OnDemandFeatureView, error) {
+	projectName string) ([]*FeatureViewAndRefs, []*model.OnDemandFeatureView, error) {
 
 	viewNameToViewAndRefs := make(map[string]*FeatureViewAndRefs)
-	viewNameToSortedViewAndRefs := make(map[string]*SortedFeatureViewAndRefs)
 	odFvsToUse := make([]*model.OnDemandFeatureView, 0)
 
 	for _, featureProjection := range featureService.Projections {
 		// Create copies of FeatureView that may contains the same *FeatureView but
 		// each differentiated by a *FeatureViewProjection
 		featureViewName := featureProjection.Name
+		// TODO: Call the registry using GetAnyFeatureView instead of GetFeatureView and GetOnDemandFeatureView
 		if fv, fvErr := registry.GetFeatureView(projectName, featureViewName); fvErr == nil {
 			base, err := fv.Base.WithProjection(featureProjection)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
 			if _, ok := viewNameToViewAndRefs[featureProjection.NameToUse()]; !ok {
 				view := fv.NewFeatureViewFromBase(base)
@@ -122,29 +127,10 @@ func GetFeatureViewsToUseByService(
 						feature.Name)
 			}
 
-		} else if sortedFv, sortedFvErr := registry.GetSortedFeatureView(projectName, featureViewName); sortedFvErr == nil {
-			base, err := sortedFv.Base.WithProjection(featureProjection)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			if _, ok := viewNameToSortedViewAndRefs[featureProjection.NameToUse()]; !ok {
-				view := sortedFv.NewSortedFeatureViewFromBase(base)
-				view.EntityColumns = sortedFv.EntityColumns
-				viewNameToSortedViewAndRefs[featureProjection.NameToUse()] = &SortedFeatureViewAndRefs{
-					View:        view,
-					FeatureRefs: []string{},
-				}
-			}
-
-			for _, feature := range featureProjection.Features {
-				viewNameToSortedViewAndRefs[featureProjection.NameToUse()].FeatureRefs =
-					addStringIfNotContains(viewNameToSortedViewAndRefs[featureProjection.NameToUse()].FeatureRefs,
-						feature.Name)
-			}
 		} else if odFv, odFvErr := registry.GetOnDemandFeatureView(projectName, featureViewName); odFvErr == nil {
 			projectedOdFv, err := odFv.NewWithProjection(featureProjection)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
 			odFvsToUse = append(odFvsToUse, projectedOdFv)
 			err = extractOdFvDependencies(
@@ -153,11 +139,11 @@ func GetFeatureViewsToUseByService(
 				projectName,
 				viewNameToViewAndRefs)
 			if err != nil {
-				return nil, nil, nil, err
+				return nil, nil, err
 			}
 		} else {
-			log.Error().Errs("any feature view", []error{fvErr, sortedFvErr, odFvErr}).Msgf("Feature view %s not found", featureViewName)
-			return nil, nil, nil, errors.GrpcInvalidArgumentErrorf("the provided feature service %s contains a reference to a feature View"+
+			log.Error().Errs("any feature view", []error{fvErr, odFvErr}).Msgf("Feature view %s not found", featureViewName)
+			return nil, nil, errors.GrpcInvalidArgumentErrorf("the provided feature service %s contains a reference to a feature View"+
 				"%s which doesn't exist, please make sure that you have created the feature View"+
 				"%s and that you have registered it by running \"apply\"", featureService.Name, featureViewName, featureViewName)
 		}
@@ -167,12 +153,45 @@ func GetFeatureViewsToUseByService(
 	for _, viewAndRef := range viewNameToViewAndRefs {
 		fvsToUse = append(fvsToUse, viewAndRef)
 	}
-	sortedFvsToUse := make([]*SortedFeatureViewAndRefs, 0)
-	for _, viewAndRef := range viewNameToSortedViewAndRefs {
-		sortedFvsToUse = append(sortedFvsToUse, viewAndRef)
+
+	return fvsToUse, odFvsToUse, nil
+}
+
+func GetSortedFeatureViewsToUseByService(
+	featureService *model.FeatureService,
+	registry *registry.Registry,
+	projectName string) ([]*SortedFeatureViewAndRefs, error) {
+
+	sfvsToUse := make([]*SortedFeatureViewAndRefs, 0)
+
+	for _, featureProjection := range featureService.Projections {
+		featureViewName := featureProjection.Name
+		if sfv, sfvErr := registry.GetSortedFeatureView(projectName, featureViewName); sfvErr == nil {
+			base, err := sfv.Base.WithProjection(featureProjection)
+			if err != nil {
+				return nil, err
+			}
+			view := sfv.NewSortedFeatureViewFromBase(base)
+			view.EntityColumns = sfv.EntityColumns
+
+			featureRefs := make([]string, 0)
+			for _, feature := range featureProjection.Features {
+				featureRefs = addStringIfNotContains(featureRefs, feature.Name)
+			}
+
+			sfvsToUse = append(sfvsToUse, &SortedFeatureViewAndRefs{
+				View:        view,
+				FeatureRefs: featureRefs,
+			})
+		} else {
+			log.Error().Err(sfvErr).Msgf("Sorted feature view %s not found", featureViewName)
+			return nil, errors.GrpcInvalidArgumentErrorf("the provided feature service %s contains a reference to a sorted feature View"+
+				"%s which doesn't exist, please make sure that you have created the sorted feature View"+
+				"%s and that you have registered it by running \"apply\"", featureService.Name, featureViewName, featureViewName)
+		}
 	}
 
-	return fvsToUse, sortedFvsToUse, odFvsToUse, nil
+	return sfvsToUse, nil
 }
 
 func addFeaturesToValidationMap(
@@ -198,78 +217,60 @@ existed in the registry
 func GetFeatureViewsToUseByFeatureRefs(
 	features []string,
 	registry *registry.Registry,
-	projectName string) ([]*FeatureViewAndRefs, []*SortedFeatureViewAndRefs, []*model.OnDemandFeatureView, error) {
+	projectName string) ([]*FeatureViewAndRefs, []*model.OnDemandFeatureView, error) {
+
+	viewFeatures, err := buildDeduplicatedFeatureNamesMap(features)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	viewNameToViewAndRefs := make(map[string]*FeatureViewAndRefs)
-	viewNameToSortedViewAndRefs := make(map[string]*SortedFeatureViewAndRefs)
 	odFvToFeatures := make(map[string][]string)
 	odFvToProjectWithFeatures := make(map[string]*model.OnDemandFeatureView)
 
-	viewToFeaturesValidationMap := make(map[string]map[string]bool)
-	invalidFeatures := make([]string, 0)
-	for _, featureRef := range features {
-		featureViewName, featureName, err := ParseFeatureReference(featureRef)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if fv, err := registry.GetFeatureView(projectName, featureViewName); err == nil {
-			addFeaturesToValidationMap(fv.Base.Name, fv.Base.Features, viewToFeaturesValidationMap)
-			if !viewToFeaturesValidationMap[fv.Base.Name][featureName] {
-				invalidFeatures = append(invalidFeatures, featureRef)
-			} else {
-				if viewAndRef, ok := viewNameToViewAndRefs[fv.Base.Name]; ok {
-					viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
-				} else {
-					viewNameToViewAndRefs[fv.Base.Name] = &FeatureViewAndRefs{
-						View:        fv,
-						FeatureRefs: []string{featureName},
-					}
-				}
-			}
-		} else if sortedFv, err := registry.GetSortedFeatureView(projectName, featureViewName); err == nil {
-			addFeaturesToValidationMap(sortedFv.Base.Name, sortedFv.Base.Features, viewToFeaturesValidationMap)
-			if !viewToFeaturesValidationMap[sortedFv.Base.Name][featureName] {
-				invalidFeatures = append(invalidFeatures, featureRef)
-			} else {
+	for _, vf := range viewFeatures {
+		featureViewName := vf.ViewName
+		requestedFeatureNames := vf.Features
 
-				if viewAndRef, ok := viewNameToSortedViewAndRefs[sortedFv.Base.Name]; ok {
-					viewAndRef.FeatureRefs = addStringIfNotContains(viewAndRef.FeatureRefs, featureName)
-				} else {
-					viewNameToSortedViewAndRefs[sortedFv.Base.Name] = &SortedFeatureViewAndRefs{
-						View:        sortedFv,
-						FeatureRefs: []string{featureName},
-					}
-				}
+		if fv, fvErr := registry.GetFeatureView(projectName, featureViewName); fvErr == nil {
+			err := validateFeatures(
+				featureViewName,
+				requestedFeatureNames,
+				fv.Base.Features)
+			if err != nil {
+				return nil, nil, err
 			}
-		} else if odfv, err := registry.GetOnDemandFeatureView(projectName, featureViewName); err == nil {
-			addFeaturesToValidationMap(odfv.Base.Name, odfv.Base.Features, viewToFeaturesValidationMap)
-			if !viewToFeaturesValidationMap[odfv.Base.Name][featureName] {
-				invalidFeatures = append(invalidFeatures, featureRef)
-			} else {
 
-				if _, ok := odFvToFeatures[odfv.Base.Name]; !ok {
-					odFvToFeatures[odfv.Base.Name] = []string{featureName}
-				} else {
-					odFvToFeatures[odfv.Base.Name] = append(
-						odFvToFeatures[odfv.Base.Name], featureName)
-				}
-				odFvToProjectWithFeatures[odfv.Base.Name] = odfv
+			viewNameToViewAndRefs[fv.Base.Name] = &FeatureViewAndRefs{
+				View:        fv,
+				FeatureRefs: requestedFeatureNames,
 			}
 		} else {
-			return nil, nil, nil, errors.GrpcInvalidArgumentErrorf("feature View %s doesn't exist, please make sure that you have created the"+
-				" feature View %s and that you have registered it by running \"apply\"", featureViewName, featureViewName)
-		}
-	}
+			odfv, odfvErr := registry.GetOnDemandFeatureView(projectName, featureViewName)
 
-	if len(invalidFeatures) > 0 {
-		return nil, nil, nil, errors.GrpcInvalidArgumentErrorf("requested features are not valid: %s", strings.Join(invalidFeatures, ", "))
+			if odfvErr == nil {
+				err := validateFeatures(
+					featureViewName,
+					requestedFeatureNames,
+					odfv.Base.Features)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				odFvToFeatures[odfv.Base.Name] = requestedFeatureNames
+				odFvToProjectWithFeatures[odfv.Base.Name] = odfv
+			} else {
+				return nil, nil, errors.GrpcInvalidArgumentErrorf("feature view %s doesn't exist, please make sure that you have created the"+
+					" feature view %s and that you have registered it by running \"apply\"", featureViewName, featureViewName)
+			}
+		}
 	}
 
 	odFvsToUse := make([]*model.OnDemandFeatureView, 0)
-
 	for odFvName, featureNames := range odFvToFeatures {
 		projectedOdFv, err := odFvToProjectWithFeatures[odFvName].ProjectWithFeatures(featureNames)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 
 		err = extractOdFvDependencies(
@@ -278,21 +279,64 @@ func GetFeatureViewsToUseByFeatureRefs(
 			projectName,
 			viewNameToViewAndRefs)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, err
 		}
 		odFvsToUse = append(odFvsToUse, projectedOdFv)
 	}
 
 	fvsToUse := make([]*FeatureViewAndRefs, 0)
-	for _, viewAndRefs := range viewNameToViewAndRefs {
-		fvsToUse = append(fvsToUse, viewAndRefs)
-	}
-	sortedFvsToUse := make([]*SortedFeatureViewAndRefs, 0)
-	for _, viewAndRefs := range viewNameToSortedViewAndRefs {
-		sortedFvsToUse = append(sortedFvsToUse, viewAndRefs)
+
+	for _, viewAndRef := range viewNameToViewAndRefs {
+		fvsToUse = append(fvsToUse, viewAndRef)
 	}
 
-	return fvsToUse, sortedFvsToUse, odFvsToUse, nil
+	return fvsToUse, odFvsToUse, nil
+}
+
+/*
+Return
+
+	(1) requested sorted feature views and features grouped per View
+
+existed in the registry
+*/
+func GetSortedFeatureViewsToUseByFeatureRefs(
+	features []string,
+	registry *registry.Registry,
+	projectName string) ([]*SortedFeatureViewAndRefs, error) {
+
+	viewFeatures, err := buildDeduplicatedFeatureNamesMap(features)
+	if err != nil {
+		return nil, err
+	}
+
+	sortedFvsToUse := make([]*SortedFeatureViewAndRefs, 0)
+
+	for _, vf := range viewFeatures {
+		featureViewName := vf.ViewName
+		featureNames := vf.Features
+
+		sortedFv, err := registry.GetSortedFeatureView(projectName, featureViewName)
+		if err != nil {
+			return nil, errors.GrpcInvalidArgumentErrorf("sorted feature view %s doesn't exist, please make sure that you have created the"+
+				" sorted feature view %s and that you have registered it by running \"apply\"", featureViewName, featureViewName)
+		}
+
+		err = validateFeatures(
+			featureViewName,
+			featureNames,
+			sortedFv.Base.Features)
+		if err != nil {
+			return nil, err
+		}
+
+		sortedFvsToUse = append(sortedFvsToUse, &SortedFeatureViewAndRefs{
+			View:        sortedFv,
+			FeatureRefs: featureNames,
+		})
+	}
+
+	return sortedFvsToUse, nil
 }
 
 func extractOdFvDependencies(
@@ -427,6 +471,32 @@ func ValidateEntityValues(joinKeyValues map[string]*prototypes.RepeatedValue,
 	}
 
 	return numRows, nil
+}
+
+func validateFeatures(
+	featureViewName string,
+	requestedFeatures []string,
+	featureViewFeatures []*model.Field) error {
+
+	if len(requestedFeatures) == 0 {
+		return errors.GrpcInvalidArgumentErrorf(
+			"no features requested for feature view %s, please specify at least one feature", featureViewName)
+	}
+
+	validFeaturesMap := make(map[string]bool)
+	for _, field := range featureViewFeatures {
+		validFeaturesMap[field.Name] = true
+	}
+
+	for _, featureName := range requestedFeatures {
+		if !validFeaturesMap[featureName] {
+			return errors.GrpcInvalidArgumentErrorf(
+				"feature %s does not exist in feature view %s",
+				featureName, featureViewName)
+		}
+	}
+
+	return nil
 }
 
 func ValidateFeatureRefs(requestedFeatures []*FeatureViewAndRefs, fullFeatureNames bool) error {
@@ -832,6 +902,36 @@ func getEventTimestamp(timestamps []timestamp.Timestamp, index int) *timestamppb
 		}
 	}
 	return &timestamppb.Timestamp{}
+}
+
+func buildDeduplicatedFeatureNamesMap(features []string) ([]ViewFeatures, error) {
+	var result []ViewFeatures
+	viewIndex := make(map[string]int)
+	featureSet := make(map[string]map[string]bool)
+
+	for _, featureRef := range features {
+		featureViewName, featureName, err := ParseFeatureReference(featureRef)
+		if err != nil {
+			return nil, err
+		}
+
+		if idx, exists := viewIndex[featureViewName]; exists {
+			if !featureSet[featureViewName][featureName] {
+				result[idx].Features = append(result[idx].Features, featureName)
+				featureSet[featureViewName][featureName] = true
+			}
+		} else {
+			viewIndex[featureViewName] = len(result)
+			result = append(result, ViewFeatures{
+				ViewName: featureViewName,
+				Features: []string{featureName},
+			})
+			featureSet[featureViewName] = make(map[string]bool)
+			featureSet[featureViewName][featureName] = true
+		}
+	}
+
+	return result, nil
 }
 
 func KeepOnlyRequestedFeatures[T any](

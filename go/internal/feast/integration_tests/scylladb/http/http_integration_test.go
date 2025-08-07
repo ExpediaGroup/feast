@@ -67,6 +67,14 @@ func TestGetOnlineFeaturesRange_Http(t *testing.T) {
 		"all_dtypes_sorted:string_val",
 		"all_dtypes_sorted:timestamp_val",
 		"all_dtypes_sorted:boolean_val",
+		"all_dtypes_sorted:array_int_val",
+		"all_dtypes_sorted:array_long_val",
+		"all_dtypes_sorted:array_float_val",
+		"all_dtypes_sorted:array_double_val",
+		"all_dtypes_sorted:array_byte_val",
+		"all_dtypes_sorted:array_string_val",
+		"all_dtypes_sorted:array_timestamp_val",
+		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:null_int_val",
 		"all_dtypes_sorted:null_long_val",
 		"all_dtypes_sorted:null_float_val",
@@ -81,16 +89,8 @@ func TestGetOnlineFeaturesRange_Http(t *testing.T) {
 		"all_dtypes_sorted:null_array_double_val",
 		"all_dtypes_sorted:null_array_byte_val",
 		"all_dtypes_sorted:null_array_string_val",
-		"all_dtypes_sorted:null_array_boolean_val",
-		"all_dtypes_sorted:array_int_val",
-		"all_dtypes_sorted:array_long_val",
-		"all_dtypes_sorted:array_float_val",
-		"all_dtypes_sorted:array_double_val",
-		"all_dtypes_sorted:array_string_val",
-		"all_dtypes_sorted:array_boolean_val",
-		"all_dtypes_sorted:array_byte_val",
-		"all_dtypes_sorted:array_timestamp_val",
 		"all_dtypes_sorted:null_array_timestamp_val",
+		"all_dtypes_sorted:null_array_boolean_val",
 		"all_dtypes_sorted:event_timestamp"
 	  ],
 	  "entities": {
@@ -128,6 +128,14 @@ func TestGetOnlineFeaturesRange_Http_withOnlyEqualsFilter(t *testing.T) {
 		"all_dtypes_sorted:string_val",
 		"all_dtypes_sorted:timestamp_val",
 		"all_dtypes_sorted:boolean_val",
+		"all_dtypes_sorted:array_int_val",
+		"all_dtypes_sorted:array_long_val",
+		"all_dtypes_sorted:array_float_val",
+		"all_dtypes_sorted:array_double_val",
+		"all_dtypes_sorted:array_byte_val",
+		"all_dtypes_sorted:array_string_val",
+		"all_dtypes_sorted:array_timestamp_val",
+		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:null_int_val",
 		"all_dtypes_sorted:null_long_val",
 		"all_dtypes_sorted:null_float_val",
@@ -142,16 +150,8 @@ func TestGetOnlineFeaturesRange_Http_withOnlyEqualsFilter(t *testing.T) {
 		"all_dtypes_sorted:null_array_double_val",
 		"all_dtypes_sorted:null_array_byte_val",
 		"all_dtypes_sorted:null_array_string_val",
-		"all_dtypes_sorted:null_array_boolean_val",
-		"all_dtypes_sorted:array_int_val",
-		"all_dtypes_sorted:array_long_val",
-		"all_dtypes_sorted:array_float_val",
-		"all_dtypes_sorted:array_double_val",
-		"all_dtypes_sorted:array_string_val",
-		"all_dtypes_sorted:array_boolean_val",
-		"all_dtypes_sorted:array_byte_val",
-		"all_dtypes_sorted:array_timestamp_val",
 		"all_dtypes_sorted:null_array_timestamp_val",
+		"all_dtypes_sorted:null_array_boolean_val",
 		"all_dtypes_sorted:event_timestamp"
 	  ],
 	  "entities": {
@@ -187,6 +187,14 @@ func TestGetOnlineFeaturesRange_Http_forNonExistentEntityKey(t *testing.T) {
 		"all_dtypes_sorted:string_val",
 		"all_dtypes_sorted:timestamp_val",
 		"all_dtypes_sorted:boolean_val",
+		"all_dtypes_sorted:array_int_val",
+		"all_dtypes_sorted:array_long_val",
+		"all_dtypes_sorted:array_float_val",
+		"all_dtypes_sorted:array_double_val",
+		"all_dtypes_sorted:array_byte_val",
+		"all_dtypes_sorted:array_string_val",
+		"all_dtypes_sorted:array_timestamp_val",
+		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:null_int_val",
 		"all_dtypes_sorted:null_long_val",
 		"all_dtypes_sorted:null_float_val",
@@ -201,16 +209,8 @@ func TestGetOnlineFeaturesRange_Http_forNonExistentEntityKey(t *testing.T) {
 		"all_dtypes_sorted:null_array_double_val",
 		"all_dtypes_sorted:null_array_byte_val",
 		"all_dtypes_sorted:null_array_string_val",
-		"all_dtypes_sorted:null_array_boolean_val",
-		"all_dtypes_sorted:array_int_val",
-		"all_dtypes_sorted:array_long_val",
-		"all_dtypes_sorted:array_float_val",
-		"all_dtypes_sorted:array_double_val",
-		"all_dtypes_sorted:array_string_val",
-		"all_dtypes_sorted:array_boolean_val",
-		"all_dtypes_sorted:array_byte_val",
-		"all_dtypes_sorted:array_timestamp_val",
 		"all_dtypes_sorted:null_array_timestamp_val",
+		"all_dtypes_sorted:null_array_boolean_val",
 		"all_dtypes_sorted:event_timestamp"
 	  ],
 	  "entities": {
@@ -278,6 +278,14 @@ func TestGetOnlineFeaturesRange_Http_withEmptySortKeyFilter(t *testing.T) {
 		"all_dtypes_sorted:string_val",
 		"all_dtypes_sorted:timestamp_val",
 		"all_dtypes_sorted:boolean_val",
+		"all_dtypes_sorted:array_int_val",
+		"all_dtypes_sorted:array_long_val",
+		"all_dtypes_sorted:array_float_val",
+		"all_dtypes_sorted:array_double_val",
+		"all_dtypes_sorted:array_byte_val",
+		"all_dtypes_sorted:array_string_val",
+		"all_dtypes_sorted:array_timestamp_val",
+		"all_dtypes_sorted:array_boolean_val",
 		"all_dtypes_sorted:null_int_val",
 		"all_dtypes_sorted:null_long_val",
 		"all_dtypes_sorted:null_float_val",
@@ -292,16 +300,8 @@ func TestGetOnlineFeaturesRange_Http_withEmptySortKeyFilter(t *testing.T) {
 		"all_dtypes_sorted:null_array_double_val",
 		"all_dtypes_sorted:null_array_byte_val",
 		"all_dtypes_sorted:null_array_string_val",
-		"all_dtypes_sorted:null_array_boolean_val",
-		"all_dtypes_sorted:array_int_val",
-		"all_dtypes_sorted:array_long_val",
-		"all_dtypes_sorted:array_float_val",
-		"all_dtypes_sorted:array_double_val",
-		"all_dtypes_sorted:array_string_val",
-		"all_dtypes_sorted:array_boolean_val",
-		"all_dtypes_sorted:array_byte_val",
-		"all_dtypes_sorted:array_timestamp_val",
 		"all_dtypes_sorted:null_array_timestamp_val",
+		"all_dtypes_sorted:null_array_boolean_val",
 		"all_dtypes_sorted:event_timestamp"
 	  ],
 	  "entities": {
@@ -323,7 +323,7 @@ func TestGetOnlineFeaturesRange_Http_withEmptySortKeyFilter(t *testing.T) {
 
 func TestGetOnlineFeaturesRange_Http_withFeatureService(t *testing.T) {
 	requestJson := []byte(`{
-	  "feature_service": "test_service",
+	  "feature_service": "test_sorted_service",
 	  "entities": {
 		"index_id": [1, 2, 3]
 	  },
@@ -342,36 +342,63 @@ func TestGetOnlineFeaturesRange_Http_withFeatureService(t *testing.T) {
 	responseRecorder := httptest.NewRecorder()
 
 	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
-	assert.Equal(t, responseRecorder.Code, http.StatusBadRequest)
-	assert.Equal(t, `{"error":"GetOnlineFeaturesRange does not support standard feature views [all_dtypes]","status_code":400}`, responseRecorder.Body.String(), "Response body does not match expected error message")
+	assert.Equal(t, responseRecorder.Code, http.StatusOK, "Expected HTTP status code 200 OK response body is: %s", responseRecorder.Body.String())
+	expectedResponse, err := loadResponse("valid_response.json")
+	require.NoError(t, err, "Failed to load expected response from file")
+	assert.JSONEq(t, string(expectedResponse), responseRecorder.Body.String(), "Response body does not match expected JSON")
 }
 
-func TestGetOnlineFeaturesRange_Http_withInvalidFeatureView(t *testing.T) {
+func TestGetOnlineFeaturesRange_Http_withInvalidFeatureService(t *testing.T) {
 	requestJson := []byte(`{
-	  "features": [
-		"all_dtypes:int_val"
-	  ],
-	  "entities": {
-		"index_id": [1, 2, 3]
-	  },
-	  "sort_key_filters": [
-		{
-		  "sort_key_name": "event_timestamp",
-		  "range": {
-			"range_start": 0
-		  }
-		}
-	  ],
-	  "limit": 10
-	}`)
+        "feature_service": "invalid_service",
+        "entities": {
+            "index_id": [1, 2, 3]
+        },
+        "sort_key_filters": [
+            {
+                "sort_key_name": "event_timestamp",
+                "range": {
+                    "range_start": 0
+                }
+            }
+        ],
+        "limit": 10
+    }`)
 
 	request := httptest.NewRequest(http.MethodPost, "/get-online-features-range", bytes.NewBuffer(requestJson))
 	responseRecorder := httptest.NewRecorder()
 
 	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
-	assert.Equal(t, responseRecorder.Code, http.StatusBadRequest, "Expected HTTP status code 400 BadRequest response body is: %s", responseRecorder.Body.String())
-	expectedErrorMessage := `{"error":"GetOnlineFeaturesRange does not support standard feature views [all_dtypes]","status_code":400}`
-	assert.Equal(t, expectedErrorMessage, responseRecorder.Body.String(), "Response body does not match expected error message")
+	assert.Equal(t, http.StatusNotFound, responseRecorder.Code)
+	assert.Contains(t, responseRecorder.Body.String(), "Error getting feature service from registry", "Response body does not contain expected error message")
+}
+
+func TestGetOnlineFeaturesRange_Http_withInvalidSortedFeatureView(t *testing.T) {
+	requestJson := []byte(`{
+        "features": ["invalid_sorted_view:some_feature"],
+        "entities": {
+            "index_id": [1, 2, 3]
+        },
+        "sort_key_filters": [
+            {
+                "sort_key_name": "event_timestamp",
+                "range": {
+                    "range_start": {
+                        "unix_timestamp_val": 0
+                    }
+                }
+            }
+        ],
+        "limit": 10
+    }`)
+
+	request := httptest.NewRequest(http.MethodPost, "/get-online-features-range", bytes.NewBuffer(requestJson))
+	responseRecorder := httptest.NewRecorder()
+
+	getOnlineFeaturesRangeHandler.ServeHTTP(responseRecorder, request)
+	assert.Equal(t, http.StatusBadRequest, responseRecorder.Code)
+	expectedErrorMessage := `{"error":"sorted feature view invalid_sorted_view doesn't exist, please make sure that you have created the sorted feature view invalid_sorted_view and that you have registered it by running \"apply\"","status_code":400}`
+	assert.JSONEq(t, expectedErrorMessage, responseRecorder.Body.String(), "Response body does not match expected error message")
 }
 
 func TestGetOnlineFeaturesRange_Http_withInvalidSortKeyFilter(t *testing.T) {

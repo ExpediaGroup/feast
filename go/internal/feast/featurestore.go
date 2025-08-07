@@ -186,26 +186,20 @@ func (fs *FeatureStore) GetOnlineFeatures(
 	fullFeatureNames bool) ([]*onlineserving.FeatureVector, error) {
 	var err error
 	var requestedFeatureViews []*onlineserving.FeatureViewAndRefs
-	var requestedSortedFeatureViews []*onlineserving.SortedFeatureViewAndRefs
 	var requestedOnDemandFeatureViews []*model.OnDemandFeatureView
 
 	if featureService != nil {
-		requestedFeatureViews, requestedSortedFeatureViews, requestedOnDemandFeatureViews, err =
+		requestedFeatureViews, requestedOnDemandFeatureViews, err =
 			onlineserving.GetFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
-	} else {
-		requestedFeatureViews, requestedSortedFeatureViews, requestedOnDemandFeatureViews, err =
-			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fs.registry, fs.config.Project)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if len(requestedSortedFeatureViews) > 0 {
-		sfvNames := make([]string, len(requestedSortedFeatureViews))
-		for i, sfv := range requestedSortedFeatureViews {
-			sfvNames[i] = sfv.View.Base.Name
+		if err != nil {
+			return nil, err
 		}
-		return nil, errors.GrpcInvalidArgumentErrorf("GetOnlineFeatures does not support sorted feature views %v", sfvNames)
+	} else {
+		requestedFeatureViews, requestedOnDemandFeatureViews, err =
+			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fs.registry, fs.config.Project)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if len(requestedFeatureViews) == 0 {
@@ -325,24 +319,20 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 
 	var err error
 	var requestedSortedFeatureViews []*onlineserving.SortedFeatureViewAndRefs
-	var requestedFeatureViews []*onlineserving.FeatureViewAndRefs
-	if featureService != nil {
-		requestedFeatureViews, requestedSortedFeatureViews, _, err =
-			onlineserving.GetFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
-	} else {
-		requestedFeatureViews, requestedSortedFeatureViews, _, err =
-			onlineserving.GetFeatureViewsToUseByFeatureRefs(featureRefs, fs.registry, fs.config.Project)
-	}
-	if err != nil {
-		return nil, err
-	}
 
-	if len(requestedFeatureViews) > 0 {
-		fvNames := make([]string, len(requestedFeatureViews))
-		for i, fv := range requestedFeatureViews {
-			fvNames[i] = fv.View.Base.Name
+	if featureService != nil {
+		requestedSortedFeatureViews, err =
+			onlineserving.GetSortedFeatureViewsToUseByService(featureService, fs.registry, fs.config.Project)
+		if err != nil {
+			return nil, err
 		}
-		return nil, errors.GrpcInvalidArgumentErrorf("GetOnlineFeaturesRange does not support standard feature views %v", fvNames)
+
+	} else {
+		requestedSortedFeatureViews, err = onlineserving.GetSortedFeatureViewsToUseByFeatureRefs(
+			featureRefs, fs.registry, fs.config.Project)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if len(requestedSortedFeatureViews) == 0 {
