@@ -311,12 +311,9 @@ class PassthroughProvider(Provider):
             ]
 
             with Pool(processes=num_processes) as pool:
-                pool.starmap(self.process_chunk, chunks_to_parallelize)
+                pool.starmap(self.process, chunks_to_parallelize)
         else:
-            rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
-            self.online_write_batch(
-                self.repo_config, feature_view, rows_to_write, progress=None
-            )
+            self.process(table, feature_view, join_keys)
 
     def split_table(self, num_processes, table):
         num_table_rows = table.num_rows
@@ -332,7 +329,7 @@ class PassthroughProvider(Provider):
             offset += length
         return chunks
 
-    def process_chunk(self, table, feature_view: FeatureView, join_keys):
+    def process(self, table, feature_view: FeatureView, join_keys):
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
