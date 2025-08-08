@@ -290,6 +290,12 @@ class PassthroughProvider(Provider):
 
         table = pa.Table.from_pandas(df)
 
+        batch_id = uuid.uuid4()
+
+        logger.info(
+            f"batch_id:{batch_id} Total arrow table length:{table.num_rows}"
+        )
+
         if feature_view.batch_source.field_mapping is not None:
             table = _run_pyarrow_field_mapping(
                 table, feature_view.batch_source.field_mapping
@@ -310,9 +316,13 @@ class PassthroughProvider(Provider):
                 num_processes = table.num_rows
 
             # Input table is split into smaller chunks and processed in parallel
-            chunks = self.split_table(num_processes, table)
+            chunks = self.split_table(num_processes, table, batch_id)
+            for chunk in chunks:
+                logger.info(
+                    f"batch_id:{batch_id} chunk table length:{chunk.num_rows}"
+                )
 
-            chunks_to_parallelize = [(chunk, feature_view, join_keys) for chunk in chunks]
+            chunks_to_parallelize = [(chunk, feature_view, join_keys, batch_id) for chunk in chunks]
 
             with Pool(processes=num_processes) as pool:
                 pool.starmap(self.process_chunk, chunks_to_parallelize)
@@ -323,7 +333,7 @@ class PassthroughProvider(Provider):
                 self.repo_config, feature_view, rows_to_write, progress=None
             )
 
-    def split_table(self, num_processes, table):
+    def split_table(self, num_processes, table, batch_id):
         num_table_rows = table.num_rows
         size = num_table_rows // num_processes  # base size of each chunk
         remainder = num_table_rows % num_processes  # extra rows to distribute
@@ -333,13 +343,23 @@ class PassthroughProvider(Provider):
         for i in range(num_processes):
             # Distribute the remainder one per split until exhausted
             length = size + (1 if i < remainder else 0)
+            logger.info(
+                f"batch_id:{batch_id} split length:{length}"
+            )
             chunks.append(table.slice(offset, length))
             offset += length
         return chunks
 
-    def process_chunk(self, table, feature_view: FeatureView, join_keys):
+    def process_chunk(self, table, feature_view: FeatureView, join_keys, batch_id):
+
+        logger.info(
+            f"batch_id:{batch_id},table_length_process_chunk: {table.num_rows}"
+        )
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
 
+        logger.info(
+            f"batch_id:{batch_id},rows_to_write: {len(rows_to_write)}"
+        )
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
         )
