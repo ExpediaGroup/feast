@@ -296,9 +296,9 @@ class PassthroughProvider(Provider):
         }
         num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
 
-        if num_spark_driver_cores > 3:
-            # Leaving a couple of cores for operating system and other background processes
-            num_processes = num_spark_driver_cores - 2
+        if num_spark_driver_cores > 2:
+            # Leaving one core for operating system and other background processes
+            num_processes = num_spark_driver_cores - 1
 
             if table.num_rows < num_processes:
                 num_processes = table.num_rows
