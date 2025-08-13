@@ -16,6 +16,7 @@ from sqlalchemy import (  # type: ignore
     MetaData,
     String,
     Table,
+    bindparam,
     create_engine,
     delete,
     func,
@@ -1463,16 +1464,21 @@ class SqlRegistry(CachingRegistry):
         # 1. Query projects table for matching projects
         with self.read_engine.begin() as conn:
             count_stmt = select(func.count(projects.c.project_id.distinct()))
+            params = {}
+
             if search_text:
                 count_stmt = count_stmt.where(
-                    projects.c.project_id.like(f"%{search_text}%")
+                    projects.c.project_id.like(bindparam("search_pattern"))
                 )
+                params["search_pattern"] = f"%{search_text}%"
+
             if updated_at is not None:
                 updated_at_timestamp = int(updated_at.timestamp())
                 count_stmt = count_stmt.where(
                     projects.c.last_updated_timestamp >= updated_at_timestamp
                 )
-            total_count = conn.execute(count_stmt).scalar() or 0
+
+            total_count = conn.execute(count_stmt, params).scalar() or 0
             total_page_indices = (total_count + page_size - 1) // page_size
 
             stmt = (
@@ -1484,14 +1490,20 @@ class SqlRegistry(CachingRegistry):
                 .limit(page_size)
                 .offset(page_index * page_size)
             )
+
             if search_text:
-                stmt = stmt.where(projects.c.project_id.like(f"%{search_text}%"))
+                stmt = stmt.where(
+                    projects.c.project_id.like(bindparam("search_pattern"))
+                )
+                params["search_pattern"] = f"%{search_text}%"
+
             if updated_at is not None:
                 updated_at_timestamp = int(updated_at.timestamp())
                 stmt = stmt.where(
                     projects.c.last_updated_timestamp >= updated_at_timestamp
                 )
-            rows = conn.execute(stmt).all()
+
+            rows = conn.execute(stmt, params).all()
 
             project_objs = []
             project_ids = []
@@ -1566,7 +1578,6 @@ class SqlRegistry(CachingRegistry):
         offset = page_index * page_size
         results = []
         filtered_results = []
-
         in_memory_filtering_required = any(
             [online is not None, application, team, created_at, updated_at]
         )
@@ -1575,13 +1586,17 @@ class SqlRegistry(CachingRegistry):
             if not in_memory_filtering_required:
                 stmt = (
                     select(feature_views)
-                    .where(feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                    .where(
+                        feature_views.c.feature_view_name.like(
+                            bindparam("search_pattern")
+                        )
+                    )
                     .order_by(feature_views.c.feature_view_name)
                     .limit(page_size)
                     .offset(offset)
                 )
 
-                rows = conn.execute(stmt).all()
+                rows = conn.execute(stmt, {"search_pattern": f"%{search_text}%"}).all()
 
                 for row in rows:
                     feature_view_proto = FeatureViewProto.FromString(
@@ -1594,9 +1609,19 @@ class SqlRegistry(CachingRegistry):
                 total_stmt = (
                     select(func.count())
                     .select_from(feature_views)
-                    .where(feature_views.c.feature_view_name.like(f"%{search_text}%"))
+                    .where(
+                        feature_views.c.feature_view_name.like(
+                            bindparam("search_pattern")
+                        )
+                    )
                 )
-                total_count = conn.execute(total_stmt).scalar() or 0
+
+                total_count = (
+                    conn.execute(
+                        total_stmt, {"search_pattern": f"%{search_text}%"}
+                    ).scalar()
+                    or 0
+                )
                 total_page_indices = (total_count + page_size - 1) // page_size
 
                 return ExpediaSearchFeatureViewsResponse(
@@ -1608,10 +1633,12 @@ class SqlRegistry(CachingRegistry):
             stmt = select(feature_views)
             if search_text:
                 stmt = stmt.where(
-                    feature_views.c.feature_view_name.like(f"%{search_text}%")
-                ).order_by(feature_views.c.feature_view_name)
+                    feature_views.c.feature_view_name.like(bindparam("search_pattern"))
+                )
 
-            rows = conn.execute(stmt).all()
+            rows = conn.execute(
+                stmt, {"search_pattern": f"%{search_text}%"} if search_text else {}
+            ).all()
 
             for row in rows:
                 feature_view_proto = FeatureViewProto.FromString(
@@ -1623,23 +1650,22 @@ class SqlRegistry(CachingRegistry):
 
                 if online is not None and fv.online != online:
                     add_to_results = False
-
                 if application and fv.tags.get("application") != application:
                     add_to_results = False
-
                 if team and fv.tags.get("team") != team:
                     add_to_results = False
-
-                if created_at:
-                    if fv.created_timestamp and fv.created_timestamp < created_at:
-                        add_to_results = False
-
-                if updated_at is not None:
-                    if (
-                        fv.last_updated_timestamp
-                        and fv.last_updated_timestamp < updated_at
-                    ):
-                        add_to_results = False
+                if (
+                    created_at is not None
+                    and fv.created_timestamp
+                    and fv.created_timestamp < created_at
+                ):
+                    add_to_results = False
+                if (
+                    updated_at is not None
+                    and fv.last_updated_timestamp
+                    and fv.last_updated_timestamp < updated_at
+                ):
+                    add_to_results = False
 
                 if add_to_results:
                     filtered_results.append(fv)
