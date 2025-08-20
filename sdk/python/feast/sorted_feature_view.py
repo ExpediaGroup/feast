@@ -107,16 +107,16 @@ class SortedFeatureView(FeatureView):
         feature_map = {}
 
         for field in self.features:
-            if field.name in reserved_columns:
-                raise ValueError(
-                    f"For SortedFeatureView: {self.name}: Field name '{field.name}' is reserved and cannot be used as "
-                    f"a feature name."
-                )
-            if field.name in self.entities:
-                raise ValueError(
-                    f"For SortedFeatureView: {self.name}: Feature name '{field.name}' is an entity name and cannot be "
-                    f"used as a feature."
-                )
+            # if field.name in reserved_columns:
+            #     raise ValueError(
+            #         f"For SortedFeatureView: {self.name}: Field name '{field.name}' is reserved and cannot be used as "
+            #         f"a feature name."
+            #     )
+            # if field.name in self.entities:
+            #     raise ValueError(
+            #         f"For SortedFeatureView: {self.name}: Feature name '{field.name}' is an entity name and cannot be "
+            #         f"used as a feature."
+            #     )
             if field.name in feature_map:
                 raise ValueError(
                     f"For SortedFeatureView: {self.name}: Duplicate feature name found: '{field.name}'."
