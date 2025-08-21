@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -1539,27 +1539,6 @@ class SqlRegistry(CachingRegistry):
                 feature_views=feature_views_by_project.get(project.name, []),
             )
             projects_and_related_feature_views.append(obj)
-
-        def process_project(project):
-            return ExpediaProjectAndRelatedFeatureViews(
-                project=project,
-                feature_views=feature_views_by_project.get(project.name, []),
-            )
-
-        projects_and_related_feature_views = []
-        with ProcessPoolExecutor() as executor:
-            futures = [
-                executor.submit(process_project, project) for project in project_objs
-            ]
-            for future in as_completed(futures):
-                try:
-                    projects_and_related_feature_views.append(future.result())
-                except Exception as e:
-                    logger.error(f"Error processing project: {e}")
-
-        projects_and_related_feature_views.sort(
-            key=lambda x: x.project.name.lower() if hasattr(x.project, "name") else ""
-        )
 
         return ExpediaSearchProjectsResponse(
             projects_and_related_feature_views=projects_and_related_feature_views,
