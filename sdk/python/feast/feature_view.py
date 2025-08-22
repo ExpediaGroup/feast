@@ -64,6 +64,7 @@ class FeatureView(BaseFeatureView):
 
     Attributes:
         name: The unique name of the feature view.
+        project: The name of the Feast project this feature view belongs to.
         entities: The list of names of entities that this feature view is associated with.
         ttl: The amount of time this group of features lives. A ttl of 0 indicates that
             this group of features lives forever. Note that large ttl's or a ttl of 0
@@ -87,6 +88,7 @@ class FeatureView(BaseFeatureView):
     """
 
     name: str
+    project: str
     entities: List[str]
     ttl: Optional[timedelta]
     batch_source: DataSource
@@ -103,6 +105,7 @@ class FeatureView(BaseFeatureView):
         self,
         *,
         name: str,
+        project: str,
         source: DataSource,
         schema: Optional[List[Field]] = None,
         entities: Optional[List[Entity]] = None,
@@ -117,6 +120,7 @@ class FeatureView(BaseFeatureView):
 
         Args:
             name: The unique name of the feature view.
+            project: The name of the Feast project this feature view belongs to.
             source: The source of data for this group of features. May be a stream source, or a batch source.
                 If a stream source, the source should contain a batch_source for backfills & batch materialization.
             schema (optional): The schema of the feature view, including feature, timestamp,
@@ -137,6 +141,7 @@ class FeatureView(BaseFeatureView):
             ValueError: A field mapping conflicts with an Entity or a Feature.
         """
         self.name = name
+        self.project = project
         self.entities = [e.name for e in entities] if entities else [DUMMY_ENTITY_NAME]
         self.ttl = ttl
 
@@ -375,6 +380,7 @@ class FeatureView(BaseFeatureView):
 
         spec = FeatureViewSpecProto(
             name=self.name,
+            project=self.project,
             entities=self.entities,
             entity_columns=[field.to_proto() for field in self.entity_columns],
             features=[field.to_proto() for field in self.features],
@@ -469,6 +475,7 @@ class FeatureView(BaseFeatureView):
         )
         feature_view = cls(
             name=feature_view_proto.spec.name,
+            project=feature_view_proto.spec.project,
             description=feature_view_proto.spec.description,
             tags=dict(feature_view_proto.spec.tags),
             owner=feature_view_proto.spec.owner,
