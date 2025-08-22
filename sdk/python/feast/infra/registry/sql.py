@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -1505,8 +1505,8 @@ class SqlRegistry(CachingRegistry):
 
             rows = conn.execute(stmt, params).all()
 
-            project_objs = []
-            project_ids = []
+            project_objs: List[Project] = []
+            project_ids: List[str] = []
             for row in rows:
                 project_id = row._mapping["project_id"]
                 project_proto = ProjectProto.FromString(row._mapping["project_proto"])
@@ -1527,18 +1527,38 @@ class SqlRegistry(CachingRegistry):
             feature_view_proto = FeatureViewProto.FromString(
                 row._mapping["feature_view_proto"]
             )
-            feature_view_proto.spec.project = project_id
             fv = FeatureView.from_proto(feature_view_proto)
             feature_views_by_project.setdefault(project_id, []).append(fv)
 
         # 3. Build ExpediaProjectAndRelatedFeatureViews objects
-        projects_and_related_feature_views = []
-        for project in project_objs:
-            obj = ExpediaProjectAndRelatedFeatureViews(
+        # projects_and_related_feature_views = []
+        # for project in project_objs:
+        #     obj = ExpediaProjectAndRelatedFeatureViews(
+        #         project=project,
+        #         feature_views=feature_views_by_project.get(project.name, []),
+        #     )
+        #     projects_and_related_feature_views.append(obj)
+
+        def process_project(project):
+            return ExpediaProjectAndRelatedFeatureViews(
                 project=project,
                 feature_views=feature_views_by_project.get(project.name, []),
             )
-            projects_and_related_feature_views.append(obj)
+
+        projects_and_related_feature_views = []
+        with ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(process_project, project) for project in project_objs
+            ]
+            for future in as_completed(futures):
+                try:
+                    projects_and_related_feature_views.append(future.result())
+                except Exception as e:
+                    logger.error(f"Error processing project: {e}")
+
+        projects_and_related_feature_views.sort(
+            key=lambda x: x.project.name.lower() if hasattr(x.project, "name") else ""
+        )
 
         return ExpediaSearchProjectsResponse(
             projects_and_related_feature_views=projects_and_related_feature_views,
