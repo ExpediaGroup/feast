@@ -4,6 +4,7 @@ package feast.registry;
 
 import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 import "feast/core/DataSource.proto";
 import "feast/core/Entity.proto";
 import "feast/core/FeatureService.proto";
