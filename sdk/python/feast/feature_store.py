@@ -151,6 +151,12 @@ class FeatureStore:
         registry_config = self.config.registry
         if registry_config.registry_type == "sql":
             self._registry = SqlRegistry(registry_config, self.config.project, None)
+        elif registry_config.registry_type == "sql-fallback":
+            from feast.infra.registry.sql_fallback import SqlFallbackRegistry
+
+            self._registry = SqlFallbackRegistry(
+                registry_config, self.config.project, None
+            )
         elif registry_config.registry_type == "http":
             self._registry = HttpRegistry(registry_config, self.config.project, None)
         elif registry_config.registry_type == "snowflake.registry":
