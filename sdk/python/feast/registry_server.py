@@ -13,6 +13,10 @@ from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource
 from feast.entity import Entity
 from feast.errors import FeastObjectNotFoundException, FeatureViewNotFoundException
+from feast.expediagroup.search import (
+    ExpediaSearchFeatureViewsRequest,
+    ExpediaSearchProjectsRequest,
+)
 from feast.feast_object import FeastObject
 from feast.feature_view import FeatureView
 from feast.grpc_error_interceptor import ErrorInterceptor
@@ -1263,6 +1267,24 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
         raise FeastObjectNotFoundException(
             f"Feature {request.name} not found in feature view {request.feature_view} in project {request.project}"
         )
+
+    def ExpediaSearchProjects(
+        self, request: RegistryServer_pb2.ExpediaSearchProjectsRequest, context
+    ):
+        # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
+        response = self.proxied_registry.expedia_search_projects(  # type: ignore[attr-defined]
+            request=ExpediaSearchProjectsRequest.from_proto(request)
+        )
+        return response.to_proto()
+
+    def ExpediaSearchFeatureViews(
+        self, request: RegistryServer_pb2.ExpediaSearchFeatureViewsRequest, context
+    ):
+        # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
+        response = self.proxied_registry.expedia_search_feature_views(  # type: ignore[attr-defined]
+            request=ExpediaSearchFeatureViewsRequest.from_proto(request)
+        )
+        return response.to_proto()
 
 
 def start_server(
