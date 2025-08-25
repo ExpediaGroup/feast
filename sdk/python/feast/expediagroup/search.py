@@ -77,7 +77,12 @@ class ExpediaProjectAndRelatedFeatureViews:
         """
         proto = ExpediaProjectAndRelatedFeatureViewsProto()
         proto.project.CopyFrom(self.project.to_proto())
-        proto.feature_views.extend([fv.to_proto() for fv in self.feature_views])
+        # FeatureView protos support project field, but their Python class does not.
+        # We need to manually set the project field here.
+        for fv in self.feature_views:
+            fv_proto = fv.to_proto()
+            fv_proto.spec.project = self.project.name
+            proto.feature_views.append(fv_proto)
         return proto
 
 
