@@ -9,7 +9,6 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/types"
 
-	"github.com/feast-dev/feast/go/types"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/apache/arrow/go/v17/arrow/memory"
