@@ -262,9 +262,18 @@ class _SparkSerializedArtifacts:
 
 
 def _map_by_partition(
-    iterator,
-    spark_serialized_artifacts: _SparkSerializedArtifacts,
+        iterator,
+        spark_serialized_artifacts: _SparkSerializedArtifacts,
 ):
+    import warnings
+    import os
+
+    os.environ['PYTHONWARNINGS'] = 'ignore::DeprecationWarning'
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    warnings.filterwarnings("ignore", message=".*is_categorical_dtype.*")
+    warnings.filterwarnings("ignore", message=".*is_datetime64tz_dtype.*")
+    warnings.filterwarnings("ignore", message=".*distutils Version classes.*")
+
     feature_view, online_store, repo_config = spark_serialized_artifacts.unserialize()
 
     total_batches = 0
