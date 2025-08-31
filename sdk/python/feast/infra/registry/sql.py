@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Type, Union, cast
 
 from pydantic import StrictInt, StrictStr
 from sqlalchemy import (  # type: ignore
@@ -52,14 +52,25 @@ from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.project_metadata import ProjectMetadata
 from feast.protos.feast.core.DataSource_pb2 import DataSource as DataSourceProto
+from feast.protos.feast.core.DataSource_pb2 import DataSourceList as DataSourceProtoList
 from feast.protos.feast.core.Entity_pb2 import Entity as EntityProto
+from feast.protos.feast.core.Entity_pb2 import EntityList as EntityProtoList
 from feast.protos.feast.core.FeatureService_pb2 import (
     FeatureService as FeatureServiceProto,
 )
+from feast.protos.feast.core.FeatureService_pb2 import (
+    FeatureServiceList as FeatureServiceProtoList,
+)
 from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+from feast.protos.feast.core.FeatureView_pb2 import (
+    FeatureViewList as FeatureViewProtoList,
+)
 from feast.protos.feast.core.InfraObject_pb2 import Infra as InfraProto
 from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
     OnDemandFeatureView as OnDemandFeatureViewProto,
+)
+from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
+    OnDemandFeatureViewList as OnDemandFeatureViewProtoList,
 )
 from feast.protos.feast.core.Permission_pb2 import Permission as PermissionProto
 from feast.protos.feast.core.Project_pb2 import Project as ProjectProto
@@ -1439,3 +1450,116 @@ class SqlRegistry(CachingRegistry):
                             datetime.utcfromtimestamp(int(metadata_value))
                         )
         return project_metadata_model
+
+    def get_objects_list(
+        self, proto_class: Type
+    ) -> Union[
+        FeatureViewProtoList,
+        OnDemandFeatureViewProtoList,
+        EntityProtoList,
+        DataSourceProtoList,
+        FeatureServiceProtoList,
+    ]:
+        # Define the mapping from proto_class to list type
+        proto_class_to_list = {
+            FeatureViewProto: FeatureViewProtoList,
+            OnDemandFeatureViewProto: OnDemandFeatureViewProtoList,
+            EntityProto: EntityProtoList,
+            DataSourceProto: DataSourceProtoList,
+            FeatureServiceProto: FeatureServiceProtoList,
+        }
+        proto_list = proto_class_to_list.get(proto_class, None)
+        if proto_list is None:
+            raise ValueError(f"Unsupported proto class: {proto_class}")
+        return proto_list()
+
+    def _list_objects_proto(
+        self,
+        table: Table,
+        project: str,
+        proto_class: Any,
+        proto_field_name: str,
+        tags: Optional[dict[str, str]] = None,
+    ):
+        with self.read_engine.begin() as conn:
+            stmt = select(table).where(table.c.project_id == project)
+            rows = conn.execute(stmt).all()
+            if rows:
+                objects = self.get_objects_list(proto_class)
+                for row in rows:
+                    obj = proto_class.FromString(row._mapping[proto_field_name])
+                    if utils.has_all_tags(
+                        dict(
+                            obj.tags
+                            if isinstance(objects, DataSourceProtoList)
+                            else obj.spec.tags
+                        ),
+                        tags,
+                    ):
+                        if isinstance(objects, DataSourceProtoList):
+                            objects.datasources.append(obj)
+                        elif isinstance(objects, FeatureViewProtoList):
+                            objects.featureviews.append(obj)
+                        elif isinstance(objects, OnDemandFeatureViewProtoList):
+                            objects.ondemandfeatureviews.append(obj)
+                        elif isinstance(objects, EntityProtoList):
+                            objects.entities.append(obj)
+                        elif isinstance(objects, FeatureServiceProtoList):
+                            objects.featureservices.append(obj)
+                return objects
+        return []
+
+    def _list_feature_services_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> FeatureServiceProtoList:
+        return self._list_objects_proto(
+            feature_services,
+            project,
+            FeatureServiceProto,
+            "feature_service_proto",
+            tags=tags,
+        )
+
+    def _list_feature_views_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> FeatureViewProtoList:
+        return self._list_objects_proto(
+            feature_views,
+            project,
+            FeatureViewProto,
+            "feature_view_proto",
+            tags=tags,
+        )
+
+    def _list_on_demand_feature_views_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> OnDemandFeatureViewProtoList:
+        return self._list_objects_proto(
+            on_demand_feature_views,
+            project,
+            OnDemandFeatureViewProto,
+            "feature_view_proto",
+            tags=tags,
+        )
+
+    def _list_entities_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> EntityProtoList:
+        return self._list_objects_proto(
+            entities,
+            project,
+            EntityProto,
+            "entity_proto",
+            tags=tags,
+        )
+
+    def _list_data_sources_proto(
+        self, project: str, tags: Optional[dict[str, str]]
+    ) -> DataSourceProtoList:
+        return self._list_objects_proto(
+            data_sources,
+            project,
+            DataSourceProto,
+            "data_source_proto",
+            tags=tags,
+        )

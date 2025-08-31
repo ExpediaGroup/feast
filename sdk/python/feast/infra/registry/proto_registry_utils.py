@@ -22,6 +22,17 @@ from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.project_metadata import ProjectMetadata
+from feast.protos.feast.core.DataSource_pb2 import DataSourceList as DataSourceProtoList
+from feast.protos.feast.core.Entity_pb2 import EntityList as EntityProtoList
+from feast.protos.feast.core.FeatureService_pb2 import (
+    FeatureServiceList as FeatureServiceProtoList,
+)
+from feast.protos.feast.core.FeatureView_pb2 import (
+    FeatureViewList as FeatureViewProtoList,
+)
+from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
+    OnDemandFeatureViewList as OnDemandFeatureViewProtoList,
+)
 from feast.protos.feast.core.Registry_pb2 import ProjectMetadata as ProjectMetadataProto
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.saved_dataset import SavedDataset, ValidationReference
@@ -404,3 +415,68 @@ def get_project(registry_proto: RegistryProto, name: str) -> Project:
         if projects_proto.spec.name == name:
             return Project.from_proto(projects_proto)
     raise ProjectObjectNotFoundException(name=name)
+
+
+@registry_proto_cache_with_tags
+def list_feature_views_proto(
+    registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
+) -> FeatureViewProtoList:
+    feature_views: FeatureViewProtoList = FeatureViewProtoList()
+    for feature_view_proto in registry_proto.feature_views:
+        if feature_view_proto.spec.project == project and utils.has_all_tags(
+            feature_view_proto.spec.tags, tags
+        ):
+            feature_views.featureviews.append(feature_view_proto)
+    return feature_views
+
+
+@registry_proto_cache_with_tags
+def list_feature_services_proto(
+    registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
+) -> FeatureServiceProtoList:
+    feature_services = FeatureServiceProtoList()
+    for feature_service_proto in registry_proto.feature_services:
+        if feature_service_proto.spec.project == project and utils.has_all_tags(
+            feature_service_proto.spec.tags, tags
+        ):
+            feature_services.featureservices.append(feature_service_proto)
+    return feature_services
+
+
+@registry_proto_cache_with_tags
+def list_on_demand_feature_views_proto(
+    registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
+) -> OnDemandFeatureViewProtoList:
+    on_demand_feature_views = OnDemandFeatureViewProtoList()
+    for on_demand_feature_view in registry_proto.on_demand_feature_views:
+        if on_demand_feature_view.spec.project == project and utils.has_all_tags(
+            on_demand_feature_view.spec.tags, tags
+        ):
+            on_demand_feature_views.ondemandfeatureviews.append(on_demand_feature_view)
+    return on_demand_feature_views
+
+
+@registry_proto_cache_with_tags
+def list_entities_proto(
+    registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
+) -> EntityProtoList:
+    entities = EntityProtoList()
+    for entity_proto in registry_proto.entities:
+        if entity_proto.spec.project == project and utils.has_all_tags(
+            entity_proto.spec.tags, tags
+        ):
+            entities.entities.append(entity_proto)
+    return entities
+
+
+@registry_proto_cache_with_tags
+def list_data_sources_proto(
+    registry_proto: RegistryProto, project: str, tags: Optional[dict[str, str]]
+) -> DataSourceProtoList:
+    data_sources = DataSourceProtoList()
+    for data_source_proto in registry_proto.data_sources:
+        if data_source_proto.project == project and utils.has_all_tags(
+            data_source_proto.tags, tags
+        ):
+            data_sources.datasources.append(data_source_proto)
+    return data_sources
