@@ -77,6 +77,7 @@ class ElasticsearchOnlineStoreConfig(FeastConfigBaseModel):
     Table deletion is not currently supported in this mode.
     """
 
+
 class ElasticsearchConnectionManager:
     def __init__(self, online_config: RepoConfig):
         self.online_config = online_config
