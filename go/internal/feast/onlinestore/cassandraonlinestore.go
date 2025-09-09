@@ -449,6 +449,7 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 			if i == 0 || len(batch) != prevBatchLength {
 				cqlForBatch = c.getMultiKeyCQLStatement(tableName, currentFeatureNames, len(batch))
 				prevBatchLength = len(batch)
+				cqlStatement = cqlForBatch
 			} else {
 				cqlForBatch = cqlStatement
 			}
