@@ -411,11 +411,20 @@ func (c *CassandraOnlineStore) createBatches(serializedEntityKeys []any) [][]any
 	return batches
 }
 
+type BatchJob struct {
+	ViewName     string
+	TableName    string
+	FeatureNames []string
+	EntityKeys   []any
+	CQLStatement string
+}
+
 func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string) ([][]FeatureData, error) {
 	serializedEntityKeys, serializedEntityKeyToIndex, err := c.buildCassandraEntityKeys(entityKeys)
 	if err != nil {
 		return nil, fmt.Errorf("error when serializing entity keys for Cassandra: %v", err)
 	}
+
 	results := make([][]FeatureData, len(entityKeys))
 	for i := range results {
 		results[i] = make([]FeatureData, len(featureNames))
@@ -430,40 +439,66 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 	for i, viewName := range featureViewNames {
 		viewGroups[viewName] = append(viewGroups[viewName], featureNames[i])
 	}
+
 	g, ctx := errgroup.WithContext(ctx)
-	// Batch over featureView, execute each batch within separate goroutine.
-	// Results write to separate locations by virtue of the structure of the data.
-	// Each set of featureNames correspond to a unique featureView, i.e FV:FN, M:N, M <= N
-	for viewName, currentFeatureNames := range viewGroups {
-		var prevBatchLength int
-		var cqlStatement string
-		batches := c.createBatches(serializedEntityKeys)
+	jobsChan := make(chan QueryJob)
 
-		tableName, err := c.getFqTableName(c.clusterConfigs.Keyspace, c.project, viewName, c.tableNameFormatVersion)
-		if err != nil {
-			return nil, err
-		}
+	g.Go(func() error {
+		defer close(jobsChan)
 
-		for i, batch := range batches {
-			var cqlForBatch string
-			if i == 0 || len(batch) != prevBatchLength {
-				cqlForBatch = c.getMultiKeyCQLStatement(tableName, currentFeatureNames, len(batch))
-				prevBatchLength = len(batch)
-				cqlStatement = cqlForBatch
-			} else {
-				cqlForBatch = cqlStatement
+		for viewName, currentFeatureNames := range viewGroups {
+			tableName, err := c.getFqTableName(c.clusterConfigs.Keyspace, c.project, viewName, c.tableNameFormatVersion)
+			if err != nil {
+				return err
 			}
-			// remove from closure
-			batchCopy := batch
-			g.Go(func(viewName, tableName string, featureNames []string, batch []any, cqlStmt string, batchIdx int) func() error {
-				return func() error {
-					err := c.executeBatch(ctx, viewName, cqlStmt, featureNames, batch, serializedEntityKeyToIndex, results, featureNamesToIdx)
-					return err
+
+			var prevBatchLength int
+			var cqlStatement string
+			batches := c.createBatches(serializedEntityKeys)
+
+			for i, batch := range batches {
+				var cqlForBatch string
+				if i == 0 || len(batch) != prevBatchLength {
+					cqlForBatch = c.getMultiKeyCQLStatement(tableName, currentFeatureNames, len(batch))
+					prevBatchLength = len(batch)
+					cqlStatement = cqlForBatch
+					cqlStatement = cqlForBatch
+				} else {
+					cqlForBatch = cqlStatement
 				}
-			}(viewName, tableName, currentFeatureNames, batchCopy, cqlForBatch, i))
+
+				job := BatchJob{
+					ViewName:     viewName,
+					TableName:    tableName,
+					FeatureNames: currentFeatureNames,
+					EntityKeys:   batch,
+					CQLStatement: cqlForBatch,
+				}
+
+				select {
+				case jobsChan <- job:
+					// Job sent successfully
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
 		}
-	}
-	// This will fail-fast in the event that a single goroutine fails.
+		return nil
+	})
+
+	// Add max concurrency here in the future.
+	g.Go(func() error {
+		for job := range jobsChan {
+			g.Go(func(j BatchJob) func() error {
+				return func() error {
+					return c.executeBatch(ctx, j.ViewName, j.CQLStatement, j.FeatureNames,
+						j.EntityKeys, serializedEntityKeyToIndex, results, featureNamesToIdx)
+				}
+			}(job))
+		}
+		return nil
+	})
+
 	if err := g.Wait(); err != nil {
 		return nil, err
 	}
