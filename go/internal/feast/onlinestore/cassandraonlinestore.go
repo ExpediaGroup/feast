@@ -441,7 +441,7 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
-	jobsChan := make(chan QueryJob)
+	jobsChan := make(chan BatchJob)
 
 	g.Go(func() error {
 		defer close(jobsChan)
