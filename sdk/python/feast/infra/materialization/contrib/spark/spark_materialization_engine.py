@@ -271,8 +271,8 @@ def _map_by_partition(
     feature_view, online_store, repo_config = spark_serialized_artifacts.unserialize()
 
     if hasattr(repo_config.batch_engine, 'suppress_warnings') and repo_config.batch_engine.suppress_warnings:
-        import warnings
         import os
+        import warnings
 
         os.environ['PYTHONWARNINGS'] = 'ignore::DeprecationWarning'
         warnings.filterwarnings("ignore", category=DeprecationWarning)
