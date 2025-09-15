@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"os"
 	"strings"
-
+  
 	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/types"
 
 	"golang.org/x/sync/errgroup"
-
+	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/apache/arrow/go/v17/arrow/memory"
-	"gopkg.in/DataDog/dd-trace-go.v1/ddtrace/tracer"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
