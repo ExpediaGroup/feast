@@ -443,6 +443,8 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 	g, ctx := errgroup.WithContext(ctx)
 	jobsChan := make(chan BatchJob)
 
+	batches := c.createBatches(serializedEntityKeys)
+
 	g.Go(func() error {
 		defer close(jobsChan)
 
@@ -454,14 +456,12 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 
 			var prevBatchLength int
 			var cqlStatement string
-			batches := c.createBatches(serializedEntityKeys)
 
 			for i, batch := range batches {
 				var cqlForBatch string
 				if i == 0 || len(batch) != prevBatchLength {
 					cqlForBatch = c.getMultiKeyCQLStatement(tableName, currentFeatureNames, len(batch))
 					prevBatchLength = len(batch)
-					cqlStatement = cqlForBatch
 					cqlStatement = cqlForBatch
 				} else {
 					cqlForBatch = cqlStatement
@@ -486,18 +486,13 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 		return nil
 	})
 
-	// Add max concurrency here in the future.
-	g.Go(func() error {
-		for job := range jobsChan {
-			g.Go(func(j BatchJob) func() error {
-				return func() error {
-					return c.executeBatch(ctx, j.ViewName, j.CQLStatement, j.FeatureNames,
-						j.EntityKeys, serializedEntityKeyToIndex, results, featureNamesToIdx)
-				}
-			}(job))
-		}
-		return nil
-	})
+	for job := range jobsChan {
+		g.Go(func(j BatchJob) func() error {
+			return func() error {
+				return c.executeBatch(ctx, j, serializedEntityKeyToIndex, results, featureNamesToIdx)
+			}
+		}(job))
+	}
 
 	if err := g.Wait(); err != nil {
 		return nil, err
@@ -508,15 +503,12 @@ func (c *CassandraOnlineStore) OnlineRead(ctx context.Context, entityKeys []*typ
 
 func (c *CassandraOnlineStore) executeBatch(
 	ctx context.Context,
-	featureViewName string,
-	statement string,
-	featureNames []string,
-	keyBatch []any,
+	job BatchJob,
 	serializedEntityKeyToIndex map[string]int,
 	results [][]FeatureData,
 	featureNamesToIdx map[string]int,
 ) error {
-	iter := c.session.Query(statement, keyBatch...).WithContext(ctx).Iter()
+	iter := c.session.Query(job.CQLStatement, job.EntityKeys...).WithContext(ctx).Iter()
 	defer iter.Close()
 
 	scanner := iter.Scanner()
@@ -543,7 +535,7 @@ func (c *CassandraOnlineStore) executeBatch(
 			}
 			batchFeatures[entityKey][featureName] = &FeatureData{
 				Reference: serving.FeatureReferenceV2{
-					FeatureViewName: featureViewName,
+					FeatureViewName: job.ViewName,
 					FeatureName:     featureName,
 				},
 				Timestamp: timestamppb.Timestamp{Seconds: eventTs.Unix(), Nanos: int32(eventTs.Nanosecond())},
@@ -558,8 +550,8 @@ func (c *CassandraOnlineStore) executeBatch(
 		return fmt.Errorf("failed to scan features: %w", err)
 	}
 
-	for _, serializedEntityKey := range keyBatch {
-		for _, featName := range featureNames {
+	for _, serializedEntityKey := range job.EntityKeys {
+		for _, featName := range job.FeatureNames {
 			keyString := serializedEntityKey.(string)
 
 			if featureData, exists := batchFeatures[keyString][featName]; exists {
@@ -577,7 +569,7 @@ func (c *CassandraOnlineStore) executeBatch(
 				// TODO: return not found status to differentiate between nulls and not found features
 				results[serializedEntityKeyToIndex[keyString]][featureNamesToIdx[featName]] = FeatureData{
 					Reference: serving.FeatureReferenceV2{
-						FeatureViewName: featureViewName,
+						FeatureViewName: job.ViewName,
 						FeatureName:     featName,
 					},
 					Value: types.Value{
