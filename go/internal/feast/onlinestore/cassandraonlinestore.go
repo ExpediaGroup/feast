@@ -402,10 +402,7 @@ func (c *CassandraOnlineStore) createBatches(serializedEntityKeys []any) [][]any
 	for i := 0; i < nBatches; i++ {
 		thisBatchSize := int(math.Min(float64(batchSize), float64(nKeys-nAssigned)))
 		nAssigned += thisBatchSize
-		batches[i] = make([]any, thisBatchSize)
-		for j := 0; j < thisBatchSize; j++ {
-			batches[i][j] = serializedEntityKeys[i*batchSize+j]
-		}
+		batches[i] = serializedEntityKeys[i*batchSize : (i)*batchSize+thisBatchSize]
 	}
 
 	return batches
