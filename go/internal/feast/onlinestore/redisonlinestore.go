@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"os"
 	"strconv"
@@ -186,7 +187,7 @@ func (r *RedisOnlineStore) buildFeatureViewIndices(featureViewNames []string, fe
 	return featureViewIndices, indicesFeatureView, index
 }
 
-func (r *RedisOnlineStore) buildHsetKeys(featureViewNames []string, featureNames []string, indicesFeatureView map[int]string, index int) ([]string, []string) {
+func (r *RedisOnlineStore) buildRedisHashSetKeys(featureViewNames []string, featureNames []string, indicesFeatureView map[int]string, index int) ([]string, []string) {
 	featureCount := len(featureNames)
 	var hsetKeys = make([]string, index)
 	h := murmur3.New32()
@@ -229,7 +230,7 @@ func (r *RedisOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.E
 
 	featureCount := len(featureNames)
 	featureViewIndices, indicesFeatureView, index := r.buildFeatureViewIndices(featureViewNames, featureNames)
-	hsetKeys, featureNamesWithTimeStamps := r.buildHsetKeys(featureViewNames, featureNames, indicesFeatureView, index)
+	hsetKeys, featureNamesWithTimeStamps := r.buildRedisHashSetKeys(featureViewNames, featureNames, indicesFeatureView, index)
 	redisKeys, redisKeyToEntityIndex, err := r.buildRedisKeys(entityKeys)
 	if err != nil {
 		return nil, err
@@ -355,4 +356,27 @@ func buildRedisKey(project string, entityKey *types.EntityKey, entityKeySerializ
 	}
 	fullKey := append(*serKey, []byte(project)...)
 	return &fullKey, nil
+}
+
+func serializeValue(value interface{}, entityKeySerializationVersion int64) (*[]byte, types.ValueType_Enum, error) {
+	// TODO: Implement support for other types (at least the major types like ints, strings, bytes)
+	switch x := (value).(type) {
+	case *types.Value_StringVal:
+		valueString := []byte(x.StringVal)
+		return &valueString, types.ValueType_STRING, nil
+	case *types.Value_BytesVal:
+		return &x.BytesVal, types.ValueType_BYTES, nil
+	case *types.Value_Int32Val:
+		valueBuffer := make([]byte, 4)
+		binary.LittleEndian.PutUint32(valueBuffer, uint32(x.Int32Val))
+		return &valueBuffer, types.ValueType_INT32, nil
+	case *types.Value_Int64Val:
+		valueBuffer := make([]byte, 8)
+		binary.LittleEndian.PutUint64(valueBuffer, uint64(x.Int64Val))
+		return &valueBuffer, types.ValueType_INT64, nil
+	case nil:
+		return nil, types.ValueType_INVALID, fmt.Errorf("could not detect type for %v", x)
+	default:
+		return nil, types.ValueType_INVALID, fmt.Errorf("could not detect type for %v", x)
+	}
 }

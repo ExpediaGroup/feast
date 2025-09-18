@@ -26,6 +26,7 @@ from .repo_config import RepoConfig
 from .sorted_feature_view import SortedFeatureView
 from .stream_feature_view import StreamFeatureView
 from .value_type import ValueType
+from .vector_store import FeastVectorStore
 
 try:
     __version__ = _version("feast")
@@ -57,4 +58,5 @@ __all__ = [
     "AthenaSource",
     "SparkSource",
     "Project",
+    "FeastVectorStore",
 ]

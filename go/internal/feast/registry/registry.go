@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"fmt"
 	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"net/url"
 	"reflect"
@@ -285,7 +284,7 @@ func (r *Registry) GetFeatureView(project string, featureViewName string) (*mode
 		return cachedFeatureView, nil
 	}
 
-	return nil, fmt.Errorf("no cached feature view %s found for project %s", featureViewName, project)
+	return nil, errors.GrpcNotFoundErrorf("no cached feature view %s found for project %s", featureViewName, project)
 }
 
 func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project string) (*model.FeatureView, error) {
@@ -351,7 +350,7 @@ func (r *Registry) GetOnDemandFeatureView(project string, onDemandFeatureViewNam
 		return cachedOnDemandFeatureView, nil
 	}
 
-	return nil, fmt.Errorf("no cached on demand feature view %s found for project %s", onDemandFeatureViewName, project)
+	return nil, errors.GrpcNotFoundErrorf("no cached on demand feature view %s found for project %s", onDemandFeatureViewName, project)
 }
 
 func (r *Registry) GetOnDemandFeatureViewFromRegistry(onDemandFeatureViewName string, project string) (*model.OnDemandFeatureView, error) {
@@ -381,6 +380,8 @@ func getRegistryStoreFromType(registryStoreType string, registryConfig *Registry
 		return NewFileRegistryStore(registryConfig, repoPath), nil
 	case "HttpRegistryStore":
 		return NewHttpRegistryStore(registryConfig, project)
+	case "S3RegistryStore":
+		return NewS3RegistryStore(registryConfig, repoPath), nil
 	}
 	return nil, errors.GrpcInternalErrorf("only FileRegistryStore or HttpRegistryStore as a RegistryStore is supported at this moment")
 }

@@ -4,17 +4,19 @@
 # More info: https://book.kubebuilder.io/reference/project-config.html
 domain: feast.dev
 layout:
-- helm.sdk.operatorframework.io/v1
+- go.kubebuilder.io/v4
 plugins:
   manifests.sdk.operatorframework.io/v2: {}
   scorecard.sdk.operatorframework.io/v2: {}
 projectName: feast-operator
+repo: github.com/feast-dev/feast/infra/feast-operator
 resources:
 - api:
     crdVersion: v1
     namespaced: true
+  controller: true
   domain: feast.dev
-  group: charts
-  kind: FeastFeatureServer
+  kind: FeatureStore
+  path: github.com/feast-dev/feast/infra/feast-operator/api/v1alpha1
   version: v1alpha1
 version: "3"

@@ -1,39 +1,163 @@
-# Feast Feature Server Helm-based Operator
+# Feast Operator
+This is a K8s Operator that can be used to deploy and manage **Feast**, an open source feature store for machine learning.
 
-This Operator was built with the [operator-sdk](https://github.com/operator-framework/operator-sdk) and leverages the [feast-feature-server helm chart](/infra/charts/feast-feature-server).
+### **[FeatureStore CR API Reference](docs/api/markdown/ref.md)**
 
-## Installation
+## Getting Started
 
-1. __Install [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)__
-2. __Install the Operator on a Kubernetes cluster__
+### Prerequisites
+- go version v1.22
+- docker version 17.03+.
+- kubectl version v1.11.3+.
+- Access to a Kubernetes v1.11.3+ cluster.
 
-```bash
+## To deploy an Operator release on a cluster
+
+Users can just run `kubectl apply -f <URL for YAML BUNDLE>` to install the project, i.e.:
+
+```sh
+## Install the latest release -
+kubectl apply -f https://raw.githubusercontent.com/feast-dev/feast/refs/heads/stable/infra/feast-operator/dist/install.yaml
+
+## OR, install a specific version -
+# kubectl apply -f https://raw.githubusercontent.com/feast-dev/feast/refs/tags/<version>/infra/feast-operator/dist/install.yaml
+```
+##### Feast Operator Demo Videos
+[![](https://img.youtube.com/vi/48cb4AHxPR4/0.jpg)](https://www.youtube.com/playlist?list=PLPzVNzik7rsAN-amQLZckd0so3cIr7blX)
+
+### To deploy local changes on a cluster
+**Install the CRDs into the cluster:**
+
+```sh
+make install
+```
+
+**Deploy the Manager to the cluster:**
+
+```sh
 make deploy
 ```
 
-3. __Install a Feast Feature Server on Kubernetes__
+> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
+privileges or be logged in as admin.
 
-A base64 encoded version of the `feature_store.yaml` file is required. FeastFeatureServer CR install example:
-```bash
-cat <<EOF | kubectl create -f -
-apiVersion: charts.feast.dev/v1alpha1
-kind: FeastFeatureServer
-metadata:
-  name: example
-spec:
-  feature_store_yaml_base64: $(cat feature_store.yaml | base64 | tr -d '\n\r')
-EOF
-```
-Ensure it was successfully created on the cluster and that the `feature_store_yaml_base64` field was properly set. The following command should return output which is identical to your `feature_store.yaml`:
-```bash
-kubectl get feastfeatureserver example -o jsonpath={.spec.feature_store_yaml_base64} | base64 -d
-```
-Watch as the operator creates a running feast feature server:
-```bash
-kubectl get all
-kubectl logs deploy/example-feast-feature-server
+**Create instances of your solution**
+You can apply the samples (examples) from the config/sample:
+
+```sh
+kubectl apply -k config/samples/
 ```
 
-The `FeastFeatureServer.spec` allows one to configure the [same parameters](https://github.com/feast-dev/feast/tree/master/infra/charts/feast-feature-server#values) as the feast-feature-server helm chart. An example of this can be seen with the included sample [FeastFeatureServer](config/samples/charts_v1alpha1_feastfeatureserver.yaml).
+>**NOTE**: Ensure that the samples has default values to test it out.
 
-> To install the aforementioned sample FeastFeatureServer, run this command - `kubectl create -f config/samples/charts_v1alpha1_feastfeatureserver.yaml`
+### To Uninstall
+**Delete the instances (CRs) from the cluster:**
+
+```sh
+kubectl delete -k config/samples/
+```
+
+**Delete the APIs(CRDs) from the cluster:**
+
+```sh
+make uninstall
+```
+
+**UnDeploy the controller from the cluster:**
+
+```sh
+make undeploy
+```
+
+## Project Distribution
+
+Following are the steps to build the installer and distribute this project to users.
+
+Build the installer for the image built and published in the registry:
+
+```sh
+make build-installer
+```
+
+NOTE: The makefile target mentioned above generates an 'install.yaml'
+file in the dist directory. This file contains all the resources built
+with Kustomize, which are necessary to install this project without
+its dependencies.
+
+## Contributing
+Additional Feast contrib information can be found on the project's [README](https://github.com/feast-dev/feast?tab=readme-ov-file#-contributing).
+
+**Before submitting a PR, the following command should run to a successful completion:**
+
+```sh
+make test
+```
+
+**Build and push your image to the location specified by `IMG`:**
+
+```sh
+make docker-build docker-push IMG=<some-registry>/feast-operator:<some-tag>
+```
+
+**NOTE:** This image ought to be published in the personal registry you specified.
+And it is required to have access to pull the image from the working environment.
+Make sure you have the proper permission to the registry if the above commands don’t work.
+
+**Install the CRDs into the cluster:**
+
+```sh
+make install
+```
+
+**Deploy the Manager to the cluster with the image specified by `IMG`:**
+
+```sh
+make deploy IMG=<some-registry>/feast-operator:<some-tag>
+```
+
+### Prerequisites
+- go version v1.22
+- operator-sdk version v1.38.0
+
+**NOTE:** Run `make help` for more information on all potential `make` targets
+
+More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+
+## License
+
+Copyright 2024 Feast Community.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+
+
+## Running End-to-End integration tests on local(dev) environment
+You need a kind cluster to run the e2e tests on local(dev) environment.
+
+```shell
+# Default kind cluster configuration is not enough to run all the pods. In my case i was using docker with colima. kind uses the cpi and memory assigned to docker.
+# below memory configuration worked well but if you are using other docker runtime then please increase the cpu and memory.
+colima start --cpu 10 --memory 15 --disk 100
+
+# create the kind cluster
+kind create cluster
+
+# set kubernetes context to the recently created kind cluster
+kubectl cluster-info --context kind-kind
+
+# run the command from operator directory to run e2e tests.
+make test-e2e
+
+# delete cluster once you are done.
+kind delete cluster
+```

@@ -1,4 +1,5 @@
 import struct
+from datetime import datetime, timezone
 from typing import Any, List
 
 import mmh3
@@ -22,7 +23,7 @@ def get_online_store_from_config(online_store_config: Any) -> OnlineStore:
 
 
 def _redis_key(
-    project: str, entity_key: EntityKeyProto, entity_key_serialization_version=1
+    project: str, entity_key: EntityKeyProto, entity_key_serialization_version=3
 ) -> bytes:
     key: List[bytes] = [
         serialize_entity_key(
@@ -49,7 +50,7 @@ def _mmh3(key: str):
 
 
 def compute_entity_id(
-    entity_key: EntityKeyProto, entity_key_serialization_version=1
+    entity_key: EntityKeyProto, entity_key_serialization_version=3
 ) -> str:
     """
     Compute Entity id given Feast Entity Key for online stores.
@@ -62,3 +63,10 @@ def compute_entity_id(
             entity_key_serialization_version=entity_key_serialization_version,
         )
     ).hex()
+
+
+def _to_naive_utc(ts: datetime) -> datetime:
+    if ts.tzinfo is None:
+        return ts
+    else:
+        return ts.astimezone(tz=timezone.utc).replace(tzinfo=None)

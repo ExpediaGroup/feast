@@ -6,7 +6,7 @@ This project was bootstrapped with [Create React App](https://github.com/faceboo
 
 ## Usage
 
-There are three modes of usage: 
+There are three modes of usage:
 - via the `feast ui` CLI to view the current feature repository
 - importing the UI as a module
 - running the entire build as a React app.
@@ -21,11 +21,14 @@ Start with bootstrapping a React app with `create-react-app`
 npx create-react-app your-feast-ui
 ```
 
-Then, in your app folder, install Feast UI and its peer dependencies. Assuming you use yarn
+Then, in your app folder, install Feast UI and optionally its peer dependencies. Assuming you use yarn
 
 ```
 yarn add @feast-dev/feast-ui
-yarn add @elastic/eui @elastic/datemath @emotion/react moment prop-types inter-ui react-query react-router-dom use-query-params zod typescript query-string d3 @types/d3
+# For custom UI using the Elastic UI Framework (optional):
+yarn add @elastic/eui
+# For general custom styling (optional):
+yarn add @emotion/react
 ```
 
 Edit `index.js` in the React app to use Feast UI.
@@ -46,7 +49,7 @@ ReactDOM.render(
 );
 ```
 
-When you start the React app, it will look for `projects-list.json` to find a list of your projects. The JSON should looks something like this.
+When you start the React app, it will look for `projects-list.json` to find a list of your projects. The JSON should look something like this.
 
 ```json
 {
@@ -74,7 +77,7 @@ The advantage of importing Feast UI as a module is in the ease of customization.
 
 ##### Fetching the Project List
 
-You can use `projectListPromise` to provide a promise that overrides where the Feast UI fetches the project list from.
+By default, the Feast UI fetches the project list from the app root path. You can use `projectListPromise` to provide a promise that overrides where it's fetched from.
 
 ```jsx
 <FeastUI
@@ -94,7 +97,7 @@ You can use `projectListPromise` to provide a promise that overrides where the F
 
 You can add custom tabs for any of the core Feast objects through the `tabsRegistry`.
 
-```
+```jsx
 const tabsRegistry = {
   RegularFeatureViewCustomTabs: [
     {
@@ -114,8 +117,17 @@ const tabsRegistry = {
 
 Examples of custom tabs can be found in the `/custom-tabs` folder.
 
-## On React and Create React App
+## Development
+
+### On React and Create React App
 
 This project was bootstrapped with Create React App, and uses its scripts to simplify UI development. You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
 
 To learn React, check out the [React documentation](https://reactjs.org/).
+
+### Code Formatting
+
+The code is formatted using [Prettier](https://prettier.io/). IDEs typically have Prettier addons or extensions that you can use for formatting, but you can also run:
+
+- `yarn format` to format all files
+- `yarn format:check` to check if files are formatted correctly without modifying them (used in GitHub Actions checks)

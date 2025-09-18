@@ -19,9 +19,6 @@ from feast.infra.contrib.stream_processor import (
     StreamProcessor,
     StreamTable,
 )
-from feast.infra.materialization.contrib.spark.spark_materialization_engine import (
-    _SparkSerializedArtifacts,
-)
 from feast.infra.provider import get_provider
 from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
@@ -107,9 +104,6 @@ class SparkKafkaProcessor(StreamProcessor):
             else "/tmp/checkpoint/"
         )
         self.join_keys = [fs.get_entity(entity).join_key for entity in sfv.entities]
-        self.spark_serialized_artifacts = _SparkSerializedArtifacts.serialize(
-            feature_view=sfv, repo_config=fs.config
-        )
         super().__init__(fs=fs, sfv=sfv, data_source=sfv.stream_source)
 
         # Type hinting for data_source type.

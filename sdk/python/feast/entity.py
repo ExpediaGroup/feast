@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import warnings
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -79,6 +80,13 @@ class Entity:
             ValueError: Parameters are specified incorrectly.
         """
         self.name = name
+        if value_type is None:
+            warnings.warn(
+                "Entity value_type will be mandatory in the next release. "
+                "Please specify a value_type for entity '%s'." % name,
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self.value_type = value_type or ValueType.UNKNOWN
 
         if join_keys and len(join_keys) > 1:
@@ -98,6 +106,20 @@ class Entity:
         self.owner = owner
         self.created_timestamp = None
         self.last_updated_timestamp = None
+
+    def __repr__(self):
+        return (
+            f"Entity(\n"
+            f"    name={self.name!r},\n"
+            f"    value_type={self.value_type!r},\n"
+            f"    join_key={self.join_key!r},\n"
+            f"    description={self.description!r},\n"
+            f"    tags={self.tags!r},\n"
+            f"    owner={self.owner!r},\n"
+            f"    created_timestamp={self.created_timestamp!r},\n"
+            f"    last_updated_timestamp={self.last_updated_timestamp!r}\n"
+            f")"
+        )
 
     def __hash__(self) -> int:
         return hash((self.name, self.join_key))
@@ -151,12 +173,11 @@ class Entity:
         entity = cls(
             name=entity_proto.spec.name,
             join_keys=[entity_proto.spec.join_key],
+            value_type=ValueType(entity_proto.spec.value_type),
             description=entity_proto.spec.description,
             tags=dict(entity_proto.spec.tags),
             owner=entity_proto.spec.owner,
         )
-
-        entity.value_type = ValueType(entity_proto.spec.value_type)
 
         if entity_proto.meta.HasField("created_timestamp"):
             entity.created_timestamp = entity_proto.meta.created_timestamp.ToDatetime()

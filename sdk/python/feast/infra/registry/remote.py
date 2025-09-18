@@ -1,6 +1,9 @@
+import json
+import os
+import weakref
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -15,7 +18,6 @@ from feast.feature_view import FeatureView
 from feast.infra.infra_object import Infra
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.on_demand_feature_view import OnDemandFeatureView
-from feast.permissions.auth.auth_type import AuthType
 from feast.permissions.auth_model import AuthConfig, NoAuthConfig
 from feast.permissions.client.grpc_client_auth_interceptor import (
     GrpcClientAuthHeaderInterceptor,
@@ -61,6 +63,16 @@ class RemoteRegistryConfig(RegistryConfig):
     """ str: Path to metadata store.
     If registry_type is 'remote', then this is a URL for registry server """
 
+    cert: StrictStr = ""
+    """ str: Path to the public certificate when the registry server starts in TLS(SSL) mode. This may be needed if the registry server started with a self-signed certificate, typically this file ends with `*.crt`, `*.cer`, or `*.pem`.
+    If registry_type is 'remote', then this configuration is needed to connect to remote registry server in TLS mode. If the remote registry started in non-tls mode then this configuration is not needed."""
+
+    is_tls: bool = False
+    """     bool: Set to `True` if you plan to connect to a registry server running in TLS (SSL) mode.
+    If you intend to add the public certificate to the trust store instead of passing it via the `cert` parameter, this field must be set to `True`.
+    If you are planning to add the public certificate as part of the trust store instead of passing it as a `cert` parameters then setting this field to `true` is mandatory.
+    """
+
 
 class RemoteRegistry(BaseRegistry):
     def __init__(
@@ -71,18 +83,37 @@ class RemoteRegistry(BaseRegistry):
         auth_config: AuthConfig = NoAuthConfig(),
     ):
         self.auth_config = auth_config
-        self.channel = grpc.insecure_channel(registry_config.path)
-        if self.auth_config.type != AuthType.NONE.value:
-            auth_header_interceptor = GrpcClientAuthHeaderInterceptor(auth_config)
-            self.channel = grpc.intercept_channel(self.channel, auth_header_interceptor)
+        assert isinstance(registry_config, RemoteRegistryConfig)
+        self.channel = self._create_grpc_channel(registry_config)
+        weakref.finalize(self, self.channel.close)
+
+        auth_header_interceptor = GrpcClientAuthHeaderInterceptor(auth_config)
+        self.channel = grpc.intercept_channel(self.channel, auth_header_interceptor)
         self.stub = RegistryServer_pb2_grpc.RegistryServerStub(self.channel)
+
+    def _create_grpc_channel(self, registry_config):
+        assert isinstance(registry_config, RemoteRegistryConfig)
+        if registry_config.cert or registry_config.is_tls:
+            cafile = os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE")
+            if not cafile and not registry_config.cert:
+                raise EnvironmentError(
+                    "SSL_CERT_FILE or REQUESTS_CA_BUNDLE environment variable must be set to use secure TLS or set the cert parameter in feature_Store.yaml file under remote registry configuration."
+                )
+            with open(
+                registry_config.cert if registry_config.cert else cafile, "rb"
+            ) as cert_file:
+                trusted_certs = cert_file.read()
+            tls_credentials = grpc.ssl_channel_credentials(
+                root_certificates=trusted_certs
+            )
+            return grpc.secure_channel(registry_config.path, tls_credentials)
+        else:
+            # Create an insecure gRPC channel
+            return grpc.insecure_channel(registry_config.path)
 
     def close(self):
         if self.channel:
             self.channel.close()
-
-    def __del__(self):
-        self.close()
 
     def apply_entity(self, entity: Entity, project: str, commit: bool = True):
         request = RegistryServer_pb2.ApplyEntityRequest(
@@ -359,7 +390,7 @@ class RemoteRegistry(BaseRegistry):
 
     def apply_materialization(
         self,
-        feature_view: FeatureView,
+        feature_view: Union[FeatureView, OnDemandFeatureView],
         project: str,
         start_date: datetime,
         end_date: datetime,
@@ -583,6 +614,20 @@ class RemoteRegistry(BaseRegistry):
         response = self.stub.ListProjects(request)
         return [Project.from_proto(project) for project in response.projects]
 
+    def get_project_metadata(self, project: str, key: str) -> Optional[str]:
+        request = RegistryServer_pb2.ListProjectMetadataRequest(project=project)
+        response = self.stub.ListProjectMetadata(request)
+        for pm in response.project_metadata:
+            if hasattr(pm, "custom_metadata") and key in pm.custom_metadata:
+                return pm.custom_metadata[key]
+            try:
+                meta = json.loads(pm.project_uuid) if pm.project_uuid else {}
+            except Exception:
+                meta = {}
+            if isinstance(meta, dict) and key in meta:
+                return meta[key]
+        return None
+
     def proto(self) -> RegistryProto:
         return self.stub.Proto(Empty())
 
@@ -592,6 +637,98 @@ class RemoteRegistry(BaseRegistry):
     def refresh(self, project: Optional[str] = None):
         request = RegistryServer_pb2.RefreshRequest(project=str(project))
         self.stub.Refresh(request)
+
+    # Lineage operations
+    def get_registry_lineage(
+        self,
+        project: str,
+        allow_cache: bool = False,
+        filter_object_type: Optional[str] = None,
+        filter_object_name: Optional[str] = None,
+    ) -> tuple[List[Any], List[Any]]:
+        """Get complete registry lineage via remote registry server."""
+        request = RegistryServer_pb2.GetRegistryLineageRequest(
+            project=project,
+            allow_cache=allow_cache,
+            filter_object_type=filter_object_type or "",
+            filter_object_name=filter_object_name or "",
+        )
+        response = self.stub.GetRegistryLineage(request)
+
+        # Convert protobuf responses back to lineage objects
+        from feast.lineage.registry_lineage import (
+            EntityReference,
+            EntityRelation,
+            FeastObjectType,
+        )
+
+        relationships = []
+        for rel_proto in response.relationships:
+            relationships.append(
+                EntityRelation(
+                    source=EntityReference(
+                        FeastObjectType(rel_proto.source.type), rel_proto.source.name
+                    ),
+                    target=EntityReference(
+                        FeastObjectType(rel_proto.target.type), rel_proto.target.name
+                    ),
+                )
+            )
+
+        indirect_relationships = []
+        for rel_proto in response.indirect_relationships:
+            indirect_relationships.append(
+                EntityRelation(
+                    source=EntityReference(
+                        FeastObjectType(rel_proto.source.type), rel_proto.source.name
+                    ),
+                    target=EntityReference(
+                        FeastObjectType(rel_proto.target.type), rel_proto.target.name
+                    ),
+                )
+            )
+
+        return relationships, indirect_relationships
+
+    def get_object_relationships(
+        self,
+        project: str,
+        object_type: str,
+        object_name: str,
+        include_indirect: bool = False,
+        allow_cache: bool = False,
+    ) -> List[Any]:
+        """Get relationships for a specific object via remote registry server."""
+        request = RegistryServer_pb2.GetObjectRelationshipsRequest(
+            project=project,
+            object_type=object_type,
+            object_name=object_name,
+            include_indirect=include_indirect,
+            allow_cache=allow_cache,
+        )
+        response = self.stub.GetObjectRelationships(request)
+
+        # Convert protobuf responses back to lineage objects
+        from feast.lineage.registry_lineage import (
+            EntityReference,
+            EntityRelation,
+            FeastObjectType,
+        )
+
+        relationships = []
+        for rel_proto in response.relationships:
+            relationships.append(
+                EntityRelation(
+                    source=EntityReference(
+                        FeastObjectType(rel_proto.source.type), rel_proto.source.name
+                    ),
+                    target=EntityReference(
+                        FeastObjectType(rel_proto.target.type), rel_proto.target.name
+                    ),
+                )
+            )
+
+        return relationships
 
     def teardown(self):
         pass

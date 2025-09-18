@@ -1,9 +1,7 @@
 import React, { useContext } from "react";
 
 import {
-  EuiPageHeader,
-  EuiPageContent,
-  EuiPageContentBody,
+  EuiPageTemplate,
   EuiLoadingSpinner,
   EuiSpacer,
   EuiTitle,
@@ -12,7 +10,7 @@ import {
   EuiFlexItem,
 } from "@elastic/eui";
 
-import { FeatureViewIcon32 } from "../../graphics/FeatureViewIcon";
+import { FeatureViewIcon } from "../../graphics/FeatureViewIcon";
 
 import useLoadRegistry from "../../queries/useLoadRegistry";
 import FeatureViewListingTable from "./FeatureViewListingTable";
@@ -27,6 +25,7 @@ import RegistryPathContext from "../../contexts/RegistryPathContext";
 import FeatureViewIndexEmptyState from "./FeatureViewIndexEmptyState";
 import { useFeatureViewTagsAggregation } from "../../hooks/useTagsAggregation";
 import TagSearch from "../../components/TagSearch";
+import ExportButton from "../../components/ExportButton";
 
 const useLoadFeatureViews = () => {
   const registryUrl = useContext(RegistryPathContext);
@@ -45,7 +44,7 @@ const useLoadFeatureViews = () => {
 
 const shouldIncludeFVsGivenTokenGroups = (
   entry: regularFVInterface,
-  tagTokenGroups: Record<string, string[]>
+  tagTokenGroups: Record<string, string[]>,
 ) => {
   return Object.entries(tagTokenGroups).every(([key, values]) => {
     const entryTagValue = entry?.object?.spec!.tags
@@ -70,7 +69,7 @@ const filterFn = (data: genericFVType[], filterInput: filterInputInterface) => {
       if (entry.type === "regular") {
         return shouldIncludeFVsGivenTokenGroups(
           entry,
-          filterInput.tagTokenGroups
+          filterInput.tagTokenGroups,
         );
       } else {
         return false; // ODFVs don't have tags yet
@@ -114,64 +113,63 @@ const Index = () => {
     : data;
 
   return (
-    <React.Fragment>
-      <EuiPageHeader
+    <EuiPageTemplate panelled>
+      <EuiPageTemplate.Header
         restrictWidth
-        iconType={FeatureViewIcon32}
+        iconType={FeatureViewIcon}
         pageTitle="Feature Views"
+        rightSideItems={[
+          <ExportButton
+            data={filterResult ?? []}
+            fileName="feature_views"
+            formats={["json"]}
+          />,
+        ]}
       />
-      <EuiPageContent
-        hasBorder={false}
-        hasShadow={false}
-        paddingSize="none"
-        color="transparent"
-        borderRadius="none"
-      >
-        <EuiPageContentBody>
-          {isLoading && (
-            <p>
-              <EuiLoadingSpinner size="m" /> Loading
-            </p>
-          )}
-          {isError && <p>We encountered an error while loading.</p>}
-          {isSuccess && data?.length === 0 && <FeatureViewIndexEmptyState />}
-          {isSuccess && data && data.length > 0 && filterResult && (
-            <React.Fragment>
-              <EuiFlexGroup>
-                <EuiFlexItem grow={2}>
-                  <EuiTitle size="xs">
-                    <h2>Search</h2>
-                  </EuiTitle>
-                  <EuiFieldSearch
-                    value={searchString}
-                    fullWidth={true}
-                    onChange={(e) => {
-                      setSearchString(e.target.value);
-                    }}
-                  />
-                </EuiFlexItem>
-                <EuiFlexItem grow={3}>
-                  <TagSearch
-                    currentTag={currentTag}
-                    tagsString={tagsString}
-                    setTagsString={setTagsString}
-                    acceptSuggestion={acceptSuggestion}
-                    tagSuggestions={tagSuggestions}
-                    suggestionMode={suggestionMode}
-                    setCursorPosition={setCursorPosition}
-                  />
-                </EuiFlexItem>
-              </EuiFlexGroup>
-              <EuiSpacer size="m" />
-              <FeatureViewListingTable
-                tagKeysSet={tagKeysSet}
-                featureViews={filterResult}
-              />
-            </React.Fragment>
-          )}
-        </EuiPageContentBody>
-      </EuiPageContent>
-    </React.Fragment>
+      <EuiPageTemplate.Section>
+        {isLoading && (
+          <p>
+            <EuiLoadingSpinner size="m" /> Loading
+          </p>
+        )}
+        {isError && <p>We encountered an error while loading.</p>}
+        {isSuccess && data?.length === 0 && <FeatureViewIndexEmptyState />}
+        {isSuccess && data && data.length > 0 && filterResult && (
+          <React.Fragment>
+            <EuiFlexGroup>
+              <EuiFlexItem grow={2}>
+                <EuiTitle size="xs">
+                  <h2>Search</h2>
+                </EuiTitle>
+                <EuiFieldSearch
+                  value={searchString}
+                  fullWidth={true}
+                  onChange={(e) => {
+                    setSearchString(e.target.value);
+                  }}
+                />
+              </EuiFlexItem>
+              <EuiFlexItem grow={3}>
+                <TagSearch
+                  currentTag={currentTag}
+                  tagsString={tagsString}
+                  setTagsString={setTagsString}
+                  acceptSuggestion={acceptSuggestion}
+                  tagSuggestions={tagSuggestions}
+                  suggestionMode={suggestionMode}
+                  setCursorPosition={setCursorPosition}
+                />
+              </EuiFlexItem>
+            </EuiFlexGroup>
+            <EuiSpacer size="m" />
+            <FeatureViewListingTable
+              tagKeysSet={tagKeysSet}
+              featureViews={filterResult}
+            />
+          </React.Fragment>
+        )}
+      </EuiPageTemplate.Section>
+    </EuiPageTemplate>
   );
 };
 

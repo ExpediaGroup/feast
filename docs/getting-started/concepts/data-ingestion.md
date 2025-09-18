@@ -16,13 +16,15 @@ Feast supports primarily **time-stamped** tabular data as data sources. There ar
 * **Stream data sources**: Feast does **not** have native streaming integrations. It does however facilitate making streaming features available in different environments. There are two kinds of sources:
   * **Push sources** allow users to push features into Feast, and make it available for training / batch scoring ("offline"), for realtime feature serving ("online") or both.
   * **\[Alpha] Stream sources** allow users to register metadata from Kafka or Kinesis sources. The onus is on the user to ingest from these sources, though Feast provides some limited helper methods to ingest directly from Kafka / Kinesis topics.
-* **(Experimental) Request data sources:** This is data that is only available at request time (e.g. from a user action that needs an immediate model prediction response). This is primarily relevant as an input into [**on-demand feature views**](../../../docs/reference/alpha-on-demand-feature-view.md), which allow light-weight feature engineering and combining features across sources.
+* **(Experimental) Request data sources:** This is data that is only available at request time (e.g. from a user action that needs an immediate model prediction response). This is primarily relevant as an input into [**on-demand feature views**](../../../docs/reference/beta-on-demand-feature-view.md), which allow light-weight feature engineering and combining features across sources.
 
 ## Batch data ingestion
 
 Ingesting from batch sources is only necessary to power real-time models. This is done through **materialization**. Under the hood, Feast manages an _offline store_ (to scalably generate training data from batch sources) and an _online store_ (to provide low-latency access to features for real-time models).
 
 A key command to use in Feast is the `materialize_incremental` command, which fetches the _latest_ values for all entities in the batch source and ingests these values into the online store.
+
+When working with On Demand Feature Views with `write_to_online_store=True`, you can also control whether transformations are applied during ingestion by using the `transform_on_write` parameter. Setting `transform_on_write=False` allows you to materialize pre-transformed features without reapplying transformations, which is particularly useful for large batch datasets that have already been processed.
 
 Materialization can be called programmatically or through the CLI:
 

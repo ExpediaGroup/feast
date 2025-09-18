@@ -371,7 +371,10 @@ else:
             marks=pytest.mark.xdist_group(name="mysql_registry"),
         ),
         lazy_fixture("sqlite_registry"),
-        lazy_fixture("mock_remote_registry"),
+        pytest.param(
+            lazy_fixture("mock_remote_registry"),
+            marks=pytest.mark.rbac_remote_integration_test,
+        ),
         pytest.param(
             lazy_fixture("mysql_fallback_registry"),
             marks=pytest.mark.xdist_group(name="mysql_fallback_registry"),
@@ -747,6 +750,57 @@ def test_apply_data_source(test_registry):
     assert registry_feature_view.batch_source == batch_source
     registry_batch_source = test_registry.list_data_sources(project)[0]
     assert registry_batch_source == batch_source
+
+    test_registry.teardown()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "test_registry",
+    all_fixtures,
+)
+def test_apply_data_source_with_timestamps(test_registry):
+    """Test that data source timestamps are properly stored and updated in registry."""
+    project = "project"
+    file_source = FileSource(
+        name="test_file_source",
+        file_format=ParquetFormat(),
+        path="file://feast/test.parquet",
+        timestamp_field="ts_col",
+        created_timestamp_column="timestamp",
+    )
+
+    # Apply the data source for the first time
+    test_registry.apply_data_source(file_source, project, commit=True)
+    retrieved_source = test_registry.get_data_source("test_file_source", project)
+
+    proto = retrieved_source.to_proto()
+    assert proto.HasField("meta")
+    assert proto.meta.HasField("created_timestamp")
+    assert proto.meta.HasField("last_updated_timestamp")
+
+    # Test that last_updated_timestamp changes when we update the data source
+    time.sleep(0.01)  # Ensure timestamp difference
+    original_created = retrieved_source.created_timestamp
+    original_updated = retrieved_source.last_updated_timestamp
+
+    # Modify the data source
+    retrieved_source.description = "Updated description for timestamp test"
+
+    # Apply the updated source - registry will automatically update last_updated_timestamp
+    test_registry.apply_data_source(retrieved_source, project, commit=True)
+
+    updated_source = test_registry.get_data_source("test_file_source", project)
+
+    # The created_timestamp should be preserved from the previous apply
+    assert updated_source.created_timestamp == original_created
+    assert updated_source.last_updated_timestamp != original_updated, (
+        f"updated_source.last_updated_timestamp: {updated_source.last_updated_timestamp}, original_updated: {original_updated}"
+    )
+    assert updated_source.last_updated_timestamp > original_updated, (
+        f"updated_source.last_updated_timestamp: {updated_source.last_updated_timestamp}, original_updated: {original_updated}"
+    )
+    assert updated_source.description == "Updated description for timestamp test"
 
     test_registry.teardown()
 
@@ -1516,7 +1570,7 @@ def test_apply_permission_success(test_registry):
         and isinstance(permission.policy, RoleBasedPolicy)
         and len(permission.policy.roles) == 1
         and permission.policy.roles[0] == "reader"
-        and permission.name_pattern is None
+        and permission.name_patterns == []
         and permission.tags is None
         and permission.required_tags is None
     )
@@ -1534,7 +1588,7 @@ def test_apply_permission_success(test_registry):
         and isinstance(permission.policy, RoleBasedPolicy)
         and len(permission.policy.roles) == 1
         and permission.policy.roles[0] == "reader"
-        and permission.name_pattern is None
+        and permission.name_patterns == []
         and permission.tags is None
         and permission.required_tags is None
     )
@@ -1564,7 +1618,7 @@ def test_apply_permission_success(test_registry):
         and len(updated_permission.policy.roles) == 2
         and "reader" in updated_permission.policy.roles
         and "writer" in updated_permission.policy.roles
-        and updated_permission.name_pattern is None
+        and updated_permission.name_patterns == []
         and updated_permission.tags is None
         and updated_permission.required_tags is None
     )
@@ -1580,7 +1634,7 @@ def test_apply_permission_success(test_registry):
         actions=[AuthzedAction.DESCRIBE, AuthzedAction.WRITE_ONLINE],
         policy=RoleBasedPolicy(roles=["reader", "writer"]),
         types=FeatureView,
-        name_pattern="aaa",
+        name_patterns="aaa",
         tags={"team": "matchmaking"},
         required_tags={"tag1": "tag1-value"},
     )
@@ -1602,7 +1656,7 @@ def test_apply_permission_success(test_registry):
         and len(updated_permission.policy.roles) == 2
         and "reader" in updated_permission.policy.roles
         and "writer" in updated_permission.policy.roles
-        and updated_permission.name_pattern == "aaa"
+        and updated_permission.name_patterns == ["aaa"]
         and "team" in updated_permission.tags
         and updated_permission.tags["team"] == "matchmaking"
         and updated_permission.required_tags["tag1"] == "tag1-value"
@@ -1881,6 +1935,54 @@ def test_apply_entity_to_sql_registry_and_reinitialize_sql_registry(test_registr
 
     updated_test_registry.teardown()
     test_registry.teardown()
+
+
+@pytest.mark.integration
+def test_commit_for_read_only_user():
+    fd, registry_path = mkstemp()
+    registry_config = RegistryConfig(path=registry_path, cache_ttl_seconds=600)
+    write_registry = Registry("project", registry_config, None)
+
+    entity = Entity(
+        name="driver_car_id",
+        description="Car driver id",
+        tags={"team": "matchmaking"},
+    )
+
+    project = "project"
+
+    # Register Entity without commiting
+    write_registry.apply_entity(entity, project, commit=False)
+    assert write_registry.cached_registry_proto
+    project_obj = write_registry.cached_registry_proto.projects[0]
+    assert project == Project.from_proto(project_obj).name
+    assert_project(project, write_registry, True)
+
+    # Retrieving the entity should still succeed
+    entities = write_registry.list_entities(project, allow_cache=True, tags=entity.tags)
+    entity = entities[0]
+    assert (
+        len(entities) == 1
+        and entity.name == "driver_car_id"
+        and entity.description == "Car driver id"
+        and "team" in entity.tags
+        and entity.tags["team"] == "matchmaking"
+    )
+
+    # commit from the original registry
+    write_registry.commit()
+
+    # Reconstruct the new registry in order to read the newly written store
+    with mock.patch.object(
+        Registry,
+        "commit",
+        side_effect=Exception("Read only users are not allowed to commit"),
+    ):
+        read_registry = Registry("project", registry_config, None)
+        entities = read_registry.list_entities(project, tags=entity.tags)
+        assert len(entities) == 1
+
+    write_registry.teardown()
 
 
 @pytest.mark.integration

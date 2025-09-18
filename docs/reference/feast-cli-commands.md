@@ -19,6 +19,7 @@ Options:
 
 Commands:
   apply                    Create or update a feature store deployment
+  configuration            Display Feast configuration
   entities                 Access entities
   feature-views            Access feature views
   init                     Create a new Feast repository
@@ -60,6 +61,28 @@ feast apply
 {% hint style="warning" %}
 `feast apply` \(when configured to use cloud provider like `gcp` or `aws`\) will create cloud infrastructure. This may incur costs.
 {% endhint %}
+
+## Configuration
+
+Display the actual configuration being used by Feast, including both user-provided configurations and default configurations applied by Feast.
+
+```bash
+feast configuration
+```
+
+```yaml
+project: foo
+registry: data/registry.db
+provider: local
+online_store:
+    type: sqlite
+    path: data/online_store.db
+offline_store: 
+    type: dask 
+entity_key_serialization_version: 3
+auth:
+    type: no_auth
+```
 
 ## Entities
 
@@ -172,9 +195,10 @@ Options:
 
 ```text
 +-----------------------+-------------+-----------------------+-----------+----------------+-------------------------+
-| NAME                  | TYPES       | NAME_PATTERN          | ACTIONS   | ROLES          | REQUIRED_TAGS           |
+| NAME                  | TYPES       | NAME_PATTERNS         | ACTIONS   | ROLES          | REQUIRED_TAGS           |
 +=======================+=============+=======================+===========+================+================+========+
 | reader_permission1234 | FeatureView | transformed_conv_rate | DESCRIBE  | reader         | -                       |
+|                       |             | driver_hourly_stats   | DESCRIBE  | reader         | -                       |
 +-----------------------+-------------+-----------------------+-----------+----------------+-------------------------+
 | writer_permission1234 | FeatureView | transformed_conv_rate | CREATE    | writer         | -                       |
 +-----------------------+-------------+-----------------------+-----------+----------------+-------------------------+
