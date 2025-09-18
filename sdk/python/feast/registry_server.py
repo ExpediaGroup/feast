@@ -1,3 +1,4 @@
+import logging
 from concurrent import futures
 from datetime import datetime, timezone
 from typing import Optional, Union, cast
@@ -12,6 +13,10 @@ from feast.base_feature_view import BaseFeatureView
 from feast.data_source import DataSource
 from feast.entity import Entity
 from feast.errors import FeatureViewNotFoundException
+from feast.expediagroup.search import (
+    ExpediaSearchFeatureViewsRequest,
+    ExpediaSearchProjectsRequest,
+)
 from feast.feast_object import FeastObject
 from feast.feature_view import FeatureView
 from feast.grpc_error_interceptor import ErrorInterceptor
@@ -38,6 +43,9 @@ from feast.protos.feast.registry import RegistryServer_pb2, RegistryServer_pb2_g
 from feast.saved_dataset import SavedDataset, ValidationReference
 from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
+
+_logger = logging.getLogger(__name__)
+_logger.setLevel(logging.INFO)
 
 
 def _build_any_feature_view_proto(feature_view: BaseFeatureView):
@@ -797,6 +805,24 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def Proto(self, request, context):
         return self.proxied_registry.proto()
 
+    def ExpediaSearchProjects(
+        self, request: RegistryServer_pb2.ExpediaSearchProjectsRequest, context
+    ):
+        # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
+        response = self.proxied_registry.expedia_search_projects(  # type: ignore[attr-defined]
+            request=ExpediaSearchProjectsRequest.from_proto(request)
+        )
+        return response.to_proto()
+
+    def ExpediaSearchFeatureViews(
+        self, request: RegistryServer_pb2.ExpediaSearchFeatureViewsRequest, context
+    ):
+        # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
+        response = self.proxied_registry.expedia_search_feature_views(  # type: ignore[attr-defined]
+            request=ExpediaSearchFeatureViewsRequest.from_proto(request)
+        )
+        return response.to_proto()
+
 
 def start_server(store: FeatureStore, port: int, wait_for_termination: bool = True):
     auth_manager_type = str_to_auth_manager_type(store.config.auth_config.type)
@@ -828,6 +854,7 @@ def start_server(store: FeatureStore, port: int, wait_for_termination: bool = Tr
 
     server.add_insecure_port(f"[::]:{port}")
     server.start()
+    _logger.info(f"Registry server started on port {port}")
     if wait_for_termination:
         server.wait_for_termination()
     else:
