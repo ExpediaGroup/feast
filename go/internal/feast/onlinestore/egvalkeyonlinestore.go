@@ -7,13 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/feast-dev/feast/go/internal/feast/model"
+	"github.com/feast-dev/feast/go/internal/feast/utils"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"os"
 	"strconv"
 	"strings"
-
-	"github.com/feast-dev/feast/go/internal/feast/utils"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
@@ -48,6 +48,9 @@ type ValkeyOnlineStore struct {
 	client valkey.Client
 
 	config *registry.RepoConfig
+
+	// Number of keys to read in a batch
+	ReadBatchSize int
 }
 
 func parseConnectionString(onlineStoreConfig map[string]interface{}, valkeyStoreType valkeyType) (valkey.ClientOption, error) {
@@ -165,6 +168,19 @@ func NewValkeyOnlineStore(project string, config *registry.RepoConfig, onlineSto
 		return nil, err
 	}
 
+	// Parse read batch size
+	var readBatchSize float64
+	if readBatchSizeJsonValue, ok := onlineStoreConfig["read_batch_size"]; !ok {
+		readBatchSize = -1.0 // Default to -1 (no batching)
+	} else if readBatchSize, ok = readBatchSizeJsonValue.(float64); !ok {
+		return nil, fmt.Errorf("failed to convert read_batch_size: %+v", readBatchSizeJsonValue)
+	}
+	store.ReadBatchSize = int(readBatchSize)
+
+	if store.ReadBatchSize > 1 {
+		log.Info().Msgf("Reads will be done in key batches of size: %d", store.ReadBatchSize)
+	}
+
 	log.Info().Msgf("Using Valkey: %s", clientOption.InitAddress)
 	return &store, nil
 }
@@ -243,6 +259,8 @@ func (r *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 	span, _ := tracer.StartSpanFromContext(ctx, "OnlineRead")
 	defer span.Finish()
 
+	//start_time := time.Now()
+
 	featureCount := len(featureNames)
 	featureViewIndices, indicesFeatureView, index := r.buildFeatureViewIndices(featureViewNames, featureNames)
 	hsetKeys, featureNamesWithTimeStamps := r.buildHsetKeys(featureViewNames, featureNames, indicesFeatureView, index)
@@ -259,77 +277,189 @@ func (r *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 		cmds = append(cmds, r.client.B().Hmget().Key(keyString).Field(hsetKeys...).Build())
 	}
 
-	var resContainsNonNil bool
-	for entityIndex, values := range r.client.DoMulti(ctx, cmds...) {
+	//fmt.Println("Time to build Valkey commands:", time.Since(start_time).Milliseconds(), "ms")
 
-		if err := values.Error(); err != nil {
-			return nil, err
-		}
-		resContainsNonNil = false
-
-		results[entityIndex] = make([]FeatureData, featureCount)
-
-		res, err := values.ToArray()
-		if err != nil {
-			return nil, err
-		}
-
-		var value *types.Value
-		var resString interface{}
-		timeStampMap := make(map[string]*timestamppb.Timestamp, 1)
-
-		for featureIndex, featureValue := range res {
-			if featureIndex == featureCount {
-				break
-			}
-
-			featureName := featureNamesWithTimeStamps[featureIndex]
-			featureViewName := featureViewNames[featureIndex]
-			value = &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
-			resString = nil
-
-			if !featureValue.IsNil() {
-				resString, err = featureValue.ToString()
-				if err != nil {
-					return nil, err
-				}
-
-				valueString, ok := resString.(string)
-				if !ok {
-					return nil, errors.New("error parsing Value from valkey")
-				}
-				resContainsNonNil = true
-				if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
-					return nil, errors.New("error converting parsed valkey Value to types.Value")
-				}
-			}
-
-			if _, ok := timeStampMap[featureViewName]; !ok {
-				timeStamp := timestamppb.Timestamp{}
-				timeStampIndex := featureViewIndices[featureViewName]
-
-				if !res[timeStampIndex].IsNil() {
-					timeStampString, err := res[timeStampIndex].ToString()
-					if err != nil {
-						return nil, err
-					}
-					if err := proto.Unmarshal([]byte(timeStampString), &timeStamp); err != nil {
-						return nil, errors.New("error converting parsed valkey Value to timestamppb.Timestamp")
-					}
-				}
-				timeStampMap[featureViewName] = &timestamppb.Timestamp{Seconds: timeStamp.Seconds, Nanos: timeStamp.Nanos}
-			}
-
-			results[entityIndex][featureIndex] = FeatureData{Reference: serving.FeatureReferenceV2{FeatureViewName: featureViewName, FeatureName: featureName},
-				Timestamp: timestamppb.Timestamp{Seconds: timeStampMap[featureViewName].Seconds, Nanos: timeStampMap[featureViewName].Nanos},
-				Value:     types.Value{Val: value.Val},
-			}
-		}
-
-		if !resContainsNonNil {
-			results[entityIndex] = nil
-		}
+	var batchSize int
+	if r.ReadBatchSize <= 1 {
+		batchSize = len(cmds)
+	} else {
+		batchSize = r.ReadBatchSize
 	}
+
+	g, ctx := errgroup.WithContext(ctx)
+
+	for i := 0; i < len(cmds); i += batchSize {
+		endIndex := i + batchSize
+		if endIndex > len(cmds) {
+			endIndex = len(cmds)
+		}
+		startIndex := i
+
+		//fmt.Println("Processing Valkey commands from index", startIndex, "to", endIndex)
+
+		g.Go(func(startIndex int, endIndex int) func() error {
+			return func() error {
+				//goStartTime := time.Now()
+				var resContainsNonNil bool
+
+				subcmds := cmds[startIndex:endIndex]
+
+				//fmt.Println("Processing Valkey commands size:", len(subcmds))
+
+				for entityIndex, values := range r.client.DoMulti(ctx, subcmds...) {
+
+					if err := values.Error(); err != nil {
+						return err
+					}
+					resContainsNonNil = false
+
+					results[startIndex+entityIndex] = make([]FeatureData, featureCount)
+
+					res, err := values.ToArray()
+					if err != nil {
+						return err
+					}
+
+					var value *types.Value
+					var resString interface{}
+					timeStampMap := make(map[string]*timestamppb.Timestamp, 1)
+
+					for featureIndex, featureValue := range res {
+						if featureIndex == featureCount {
+							break
+						}
+
+						featureName := featureNamesWithTimeStamps[featureIndex]
+						featureViewName := featureViewNames[featureIndex]
+						value = &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
+						resString = nil
+
+						if !featureValue.IsNil() {
+							resString, err = featureValue.ToString()
+							if err != nil {
+								return err
+							}
+
+							valueString, ok := resString.(string)
+							if !ok {
+								return errors.New("error parsing Value from valkey")
+							}
+							resContainsNonNil = true
+							if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
+								return errors.New("error converting parsed valkey Value to types.Value")
+							}
+						}
+
+						if _, ok := timeStampMap[featureViewName]; !ok {
+							timeStamp := timestamppb.Timestamp{}
+							timeStampIndex := featureViewIndices[featureViewName]
+
+							if !res[timeStampIndex].IsNil() {
+								timeStampString, err := res[timeStampIndex].ToString()
+								if err != nil {
+									return err
+								}
+								if err := proto.Unmarshal([]byte(timeStampString), &timeStamp); err != nil {
+									return errors.New("error converting parsed valkey Value to timestamppb.Timestamp")
+								}
+							}
+							timeStampMap[featureViewName] = &timestamppb.Timestamp{Seconds: timeStamp.Seconds, Nanos: timeStamp.Nanos}
+						}
+
+						results[startIndex+entityIndex][featureIndex] = FeatureData{Reference: serving.FeatureReferenceV2{FeatureViewName: featureViewName, FeatureName: featureName},
+							Timestamp: timestamppb.Timestamp{Seconds: timeStampMap[featureViewName].Seconds, Nanos: timeStampMap[featureViewName].Nanos},
+							Value:     types.Value{Val: value.Val},
+						}
+					}
+
+					if !resContainsNonNil {
+						results[startIndex+entityIndex] = nil
+					}
+				}
+				//fmt.Println("Goroutine processed", endIndex-startIndex, "records in", time.Since(goStartTime).Milliseconds(), "ms")
+				return nil
+			}
+
+		}(startIndex, endIndex))
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	//var resContainsNonNil bool
+	//for entityIndex, values := range r.client.DoMulti(ctx, cmds...) {
+	//
+	//	if err := values.Error(); err != nil {
+	//		return nil, err
+	//	}
+	//	resContainsNonNil = false
+	//
+	//	results[entityIndex] = make([]FeatureData, featureCount)
+	//
+	//	res, err := values.ToArray()
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//
+	//	var value *types.Value
+	//	var resString interface{}
+	//	timeStampMap := make(map[string]*timestamppb.Timestamp, 1)
+	//
+	//	for featureIndex, featureValue := range res {
+	//		if featureIndex == featureCount {
+	//			break
+	//		}
+	//
+	//		featureName := featureNamesWithTimeStamps[featureIndex]
+	//		featureViewName := featureViewNames[featureIndex]
+	//		value = &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
+	//		resString = nil
+	//
+	//		if !featureValue.IsNil() {
+	//			resString, err = featureValue.ToString()
+	//			if err != nil {
+	//				return nil, err
+	//			}
+	//
+	//			valueString, ok := resString.(string)
+	//			if !ok {
+	//				return nil, errors.New("error parsing Value from valkey")
+	//			}
+	//			resContainsNonNil = true
+	//			if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
+	//				return nil, errors.New("error converting parsed valkey Value to types.Value")
+	//			}
+	//		}
+	//
+	//		if _, ok := timeStampMap[featureViewName]; !ok {
+	//			timeStamp := timestamppb.Timestamp{}
+	//			timeStampIndex := featureViewIndices[featureViewName]
+	//
+	//			if !res[timeStampIndex].IsNil() {
+	//				timeStampString, err := res[timeStampIndex].ToString()
+	//				if err != nil {
+	//					return nil, err
+	//				}
+	//				if err := proto.Unmarshal([]byte(timeStampString), &timeStamp); err != nil {
+	//					return nil, errors.New("error converting parsed valkey Value to timestamppb.Timestamp")
+	//				}
+	//			}
+	//			timeStampMap[featureViewName] = &timestamppb.Timestamp{Seconds: timeStamp.Seconds, Nanos: timeStamp.Nanos}
+	//		}
+	//
+	//		results[entityIndex][featureIndex] = FeatureData{Reference: serving.FeatureReferenceV2{FeatureViewName: featureViewName, FeatureName: featureName},
+	//			Timestamp: timestamppb.Timestamp{Seconds: timeStampMap[featureViewName].Seconds, Nanos: timeStampMap[featureViewName].Nanos},
+	//			Value:     types.Value{Val: value.Val},
+	//		}
+	//	}
+	//
+	//	if !resContainsNonNil {
+	//		results[entityIndex] = nil
+	//	}
+	//}
+
+	//fmt.Println("Valkey OnlineRead latency:", time.Since(start_time).Milliseconds(), "ms")
 
 	return results, nil
 }
