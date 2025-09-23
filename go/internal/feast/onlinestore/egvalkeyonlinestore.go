@@ -177,7 +177,7 @@ func NewValkeyOnlineStore(project string, config *registry.RepoConfig, onlineSto
 	}
 	store.ReadBatchSize = int(readBatchSize)
 
-	if store.ReadBatchSize > 1 {
+	if store.ReadBatchSize >= 1 {
 		log.Info().Msgf("Reads will be done in key batches of size: %d", store.ReadBatchSize)
 	}
 
@@ -279,11 +279,9 @@ func (r *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 
 	//fmt.Println("Time to build Valkey commands:", time.Since(start_time).Milliseconds(), "ms")
 
-	var batchSize int
-	if r.ReadBatchSize <= 1 {
+	batchSize := r.ReadBatchSize
+	if r.ReadBatchSize < 1 {
 		batchSize = len(cmds)
-	} else {
-		batchSize = r.ReadBatchSize
 	}
 
 	g, ctx := errgroup.WithContext(ctx)
