@@ -3,6 +3,8 @@ package errors
 import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
+    "net/http"
 )
 
 func GrpcErrorf(code codes.Code, format string, args ...interface{}) error {
