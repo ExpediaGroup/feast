@@ -117,8 +117,8 @@ func (m *cacheMap[T]) expireCachedModels(getModel func(string, string) (T, error
 				newModel, err := getModel(modelName, project)
 				if err != nil {
 				    // If we can't find the model in the registry, remove it from the cache
-				    if _, ok := err.(*errors.GrpcNotFoundError); ok {
-                            delete(cache, modelName)
+				    if errors.IsGrpcNotFoundError(err) {
+                        delete(cache, modelName)
                     } else {
                     log.Error().Err(err).Msgf("error refreshing model %s in project %s", modelName, project)
                     }

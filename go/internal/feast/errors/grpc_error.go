@@ -27,3 +27,11 @@ func GrpcInvalidArgumentErrorf(format string, args ...interface{}) error {
 func GrpcNotFoundErrorf(format string, args ...interface{}) error {
 	return GrpcErrorf(codes.NotFound, format, args...)
 }
+
+func IsGrpcNotFoundError(err error) bool {
+    if err == nil {
+        return false
+    }
+    s, ok := status.FromError(err)
+    return ok && s.Code() == codes.NotFound
+}
