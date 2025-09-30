@@ -23,9 +23,11 @@ func mockRegistryWithResponse(responseProto proto.Message, ttlSeconds int) (*Reg
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Write some data to the response if valid
 		bytes, err := proto.Marshal(responseProto)
-		if responseProto == nil || err != nil {
+		if responseProto == nil {
 			w.WriteHeader(http.StatusNotFound)
-		} else {
+		} else if err != nil {
+            w.WriteHeader(http.StatusInternalServerError)
+        } else {
 			w.Write(bytes)
 		}
 	}))
@@ -88,6 +90,20 @@ func TestRegistry_GetFeatureService_FromStore(t *testing.T) {
 	assert.NotNil(t, result, "Expected a non-nil feature service")
 	assert.Equal(t, model.NewFeatureServiceFromProto(featureService), result, "Expected the same feature service from store")
 }
+
+func TestRegistry_GetFeatureService_InternalServerError(t *testing.T) {
+    type NotAProto struct{}
+    responseProto := &NotAProto{}
+	registry, server := mockRegistryWithResponse(responseProto, 5)
+	defer server.Close()
+
+	// Call GetFeatureService with an invalid feature service name
+	result, err := registry.GetFeatureService(PROJECT, "invalid_feature_service")
+	assert.Error(t, err, "Expected an error")
+    assert.Contains(t, err.Error(), "failed to unmarshal", "Expected an error message about unmarshalling")
+    assert.Nil(t, result, "Expected a nil feature service")
+}
+
 
 func TestRegistry_GetFeatureService_Error(t *testing.T) {
 	registry, server := mockRegistryWithResponse(nil, 5)
