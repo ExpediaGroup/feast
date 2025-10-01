@@ -614,7 +614,7 @@ func (fs *FeatureStore) readFromOnlineStoreV2(
 	resultChan := make(chan BatchResult, len(batchedGroupRef))
 	g, ctx := errgroup.WithContext(ctx) // Can consider adding 'setLimit' and a variable to limit the max number of concurrent reads to prevent thundering herd.
 	for _, batchedGroupRef := range batchedGroupRef {
-		g.Go(func(grpRef *onlineserving.GroupedFeaturesPerBatchEntitySet) func() error {
+		g.Go(func(grpRef *onlineserving.GroupedFeaturesBatch) func() error {
 			return func() error {
 				featureData, err := fs.onlineStore.OnlineReadV2(ctx, batchedGroupRef.EntityKeys, batchedGroupRef.FeatureViewNames, batchedGroupRef.FeatureNames)
 				if err != nil {

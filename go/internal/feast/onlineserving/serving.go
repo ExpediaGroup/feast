@@ -86,7 +86,7 @@ type GroupedFeaturesPerEntitySet struct {
 	Indices [][]int
 }
 
-type GroupedFeaturesPerBatchEntitySet struct {
+type GroupedFeaturesBatch struct {
 	// A list of requested feature references of the form featureViewName:featureName that share this entity set
 	FeatureNames     []string
 	FeatureViewNames []string
@@ -1429,10 +1429,10 @@ func (e featureNameCollisionError) GRPCStatus() *status.Status {
 	return status.New(codes.InvalidArgument, e.Error())
 }
 
-func BatchGroupedFeatureRef(groupRef *GroupedFeaturesPerEntitySet, batchSize int) []*GroupedFeaturesPerBatchEntitySet {
+func BatchGroupedFeatureRef(groupRef *GroupedFeaturesPerEntitySet, batchSize int) []*GroupedFeaturesBatch {
 	// Split groupRef into multiple groups with each group having at most batchSize entity rows.
 	if batchSize <= 0 {
-		return []*GroupedFeaturesPerBatchEntitySet{
+		return []*GroupedFeaturesBatch{
 			{
 				FeatureNames:        groupRef.FeatureNames,
 				FeatureViewNames:    groupRef.FeatureViewNames,
@@ -1444,13 +1444,13 @@ func BatchGroupedFeatureRef(groupRef *GroupedFeaturesPerEntitySet, batchSize int
 	}
 	numEntities := len(groupRef.EntityKeys)
 
-	var batches []*GroupedFeaturesPerBatchEntitySet
+	var batches []*GroupedFeaturesBatch
 	for i := 0; i < numEntities; i += batchSize {
 		end := i + batchSize
 		if end > numEntities {
 			end = numEntities
 		}
-		batches = append(batches, &GroupedFeaturesPerBatchEntitySet{
+		batches = append(batches, &GroupedFeaturesBatch{
 			FeatureNames:        groupRef.FeatureNames,
 			FeatureViewNames:    groupRef.FeatureViewNames,
 			AliasedFeatureNames: groupRef.AliasedFeatureNames,
