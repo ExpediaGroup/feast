@@ -6,14 +6,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/feast-dev/feast/go/internal/feast/model"
-	"github.com/feast-dev/feast/go/internal/feast/utils"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/feast-dev/feast/go/internal/feast/model"
+	"github.com/feast-dev/feast/go/internal/feast/utils"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
@@ -206,7 +206,7 @@ func getValkeyType(onlineStoreConfig map[string]interface{}) (valkeyType, error)
 	return t, nil
 }
 
-func (r *ValkeyOnlineStore) buildFeatureViewIndices(featureViewNames []string, featureNames []string) (map[string]int, map[int]string, int) {
+func (v *ValkeyOnlineStore) buildFeatureViewIndices(featureViewNames []string, featureNames []string) (map[string]int, map[int]string, int) {
 	featureViewIndices := make(map[string]int)
 	indicesFeatureView := make(map[int]string)
 	index := len(featureNames)
@@ -220,7 +220,7 @@ func (r *ValkeyOnlineStore) buildFeatureViewIndices(featureViewNames []string, f
 	return featureViewIndices, indicesFeatureView, index
 }
 
-func (r *ValkeyOnlineStore) buildHsetKeys(featureViewNames []string, featureNames []string, indicesFeatureView map[int]string, index int) ([]string, []string) {
+func (v *ValkeyOnlineStore) buildHsetKeys(featureViewNames []string, featureNames []string, indicesFeatureView map[int]string, index int) ([]string, []string) {
 	featureCount := len(featureNames)
 	var hsetKeys = make([]string, index)
 	h := murmur3.New32()
@@ -243,10 +243,10 @@ func (r *ValkeyOnlineStore) buildHsetKeys(featureViewNames []string, featureName
 	return hsetKeys, featureNames
 }
 
-func (r *ValkeyOnlineStore) buildValkeyKeys(entityKeys []*types.EntityKey) ([]*[]byte, error) {
+func (v *ValkeyOnlineStore) buildValkeyKeys(entityKeys []*types.EntityKey) ([]*[]byte, error) {
 	valkeyKeys := make([]*[]byte, len(entityKeys))
 	for i := 0; i < len(entityKeys); i++ {
-		var key, err = buildValkeyKey(r.project, entityKeys[i], r.config.EntityKeySerializationVersion)
+		var key, err = buildValkeyKey(v.project, entityKeys[i], v.config.EntityKeySerializationVersion)
 		if err != nil {
 			return nil, err
 		}
@@ -255,16 +255,18 @@ func (r *ValkeyOnlineStore) buildValkeyKeys(entityKeys []*types.EntityKey) ([]*[
 	return valkeyKeys, nil
 }
 
-func (r *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string) ([][]FeatureData, error) {
+func (v *ValkeyOnlineStore) OnlineReadV2(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string) ([][]FeatureData, error) {
+	return v.OnlineRead(ctx, entityKeys, featureViewNames, featureNames)
+}
+
+func (v *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.EntityKey, featureViewNames []string, featureNames []string) ([][]FeatureData, error) {
 	span, _ := tracer.StartSpanFromContext(ctx, "OnlineRead")
 	defer span.Finish()
 
-	//start_time := time.Now()
-
 	featureCount := len(featureNames)
-	featureViewIndices, indicesFeatureView, index := r.buildFeatureViewIndices(featureViewNames, featureNames)
-	hsetKeys, featureNamesWithTimeStamps := r.buildHsetKeys(featureViewNames, featureNames, indicesFeatureView, index)
-	valkeyKeys, err := r.buildValkeyKeys(entityKeys)
+	featureViewIndices, indicesFeatureView, index := v.buildFeatureViewIndices(featureViewNames, featureNames)
+	hsetKeys, featureNamesWithTimeStamps := v.buildHsetKeys(featureViewNames, featureNames, indicesFeatureView, index)
+	valkeyKeys, err := v.buildValkeyKeys(entityKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -274,201 +276,91 @@ func (r *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 
 	for _, valkeyKey := range valkeyKeys {
 		keyString := string(*valkeyKey)
-		cmds = append(cmds, r.client.B().Hmget().Key(keyString).Field(hsetKeys...).Build())
+		cmds = append(cmds, v.client.B().Hmget().Key(keyString).Field(hsetKeys...).Build())
 	}
 
-	//fmt.Println("Time to build Valkey commands:", time.Since(start_time).Milliseconds(), "ms")
+	var resContainsNonNil bool
+	for entityIndex, values := range v.client.DoMulti(ctx, cmds...) {
 
-	batchSize := r.ReadBatchSize
-	if r.ReadBatchSize < 1 {
-		batchSize = len(cmds)
-	}
-
-	g, ctx := errgroup.WithContext(ctx)
-
-	for i := 0; i < len(cmds); i += batchSize {
-		endIndex := i + batchSize
-		if endIndex > len(cmds) {
-			endIndex = len(cmds)
+		if err := values.Error(); err != nil {
+			return nil, err
 		}
-		startIndex := i
+		resContainsNonNil = false
 
-		//fmt.Println("Processing Valkey commands from index", startIndex, "to", endIndex)
+		results[entityIndex] = make([]FeatureData, featureCount)
 
-		g.Go(func(startIndex int, endIndex int) func() error {
-			return func() error {
-				//goStartTime := time.Now()
-				var resContainsNonNil bool
+		res, err := values.ToArray()
+		if err != nil {
+			return nil, err
+		}
 
-				subcmds := cmds[startIndex:endIndex]
+		var value *types.Value
+		var resString interface{}
+		timeStampMap := make(map[string]*timestamppb.Timestamp, 1)
 
-				//fmt.Println("Processing Valkey commands size:", len(subcmds))
-
-				for entityIndex, values := range r.client.DoMulti(ctx, subcmds...) {
-
-					if err := values.Error(); err != nil {
-						return err
-					}
-					resContainsNonNil = false
-
-					results[startIndex+entityIndex] = make([]FeatureData, featureCount)
-
-					res, err := values.ToArray()
-					if err != nil {
-						return err
-					}
-
-					var value *types.Value
-					var resString interface{}
-					timeStampMap := make(map[string]*timestamppb.Timestamp, 1)
-
-					for featureIndex, featureValue := range res {
-						if featureIndex == featureCount {
-							break
-						}
-
-						featureName := featureNamesWithTimeStamps[featureIndex]
-						featureViewName := featureViewNames[featureIndex]
-						value = &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
-						resString = nil
-
-						if !featureValue.IsNil() {
-							resString, err = featureValue.ToString()
-							if err != nil {
-								return err
-							}
-
-							valueString, ok := resString.(string)
-							if !ok {
-								return errors.New("error parsing Value from valkey")
-							}
-							resContainsNonNil = true
-							if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
-								return errors.New("error converting parsed valkey Value to types.Value")
-							}
-						}
-
-						if _, ok := timeStampMap[featureViewName]; !ok {
-							timeStamp := timestamppb.Timestamp{}
-							timeStampIndex := featureViewIndices[featureViewName]
-
-							if !res[timeStampIndex].IsNil() {
-								timeStampString, err := res[timeStampIndex].ToString()
-								if err != nil {
-									return err
-								}
-								if err := proto.Unmarshal([]byte(timeStampString), &timeStamp); err != nil {
-									return errors.New("error converting parsed valkey Value to timestamppb.Timestamp")
-								}
-							}
-							timeStampMap[featureViewName] = &timestamppb.Timestamp{Seconds: timeStamp.Seconds, Nanos: timeStamp.Nanos}
-						}
-
-						results[startIndex+entityIndex][featureIndex] = FeatureData{Reference: serving.FeatureReferenceV2{FeatureViewName: featureViewName, FeatureName: featureName},
-							Timestamp: timestamppb.Timestamp{Seconds: timeStampMap[featureViewName].Seconds, Nanos: timeStampMap[featureViewName].Nanos},
-							Value:     types.Value{Val: value.Val},
-						}
-					}
-
-					if !resContainsNonNil {
-						results[startIndex+entityIndex] = nil
-					}
-				}
-				//fmt.Println("Goroutine processed", endIndex-startIndex, "records in", time.Since(goStartTime).Milliseconds(), "ms")
-				return nil
+		for featureIndex, featureValue := range res {
+			if featureIndex == featureCount {
+				break
 			}
 
-		}(startIndex, endIndex))
+			featureName := featureNamesWithTimeStamps[featureIndex]
+			featureViewName := featureViewNames[featureIndex]
+			value = &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
+			resString = nil
+
+			if !featureValue.IsNil() {
+				resString, err = featureValue.ToString()
+				if err != nil {
+					return nil, err
+				}
+
+				valueString, ok := resString.(string)
+				if !ok {
+					return nil, errors.New("error parsing Value from valkey")
+				}
+				resContainsNonNil = true
+				if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
+					return nil, errors.New("error converting parsed valkey Value to types.Value")
+				}
+			}
+
+			if _, ok := timeStampMap[featureViewName]; !ok {
+				timeStamp := timestamppb.Timestamp{}
+				timeStampIndex := featureViewIndices[featureViewName]
+
+				if !res[timeStampIndex].IsNil() {
+					timeStampString, err := res[timeStampIndex].ToString()
+					if err != nil {
+						return nil, err
+					}
+					if err := proto.Unmarshal([]byte(timeStampString), &timeStamp); err != nil {
+						return nil, errors.New("error converting parsed valkey Value to timestamppb.Timestamp")
+					}
+				}
+				timeStampMap[featureViewName] = &timestamppb.Timestamp{Seconds: timeStamp.Seconds, Nanos: timeStamp.Nanos}
+			}
+
+			results[entityIndex][featureIndex] = FeatureData{Reference: serving.FeatureReferenceV2{FeatureViewName: featureViewName, FeatureName: featureName},
+				Timestamp: timestamppb.Timestamp{Seconds: timeStampMap[featureViewName].Seconds, Nanos: timeStampMap[featureViewName].Nanos},
+				Value:     types.Value{Val: value.Val},
+			}
+		}
+
+		if !resContainsNonNil {
+			results[entityIndex] = nil
+		}
 	}
-
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	//var resContainsNonNil bool
-	//for entityIndex, values := range r.client.DoMulti(ctx, cmds...) {
-	//
-	//	if err := values.Error(); err != nil {
-	//		return nil, err
-	//	}
-	//	resContainsNonNil = false
-	//
-	//	results[entityIndex] = make([]FeatureData, featureCount)
-	//
-	//	res, err := values.ToArray()
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//
-	//	var value *types.Value
-	//	var resString interface{}
-	//	timeStampMap := make(map[string]*timestamppb.Timestamp, 1)
-	//
-	//	for featureIndex, featureValue := range res {
-	//		if featureIndex == featureCount {
-	//			break
-	//		}
-	//
-	//		featureName := featureNamesWithTimeStamps[featureIndex]
-	//		featureViewName := featureViewNames[featureIndex]
-	//		value = &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}
-	//		resString = nil
-	//
-	//		if !featureValue.IsNil() {
-	//			resString, err = featureValue.ToString()
-	//			if err != nil {
-	//				return nil, err
-	//			}
-	//
-	//			valueString, ok := resString.(string)
-	//			if !ok {
-	//				return nil, errors.New("error parsing Value from valkey")
-	//			}
-	//			resContainsNonNil = true
-	//			if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
-	//				return nil, errors.New("error converting parsed valkey Value to types.Value")
-	//			}
-	//		}
-	//
-	//		if _, ok := timeStampMap[featureViewName]; !ok {
-	//			timeStamp := timestamppb.Timestamp{}
-	//			timeStampIndex := featureViewIndices[featureViewName]
-	//
-	//			if !res[timeStampIndex].IsNil() {
-	//				timeStampString, err := res[timeStampIndex].ToString()
-	//				if err != nil {
-	//					return nil, err
-	//				}
-	//				if err := proto.Unmarshal([]byte(timeStampString), &timeStamp); err != nil {
-	//					return nil, errors.New("error converting parsed valkey Value to timestamppb.Timestamp")
-	//				}
-	//			}
-	//			timeStampMap[featureViewName] = &timestamppb.Timestamp{Seconds: timeStamp.Seconds, Nanos: timeStamp.Nanos}
-	//		}
-	//
-	//		results[entityIndex][featureIndex] = FeatureData{Reference: serving.FeatureReferenceV2{FeatureViewName: featureViewName, FeatureName: featureName},
-	//			Timestamp: timestamppb.Timestamp{Seconds: timeStampMap[featureViewName].Seconds, Nanos: timeStampMap[featureViewName].Nanos},
-	//			Value:     types.Value{Val: value.Val},
-	//		}
-	//	}
-	//
-	//	if !resContainsNonNil {
-	//		results[entityIndex] = nil
-	//	}
-	//}
-
-	//fmt.Println("Valkey OnlineRead latency:", time.Since(start_time).Milliseconds(), "ms")
 
 	return results, nil
 }
 
-func (r *ValkeyOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs *model.GroupedRangeFeatureRefs) ([][]RangeFeatureData, error) {
+func (v *ValkeyOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs *model.GroupedRangeFeatureRefs) ([][]RangeFeatureData, error) {
 	// TODO: Implement OnlineReadRange
 	return nil, errors.New("OnlineReadRange is not supported by ValkeyOnlineStore")
 }
 
 // Dummy destruct function to conform with plugin OnlineStore interface
-func (r *ValkeyOnlineStore) Destruct() {
+func (v *ValkeyOnlineStore) Destruct() {
 
 }
 
@@ -479,4 +371,12 @@ func buildValkeyKey(project string, entityKey *types.EntityKey, entityKeySeriali
 	}
 	fullKey := append(*serKey, []byte(project)...)
 	return &fullKey, nil
+}
+
+func (v *ValkeyOnlineStore) GetDataModelType() OnlineStoreDataModel {
+	return EntityLevel
+}
+
+func (v *ValkeyOnlineStore) GetReadBatchSize() int {
+	return v.ReadBatchSize
 }

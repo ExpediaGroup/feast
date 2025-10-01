@@ -4,13 +4,16 @@ package onlineserving
 
 import (
 	"fmt"
-	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"path/filepath"
+	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
+
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/apache/arrow/go/v17/arrow/memory"
 	"github.com/feast-dev/feast/go/internal/feast/onlinestore"
@@ -26,6 +29,62 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/core"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 )
+
+func TestGroupingFeatureRefsByFeatureView(t *testing.T) {
+	viewA := &model.FeatureView{
+		Base: &model.BaseFeatureView{
+			Name: "viewA",
+			Projection: &model.FeatureViewProjection{
+				NameAlias: "aliasViewA",
+			},
+		},
+		EntityNames: []string{"driver", "customer"},
+	}
+	viewB := &model.FeatureView{
+		Base:        &model.BaseFeatureView{Name: "viewB"},
+		EntityNames: []string{"driver", "customer"},
+	}
+	viewC := &model.FeatureView{
+		Base:        &model.BaseFeatureView{Name: "viewC"},
+		EntityNames: []string{"driver"},
+	}
+	viewD := &model.FeatureView{
+		Base:        &model.BaseFeatureView{Name: "viewD"},
+		EntityNames: []string{"customer"},
+	}
+	refGroups, _ := GroupFeatureRefsByFeatureView(
+		[]*FeatureViewAndRefs{
+			{View: viewA, FeatureRefs: []string{"featureA", "featureB"}},
+			{View: viewB, FeatureRefs: []string{"featureC", "featureD"}},
+			{View: viewC, FeatureRefs: []string{"featureE"}},
+			{View: viewD, FeatureRefs: []string{"featureF"}},
+		},
+		map[string]*types.RepeatedValue{
+			"driver_id": {Val: []*types.Value{
+				{Val: &types.Value_Int32Val{Int32Val: 0}},
+				{Val: &types.Value_Int32Val{Int32Val: 0}},
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+			}},
+			"customer_id": {Val: []*types.Value{
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+				{Val: &types.Value_Int32Val{Int32Val: 2}},
+				{Val: &types.Value_Int32Val{Int32Val: 3}},
+				{Val: &types.Value_Int32Val{Int32Val: 3}},
+				{Val: &types.Value_Int32Val{Int32Val: 4}},
+			}},
+		},
+		map[string]string{
+			"driver":   "driver_id",
+			"customer": "customer_id",
+		},
+		true,
+	)
+
+	assert.Len(t, refGroups, 4)
+
+}
 
 func TestGroupingFeatureRefs(t *testing.T) {
 	viewA := &model.FeatureView{
@@ -195,6 +254,440 @@ func TestGroupingFeatureRefsWithMissingKey(t *testing.T) {
 			"location": "location_id",
 		},
 		true,
+	)
+	assert.Errorf(t, err, "key destination_id is missing in provided entity rows for view viewA")
+}
+
+func TestGroupingFeatureRefsV2WithEntityDataModel(t *testing.T) {
+	viewA := &model.FeatureView{
+		Base: &model.BaseFeatureView{
+			Name: "viewA",
+			Projection: &model.FeatureViewProjection{
+				NameAlias: "aliasViewA",
+			},
+		},
+		EntityNames: []string{"driver", "customer"},
+	}
+	viewB := &model.FeatureView{
+		Base:        &model.BaseFeatureView{Name: "viewB"},
+		EntityNames: []string{"driver", "customer"},
+	}
+	viewC := &model.FeatureView{
+		Base:        &model.BaseFeatureView{Name: "viewC"},
+		EntityNames: []string{"driver"},
+	}
+	viewD := &model.FeatureView{
+		Base:        &model.BaseFeatureView{Name: "viewD"},
+		EntityNames: []string{"customer"},
+	}
+	refGroups, _ := GroupFeatureRefsV2(
+		[]*FeatureViewAndRefs{
+			{View: viewA, FeatureRefs: []string{"featureA", "featureB"}},
+			{View: viewB, FeatureRefs: []string{"featureC", "featureD"}},
+			{View: viewC, FeatureRefs: []string{"featureE"}},
+			{View: viewD, FeatureRefs: []string{"featureF"}},
+		},
+		map[string]*types.RepeatedValue{
+			"driver_id": {Val: []*types.Value{
+				{Val: &types.Value_Int32Val{Int32Val: 0}},
+				{Val: &types.Value_Int32Val{Int32Val: 0}},
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+			}},
+			"customer_id": {Val: []*types.Value{
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+				{Val: &types.Value_Int32Val{Int32Val: 2}},
+				{Val: &types.Value_Int32Val{Int32Val: 3}},
+				{Val: &types.Value_Int32Val{Int32Val: 3}},
+				{Val: &types.Value_Int32Val{Int32Val: 4}},
+			}},
+		},
+		map[string]string{
+			"driver":   "driver_id",
+			"customer": "customer_id",
+		},
+		true,
+		onlinestore.EntityLevel,
+	)
+
+	expectedKeys := make([]*GroupedFeaturesPerEntitySet, 3)
+
+	expectedKeys[0] = &GroupedFeaturesPerEntitySet{
+		FeatureNames:        []string{"featureA", "featureB", "featureC", "featureD"},
+		FeatureViewNames:    []string{"viewA", "viewA", "viewB", "viewB"},
+		AliasedFeatureNames: []string{"aliasViewA__featureA", "aliasViewA__featureB", "viewB__featureC", "viewB__featureD"},
+		Indices:             [][]int{{0}, {1}, {2, 3}, {4}},
+		EntityKeys: []*types.EntityKey{
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1}}, {Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 2}}, {Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 3}}, {Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 4}}, {Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+		},
+	}
+	expectedKeys[1] = &GroupedFeaturesPerEntitySet{
+		FeatureNames:        []string{"featureE"},
+		FeatureViewNames:    []string{"viewC"},
+		AliasedFeatureNames: []string{"viewC__featureE"},
+		Indices:             [][]int{{0, 1}, {2, 3, 4}},
+		EntityKeys: []*types.EntityKey{
+			{
+				JoinKeys:     []string{"driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+		},
+	}
+
+	expectedKeys[2] = &GroupedFeaturesPerEntitySet{
+		FeatureNames:        []string{"featureF"},
+		FeatureViewNames:    []string{"viewD"},
+		AliasedFeatureNames: []string{"viewD__featureF"},
+		Indices:             [][]int{{0}, {1}, {2, 3}, {4}},
+		EntityKeys: []*types.EntityKey{
+			{
+				JoinKeys:     []string{"customer_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 2}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 3}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 4}}},
+			},
+		},
+	}
+
+	assert.Len(t, refGroups, 3)
+
+	assert.True(t, compareGroupedFeatures(refGroups, expectedKeys))
+}
+
+func TestGroupingFeatureRefsV2WithFeatureViewDataModel(t *testing.T) {
+	viewA := &model.FeatureView{
+		Base: &model.BaseFeatureView{
+			Name: "viewA",
+			Projection: &model.FeatureViewProjection{
+				NameAlias: "aliasViewA",
+			},
+		},
+		EntityNames: []string{"driver", "customer"},
+	}
+	viewB := &model.FeatureView{
+		Base:        &model.BaseFeatureView{Name: "viewB"},
+		EntityNames: []string{"driver", "customer"},
+	}
+	viewC := &model.FeatureView{
+		Base:        &model.BaseFeatureView{Name: "viewC"},
+		EntityNames: []string{"driver"},
+	}
+	viewD := &model.FeatureView{
+		Base:        &model.BaseFeatureView{Name: "viewD"},
+		EntityNames: []string{"customer"},
+	}
+	refGroups, _ := GroupFeatureRefsV2(
+		[]*FeatureViewAndRefs{
+			{View: viewA, FeatureRefs: []string{"featureA", "featureB"}},
+			{View: viewB, FeatureRefs: []string{"featureC", "featureD"}},
+			{View: viewC, FeatureRefs: []string{"featureE"}},
+			{View: viewD, FeatureRefs: []string{"featureF"}},
+		},
+		map[string]*types.RepeatedValue{
+			"driver_id": {Val: []*types.Value{
+				{Val: &types.Value_Int32Val{Int32Val: 0}},
+				{Val: &types.Value_Int32Val{Int32Val: 0}},
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+			}},
+			"customer_id": {Val: []*types.Value{
+				{Val: &types.Value_Int32Val{Int32Val: 1}},
+				{Val: &types.Value_Int32Val{Int32Val: 2}},
+				{Val: &types.Value_Int32Val{Int32Val: 3}},
+				{Val: &types.Value_Int32Val{Int32Val: 3}},
+				{Val: &types.Value_Int32Val{Int32Val: 4}},
+			}},
+		},
+		map[string]string{
+			"driver":   "driver_id",
+			"customer": "customer_id",
+		},
+		true,
+		onlinestore.FeatureViewLevel,
+	)
+
+	expectedKeys := make([]*GroupedFeaturesPerEntitySet, 4)
+
+	expectedKeys[0] = &GroupedFeaturesPerEntitySet{
+		FeatureNames:        []string{"featureA", "featureB"},
+		FeatureViewNames:    []string{"viewA", "viewA"},
+		AliasedFeatureNames: []string{"aliasViewA__featureA", "aliasViewA__featureB"},
+		Indices:             [][]int{{0}, {1}, {2, 3}, {4}},
+		EntityKeys: []*types.EntityKey{
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1}}, {Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 2}}, {Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 3}}, {Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 4}}, {Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+		},
+	}
+	expectedKeys[1] = &GroupedFeaturesPerEntitySet{
+		FeatureNames:        []string{"featureC", "featureD"},
+		FeatureViewNames:    []string{"viewB", "viewB"},
+		AliasedFeatureNames: []string{"viewB__featureC", "viewB__featureD"},
+		Indices:             [][]int{{0}, {1}, {2, 3}, {4}},
+		EntityKeys: []*types.EntityKey{
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1}}, {Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 2}}, {Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 3}}, {Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 4}}, {Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+		},
+	}
+	expectedKeys[2] = &GroupedFeaturesPerEntitySet{
+		FeatureNames:        []string{"featureE"},
+		FeatureViewNames:    []string{"viewC"},
+		AliasedFeatureNames: []string{"viewC__featureE"},
+		Indices:             [][]int{{0, 1}, {2, 3, 4}},
+		EntityKeys: []*types.EntityKey{
+			{
+				JoinKeys:     []string{"driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+		},
+	}
+
+	expectedKeys[3] = &GroupedFeaturesPerEntitySet{
+		FeatureNames:        []string{"featureF"},
+		FeatureViewNames:    []string{"viewD"},
+		AliasedFeatureNames: []string{"viewD__featureF"},
+		Indices:             [][]int{{0}, {1}, {2, 3}, {4}},
+		EntityKeys: []*types.EntityKey{
+			{
+				JoinKeys:     []string{"customer_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 2}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 3}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 4}}},
+			},
+		},
+	}
+
+	assert.Len(t, refGroups, 4)
+
+	assert.True(t, compareGroupedFeatures(refGroups, expectedKeys))
+}
+
+func compareGroupedFeatures(actual []*GroupedFeaturesPerEntitySet, expected []*GroupedFeaturesPerEntitySet) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+
+	for _, expectedGroup := range expected {
+		found := false
+		for _, actualGroup := range actual {
+			if slices.Equal(expectedGroup.FeatureNames, actualGroup.FeatureNames) &&
+				slices.Equal(expectedGroup.FeatureViewNames, actualGroup.FeatureViewNames) &&
+				slices.Equal(expectedGroup.AliasedFeatureNames, actualGroup.AliasedFeatureNames) &&
+				reflect.DeepEqual(expectedGroup.Indices, actualGroup.Indices) {
+				if !compareEntityKeys(actualGroup.EntityKeys, expectedGroup.EntityKeys) {
+					return false
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+func compareEntityKeys(actual []*types.EntityKey, expected []*types.EntityKey) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	for index, expectedKey := range expected {
+		if !proto.Equal(actual[index], expectedKey) {
+			return false
+		}
+	}
+	return true
+}
+
+//
+//func TestGroupingFeatureRefsWithJoinKeyAliases(t *testing.T) {
+//	viewA := &model.FeatureView{
+//		Base: &model.BaseFeatureView{
+//			Name: "viewA",
+//			Projection: &model.FeatureViewProjection{
+//				Name:       "viewA",
+//				JoinKeyMap: map[string]string{"location_id": "destination_id"},
+//			},
+//		},
+//		EntityNames: []string{"location"},
+//	}
+//	viewB := &model.FeatureView{
+//		Base:        &model.BaseFeatureView{Name: "viewB"},
+//		EntityNames: []string{"location"},
+//	}
+//
+//	refGroups, _ := GroupFeatureRefs(
+//		[]*FeatureViewAndRefs{
+//			{View: viewA, FeatureRefs: []string{"featureA", "featureB"}},
+//			{View: viewB, FeatureRefs: []string{"featureC", "featureD"}},
+//		},
+//		map[string]*types.RepeatedValue{
+//			"location_id": {Val: []*types.Value{
+//				{Val: &types.Value_Int32Val{Int32Val: 0}},
+//				{Val: &types.Value_Int32Val{Int32Val: 0}},
+//				{Val: &types.Value_Int32Val{Int32Val: 1}},
+//				{Val: &types.Value_Int32Val{Int32Val: 1}},
+//				{Val: &types.Value_Int32Val{Int32Val: 1}},
+//			}},
+//			"destination_id": {Val: []*types.Value{
+//				{Val: &types.Value_Int32Val{Int32Val: 1}},
+//				{Val: &types.Value_Int32Val{Int32Val: 2}},
+//				{Val: &types.Value_Int32Val{Int32Val: 3}},
+//				{Val: &types.Value_Int32Val{Int32Val: 3}},
+//				{Val: &types.Value_Int32Val{Int32Val: 4}},
+//			}},
+//		},
+//		map[string]string{
+//			"location": "location_id",
+//		},
+//		true,
+//	)
+//
+//	assert.Len(t, refGroups, 2)
+//
+//	assert.Equal(t, []string{"featureA", "featureB"},
+//		refGroups["location_id[destination_id]"].FeatureNames)
+//	for _, group := range [][]int{{0}, {1}, {2, 3}, {4}} {
+//		assert.Contains(t, refGroups["location_id[destination_id]"].Indices, group)
+//	}
+//
+//	assert.Equal(t, []string{"featureC", "featureD"},
+//		refGroups["location_id"].FeatureNames)
+//	for _, group := range [][]int{{0, 1}, {2, 3, 4}} {
+//		assert.Contains(t, refGroups["location_id"].Indices, group)
+//	}
+//
+//}
+
+func TestGroupingFeatureRefsV2WithMissingKeyForFeatureViewDataModel(t *testing.T) {
+	viewA := &model.FeatureView{
+		Base: &model.BaseFeatureView{
+			Name: "viewA",
+			Projection: &model.FeatureViewProjection{
+				Name:       "viewA",
+				JoinKeyMap: map[string]string{"location_id": "destination_id"},
+			},
+		},
+		EntityNames: []string{"location"},
+	}
+
+	_, err := GroupFeatureRefsV2(
+		[]*FeatureViewAndRefs{
+			{View: viewA, FeatureRefs: []string{"featureA", "featureB"}},
+		},
+		map[string]*types.RepeatedValue{
+			"location_id": {Val: []*types.Value{
+				{Val: &types.Value_Int32Val{Int32Val: 0}},
+			}},
+		},
+		map[string]string{
+			"location": "location_id",
+		},
+		true,
+		onlinestore.FeatureViewLevel,
+	)
+	assert.Errorf(t, err, "key destination_id is missing in provided entity rows for view viewA")
+}
+
+func TestGroupingFeatureRefsV2WithMissingKeyForEntityDataModel(t *testing.T) {
+	viewA := &model.FeatureView{
+		Base: &model.BaseFeatureView{
+			Name: "viewA",
+			Projection: &model.FeatureViewProjection{
+				Name:       "viewA",
+				JoinKeyMap: map[string]string{"location_id": "destination_id"},
+			},
+		},
+		EntityNames: []string{"location"},
+	}
+
+	_, err := GroupFeatureRefsV2(
+		[]*FeatureViewAndRefs{
+			{View: viewA, FeatureRefs: []string{"featureA", "featureB"}},
+		},
+		map[string]*types.RepeatedValue{
+			"location_id": {Val: []*types.Value{
+				{Val: &types.Value_Int32Val{Int32Val: 0}},
+			}},
+		},
+		map[string]string{
+			"location": "location_id",
+		},
+		true,
+		onlinestore.EntityLevel,
 	)
 	assert.Errorf(t, err, "key destination_id is missing in provided entity rows for view viewA")
 }
