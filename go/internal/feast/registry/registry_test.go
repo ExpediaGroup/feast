@@ -569,3 +569,53 @@ func TestRefresh(t *testing.T) {
 		}
 	}
 }
+
+func TestExpireCachedModels_DeletesCacheOnNotFoundError(t *testing.T) {
+	type testModel struct{ Name string }
+	cache := newCacheMap[*testModel](time.Millisecond)
+	project := "test_project"
+	modelName := "test_model"
+	model := &testModel{Name: modelName}
+	cache.set(project, modelName, model)
+
+	// Expire the model
+	cache.mu.Lock()
+	for _, v := range cache.cache[project] {
+		v.Expiration = time.Now().Add(-time.Hour)
+	}
+	cache.mu.Unlock()
+
+	getModel := func(name, proj string) (*testModel, error) {
+		return nil, errors.GrpcNotFoundErrorf("not found")
+	}
+
+	cache.expireCachedModels(getModel)
+
+	_, ok := cache.get(project, modelName)
+	assert.False(t, ok, "Expected model to be deleted from cache on not found error")
+}
+
+func TestExpireCachedModels_DoesNotDeleteCacheOnOtherError(t *testing.T) {
+	type testModel struct{ Name string }
+	cache := newCacheMap[*testModel](time.Millisecond)
+	project := "test_project"
+	modelName := "test_model"
+	model := &testModel{Name: modelName}
+	cache.set(project, modelName, model)
+
+	// Expire the model
+	cache.mu.Lock()
+	for _, v := range cache.cache[project] {
+		v.Expiration = time.Now().Add(-time.Hour)
+	}
+	cache.mu.Unlock()
+
+	getModel := func(name, proj string) (*testModel, error) {
+		return nil, fmt.Errorf("some other error")
+	}
+
+	cache.expireCachedModels(getModel)
+
+	_, ok := cache.get(project, modelName)
+	assert.True(t, ok, "Expected model to remain in cache on non-not found error")
+}
