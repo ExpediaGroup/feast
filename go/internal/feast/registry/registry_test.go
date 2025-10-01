@@ -4,6 +4,7 @@ package registry
 
 import (
 	"fmt"
+	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/protos/feast/core"
 	"github.com/feast-dev/feast/go/protos/feast/types"
@@ -578,12 +579,7 @@ func TestExpireCachedModels_DeletesCacheOnNotFoundError(t *testing.T) {
 	model := &testModel{Name: modelName}
 	cache.set(project, modelName, model)
 
-	// Expire the model
-	cache.mu.Lock()
-	for _, v := range cache.cache[project] {
-		v.Expiration = time.Now().Add(-time.Hour)
-	}
-	cache.mu.Unlock()
+	time.Sleep(2 * time.Millisecond)
 
 	getModel := func(name, proj string) (*testModel, error) {
 		return nil, errors.GrpcNotFoundErrorf("not found")
@@ -603,15 +599,10 @@ func TestExpireCachedModels_DoesNotDeleteCacheOnOtherError(t *testing.T) {
 	model := &testModel{Name: modelName}
 	cache.set(project, modelName, model)
 
-	// Expire the model
-	cache.mu.Lock()
-	for _, v := range cache.cache[project] {
-		v.Expiration = time.Now().Add(-time.Hour)
-	}
-	cache.mu.Unlock()
+	time.Sleep(2 * time.Millisecond)
 
 	getModel := func(name, proj string) (*testModel, error) {
-		return nil, fmt.Errorf("some other error")
+		return nil, assert.AnError
 	}
 
 	cache.expireCachedModels(getModel)
