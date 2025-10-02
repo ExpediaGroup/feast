@@ -1,10 +1,10 @@
-import time
 import threading
+import time
 
 from feast.rate_limiter import (
-    create_rate_limiter,
-    SlidingWindowRateLimiter,
     NoOpRateLimiter,
+    SlidingWindowRateLimiter,
+    create_rate_limiter,
 )
 
 

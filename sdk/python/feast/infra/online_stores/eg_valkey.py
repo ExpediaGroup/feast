@@ -29,15 +29,15 @@ from typing import (
 )
 
 from google.protobuf.timestamp_pb2 import Timestamp
-from pydantic import StrictStr, StrictInt
+from pydantic import StrictInt, StrictStr
 
 from feast import Entity, FeatureView, RepoConfig, utils
 from feast.infra.online_stores.helpers import _mmh3, _redis_key, _redis_key_prefix
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
+from feast.rate_limiter import BaseRateLimiter, create_rate_limiter
 from feast.repo_config import FeastConfigBaseModel
-from feast.rate_limiter import create_rate_limiter, BaseRateLimiter
 
 try:
     from valkey import Valkey
@@ -338,7 +338,8 @@ class EGValkeyOnlineStore(OnlineStore):
                         # TODO: somehow signal that it's not overwriting the current record?
                         continue
 
-                ts = Timestamp(); ts.seconds = event_time_seconds
+                ts = Timestamp()
+                ts.seconds = event_time_seconds
                 entity_hset: Dict[Any, Any] = {ts_key: ts.SerializeToString()}
                 for feature_name, val in values.items():
                     f_key = _mmh3(f"{feature_view}:{feature_name}")
