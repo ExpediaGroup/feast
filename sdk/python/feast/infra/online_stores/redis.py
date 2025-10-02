@@ -29,7 +29,7 @@ from typing import (
 )
 
 from google.protobuf.timestamp_pb2 import Timestamp
-from pydantic import StrictStr
+from pydantic import StrictStr, StrictInt
 
 from feast import Entity, FeatureView, RepoConfig, utils
 from feast.infra.online_stores.helpers import _mmh3, _redis_key, _redis_key_prefix
@@ -37,6 +37,7 @@ from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import FeastConfigBaseModel
+from feast.rate_limiter import create_rate_limiter, BaseRateLimiter
 
 try:
     from redis import Redis
@@ -78,6 +79,12 @@ class RedisOnlineStoreConfig(FeastConfigBaseModel):
 
     full_scan_for_deletion: Optional[bool] = True
     """(Optional) whether to scan for deletion of features"""
+
+    write_rate_limit: Optional[StrictInt] = 0
+    """
+    (Optional) Maximum number of write batches per second. Value 0 (default) means no rate limiting.
+    Each pipeline execution that writes data counts as one batch.
+    """
 
 
 class RedisOnlineStore(OnlineStore):
@@ -284,9 +291,14 @@ class RedisOnlineStore(OnlineStore):
         client = self._get_client(online_store_config)
         project = config.project
 
+        # Initialize generic rate limiter (NoOp if disabled)
+        rate_limiter: BaseRateLimiter = create_rate_limiter(
+            online_store_config.write_rate_limit, 1
+        )
+
         feature_view = table.name
         ts_key = f"_ts:{feature_view}"
-        keys = []
+        keys: List[bytes] = []
         # redis pipelining optimization: send multiple commands to redis server without waiting for every reply
         with client.pipeline(transaction=False) as pipe:
             # check if a previous record under the key bin exists
@@ -304,38 +316,41 @@ class RedisOnlineStore(OnlineStore):
             # flattening the list of lists. `hmget` does the lookup assuming a list of keys in the key bin
             prev_event_timestamps = [i[0] for i in prev_event_timestamps]
 
+            staged = 0
             for redis_key_bin, prev_event_time, (_, values, timestamp, _) in zip(
                 keys, prev_event_timestamps, data
             ):
                 event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
 
-                # ignore if event_timestamp is before the event features that are currently in the feature store
+                # Skip stale events
                 if prev_event_time:
                     prev_ts = Timestamp()
                     prev_ts.ParseFromString(prev_event_time)
                     if prev_ts.seconds and event_time_seconds <= prev_ts.seconds:
-                        # TODO: somehow signal that it's not overwriting the current record?
                         if progress:
+                        # TODO: somehow signal that it's not overwriting the current record?
                             progress(1)
                         continue
 
-                ts = Timestamp()
-                ts.seconds = event_time_seconds
-                entity_hset = dict()
-                entity_hset[ts_key] = ts.SerializeToString()
-
+                ts = Timestamp(); ts.seconds = event_time_seconds
+                entity_hset: Dict[Any, Any] = {ts_key: ts.SerializeToString()}
                 for feature_name, val in values.items():
                     f_key = _mmh3(f"{feature_view}:{feature_name}")
                     entity_hset[f_key] = val.SerializeToString()
-
                 pipe.hset(redis_key_bin, mapping=entity_hset)
 
                 ttl = online_store_config.key_ttl_seconds
+
                 if ttl:
                     pipe.expire(name=redis_key_bin, time=ttl)
-            results = pipe.execute()
-            if progress:
-                progress(len(results))
+                staged += 1
+
+            if staged:
+                if not rate_limiter.acquire():
+                    rate_limiter.acquire_blocking()
+                results = pipe.execute()
+                if progress:
+                    progress(len(results))
 
     def _generate_redis_keys_for_entities(
         self, config: RepoConfig, entity_keys: List[EntityKeyProto]
