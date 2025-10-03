@@ -328,7 +328,7 @@ class RedisOnlineStore(OnlineStore):
                     prev_ts.ParseFromString(prev_event_time)
                     if prev_ts.seconds and event_time_seconds <= prev_ts.seconds:
                         if progress:
-                        # TODO: somehow signal that it's not overwriting the current record?
+                            # TODO: somehow signal that it's not overwriting the current record.
                             progress(1)
                         continue
 

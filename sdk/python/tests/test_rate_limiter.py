@@ -66,4 +66,3 @@ def test_sliding_window_invalid_args():
         assert False, "Expected ValueError for non-positive period"
     except ValueError:
         pass
-

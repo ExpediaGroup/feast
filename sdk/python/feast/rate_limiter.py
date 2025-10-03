@@ -21,7 +21,9 @@ class BaseRateLimiter(ABC):
         """
         pass
 
-    def acquire_blocking(self, sleep_interval: float = 0.001, timeout: Optional[float] = None) -> bool:
+    def acquire_blocking(
+        self, sleep_interval: float = 0.001, timeout: Optional[float] = None
+    ) -> bool:
         """Blocking helper that will retry acquire() until successful or timeout.
 
         Args:
@@ -87,7 +89,9 @@ class SlidingWindowRateLimiter(BaseRateLimiter):
                 return False
 
 
-def create_rate_limiter(max_calls: Optional[int], period: float = 1.0) -> BaseRateLimiter:
+def create_rate_limiter(
+    max_calls: Optional[int], period: float = 1.0
+) -> BaseRateLimiter:
     """Factory to create an appropriate rate limiter instance.
 
     Args:
@@ -100,6 +104,7 @@ def create_rate_limiter(max_calls: Optional[int], period: float = 1.0) -> BaseRa
     if not max_calls or max_calls <= 0:
         return NoOpRateLimiter()
     return SlidingWindowRateLimiter(int(max_calls), period)
+
 
 __all__ = [
     "BaseRateLimiter",
