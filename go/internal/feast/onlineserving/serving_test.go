@@ -572,66 +572,6 @@ func compareEntityKeys(actual []*types.EntityKey, expected []*types.EntityKey) b
 	return true
 }
 
-//
-//func TestGroupingFeatureRefsWithJoinKeyAliases(t *testing.T) {
-//	viewA := &model.FeatureView{
-//		Base: &model.BaseFeatureView{
-//			Name: "viewA",
-//			Projection: &model.FeatureViewProjection{
-//				Name:       "viewA",
-//				JoinKeyMap: map[string]string{"location_id": "destination_id"},
-//			},
-//		},
-//		EntityNames: []string{"location"},
-//	}
-//	viewB := &model.FeatureView{
-//		Base:        &model.BaseFeatureView{Name: "viewB"},
-//		EntityNames: []string{"location"},
-//	}
-//
-//	refGroups, _ := GroupFeatureRefs(
-//		[]*FeatureViewAndRefs{
-//			{View: viewA, FeatureRefs: []string{"featureA", "featureB"}},
-//			{View: viewB, FeatureRefs: []string{"featureC", "featureD"}},
-//		},
-//		map[string]*types.RepeatedValue{
-//			"location_id": {Val: []*types.Value{
-//				{Val: &types.Value_Int32Val{Int32Val: 0}},
-//				{Val: &types.Value_Int32Val{Int32Val: 0}},
-//				{Val: &types.Value_Int32Val{Int32Val: 1}},
-//				{Val: &types.Value_Int32Val{Int32Val: 1}},
-//				{Val: &types.Value_Int32Val{Int32Val: 1}},
-//			}},
-//			"destination_id": {Val: []*types.Value{
-//				{Val: &types.Value_Int32Val{Int32Val: 1}},
-//				{Val: &types.Value_Int32Val{Int32Val: 2}},
-//				{Val: &types.Value_Int32Val{Int32Val: 3}},
-//				{Val: &types.Value_Int32Val{Int32Val: 3}},
-//				{Val: &types.Value_Int32Val{Int32Val: 4}},
-//			}},
-//		},
-//		map[string]string{
-//			"location": "location_id",
-//		},
-//		true,
-//	)
-//
-//	assert.Len(t, refGroups, 2)
-//
-//	assert.Equal(t, []string{"featureA", "featureB"},
-//		refGroups["location_id[destination_id]"].FeatureNames)
-//	for _, group := range [][]int{{0}, {1}, {2, 3}, {4}} {
-//		assert.Contains(t, refGroups["location_id[destination_id]"].Indices, group)
-//	}
-//
-//	assert.Equal(t, []string{"featureC", "featureD"},
-//		refGroups["location_id"].FeatureNames)
-//	for _, group := range [][]int{{0, 1}, {2, 3, 4}} {
-//		assert.Contains(t, refGroups["location_id"].Indices, group)
-//	}
-//
-//}
-
 func TestGroupingFeatureRefsV2WithMissingKeyForFeatureViewDataModel(t *testing.T) {
 	viewA := &model.FeatureView{
 		Base: &model.BaseFeatureView{
@@ -2177,4 +2117,107 @@ func BenchmarkTransposeFeatureRowsIntoColumns(b *testing.B) {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
 		}
 	}
+}
+
+func TestBatchGroupedFeatureRef_VariableBatchSizes(t *testing.T) {
+	groupRef := &GroupedFeaturesPerEntitySet{
+		FeatureNames:        []string{"f1", "f2"},
+		FeatureViewNames:    []string{"v1", "v2"},
+		AliasedFeatureNames: []string{"v1__f1", "v2__f2"},
+		Indices:             [][]int{{0}, {1}, {2, 3}, {4}},
+		EntityKeys: []*types.EntityKey{
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 1}}, {Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 2}}, {Val: &types.Value_Int32Val{Int32Val: 0}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 3}}, {Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+			{
+				JoinKeys:     []string{"customer_id", "driver_id"},
+				EntityValues: []*types.Value{{Val: &types.Value_Int32Val{Int32Val: 4}}, {Val: &types.Value_Int32Val{Int32Val: 1}}},
+			},
+		},
+	}
+
+	t.Run("BatchSizeOne", func(t *testing.T) {
+		batches := BatchGroupedFeatureRef(groupRef, 1)
+		assert.Len(t, batches, 4)
+		for i, batch := range batches {
+			assert.Len(t, batch.EntityKeys, 1)
+			assert.Equal(t, i, batch.StartIndex)
+			assert.True(t, proto.Equal(batch.EntityKeys[0], groupRef.EntityKeys[i]))
+		}
+	})
+
+	t.Run("BatchSizeTwo", func(t *testing.T) {
+		batches := BatchGroupedFeatureRef(groupRef, 2)
+		assert.Len(t, batches, 2)
+		assert.Equal(t, 0, batches[0].StartIndex)
+		assert.Equal(t, 2, batches[1].StartIndex)
+		assert.Len(t, batches[0].EntityKeys, 2)
+		assert.Len(t, batches[1].EntityKeys, 2)
+		for i := 0; i < 2; i++ {
+			assert.True(t, proto.Equal(batches[0].EntityKeys[i], groupRef.EntityKeys[i]))
+			assert.True(t, proto.Equal(batches[1].EntityKeys[i], groupRef.EntityKeys[i+2]))
+		}
+	})
+
+	t.Run("BatchSizeThree", func(t *testing.T) {
+		batches := BatchGroupedFeatureRef(groupRef, 3)
+		assert.Len(t, batches, 2)
+		assert.Equal(t, 0, batches[0].StartIndex)
+		assert.Equal(t, 3, batches[1].StartIndex)
+		assert.Len(t, batches[0].EntityKeys, 3)
+		assert.Len(t, batches[1].EntityKeys, 1)
+		for i := 0; i < 3; i++ {
+			assert.True(t, proto.Equal(batches[0].EntityKeys[i], groupRef.EntityKeys[i]))
+		}
+		assert.True(t, proto.Equal(batches[1].EntityKeys[0], groupRef.EntityKeys[3]))
+	})
+
+	t.Run("BatchSizeFour", func(t *testing.T) {
+		batches := BatchGroupedFeatureRef(groupRef, 4)
+		assert.Len(t, batches, 1)
+		assert.Equal(t, 0, batches[0].StartIndex)
+		assert.Len(t, batches[0].EntityKeys, 4)
+		for i := 0; i < 4; i++ {
+			assert.True(t, proto.Equal(batches[0].EntityKeys[i], groupRef.EntityKeys[i]))
+		}
+	})
+
+	t.Run("BatchSizeGreaterThanEntities", func(t *testing.T) {
+		batches := BatchGroupedFeatureRef(groupRef, 10)
+		assert.Len(t, batches, 1)
+		assert.Equal(t, 0, batches[0].StartIndex)
+		assert.Len(t, batches[0].EntityKeys, 4)
+		for i := 0; i < 4; i++ {
+			assert.True(t, proto.Equal(batches[0].EntityKeys[i], groupRef.EntityKeys[i]))
+		}
+	})
+
+	t.Run("BatchSizeZero", func(t *testing.T) {
+		batches := BatchGroupedFeatureRef(groupRef, 0)
+		assert.Len(t, batches, 1)
+		assert.Equal(t, 0, batches[0].StartIndex)
+		assert.Len(t, batches[0].EntityKeys, 4)
+		for i := 0; i < 4; i++ {
+			assert.True(t, proto.Equal(batches[0].EntityKeys[i], groupRef.EntityKeys[i]))
+		}
+	})
+
+	t.Run("BatchSizeNegative", func(t *testing.T) {
+		batches := BatchGroupedFeatureRef(groupRef, -5)
+		assert.Len(t, batches, 1)
+		assert.Equal(t, 0, batches[0].StartIndex)
+		assert.Len(t, batches[0].EntityKeys, 4)
+		for i := 0; i < 4; i++ {
+			assert.True(t, proto.Equal(batches[0].EntityKeys[i], groupRef.EntityKeys[i]))
+		}
+	})
 }

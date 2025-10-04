@@ -63,7 +63,7 @@ type OnlineStore interface {
 
 	GetDataModelType() OnlineStoreDataModel
 
-	// GetReadBatchSize Return value nil or -1 indicates no batching
+	// GetReadBatchSize Return value <= 0 to indicate no batching
 	// Return value > 0 indicates reads should be batched
 	GetReadBatchSize() int
 }
