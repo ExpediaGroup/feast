@@ -31,6 +31,7 @@ from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import RepeatedValue
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
+from feast.rate_limiter import SlidingWindowRateLimiter  # provider-level write limiter
 from feast.repo_config import BATCH_ENGINE_CLASS_FOR_TYPE, RepoConfig
 from feast.saved_dataset import SavedDataset
 from feast.sorted_feature_view import SortedFeatureView
@@ -40,7 +41,6 @@ from feast.utils import (
     _run_pyarrow_field_mapping,
     make_tzaware,
 )
-from feast.rate_limiter import SlidingWindowRateLimiter  # provider-level write limiter
 
 logger = logging.getLogger(__name__)
 
