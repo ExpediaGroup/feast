@@ -90,7 +90,9 @@ def test_feature_view_tag_overrides_store_config(monkeypatch):
 
     monkeypatch.setattr(pt, "SlidingWindowRateLimiter", FakeLimiter)
 
-    provider._online_store = SimpleNamespace(online_write_batch=lambda *args, **kwargs: None)
+    provider._online_store = SimpleNamespace(
+        online_write_batch=lambda *args, **kwargs: None
+    )
 
     table = SimpleNamespace(name="fv", tags={"write_rate_limit": "3"})
 
