@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
+import feast.infra.passthrough_provider as pt
 from feast.infra.passthrough_provider import PassthroughProvider
 from feast.repo_config import RepoConfig
-import feast.infra.passthrough_provider as pt
 
 
 class FakeLimiter:
