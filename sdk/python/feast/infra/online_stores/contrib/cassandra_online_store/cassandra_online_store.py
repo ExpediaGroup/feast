@@ -48,7 +48,6 @@ from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
-from feast.rate_limiter import SlidingWindowRateLimiter
 from feast.repo_config import FeastConfigBaseModel
 from feast.sorted_feature_view import SortedFeatureView
 from feast.types import (
@@ -418,9 +417,7 @@ class CassandraOnlineStore(OnlineStore):
         ttl_feature_view = table.ttl or timedelta(seconds=0)
         ttl_online_store_config = online_store_config.key_ttl_seconds or 0
         write_concurrency = online_store_config.write_concurrency
-        write_rate_limit = online_store_config.write_rate_limit
         concurrent_queue: Queue = Queue(maxsize=write_concurrency)
-        rate_limiter = SlidingWindowRateLimiter(write_rate_limit, 1)
         feast_array_types = [
             "bytes_list_val",
             "string_list_val",
@@ -540,7 +537,6 @@ class CassandraOnlineStore(OnlineStore):
                         and 0 < online_store_config.write_batch_size <= batch_count
                     ):
                         CassandraOnlineStore._apply_batch(
-                            rate_limiter,
                             batch,
                             progress,
                             session,
@@ -553,7 +549,6 @@ class CassandraOnlineStore(OnlineStore):
 
                 if batch_count > 0:
                     CassandraOnlineStore._apply_batch(
-                        rate_limiter,
                         batch,
                         progress,
                         session,
@@ -592,7 +587,6 @@ class CassandraOnlineStore(OnlineStore):
                         and 0 < online_store_config.write_batch_size <= batch_count
                     ):
                         CassandraOnlineStore._apply_batch(
-                            rate_limiter,
                             batch,
                             progress,
                             session,
@@ -605,7 +599,6 @@ class CassandraOnlineStore(OnlineStore):
 
                 if batch_count > 0:
                     CassandraOnlineStore._apply_batch(
-                        rate_limiter,
                         batch,
                         progress,
                         session,
@@ -1023,7 +1016,6 @@ class CassandraOnlineStore(OnlineStore):
 
     @staticmethod
     def _apply_batch(
-        rate_limiter: SlidingWindowRateLimiter,
         batch: BatchStatement,
         progress: Optional[Callable[[int], Any]],
         session: Session,
@@ -1031,10 +1023,6 @@ class CassandraOnlineStore(OnlineStore):
         on_success,
         on_failure,
     ):
-        # Wait until the rate limiter allows
-        if not rate_limiter.acquire():
-            while not rate_limiter.acquire():
-                time.sleep(0.001)
 
         future = session.execute_async(batch)
         concurrent_queue.put(future)

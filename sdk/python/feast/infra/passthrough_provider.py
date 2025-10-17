@@ -40,6 +40,7 @@ from feast.utils import (
     _run_pyarrow_field_mapping,
     make_tzaware,
 )
+from feast.rate_limiter import SlidingWindowRateLimiter  # provider-level write limiter
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,7 @@ DEFAULT_BATCH_SIZE = 10_000
 
 
 class PassthroughProvider(Provider):
-    """
-    The passthrough provider delegates all operations to the underlying online and offline stores.
+    """The passthrough provider delegates all operations to the underlying online and offline stores.
     """
 
     def __init__(self, config: RepoConfig):
@@ -56,6 +56,7 @@ class PassthroughProvider(Provider):
         self._offline_store = None
         self._online_store = None
         self._batch_engine: Optional[BatchMaterializationEngine] = None
+        self._write_rate_limiters: Dict[str, SlidingWindowRateLimiter] = {}
 
     @property
     def online_store(self):
@@ -133,7 +134,6 @@ class PassthroughProvider(Provider):
         entities_to_keep: Sequence[Entity],
         partial: bool,
     ):
-        # Call update only if there is an online store
         if self.online_store:
             self.online_store.update(
                 config=self.repo_config,
@@ -172,8 +172,54 @@ class PassthroughProvider(Provider):
         ],
         progress: Optional[Callable[[int], Any]],
     ) -> None:
+        rate_limit = self._resolve_write_rate_limit(config, table)
+
+        fv_name = getattr(table, "name", "global") if table is not None else "global"
+        key = f"{config.project}:{fv_name}"
+
+        limiter = self._write_rate_limiters.get(key)
+        # Recreate limiter if missing or if configured limit changed.
+        if limiter is None or limiter.max_calls != rate_limit:
+            self._write_rate_limiters[key] = SlidingWindowRateLimiter(rate_limit, 1)
+            limiter = self._write_rate_limiters[key]
+
+        if limiter and limiter.max_calls > 0:
+            # Block until a slot is available according to the limiter.
+            limiter.wait()
+
         if self.online_store:
             self.online_store.online_write_batch(config, table, data, progress)
+
+    def _resolve_write_rate_limit(self, config: RepoConfig, table: Optional[FeatureView]) -> int:
+        """Resolve write_rate_limit using precedence:
+        1. feature view tag 'write_rate_limit'
+        2. config.online_store.write_rate_limit
+        3. fallback 0
+        """
+        # 1) Feature view tag override
+        if table is not None and hasattr(table, "tags") and table.tags:
+            tag_val = table.tags.get("write_rate_limit")
+            if tag_val is not None:
+                try:
+                    return int(tag_val)
+                except Exception:
+                    logger.warning(
+                        "Invalid write_rate_limit on feature view %s: %s; falling back",
+                        getattr(table, "name", "<unknown>"),
+                        tag_val,
+                    )
+
+        # 2) Project / online store level config
+        try:
+            if config.online_store and hasattr(config.online_store, "write_rate_limit"):
+                return int(getattr(config.online_store, "write_rate_limit") or 0)
+        except Exception:
+            logger.warning(
+                "Invalid write_rate_limit on online_store config; falling back to 0"
+            )
+
+        # 3) Fallback to 0 (no rate limit)
+        return 0
 
     def offline_write_batch(
         self,
@@ -297,15 +343,12 @@ class PassthroughProvider(Provider):
         num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
 
         if num_spark_driver_cores > 2:
-            # Leaving one core for operating system and other background processes
             num_processes = num_spark_driver_cores - 1
 
             if table.num_rows < num_processes:
                 num_processes = table.num_rows
 
-            # Input table is split into smaller chunks and processed in parallel
             chunks = self.split_table(num_processes, table)
-
             chunks_to_parallelize = [
                 (chunk, feature_view, join_keys) for chunk in chunks
             ]
@@ -317,13 +360,12 @@ class PassthroughProvider(Provider):
 
     def split_table(self, num_processes, table):
         num_table_rows = table.num_rows
-        size = num_table_rows // num_processes  # base size of each chunk
-        remainder = num_table_rows % num_processes  # extra rows to distribute
+        size = num_table_rows // num_processes
+        remainder = num_table_rows % num_processes
 
         chunks = []
         offset = 0
         for i in range(num_processes):
-            # Distribute the remainder one per split until exhausted
             length = size + (1 if i < remainder else 0)
             chunks.append(table.slice(offset, length))
             offset += length
@@ -340,7 +382,6 @@ class PassthroughProvider(Provider):
             table = _run_pyarrow_field_mapping(
                 table, feature_view.batch_source.field_mapping
             )
-
         self.offline_write_batch(self.repo_config, feature_view, table, None)
 
     def materialize_single_feature_view(
@@ -407,7 +448,6 @@ class PassthroughProvider(Provider):
             project=project,
             full_feature_names=full_feature_names,
         )
-
         return job
 
     def retrieve_saved_dataset(
@@ -417,10 +457,7 @@ class PassthroughProvider(Provider):
             ref.replace(":", "__") if dataset.full_feature_names else ref.split(":")[1]
             for ref in dataset.features
         ]
-
-        # ToDo: replace hardcoded value
         event_ts_column = "event_timestamp"
-
         return self.offline_store.pull_all_from_table_or_query(
             config=config,
             data_source=dataset.storage.to_data_source(),
@@ -441,7 +478,6 @@ class PassthroughProvider(Provider):
         assert feature_service.logging_config is not None, (
             "Logging should be configured for the feature service before calling this function"
         )
-
         self.offline_store.write_logged_features(
             config=config,
             data=logs,
@@ -461,7 +497,6 @@ class PassthroughProvider(Provider):
         assert feature_service.logging_config is not None, (
             "Logging should be configured for the feature service before calling this function"
         )
-
         logging_source = FeatureServiceLoggingSource(feature_service, config.project)
         schema = logging_source.get_schema(registry)
         logging_config = feature_service.logging_config
