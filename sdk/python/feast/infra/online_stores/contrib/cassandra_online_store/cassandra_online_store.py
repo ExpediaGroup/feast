@@ -1025,7 +1025,6 @@ class CassandraOnlineStore(OnlineStore):
         on_success,
         on_failure,
     ):
-
         future = session.execute_async(batch)
         concurrent_queue.put(future)
         future.add_callbacks(
