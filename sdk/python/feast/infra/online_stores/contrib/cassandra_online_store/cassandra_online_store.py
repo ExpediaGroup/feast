@@ -945,9 +945,11 @@ class CassandraOnlineStore(OnlineStore):
         """
         sort_key_names = [sk.name for sk in table.sort_keys]
         feature_columns = ", ".join(
-            f"{feature.name} {self._get_cql_type(feature.dtype)}"
-            if feature.name in sort_key_names
-            else f"{feature.name} BLOB"
+            (
+                f"{feature.name} {self._get_cql_type(feature.dtype)}"
+                if feature.name in sort_key_names
+                else f"{feature.name} BLOB"
+            )
             for feature in table.features
         )
 

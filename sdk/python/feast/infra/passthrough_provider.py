@@ -48,8 +48,7 @@ DEFAULT_BATCH_SIZE = 10_000
 
 
 class PassthroughProvider(Provider):
-    """The passthrough provider delegates all operations to the underlying online and offline stores.
-    """
+    """The passthrough provider delegates all operations to the underlying online and offline stores."""
 
     def __init__(self, config: RepoConfig):
         self.repo_config = config
@@ -190,7 +189,9 @@ class PassthroughProvider(Provider):
         if self.online_store:
             self.online_store.online_write_batch(config, table, data, progress)
 
-    def _resolve_write_rate_limit(self, config: RepoConfig, table: Optional[FeatureView]) -> int:
+    def _resolve_write_rate_limit(
+        self, config: RepoConfig, table: Optional[FeatureView]
+    ) -> int:
         """Resolve write_rate_limit using precedence:
         1. feature view tag 'write_rate_limit'
         2. config.online_store.write_rate_limit
@@ -475,9 +476,9 @@ class PassthroughProvider(Provider):
         config: RepoConfig,
         registry: BaseRegistry,
     ):
-        assert feature_service.logging_config is not None, (
-            "Logging should be configured for the feature service before calling this function"
-        )
+        assert (
+            feature_service.logging_config is not None
+        ), "Logging should be configured for the feature service before calling this function"
         self.offline_store.write_logged_features(
             config=config,
             data=logs,
@@ -494,9 +495,9 @@ class PassthroughProvider(Provider):
         config: RepoConfig,
         registry: BaseRegistry,
     ) -> RetrievalJob:
-        assert feature_service.logging_config is not None, (
-            "Logging should be configured for the feature service before calling this function"
-        )
+        assert (
+            feature_service.logging_config is not None
+        ), "Logging should be configured for the feature service before calling this function"
         logging_source = FeatureServiceLoggingSource(feature_service, config.project)
         schema = logging_source.get_schema(registry)
         logging_config = feature_service.logging_config
