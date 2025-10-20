@@ -444,6 +444,7 @@ class PassthroughProvider(Provider):
 
         num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
         if num_spark_driver_cores > 2:
+            # Leaving one core for operating system and other background processes
             num_processes = num_spark_driver_cores - 1
 
             if table.num_rows < num_processes:
@@ -451,6 +452,7 @@ class PassthroughProvider(Provider):
 
             os.environ["NUM_PROCESSES"] = str(num_processes)
 
+            # Input table is split into smaller chunks and processed in parallel
             chunks = self.split_table(num_processes, table)
             chunks_to_parallelize = [
                 (chunk, feature_view, join_keys) for chunk in chunks
