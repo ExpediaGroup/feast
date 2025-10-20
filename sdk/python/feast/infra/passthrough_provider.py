@@ -133,6 +133,7 @@ class PassthroughProvider(Provider):
         entities_to_keep: Sequence[Entity],
         partial: bool,
     ):
+        # Call update only if there is an online store
         if self.online_store:
             self.online_store.update(
                 config=self.repo_config,
