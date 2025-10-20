@@ -465,8 +465,8 @@ class PassthroughProvider(Provider):
     @staticmethod
     def split_table(num_processes, table):
         num_table_rows = table.num_rows
-        size = num_table_rows // num_processes # base size of each chunk
-        remainder = num_table_rows % num_processes # extra rows to distribute
+        size = num_table_rows // num_processes  # base size of each chunk
+        remainder = num_table_rows % num_processes  # extra rows to distribute
 
         chunks = []
         offset = 0
