@@ -361,12 +361,13 @@ class PassthroughProvider(Provider):
 
     def split_table(self, num_processes, table):
         num_table_rows = table.num_rows
-        size = num_table_rows // num_processes
-        remainder = num_table_rows % num_processes
+        size = num_table_rows // num_processes # base size of each chunk
+        remainder = num_table_rows % num_processes # extra rows to distribute
 
         chunks = []
         offset = 0
         for i in range(num_processes):
+            # Distribute the remainder one per split until exhausted
             length = size + (1 if i < remainder else 0)
             chunks.append(table.slice(offset, length))
             offset += length
@@ -458,6 +459,7 @@ class PassthroughProvider(Provider):
             ref.replace(":", "__") if dataset.full_feature_names else ref.split(":")[1]
             for ref in dataset.features
         ]
+        # ToDo: replace hardcoded value
         event_ts_column = "event_timestamp"
         return self.offline_store.pull_all_from_table_or_query(
             config=config,
