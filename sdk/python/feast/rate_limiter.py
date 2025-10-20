@@ -42,6 +42,6 @@ class SlidingWindowRateLimiter:
             if remaining <= 0:
                 continue
             # Sleep the smaller of remaining and a capped value to re-check frequently.
-            time.sleep(min(remaining, 0.05))
-            # Optional exponential backoff (bounded) if still not free.
+            time.sleep(min(remaining, backoff))
+            # Exponential backoff (bounded) if still not free.
             backoff = min(backoff * 2, 0.05)
