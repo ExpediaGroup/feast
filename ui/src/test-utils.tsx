@@ -1,12 +1,12 @@
 import React from "react";
-import { render } from "@testing-library/react";
+import { render, RenderOptions } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "react-query";
 import { QueryParamProvider } from "use-query-params";
+import { ReactRouter6Adapter } from "use-query-params/adapters/react-router-6";
 import { MemoryRouter as Router } from "react-router-dom";
-import RouteAdapter from "./hacks/RouteAdapter";
 
 interface ProvidersProps {
-  children: React.ReactElement;
+  children: React.ReactNode;
 }
 
 const queryClient = new QueryClient();
@@ -14,10 +14,12 @@ const queryClient = new QueryClient();
 const AllTheProviders = ({ children }: ProvidersProps) => {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router initialEntries={["/"]}>
-        <QueryParamProvider
-          ReactRouterRoute={RouteAdapter as unknown as React.FunctionComponent}
-        >
+      <Router
+        // Disable v7_relativeSplatPath: custom tab routes don't currently work with it
+        future={{ v7_relativeSplatPath: false, v7_startTransition: true }}
+        initialEntries={["/"]}
+      >
+        <QueryParamProvider adapter={ReactRouter6Adapter}>
           {children}
         </QueryParamProvider>
       </Router>
@@ -27,7 +29,7 @@ const AllTheProviders = ({ children }: ProvidersProps) => {
 
 const customRender = (
   ui: React.ReactElement,
-  options?: Record<string, unknown>
+  options?: Omit<RenderOptions, "wrapper">,
 ) => render(ui, { wrapper: AllTheProviders, ...options });
 
 // re-export everything

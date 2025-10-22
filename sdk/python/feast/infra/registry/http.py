@@ -655,12 +655,14 @@ class HttpRegistry(BaseRegistry):
 
     def apply_materialization(
         self,
-        feature_view: FeatureView,
+        feature_view: Union[FeatureView, OnDemandFeatureView],
         project: str,
         start_date: datetime,
         end_date: datetime,
         commit: bool = True,
     ):
+        if isinstance(feature_view, OnDemandFeatureView):
+            raise TypeError("Materialization not supported for OnDemandFeatureView")
         try:
             feature_view.materialization_intervals.append((start_date, end_date))
             params = {"commit": commit}
@@ -967,3 +969,6 @@ class HttpRegistry(BaseRegistry):
             raise httpx.HTTPError(message=f"ProjectMetadata: {project} not found")
         except Exception as exception:
             self._handle_exception(exception)
+
+    def get_project_metadata(self, project: str, key: str) -> Optional[str]:
+        pass

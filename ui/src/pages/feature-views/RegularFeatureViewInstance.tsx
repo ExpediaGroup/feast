@@ -1,15 +1,12 @@
 import React, { useContext } from "react";
 import { Route, Routes, useNavigate } from "react-router-dom";
-import {
-  EuiPageHeader,
-  EuiPageContent,
-  EuiPageContentBody,
-} from "@elastic/eui";
+import { EuiPageTemplate } from "@elastic/eui";
 
-import { FeatureViewIcon32 } from "../../graphics/FeatureViewIcon";
+import { FeatureViewIcon } from "../../graphics/FeatureViewIcon";
 
 import { useMatchExact, useMatchSubpath } from "../../hooks/useMatchSubpath";
 import RegularFeatureViewOverviewTab from "./RegularFeatureViewOverviewTab";
+import FeatureViewLineageTab from "./FeatureViewLineageTab";
 
 import {
   useRegularFeatureViewCustomTabs,
@@ -20,9 +17,13 @@ import { feast } from "../../protos";
 
 interface RegularFeatureInstanceProps {
   data: feast.core.IFeatureView;
+  permissions?: any[];
 }
 
-const RegularFeatureInstance = ({ data }: RegularFeatureInstanceProps) => {
+const RegularFeatureInstance = ({
+  data,
+  permissions,
+}: RegularFeatureInstanceProps) => {
   const { enabledFeatureStatistics } = useContext(FeatureFlagsContext);
   const navigate = useNavigate();
 
@@ -36,6 +37,14 @@ const RegularFeatureInstance = ({ data }: RegularFeatureInstanceProps) => {
       },
     },
   ];
+
+  tabs.push({
+    label: "Lineage",
+    isSelected: useMatchSubpath("lineage"),
+    onClick: () => {
+      navigate("lineage");
+    },
+  });
 
   let statisticsIsSelected = useMatchSubpath("statistics");
   if (enabledFeatureStatistics) {
@@ -53,31 +62,32 @@ const RegularFeatureInstance = ({ data }: RegularFeatureInstanceProps) => {
   const TabRoutes = useRegularFeatureViewCustomTabRoutes();
 
   return (
-    <React.Fragment>
-      <EuiPageHeader
+    <EuiPageTemplate panelled>
+      <EuiPageTemplate.Header
         restrictWidth
-        iconType={FeatureViewIcon32}
+        iconType={FeatureViewIcon}
         pageTitle={`${data?.spec?.name}`}
         tabs={tabs}
       />
-      <EuiPageContent
-        hasBorder={false}
-        hasShadow={false}
-        paddingSize="none"
-        color="transparent"
-        borderRadius="none"
-      >
-        <EuiPageContentBody>
-          <Routes>
-            <Route
-              path="/"
-              element={<RegularFeatureViewOverviewTab data={data} />}
-            />
-            {TabRoutes}
-          </Routes>
-        </EuiPageContentBody>
-      </EuiPageContent>
-    </React.Fragment>
+      <EuiPageTemplate.Section>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <RegularFeatureViewOverviewTab
+                data={data}
+                permissions={permissions}
+              />
+            }
+          />
+          <Route
+            path="/lineage"
+            element={<FeatureViewLineageTab data={data} />}
+          />
+          {TabRoutes}
+        </Routes>
+      </EuiPageTemplate.Section>
+    </EuiPageTemplate>
   );
 };
 

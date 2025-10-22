@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from tempfile import mkstemp
+from unittest.mock import patch
 
 import pytest
 from pytest_lazyfixture import lazy_fixture
@@ -11,16 +12,16 @@ from feast.data_source import KafkaSource
 from feast.entity import Entity
 from feast.feast_object import ALL_RESOURCE_TYPES
 from feast.feature_store import FeatureStore
-from feast.feature_view import FeatureView
+from feast.feature_view import DUMMY_ENTITY_ID, DUMMY_ENTITY_NAME, FeatureView
 from feast.field import Field
 from feast.infra.offline_stores.file_source import FileSource
 from feast.infra.online_stores.sqlite import SqliteOnlineStoreConfig
 from feast.permissions.action import AuthzedAction
 from feast.permissions.permission import Permission
 from feast.permissions.policy import RoleBasedPolicy
-from feast.repo_config import RepoConfig
+from feast.repo_config import RegistryConfig, RepoConfig
 from feast.stream_feature_view import stream_feature_view
-from feast.types import Array, Bytes, Float32, Int64, String
+from feast.types import Array, Bytes, Float32, Int64, String, ValueType, from_value_type
 from tests.integration.feature_repos.universal.feature_views import TAGS
 from tests.utils.cli_repo_creator import CliRunner, get_example_repo
 from tests.utils.data_source_test_creator import prep_file_source
@@ -93,6 +94,7 @@ def test_apply_feature_view(test_feature_store):
             Field(name="fs1_my_feature_4", dtype=Array(Bytes)),
             Field(name="entity_id", dtype=Int64),
         ],
+        udf=lambda df: df,
         entities=[entity],
         tags={"team": "matchmaking", "tag": "two"},
         source=batch_source,
@@ -209,8 +211,9 @@ def test_apply_feature_view_with_inline_batch_source(
         test_feature_store.apply([entity, driver_fv])
 
         fvs = test_feature_store.list_batch_feature_views()
+        dfv = fvs[0]
         assert len(fvs) == 1
-        assert fvs[0] == driver_fv
+        assert dfv == driver_fv
 
         ds = test_feature_store.list_data_sources()
         assert len(ds) == 1
@@ -338,6 +341,69 @@ def test_apply_entities_and_feature_views(test_feature_store):
     assert e1 == e1_actual
     assert fv2 != fv1_actual
     assert e2 != e1_actual
+
+    test_feature_store.teardown()
+
+
+@pytest.mark.parametrize(
+    "test_feature_store",
+    [lazy_fixture("feature_store_with_local_registry")],
+)
+def test_apply_dummy_entity_and_feature_view_columns(test_feature_store):
+    assert isinstance(test_feature_store, FeatureStore)
+    # Create Feature Views
+    batch_source = FileSource(
+        file_format=ParquetFormat(),
+        path="file://feast/*",
+        timestamp_field="ts_col",
+        created_timestamp_column="timestamp",
+    )
+
+    e1 = Entity(
+        name="fs1_my_entity_1", description="something", value_type=ValueType.INT64
+    )
+
+    fv_no_entity = FeatureView(
+        name="my_feature_view_no_entity",
+        schema=[
+            Field(name="fs1_my_feature_1", dtype=Int64),
+            Field(name="fs1_my_entity_1", dtype=Int64),
+        ],
+        entities=[],
+        tags={"team": "matchmaking"},
+        source=batch_source,
+        ttl=timedelta(minutes=5),
+    )
+    fv_with_entity = FeatureView(
+        name="my_feature_view_with_entity",
+        schema=[
+            Field(name="fs1_my_feature_1", dtype=Int64),
+            Field(name="fs1_my_entity_1", dtype=Int64),
+        ],
+        entities=[e1],
+        tags={"team": "matchmaking"},
+        source=batch_source,
+        ttl=timedelta(minutes=5),
+    )
+
+    # Check that the entity_columns are empty before applying
+    assert fv_no_entity.entities == [DUMMY_ENTITY_NAME]
+    assert fv_no_entity.entity_columns == []
+    # Note that this test is a special case rooted in the entity being included in the schema
+    assert fv_with_entity.entity_columns == [
+        Field(name=e1.join_key, dtype=from_value_type(e1.value_type))
+    ]
+    # Register Feature View
+    test_feature_store.apply([e1, fv_no_entity, fv_with_entity])
+    fv_from_online_store = test_feature_store.get_feature_view(
+        "my_feature_view_no_entity"
+    )
+    # Note that after the apply() the feature_view serializes the Dummy Entity ID
+    assert fv_no_entity.entity_columns[0].name == DUMMY_ENTITY_ID
+    assert fv_from_online_store.entity_columns[0].name == DUMMY_ENTITY_ID
+    assert fv_from_online_store.entities == []
+    assert fv_no_entity.entities == [DUMMY_ENTITY_NAME]
+    assert fv_with_entity.entity_columns[0].name == e1.join_key
 
     test_feature_store.teardown()
 
@@ -590,7 +656,7 @@ def test_apply_stream_feature_view_udf(test_feature_store, simple_dataset_1) -> 
             import pandas as pd
 
             assert isinstance(pandas_df, pd.DataFrame)
-            df = pandas_df.transform(lambda x: x + 10, axis=1)
+            df = pandas_df.transform(lambda x: x + 10)
             df.insert(2, "C", [20.2, 230.0, 34.0], True)
             return df
 
@@ -619,11 +685,36 @@ def test_apply_stream_feature_view_udf(test_feature_store, simple_dataset_1) -> 
 def test_apply_batch_source(test_feature_store, simple_dataset_1) -> None:
     """Test that a batch source is applied correctly."""
     with prep_file_source(df=simple_dataset_1, timestamp_field="ts_1") as file_source:
+        # Store original timestamps before applying
+        original_created = file_source.created_timestamp
+        original_updated = file_source.last_updated_timestamp
+
         test_feature_store.apply([file_source])
 
         ds = test_feature_store.list_data_sources()
         assert len(ds) == 1
         assert ds[0] == file_source
+
+        # Verify timestamps are handled correctly during apply/registry operations
+        applied_source = ds[0]
+        assert applied_source.created_timestamp == original_created
+        assert applied_source.last_updated_timestamp >= original_updated
+
+        # Verify timestamps are included in protobuf representation
+        proto = applied_source.to_proto()
+        assert proto.HasField("meta")
+        assert proto.meta.HasField("created_timestamp")
+        assert proto.meta.HasField("last_updated_timestamp")
+
+        # Verify roundtrip serialization preserves timestamps
+        from feast.data_source import DataSource
+
+        roundtrip_source = DataSource.from_proto(proto)
+        assert roundtrip_source.created_timestamp == original_created
+        assert (
+            roundtrip_source.last_updated_timestamp
+            == applied_source.last_updated_timestamp
+        )
 
 
 @pytest.mark.parametrize(
@@ -644,17 +735,44 @@ def test_apply_stream_source(test_feature_store, simple_dataset_1) -> None:
             tags=TAGS,
         )
 
+        # Store original timestamps before applying
+        original_stream_created = stream_source.created_timestamp
+        original_stream_updated = stream_source.last_updated_timestamp
+        original_file_created = file_source.created_timestamp
+        original_file_updated = file_source.last_updated_timestamp
+
         test_feature_store.apply([stream_source])
 
         assert len(test_feature_store.list_data_sources(tags=TAGS)) == 1
         ds = test_feature_store.list_data_sources()
         assert len(ds) == 2
-        if isinstance(ds[0], FileSource):
-            assert ds[0] == file_source
-            assert ds[1] == stream_source
-        else:
-            assert ds[0] == stream_source
-            assert ds[1] == file_source
+
+        # Find the applied sources
+        applied_stream_source = None
+        applied_file_source = None
+        for source in ds:
+            if isinstance(source, FileSource):
+                applied_file_source = source
+            else:
+                applied_stream_source = source
+
+        assert applied_file_source == file_source
+        assert applied_stream_source == stream_source
+
+        assert applied_stream_source.created_timestamp == original_stream_created
+        assert applied_stream_source.last_updated_timestamp >= original_stream_updated
+        assert applied_file_source.created_timestamp == original_file_created
+        assert applied_file_source.last_updated_timestamp >= original_file_updated
+
+        stream_proto = applied_stream_source.to_proto()
+        assert stream_proto.HasField("meta")
+        assert stream_proto.meta.HasField("created_timestamp")
+        assert stream_proto.meta.HasField("last_updated_timestamp")
+
+        file_proto = applied_file_source.to_proto()
+        assert file_proto.HasField("meta")
+        assert file_proto.meta.HasField("created_timestamp")
+        assert file_proto.meta.HasField("last_updated_timestamp")
 
 
 def test_apply_stream_source_from_repo() -> None:
@@ -677,6 +795,70 @@ def feature_store_with_local_registry():
             project="default",
             provider="local",
             online_store=SqliteOnlineStoreConfig(path=online_store_path),
-            entity_key_serialization_version=2,
+            entity_key_serialization_version=3,
         )
     )
+
+
+@pytest.mark.parametrize(
+    "test_feature_store",
+    [lazy_fixture("feature_store_with_local_registry")],
+)
+def test_apply_refreshes_registry_cache_sync_mode(test_feature_store):
+    """Test that apply() refreshes registry cache when cache_mode is 'sync' (default)"""
+    # Create a simple entity (no FeatureView to avoid file path issues)
+    entity = Entity(name="test_entity", join_keys=["id"])
+
+    # Mock the refresh_registry method to verify it's called
+    with patch.object(test_feature_store, "refresh_registry") as mock_refresh:
+        # Apply the entity
+        test_feature_store.apply([entity])
+
+        # Verify refresh_registry was called once (due to sync mode)
+        mock_refresh.assert_called_once()
+
+    test_feature_store.teardown()
+
+
+@pytest.mark.parametrize(
+    "test_feature_store",
+    [lazy_fixture("feature_store_with_local_registry")],
+)
+def test_apply_skips_refresh_registry_cache_thread_mode(test_feature_store):
+    """Test that apply() skips registry refresh when cache_mode is 'thread'"""
+    # Create a simple entity
+    entity = Entity(name="test_entity", join_keys=["id"])
+
+    # Temporarily change cache_mode to 'thread'
+    original_cache_mode = test_feature_store.config.registry.cache_mode
+    test_feature_store.config.registry.cache_mode = "thread"
+
+    try:
+        # Mock the refresh_registry method to verify it's NOT called
+        with patch.object(test_feature_store, "refresh_registry") as mock_refresh:
+            # Apply the entity
+            test_feature_store.apply([entity])
+
+            # Verify refresh_registry was NOT called (due to thread mode)
+            mock_refresh.assert_not_called()
+    finally:
+        # Restore original cache_mode
+        test_feature_store.config.registry.cache_mode = original_cache_mode
+
+    test_feature_store.teardown()
+
+
+def test_registry_config_cache_mode_default():
+    """Test that RegistryConfig has cache_mode with default value 'sync'"""
+    config = RegistryConfig()
+    assert hasattr(config, "cache_mode")
+    assert config.cache_mode == "sync"
+
+
+def test_registry_config_cache_mode_can_be_set():
+    """Test that RegistryConfig cache_mode can be set to different values"""
+    config = RegistryConfig(cache_mode="thread")
+    assert config.cache_mode == "thread"
+
+    config = RegistryConfig(cache_mode="sync")
+    assert config.cache_mode == "sync"

@@ -22,8 +22,12 @@ from unittest import mock
 
 import grpc_testing
 import pandas as pd
+import pyarrow.fs as fs
 import pytest
 from pytest_lazyfixture import lazy_fixture
+from testcontainers.core.container import DockerContainer
+from testcontainers.core.network import Network
+from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.mysql import MySqlContainer
 from testcontainers.postgres import PostgresContainer
 
@@ -277,6 +281,8 @@ def sqlite_registry():
     registry_config = SqlRegistryConfig(
         registry_type="sql",
         path="sqlite://",
+        cache_ttl_seconds=2,
+        cache_mode="sync",
     )
 
     yield SqlRegistry(registry_config, "project", None)
@@ -303,6 +309,60 @@ def mysql_fallback_registry(mysql_server):
     )
 
     yield SqlFallbackRegistry(registry_config, "project", None)
+
+
+@pytest.fixture(scope="function")
+def hdfs_registry():
+    HADOOP_NAMENODE_IMAGE = "bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8"
+    HADOOP_DATANODE_IMAGE = "bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8"
+    HDFS_CLUSTER_NAME = "feast-hdfs-cluster"
+    HADOOP_NAMENODE_WAIT_LOG = "namenode.NameNode: NameNode RPC up"
+    HADOOP_DATANODE_WAIT_LOG = "datanode.DataNode: .*successfully registered with NN"
+    with Network() as network:
+        namenode = None
+        datanode = None
+
+        try:
+            namenode = (
+                DockerContainer(HADOOP_NAMENODE_IMAGE)
+                .with_network(network)
+                .with_env("CLUSTER_NAME", HDFS_CLUSTER_NAME)
+                .with_exposed_ports(8020)
+                .with_network_aliases("namenode")
+                .with_kwargs(hostname="namenode")
+                .start()
+            )
+            wait_for_logs(namenode, HADOOP_NAMENODE_WAIT_LOG, timeout=120)
+            namenode_ip = namenode.get_container_host_ip()
+            namenode_port = int(namenode.get_exposed_port(8020))
+
+            datanode = (
+                DockerContainer(HADOOP_DATANODE_IMAGE)
+                .with_network(network)
+                .with_exposed_ports(9867)
+                .with_env("CLUSTER_NAME", HDFS_CLUSTER_NAME)
+                .with_env("CORE_CONF_fs_defaultFS", "hdfs://namenode:8020")
+                .with_network_aliases("datanode")
+                .with_kwargs(hostname="datanode")
+                .start()
+            )
+
+            wait_for_logs(datanode, HADOOP_DATANODE_WAIT_LOG, timeout=120)
+
+            hdfs = fs.HadoopFileSystem(host=namenode_ip, port=namenode_port)
+            hdfs.create_dir("/feast")
+            registry_path = f"hdfs://{namenode_ip}:{namenode_port}/feast/registry.db"
+            with hdfs.open_output_stream(registry_path) as f:
+                f.write(b"")
+
+            registry_config = RegistryConfig(path=registry_path, cache_ttl_seconds=600)
+            reg = Registry("project", registry_config, None)
+            yield reg
+        finally:
+            if datanode:
+                datanode.stop()
+            if namenode:
+                namenode.stop()
 
 
 class GrpcMockChannel:
@@ -371,10 +431,17 @@ else:
             marks=pytest.mark.xdist_group(name="mysql_registry"),
         ),
         lazy_fixture("sqlite_registry"),
-        lazy_fixture("mock_remote_registry"),
+        pytest.param(
+            lazy_fixture("mock_remote_registry"),
+            marks=pytest.mark.rbac_remote_integration_test,
+        ),
         pytest.param(
             lazy_fixture("mysql_fallback_registry"),
             marks=pytest.mark.xdist_group(name="mysql_fallback_registry"),
+        ),
+        pytest.param(
+            lazy_fixture("hdfs_registry"),
+            marks=pytest.mark.xdist_group(name="hdfs_registry"),
         ),
     ]
 
@@ -747,6 +814,57 @@ def test_apply_data_source(test_registry):
     assert registry_feature_view.batch_source == batch_source
     registry_batch_source = test_registry.list_data_sources(project)[0]
     assert registry_batch_source == batch_source
+
+    test_registry.teardown()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "test_registry",
+    all_fixtures,
+)
+def test_apply_data_source_with_timestamps(test_registry):
+    """Test that data source timestamps are properly stored and updated in registry."""
+    project = "project"
+    file_source = FileSource(
+        name="test_file_source",
+        file_format=ParquetFormat(),
+        path="file://feast/test.parquet",
+        timestamp_field="ts_col",
+        created_timestamp_column="timestamp",
+    )
+
+    # Apply the data source for the first time
+    test_registry.apply_data_source(file_source, project, commit=True)
+    retrieved_source = test_registry.get_data_source("test_file_source", project)
+
+    proto = retrieved_source.to_proto()
+    assert proto.HasField("meta")
+    assert proto.meta.HasField("created_timestamp")
+    assert proto.meta.HasField("last_updated_timestamp")
+
+    # Test that last_updated_timestamp changes when we update the data source
+    time.sleep(0.01)  # Ensure timestamp difference
+    original_created = retrieved_source.created_timestamp
+    original_updated = retrieved_source.last_updated_timestamp
+
+    # Modify the data source
+    retrieved_source.description = "Updated description for timestamp test"
+
+    # Apply the updated source - registry will automatically update last_updated_timestamp
+    test_registry.apply_data_source(retrieved_source, project, commit=True)
+
+    updated_source = test_registry.get_data_source("test_file_source", project)
+
+    # The created_timestamp should be preserved from the previous apply
+    assert updated_source.created_timestamp == original_created
+    assert updated_source.last_updated_timestamp != original_updated, (
+        f"updated_source.last_updated_timestamp: {updated_source.last_updated_timestamp}, original_updated: {original_updated}"
+    )
+    assert updated_source.last_updated_timestamp > original_updated, (
+        f"updated_source.last_updated_timestamp: {updated_source.last_updated_timestamp}, original_updated: {original_updated}"
+    )
+    assert updated_source.description == "Updated description for timestamp test"
 
     test_registry.teardown()
 
@@ -1155,11 +1273,10 @@ def test_registry_cache(test_registry):
     registry_data_sources_cached = test_registry.list_data_sources(
         project, allow_cache=True
     )
-    # Not refreshed cache, so cache miss
-    assert len(registry_feature_views_cached) == 0
-    assert len(registry_data_sources_cached) == 0
+    assert len(registry_feature_views_cached) == 1
+    assert len(registry_data_sources_cached) == 1
+
     test_registry.refresh(project)
-    # Now objects exist
     registry_feature_views_cached = test_registry.list_feature_views(
         project, allow_cache=True, tags=fv1.tags
     )
@@ -1516,7 +1633,7 @@ def test_apply_permission_success(test_registry):
         and isinstance(permission.policy, RoleBasedPolicy)
         and len(permission.policy.roles) == 1
         and permission.policy.roles[0] == "reader"
-        and permission.name_pattern is None
+        and permission.name_patterns == []
         and permission.tags is None
         and permission.required_tags is None
     )
@@ -1534,7 +1651,7 @@ def test_apply_permission_success(test_registry):
         and isinstance(permission.policy, RoleBasedPolicy)
         and len(permission.policy.roles) == 1
         and permission.policy.roles[0] == "reader"
-        and permission.name_pattern is None
+        and permission.name_patterns == []
         and permission.tags is None
         and permission.required_tags is None
     )
@@ -1564,7 +1681,7 @@ def test_apply_permission_success(test_registry):
         and len(updated_permission.policy.roles) == 2
         and "reader" in updated_permission.policy.roles
         and "writer" in updated_permission.policy.roles
-        and updated_permission.name_pattern is None
+        and updated_permission.name_patterns == []
         and updated_permission.tags is None
         and updated_permission.required_tags is None
     )
@@ -1580,7 +1697,7 @@ def test_apply_permission_success(test_registry):
         actions=[AuthzedAction.DESCRIBE, AuthzedAction.WRITE_ONLINE],
         policy=RoleBasedPolicy(roles=["reader", "writer"]),
         types=FeatureView,
-        name_pattern="aaa",
+        name_patterns="aaa",
         tags={"team": "matchmaking"},
         required_tags={"tag1": "tag1-value"},
     )
@@ -1602,7 +1719,7 @@ def test_apply_permission_success(test_registry):
         and len(updated_permission.policy.roles) == 2
         and "reader" in updated_permission.policy.roles
         and "writer" in updated_permission.policy.roles
-        and updated_permission.name_pattern == "aaa"
+        and updated_permission.name_patterns == ["aaa"]
         and "team" in updated_permission.tags
         and updated_permission.tags["team"] == "matchmaking"
         and updated_permission.required_tags["tag1"] == "tag1-value"
@@ -1881,6 +1998,54 @@ def test_apply_entity_to_sql_registry_and_reinitialize_sql_registry(test_registr
 
     updated_test_registry.teardown()
     test_registry.teardown()
+
+
+@pytest.mark.integration
+def test_commit_for_read_only_user():
+    fd, registry_path = mkstemp()
+    registry_config = RegistryConfig(path=registry_path, cache_ttl_seconds=600)
+    write_registry = Registry("project", registry_config, None)
+
+    entity = Entity(
+        name="driver_car_id",
+        description="Car driver id",
+        tags={"team": "matchmaking"},
+    )
+
+    project = "project"
+
+    # Register Entity without commiting
+    write_registry.apply_entity(entity, project, commit=False)
+    assert write_registry.cached_registry_proto
+    project_obj = write_registry.cached_registry_proto.projects[0]
+    assert project == Project.from_proto(project_obj).name
+    assert_project(project, write_registry, True)
+
+    # Retrieving the entity should still succeed
+    entities = write_registry.list_entities(project, allow_cache=True, tags=entity.tags)
+    entity = entities[0]
+    assert (
+        len(entities) == 1
+        and entity.name == "driver_car_id"
+        and entity.description == "Car driver id"
+        and "team" in entity.tags
+        and entity.tags["team"] == "matchmaking"
+    )
+
+    # commit from the original registry
+    write_registry.commit()
+
+    # Reconstruct the new registry in order to read the newly written store
+    with mock.patch.object(
+        Registry,
+        "commit",
+        side_effect=Exception("Read only users are not allowed to commit"),
+    ):
+        read_registry = Registry("project", registry_config, None)
+        entities = read_registry.list_entities(project, tags=entity.tags)
+        assert len(entities) == 1
+
+    write_registry.teardown()
 
 
 @pytest.mark.integration

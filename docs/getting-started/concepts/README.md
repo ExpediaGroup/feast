@@ -4,6 +4,10 @@
 [overview.md](overview.md)
 {% endcontent-ref %}
 
+{% content-ref url="project.md" %}
+[project.md](project.md)
+{% endcontent-ref %}
+
 {% content-ref url="data-ingestion.md" %}
 [data-ingestion.md](data-ingestion.md)
 {% endcontent-ref %}
@@ -14,6 +18,14 @@
 
 {% content-ref url="feature-view.md" %}
 [feature-view.md](feature-view.md)
+{% endcontent-ref %}
+
+{% content-ref url="batch-feature-view.md" %}
+[batch-feature-view.md](batch-feature-view.md)
+{% endcontent-ref %}
+
+{% content-ref url="stream-feature-view.md" %}
+[stream-feature-view.md](stream-feature-view.md)
 {% endcontent-ref %}
 
 {% content-ref url="feature-retrieval.md" %}

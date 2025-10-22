@@ -1,4 +1,4 @@
-FROM golang:1.22.5
+FROM golang:1.23.12
 
 # Update the package list and install the ca-certificates package
 RUN apt-get update && apt-get install -y ca-certificates
@@ -22,6 +22,7 @@ RUN find ./protos -name "*.proto" \
 
 # Build the Go application
 RUN go build -o feast ./go/main.go
+
 # Expose ports
 EXPOSE 8080
 

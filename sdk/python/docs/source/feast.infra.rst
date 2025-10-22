@@ -7,9 +7,11 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
+   feast.infra.common
+   feast.infra.compute_engines
    feast.infra.contrib
    feast.infra.feature_servers
-   feast.infra.materialization
+   feast.infra.mcp_servers
    feast.infra.offline_stores
    feast.infra.online_stores
    feast.infra.registry
@@ -47,6 +49,14 @@ feast.infra.provider module
 ---------------------------
 
 .. automodule:: feast.infra.provider
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+feast.infra.supported\_async\_methods module
+--------------------------------------------
+
+.. automodule:: feast.infra.supported_async_methods
    :members:
    :undoc-members:
    :show-inheritance:

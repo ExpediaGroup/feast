@@ -48,6 +48,7 @@ def py_path_to_module(path: Path) -> str:
         str(path.relative_to(os.getcwd()))[: -len(".py")]
         .replace("./", "")
         .replace("/", ".")
+        .replace("\\", ".")
     )
 
 
@@ -73,7 +74,7 @@ def read_feastignore(repo_root: Path) -> List[str]:
 def get_ignore_files(repo_root: Path, ignore_paths: List[str]) -> Set[Path]:
     """Get all ignore files that match any of the user-defined ignore paths"""
     ignore_files = set()
-    for ignore_path in ignore_paths:
+    for ignore_path in set(ignore_paths):
         # ignore_path may contains matchers (* or **). Use glob() to match user-defined path to actual paths
         for matched_path in repo_root.glob(ignore_path):
             if matched_path.is_file():
@@ -92,9 +93,7 @@ def get_ignore_files(repo_root: Path, ignore_paths: List[str]) -> Set[Path]:
 def get_repo_files(repo_root: Path) -> List[Path]:
     """Get the list of all repo files, ignoring undesired files & directories specified in .feastignore"""
     # Read ignore paths from .feastignore and create a set of all files that match any of these paths
-    ignore_paths = read_feastignore(repo_root)
-    ignore_files = get_ignore_files(repo_root, ignore_paths)
-    ignore_paths += [
+    ignore_paths = read_feastignore(repo_root) + [
         ".git",
         ".feastignore",
         ".venv",
@@ -102,6 +101,7 @@ def get_repo_files(repo_root: Path) -> List[Path]:
         "__pycache__",
         ".ipynb_checkpoints",
     ]
+    ignore_files = get_ignore_files(repo_root, ignore_paths)
 
     # List all Python files in the root directory (recursively)
     repo_files = {
@@ -247,7 +247,7 @@ def parse_repo(repo_root: Path) -> RepoContents:
 
 def plan(repo_config: RepoConfig, repo_path: Path, skip_source_validation: bool):
     os.chdir(repo_path)
-    repo = _get_repo_contents(repo_path, repo_config.project)
+    repo = _get_repo_contents(repo_path, repo_config.project, repo_config)
     for project in repo.projects:
         repo_config.project = project.name
         store, registry = _get_store_and_registry(repo_config)
@@ -264,7 +264,11 @@ def plan(repo_config: RepoConfig, repo_path: Path, skip_source_validation: bool)
         click.echo(infra_diff.to_string())
 
 
-def _get_repo_contents(repo_path, project_name: Optional[str] = None):
+def _get_repo_contents(
+    repo_path,
+    project_name: Optional[str] = None,
+    repo_config: Optional[RepoConfig] = None,
+):
     sys.dont_write_bytecode = True
     repo = parse_repo(repo_path)
 
@@ -273,7 +277,12 @@ def _get_repo_contents(repo_path, project_name: Optional[str] = None):
             print(
                 f"No project found in the repository. Using project name {project_name} defined in feature_store.yaml"
             )
-            repo.projects.append(Project(name=project_name))
+            project_description = (
+                repo_config.project_description if repo_config else None
+            )
+            repo.projects.append(
+                Project(name=project_name, description=project_description or "")
+            )
         else:
             print(
                 "No project found in the repository. Either define Project in repository or define a project in feature_store.yaml"
@@ -473,14 +482,14 @@ def create_feature_store(
 
 def apply_total(repo_config: RepoConfig, repo_path: Path, skip_source_validation: bool):
     os.chdir(repo_path)
-    repo = _get_repo_contents(repo_path, repo_config.project)
+    repo = _get_repo_contents(repo_path, repo_config.project, repo_config)
     for project in repo.projects:
         repo_config.project = project.name
         store, registry = _get_store_and_registry(repo_config)
         if not is_valid_name(project.name):
             print(
                 f"{project.name} is not valid. Project name should only have "
-                f"alphanumerical values and underscores but not start with an underscore."
+                f"alphanumerical values, underscores, and hyphens but not start with an underscore or hyphen."
             )
             sys.exit(1)
         # TODO: When we support multiple projects in a single repo, we should filter repo contents by project. Currently there is no way to associate Feast objects to project.
@@ -529,7 +538,7 @@ def init_repo(repo_name: str, template: str):
 
     if not is_valid_name(repo_name):
         raise BadParameter(
-            message="Name should be alphanumeric values and underscores but not start with an underscore",
+            message="Name should be alphanumeric values, underscores, and hyphens but not start with an underscore or hyphen",
             param_hint="PROJECT_DIRECTORY",
         )
     repo_path = Path(os.path.join(Path.cwd(), repo_name))
@@ -551,6 +560,10 @@ def init_repo(repo_name: str, template: str):
     if not os.path.exists(template_path):
         raise IOError(f"Could not find template {template}")
     copytree(template_path, str(repo_path), dirs_exist_ok=True)
+
+    # Rename gitignore files back to .gitignore
+    for gitignore_path in repo_path.rglob("gitignore"):
+        gitignore_path.rename(gitignore_path.with_name(".gitignore"))
 
     # Seed the repository
     bootstrap_path = repo_path / "bootstrap.py"
@@ -586,8 +599,10 @@ def init_repo(repo_name: str, template: str):
 
 
 def is_valid_name(name: str) -> bool:
-    """A name should be alphanumeric values and underscores but not start with an underscore"""
-    return not name.startswith("_") and re.compile(r"\W+").search(name) is None
+    """A name should be alphanumeric values, underscores, and hyphens but not start with an underscore"""
+    return (
+        not name.startswith(("_", "-")) and re.compile(r"[^\w-]+").search(name) is None
+    )
 
 
 def generate_project_name() -> str:

@@ -1,7 +1,7 @@
 import uuid
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
-from typing import Any, Dict, KeysView, List, Optional, Set, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, KeysView, List, Literal, Optional, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -50,7 +50,7 @@ def assert_expected_columns_in_entity_df(
     entity_df_event_timestamp_col: str,
 ):
     entity_columns = set(entity_schema.keys())
-    expected_columns = join_keys | {entity_df_event_timestamp_col}
+    expected_columns = {entity_df_event_timestamp_col}
     missing_keys = expected_columns - entity_columns
 
     if len(missing_keys) != 0:
@@ -118,6 +118,10 @@ def get_feature_view_query_context(
 
     query_context = []
     for feature_view, features in feature_views_to_feature_map.items():
+        reverse_field_mapping = {
+            v: k for k, v in feature_view.batch_source.field_mapping.items()
+        }
+
         join_keys: List[str] = []
         entity_selections: List[str] = []
         for entity_column in feature_view.entity_columns:
@@ -125,16 +129,16 @@ def get_feature_view_query_context(
                 entity_column.name, entity_column.name
             )
             join_keys.append(join_key)
-            entity_selections.append(f"{entity_column.name} AS {join_key}")
+            entity_selections.append(
+                f"{reverse_field_mapping.get(entity_column.name, entity_column.name)} "
+                f"AS {join_key}"
+            )
 
         if isinstance(feature_view.ttl, timedelta):
             ttl_seconds = int(feature_view.ttl.total_seconds())
         else:
             ttl_seconds = 0
 
-        reverse_field_mapping = {
-            v: k for k, v in feature_view.batch_source.field_mapping.items()
-        }
         features = [reverse_field_mapping.get(feature, feature) for feature in features]
         timestamp_field = reverse_field_mapping.get(
             feature_view.batch_source.timestamp_field,
@@ -186,7 +190,9 @@ def build_point_in_time_query(
     full_feature_names: bool = False,
 ) -> str:
     """Build point-in-time query between each feature view table and the entity dataframe for Bigquery and Redshift"""
-    template = Environment(loader=BaseLoader()).from_string(source=query_template)
+    env = Environment(loader=BaseLoader())
+    env.filters["backticks"] = enclose_in_backticks
+    template = env.from_string(source=query_template)
 
     final_output_feature_names = list(entity_df_columns)
     final_output_feature_names.extend(
@@ -252,3 +258,99 @@ def get_pyarrow_schema_from_batch_source(
         column_names.append(column_name)
 
     return pa.schema(pa_schema), column_names
+
+
+def enclose_in_backticks(value):
+    # Check if the input is a list
+    if isinstance(value, list):
+        return [f"`{v}`" for v in value]
+    else:
+        return f"`{value}`"
+
+
+def get_timestamp_filter_sql(
+    start_date: Optional[Union[datetime, str]] = None,
+    end_date: Optional[Union[datetime, str]] = None,
+    timestamp_field: Optional[str] = DEFAULT_ENTITY_DF_EVENT_TIMESTAMP_COL,
+    date_partition_column: Optional[str] = None,
+    tz: Optional[timezone] = None,
+    cast_style: Literal[
+        "timestamp", "timestamp_func", "timestamptz", "raw"
+    ] = "timestamp",
+    date_time_separator: str = "T",
+    quote_fields: bool = True,
+) -> str:
+    """
+    Returns SQL filter condition (no WHERE) with flexible timestamp casting.
+
+    Args:
+        start_date: datetime or ISO8601 strings
+        end_date: datetime or ISO8601 strings
+        timestamp_field: main timestamp column
+        date_partition_column: optional partition column (for pruning)
+        tz: optional timezone for datetime inputs
+        cast_style: one of:
+            - "timestamp": TIMESTAMP '...'                  → Common Sql engine Snowflake, Redshift etc.
+            - "timestamp_func": TIMESTAMP('...')         → BigQuery, Couchbase etc.
+            - "timestamptz": '...'::timestamptz          → PostgreSQL
+            - "raw": '...'                               → no cast, string only
+        date_time_separator: separator for datetime strings (default is "T")
+            (e.g. "2023-10-01T00:00:00" or "2023-10-01 00:00:00")
+        quote_fields: whether to quote the timestamp and partition column names
+
+    Returns:
+        SQL filter string without WHERE
+    """
+
+    def quote_column_if_needed(column: Optional[str]) -> Optional[str]:
+        if not column or not quote_fields:
+            return column
+        return f'"{column}"'
+
+    def format_casted_ts(val: Union[str, datetime]) -> str:
+        if isinstance(val, datetime):
+            if tz:
+                val = val.astimezone(tz)
+            val_str = val.isoformat(sep=date_time_separator)
+        else:
+            val_str = val
+
+        if cast_style == "timestamp":
+            return f"TIMESTAMP '{val_str}'"
+        elif cast_style == "timestamp_func":
+            return f"TIMESTAMP('{val_str}')"
+        elif cast_style == "timestamptz":
+            return f"'{val_str}'::{cast_style}"
+        else:
+            return f"'{val_str}'"
+
+    def format_date(val: Union[str, datetime]) -> str:
+        if isinstance(val, datetime):
+            if tz:
+                val = val.astimezone(tz)
+            return val.strftime("%Y-%m-%d")
+        return val
+
+    ts_field = quote_column_if_needed(timestamp_field)
+    dp_field = quote_column_if_needed(date_partition_column)
+
+    filters = []
+
+    # Timestamp filters
+    if start_date and end_date:
+        filters.append(
+            f"{ts_field} BETWEEN {format_casted_ts(start_date)} AND {format_casted_ts(end_date)}"
+        )
+    elif start_date:
+        filters.append(f"{ts_field} >= {format_casted_ts(start_date)}")
+    elif end_date:
+        filters.append(f"{ts_field} <= {format_casted_ts(end_date)}")
+
+    # Partition pruning
+    if date_partition_column:
+        if start_date:
+            filters.append(f"{dp_field} >= '{format_date(start_date)}'")
+        if end_date:
+            filters.append(f"{dp_field} <= '{format_date(end_date)}'")
+
+    return " AND ".join(filters) if filters else ""

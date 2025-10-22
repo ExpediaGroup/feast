@@ -397,7 +397,7 @@ func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeRe
 			}
 
 			if includeMetadata {
-				for k, _ := range value.Val {
+				for k := range value.Val {
 					if strings.Contains(featureName, "null") {
 						assert.Equal(t, serving.FieldStatus_NULL_VALUE, featureResult.Statuses[j].Status[k], "Feature %s should have NULL status", featureName)
 					} else {

@@ -111,6 +111,12 @@ class MsSqlServerOptions:
 
 
 class MsSqlServerSource(DataSource):
+    """A MsSqlServerSource object defines a data source that a MsSqlServerOfflineStore class can use."""
+
+    def source_type(self) -> DataSourceProto.SourceType.ValueType:
+        # TODO: Add MsSqlServerSource to DataSourceProto.SourceType
+        return DataSourceProto.CUSTOM_SOURCE
+
     def __init__(
         self,
         name: str,
@@ -124,6 +130,23 @@ class MsSqlServerSource(DataSource):
         tags: Optional[Dict[str, str]] = None,
         owner: Optional[str] = None,
     ):
+        """Creates a MsSqlServerSource object.
+
+        Args:
+            name: Name of the source, which should be unique within a project.
+            table_ref: The table reference.
+            event_timestamp_column: The event timestamp column (used for point-in-time joins of feature values).
+            created_timestamp_column: Timestamp column indicating when the row was created
+                (used for deduplicating rows).
+            field_mapping: A dictionary mapping of column names in this data
+            source to feature names in a feature table or view.
+                Only used for feature columns, not entity or timestamp columns.
+            date_partition_column: The date partition column.
+            connection_str: The connection string.
+            description: A human-readable description.
+            tags: A dictionary of key-value pairs to store arbitrary metadata.
+            owner: The owner of the data source, typically the email of the primary maintainer.
+        """
         # warnings.warn(
         #     "The Azure Synapse + Azure SQL data source is an experimental feature in alpha development. "
         #     "Some functionality may still be unstable so functionality can change in the future.",
@@ -201,7 +224,7 @@ class MsSqlServerSource(DataSource):
             date_partition_column=data_source.date_partition_column,
         )
 
-    def to_proto(self) -> DataSourceProto:
+    def _to_proto_impl(self) -> DataSourceProto:
         data_source_proto = DataSourceProto(
             type=DataSourceProto.CUSTOM_SOURCE,
             data_source_class_type="feast.infra.offline_stores.contrib.mssql_offline_store.mssqlserver_source.MsSqlServerSource",

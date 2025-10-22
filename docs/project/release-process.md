@@ -1,12 +1,53 @@
 # Release process
 
+The release process is automated through a GitHub Action called [release.yml](https://github.com/feast-dev/feast/blob/master/.github/workflows/release.yml).
+Here's a diagram of the workflows:
+
+```mermaid
+graph LR
+    A[get_dry_release_versions] --> B[validate_version_bumps]
+    B --> C[publish-web-ui-npm]
+    C --> D[release]
+```
+
+The release step will trigger an automated chore commit by the CI-bot ([example](https://github.com/feast-dev/feast/commit/121617053344117cdbfbb480882b10cc176245ac)).
+
+After the `release` step and release commit, the `publish` step will be triggered ([example](https://github.com/feast-dev/feast/actions/runs/13143995111)). 
+
+The `publish` worfklow triggers this flow:
+
+```mermaid
+graph TD
+    A[publish.yml] -->|triggers| B[publish_python_sdk.yml]
+    B -->|needs| C[publish_images.yml]
+    B -->|needs| D[publish_helm_charts.yml]
+
+    subgraph B[publish_python_sdk.yml]
+        direction LR
+        B1[Checkout code] --> B2[Set up Python] --> B3[Install dependencies] --> B4[Run tests] --> B5[Build wheels] --> B6[Publish to PyPI]
+    end
+
+    subgraph C[publish_images.yml]
+        direction LR
+        C1[Checkout code] --> C2[Set up Docker] --> C3[Build Docker images] --> C4[Push Docker images]
+    end
+
+    subgraph D[publish_helm_charts.yml]
+        direction LR
+        D1[Checkout code] --> D2[Set up Helm] --> D3[Package Helm charts] --> D4[Publish Helm charts]
+    end
+```
+
 ## Release process
 
 For Feast maintainers, these are the concrete steps for making a new release.
 
+Note: Make sure you have a [Personal Access Token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) or retrieve your saved personal access token. 
+
+If something goes wrong, investigate the workflow and try to rerun different pieces locally. 
+
 ### 0. Cutting a minor release
-You only need to hit the `release` workflow using [the GitHub action](https://github.com/feast-dev/feast/blob/master/.github/workflows/release.yml).
-First test with a `dry-run` then run it live. This is all you need to do. All deployments to dockerhub, PyPI, and npm are handled by the workflows.
+You only need to hit the `release` workflow using [the GitHub action](https://github.com/feast-dev/feast/blob/master/.github/workflows/release.yml). This is all you need to do. All deployments to dockerhub, PyPI, and npm are handled by the workflows.
 
 Also note that as a part of the workflow, the [infra/scripts/release/bump_file_versions.py](https://github.com/feast-dev/feast/blob/master/infra/scripts/release/bump_file_versions.py) file will increment the Feast versions in the appropriate files. 
 

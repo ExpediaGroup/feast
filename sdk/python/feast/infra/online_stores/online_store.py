@@ -11,28 +11,35 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from feast import Entity, utils
+from feast.batch_feature_view import BatchFeatureView
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
 from feast.infra.infra_object import InfraObject
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.infra.supported_async_methods import SupportedAsyncMethods
 from feast.online_response import OnlineResponse
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import RepeatedValue
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import RepoConfig
+from feast.stream_feature_view import StreamFeatureView
 
 
 class OnlineStore(ABC):
     """
     The interface that Feast uses to interact with the storage system that handles online features.
     """
+
+    @property
+    def async_supported(self) -> SupportedAsyncMethods:
+        return SupportedAsyncMethods()
 
     @abstractmethod
     def online_write_batch(
@@ -59,6 +66,33 @@ class OnlineStore(ABC):
                 to show progress.
         """
         pass
+
+    async def online_write_batch_async(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        data: List[
+            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+        ],
+        progress: Optional[Callable[[int], Any]],
+    ) -> None:
+        """
+        Writes a batch of feature rows to the online store asynchronously.
+
+        If a tz-naive timestamp is passed to this method, it is assumed to be UTC.
+
+        Args:
+            config: The config for the current feature store.
+            table: Feature view to which these feature rows correspond.
+            data: A list of quadruplets containing feature data. Each quadruplet contains an entity
+                key, a dict containing feature values, an event timestamp for the row, and the created
+                timestamp for the row if it exists.
+            progress: Function to be called once a batch of rows is written to the online store, used
+                to show progress.
+        """
+        raise NotImplementedError(
+            f"Online store {self.__class__.__name__} does not support online write batch async"
+        )
 
     @abstractmethod
     def online_read(
@@ -153,7 +187,7 @@ class OnlineStore(ABC):
 
         for table, requested_features in grouped_refs:
             # Get the correct set of entity values with the correct join keys.
-            table_entity_values, idxs = utils._get_unique_entities(
+            table_entity_values, idxs, output_len = utils._get_unique_entities(
                 table,
                 join_key_values,
                 entity_name_to_join_key_map,
@@ -181,6 +215,7 @@ class OnlineStore(ABC):
                 full_feature_names,
                 requested_features,
                 table,
+                output_len,
             )
 
         if requested_on_demand_feature_views:
@@ -238,9 +273,9 @@ class OnlineStore(ABC):
             native_entity_values=True,
         )
 
-        for table, requested_features in grouped_refs:
+        async def query_table(table, requested_features):
             # Get the correct set of entity values with the correct join keys.
-            table_entity_values, idxs = utils._get_unique_entities(
+            table_entity_values, idxs, output_len = utils._get_unique_entities(
                 table,
                 join_key_values,
                 entity_name_to_join_key_map,
@@ -256,6 +291,18 @@ class OnlineStore(ABC):
                 requested_features=requested_features,
             )
 
+            return idxs, read_rows, output_len
+
+        all_responses = await asyncio.gather(
+            *[
+                query_table(table, requested_features)
+                for table, requested_features in grouped_refs
+            ]
+        )
+
+        for (idxs, read_rows, output_len), (table, requested_features) in zip(
+            all_responses, grouped_refs
+        ):
             feature_data = utils._convert_rows_to_protobuf(
                 requested_features, read_rows
             )
@@ -268,6 +315,7 @@ class OnlineStore(ABC):
                 full_feature_names,
                 requested_features,
                 table,
+                output_len,
             )
 
         if requested_on_demand_feature_views:
@@ -288,7 +336,9 @@ class OnlineStore(ABC):
         self,
         config: RepoConfig,
         tables_to_delete: Sequence[FeatureView],
-        tables_to_keep: Sequence[FeatureView],
+        tables_to_keep: Sequence[
+            Union[BatchFeatureView, StreamFeatureView, FeatureView]
+        ],
         entities_to_delete: Sequence[Entity],
         entities_to_keep: Sequence[Entity],
         partial: bool,
@@ -342,13 +392,14 @@ class OnlineStore(ABC):
         self,
         config: RepoConfig,
         table: FeatureView,
-        requested_feature: str,
+        requested_features: List[str],
         embedding: List[float],
         top_k: int,
         distance_metric: Optional[str] = None,
     ) -> List[
         Tuple[
             Optional[datetime],
+            Optional[EntityKeyProto],
             Optional[ValueProto],
             Optional[ValueProto],
             Optional[ValueProto],
@@ -361,7 +412,7 @@ class OnlineStore(ABC):
             distance_metric: distance metric to use for retrieval.
             config: The config for the current feature store.
             table: The feature view whose feature values should be read.
-            requested_feature: The name of the feature whose embeddings should be used for retrieval.
+            requested_features: The list of features whose embeddings should be used for retrieval.
             embedding: The embeddings to use for retrieval.
             top_k: The number of documents to retrieve.
 
@@ -370,6 +421,54 @@ class OnlineStore(ABC):
             where the first item is the event timestamp for the row, and the second item is a dict of feature
             name to embeddings.
         """
+        if not requested_features:
+            raise ValueError("Requested_features must be specified")
         raise NotImplementedError(
             f"Online store {self.__class__.__name__} does not support online retrieval"
         )
+
+    def retrieve_online_documents_v2(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        requested_features: List[str],
+        embedding: Optional[List[float]],
+        top_k: int,
+        distance_metric: Optional[str] = None,
+        query_string: Optional[str] = None,
+    ) -> List[
+        Tuple[
+            Optional[datetime],
+            Optional[EntityKeyProto],
+            Optional[Dict[str, ValueProto]],
+        ]
+    ]:
+        """
+        Retrieves online feature values for the specified embeddings.
+
+        Args:
+            distance_metric: distance metric to use for retrieval.
+            config: The config for the current feature store.
+            table: The feature view whose feature values should be read.
+            requested_features: The list of features whose embeddings should be used for retrieval.
+            embedding: The embeddings to use for retrieval (optional)
+            top_k: The number of documents to retrieve.
+            query_string: The query string to search for using keyword search (bm25) (optional)
+
+        Returns:
+            object: A list of top k closest documents to the specified embedding. Each item in the list is a tuple
+            where the first item is the event timestamp for the row, and the second item is a dict of feature
+            name to embeddings.
+        """
+        assert embedding is not None or query_string is not None, (
+            "Either embedding or query_string must be specified"
+        )
+        raise NotImplementedError(
+            f"Online store {self.__class__.__name__} does not support online retrieval"
+        )
+
+    async def initialize(self, config: RepoConfig) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
