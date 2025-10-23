@@ -34,7 +34,7 @@ And this length is also equal to number of entity rows received in request.
 */
 type FeatureVector struct {
 	Name       string
-	Values     arrow.Array
+	Values     interface{}
 	Statuses   []serving.FieldStatus
 	Timestamps []*timestamppb.Timestamp
 }
@@ -47,9 +47,47 @@ Each of these lists are of equal dimensionality.
 */
 type RangeFeatureVector struct {
 	Name            string
-	RangeValues     arrow.Array
+	RangeValues     interface{}
 	RangeStatuses   [][]serving.FieldStatus
 	RangeTimestamps [][]*timestamppb.Timestamp
+}
+
+type FeatureVectorType interface {
+	UsesArrow() bool
+}
+
+func (fv *FeatureVector) UsesArrow() bool {
+	switch fv.Values.(type) {
+	case arrow.Array:
+		return true
+	default:
+		return false
+	}
+}
+
+func (fv *FeatureVector) GetProtoValues() ([]*prototypes.Value, error) {
+	if fv.UsesArrow() {
+		return types.ArrowValuesToProtoValues(fv.Values.(arrow.Array))
+	} else {
+		return fv.Values.([]*prototypes.Value), nil
+	}
+}
+
+func (rfv *RangeFeatureVector) UsesArrow() bool {
+	switch rfv.RangeValues.(type) {
+	case arrow.Array:
+		return true
+	default:
+		return false
+	}
+}
+
+func (rfv *RangeFeatureVector) GetProtoValues() ([]*prototypes.RepeatedValue, error) {
+	if rfv.UsesArrow() {
+		return types.ArrowValuesToRepeatedProtoValues(rfv.RangeValues.(arrow.Array))
+	} else {
+		return rfv.RangeValues.([]*prototypes.RepeatedValue), nil
+	}
 }
 
 type FeatureViewAndRefs struct {
@@ -712,7 +750,8 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 	groupRef *GroupedFeaturesPerEntitySet,
 	requestedFeatureViews []*FeatureViewAndRefs,
 	arrowAllocator memory.Allocator,
-	numRows int) ([]*FeatureVector, error) {
+	numRows int,
+	useArrow bool) ([]*FeatureVector, error) {
 
 	numFeatures := len(groupRef.AliasedFeatureNames)
 	fvs := make(map[string]*model.FeatureView)
@@ -768,11 +807,15 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 				currentVector.Timestamps[rowIndex] = eventTimeStamp
 			}
 		}
-		arrowValues, err := types.ProtoValuesToArrowArray(protoValues, arrowAllocator, numRows)
-		if err != nil {
-			return nil, errors.GrpcFromError(err)
+		if useArrow {
+			arrowValues, err := types.ProtoValuesToArrowArray(protoValues, arrowAllocator, numRows)
+			if err != nil {
+				return nil, errors.GrpcFromError(err)
+			}
+			currentVector.Values = arrowValues
+		} else {
+			currentVector.Values = protoValues
 		}
-		currentVector.Values = arrowValues
 	}
 
 	return vectors, nil
@@ -784,7 +827,8 @@ func TransposeRangeFeatureRowsIntoColumns(
 	groupRef *model.GroupedRangeFeatureRefs,
 	sortedViews []*SortedFeatureViewAndRefs,
 	arrowAllocator memory.Allocator,
-	numRows int) ([]*RangeFeatureVector, error) {
+	numRows int,
+	useArrow bool) ([]*RangeFeatureVector, error) {
 
 	numFeatures := len(groupRef.AliasedFeatureNames)
 	sfvs := make(map[string]*model.SortedFeatureView)
@@ -821,11 +865,15 @@ func TransposeRangeFeatureRowsIntoColumns(
 			}
 		}
 
-		arrowRangeValues, err := types.RepeatedProtoValuesToArrowArray(rangeValuesByRow, arrowAllocator)
-		if err != nil {
-			return nil, errors.GrpcFromError(err)
+		if useArrow {
+			arrowRangeValues, err := types.RepeatedProtoValuesToArrowArray(rangeValuesByRow, arrowAllocator)
+			if err != nil {
+				return nil, errors.GrpcFromError(err)
+			}
+			currentVector.RangeValues = arrowRangeValues
+		} else {
+			currentVector.RangeValues = rangeValuesByRow
 		}
-		currentVector.RangeValues = arrowRangeValues
 	}
 
 	return vectors, nil
@@ -940,7 +988,7 @@ func buildDeduplicatedFeatureNamesMap(features []string) ([]ViewFeatures, error)
 	return result, nil
 }
 
-func KeepOnlyRequestedFeatures[T any](
+func KeepOnlyRequestedFeatures[T FeatureVectorType](
 	vectors []T,
 	requestedFeatureRefs []string,
 	featureService *model.FeatureService,
@@ -983,17 +1031,19 @@ func KeepOnlyRequestedFeatures[T any](
 	}
 
 	// Free arrow arrays for vectors that were not used.
-	for _, vector := range vectors {
-		if featureVector, ok := any(vector).(*FeatureVector); ok {
-			if _, ok := usedVectors[featureVector.Name]; !ok {
-				featureVector.Values.Release()
+	if len(vectors) > 0 && vectors[0].UsesArrow() {
+		for _, vector := range vectors {
+			if featureVector, ok := any(vector).(*FeatureVector); ok {
+				if _, ok := usedVectors[featureVector.Name]; !ok {
+					featureVector.Values.(arrow.Array).Release()
+				}
+			} else if rangeFeatureVector, ok := any(vector).(*RangeFeatureVector); ok {
+				if _, ok := usedVectors[rangeFeatureVector.Name]; !ok {
+					rangeFeatureVector.RangeValues.(arrow.Array).Release()
+				}
+			} else {
+				return nil, errors.GrpcInternalErrorf("unsupported vector type: %T", vector)
 			}
-		} else if rangeFeatureVector, ok := any(vector).(*RangeFeatureVector); ok {
-			if _, ok := usedVectors[rangeFeatureVector.Name]; !ok {
-				rangeFeatureVector.RangeValues.Release()
-			}
-		} else {
-			return nil, errors.GrpcInternalErrorf("unsupported vector type: %T", vector)
 		}
 	}
 

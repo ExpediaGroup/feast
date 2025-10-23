@@ -4,6 +4,7 @@ package onlineserving
 
 import (
 	"fmt"
+	"github.com/apache/arrow/go/v17/arrow"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -1756,7 +1757,7 @@ func TestTransposeRangeFeatureRowsIntoColumns(t *testing.T) {
 		},
 	}
 
-	vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows)
+	vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, true)
 
 	assert.NoError(t, err)
 	assert.Len(t, vectors, 1)
@@ -1771,7 +1772,7 @@ func TestTransposeRangeFeatureRowsIntoColumns(t *testing.T) {
 	assert.Len(t, vector.RangeTimestamps[1], 1)
 	assert.Equal(t, serving.FieldStatus_PRESENT, vector.RangeStatuses[1][0])
 	assert.NotNil(t, vector.RangeValues)
-	vector.RangeValues.Release()
+	vector.RangeValues.(arrow.Array).Release()
 }
 
 func TestValidateFeatureRefs(t *testing.T) {
@@ -2112,7 +2113,7 @@ func BenchmarkTransposeFeatureRowsIntoColumns(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows)
+		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/apache/arrow/go/v17/arrow"
 	"github.com/feast-dev/feast/go/internal/feast/version"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -160,7 +161,7 @@ func processFeatureVectors(
 	for _, vector := range vectors {
 		featureNames = append(featureNames, vector.Name)
 
-		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
+		rangeValues, err := vector.GetProtoValues()
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("error converting feature '%s' from Arrow to Proto: %w", vector.Name, err)
 		}
@@ -479,7 +480,7 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		// base feature logging on arrow so that we don't have to do this extra conversion.
 		var featureVectorProtos []*serving.GetOnlineFeaturesResponse_FeatureVector
 		for _, vector := range featureVectors[len(request.Entities):] {
-			values, err := types.ArrowValuesToProtoValues(vector.Values)
+			values, err := vector.GetProtoValues()
 			if err != nil {
 				logSpanContext.Error().Err(err).Msg("Couldn't convert arrow values into protobuf")
 				writeJSONError(w, fmt.Errorf("Couldn't convert arrow values into protobuf: %+v", err), http.StatusInternalServerError)
@@ -644,14 +645,18 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 }
 
 func releaseCGOMemory(featureVectors []*onlineserving.FeatureVector) {
-	for _, vector := range featureVectors {
-		vector.Values.Release()
+	if len(featureVectors) > 0 && featureVectors[0].UsesArrow() {
+		for _, vector := range featureVectors {
+			vector.Values.(arrow.Array).Release()
+		}
 	}
 }
 
 func releaseCGORangeMemory(featureVectors []*onlineserving.RangeFeatureVector) {
-	for _, vector := range featureVectors {
-		vector.RangeValues.Release()
+	if len(featureVectors) > 0 && featureVectors[0].UsesArrow() {
+		for _, vector := range featureVectors {
+			vector.RangeValues.(arrow.Array).Release()
+		}
 	}
 }
 

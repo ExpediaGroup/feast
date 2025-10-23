@@ -291,6 +291,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						requestedFeatureViews,
 						arrowMemory,
 						numRows,
+						fs.transformationCallback != nil || fs.transformationService != nil,
 					)
 					if err != nil {
 						return err
@@ -332,6 +333,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						requestedFeatureViews,
 						arrowMemory,
 						numRows,
+						fs.transformationCallback != nil || fs.transformationService != nil,
 					)
 					if err != nil {
 						return err
@@ -504,6 +506,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 			requestedSortedFeatureViews,
 			arrowMemory,
 			numRows,
+			false,
 		)
 		if err != nil {
 			return nil, err

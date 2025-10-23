@@ -99,7 +99,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 	for idx, vector := range featureVectors {
 		resp.Metadata.FeatureNames.Val = append(resp.Metadata.FeatureNames.Val, vector.Name)
 		featureNames[idx] = vector.Name
-		values, err := types.ArrowValuesToProtoValues(vector.Values)
+		values, err := vector.GetProtoValues()
 		if err != nil {
 			logSpanContext.Error().Err(err).Msg("Error converting Arrow values to proto values")
 			return nil, errors.GrpcFromError(err)
@@ -175,7 +175,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 	for _, vector := range rangeFeatureVectors {
 		featureNames = append(featureNames, vector.Name)
 
-		rangeValues, err := types.ArrowValuesToRepeatedProtoValues(vector.RangeValues)
+		rangeValues, err := vector.GetProtoValues()
 		if err != nil {
 			logSpanContext.Error().Err(err).Msgf("Error converting feature '%s' from Arrow to Proto", vector.Name)
 			return nil, errors.GrpcFromError(err)
