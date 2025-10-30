@@ -1,17 +1,54 @@
 import pytest
 from google.protobuf.timestamp_pb2 import Timestamp
+from datetime import datetime, timedelta
 
 from feast import Entity, FeatureView, Field, FileSource, RepoConfig
-from feast.infra.online_stores.redis import RedisOnlineStore
+from feast.infra.online_stores.redis import RedisOnlineStore, RedisOnlineStoreConfig
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+from feast import Entity, Field, FileSource, RepoConfig, ValueType, utils
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
+from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
+from feast.infra.online_stores.helpers import _mmh3, _redis_key, _redis_key_prefix
+from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+from feast.protos.feast.types.Value_pb2 import (
+    BoolList,
+    BytesList,
+    DoubleList,
+    FloatList,
+    Int32List,
+    Int64List,
+    StringList,
+)
+from redis import Redis
+from feast.sorted_feature_view import SortedFeatureView, SortKey
+from feast.types import (
+    Array,
+    Bool,
+    Bytes,
+    Float32,
+    Float64,
+    Int32,
+    Int64,
+    String,
+    UnixTimestamp,
+)
 from feast.types import Int32
+
+from tests.unit.infra.online_store.redis_online_store_creator import (
+    RedisOnlineStoreCreator,
+)
 
 
 @pytest.fixture
 def redis_online_store() -> RedisOnlineStore:
     return RedisOnlineStore()
 
+@pytest.fixture(scope="session")
+def redis_online_store_config():
+    creator = RedisOnlineStoreCreator("redis_project")
+    config = creator.create_online_store()
+    yield config
+    creator.teardown()
 
 @pytest.fixture
 def repo_config():
