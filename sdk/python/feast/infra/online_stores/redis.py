@@ -274,13 +274,13 @@ class RedisOnlineStore(OnlineStore):
         return self._client_async
 
     def online_write_batch(
-            self,
-            config: RepoConfig,
-            table: FeatureView,
-            data: List[
-                Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
-            ],
-            progress: Optional[Callable[[int], Any]],
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        data: List[
+            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+        ],
+        progress: Optional[Callable[[int], Any]],
     ) -> None:
         online_store_config = config.online_store
         assert isinstance(online_store_config, RedisOnlineStoreConfig)
@@ -296,7 +296,6 @@ class RedisOnlineStore(OnlineStore):
             if isinstance(table, SortedFeatureView):
                 if len(table.sort_keys) == 1:
                     sort_key_name = table.sort_keys[0].name
-                    sort_key_value_type = table.sort_keys[0].value_type
                     for entity_key, values, timestamp, _ in data:
                         redis_key_bin = _redis_key(
                             project,
@@ -311,7 +310,9 @@ class RedisOnlineStore(OnlineStore):
                             entity_key_serialization_version=config.entity_key_serialization_version,
                         )
 
-                        event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
+                        event_time_seconds = int(
+                            utils.make_tzaware(timestamp).timestamp()
+                        )
                         ts = Timestamp()
                         ts.seconds = event_time_seconds
                         entity_hset = dict()
@@ -324,7 +325,7 @@ class RedisOnlineStore(OnlineStore):
                                 feast_value_type = val.WhichOneof("val")
                                 if feast_value_type == "unix_timestamp_val":
                                     feature_value = (
-                                            val.unix_timestamp_val * 1000
+                                        val.unix_timestamp_val * 1000
                                     )  # Convert to milliseconds
                                 else:
                                     feature_value = getattr(val, str(feast_value_type))
@@ -355,7 +356,7 @@ class RedisOnlineStore(OnlineStore):
                 prev_event_timestamps = [i[0] for i in prev_event_timestamps]
 
                 for redis_key_bin, prev_event_time, (_, values, timestamp, _) in zip(
-                        keys, prev_event_timestamps, data
+                    keys, prev_event_timestamps, data
                 ):
                     event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
 

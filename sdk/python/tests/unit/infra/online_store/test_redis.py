@@ -1,39 +1,21 @@
-import pytest
-from google.protobuf.timestamp_pb2 import Timestamp
 from datetime import datetime, timedelta
 
-from feast import Entity, FeatureView, Field, FileSource, RepoConfig
-from feast.infra.online_stores.redis import RedisOnlineStore, RedisOnlineStoreConfig
-from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
-from feast import Entity, Field, FileSource, RepoConfig, ValueType, utils
-from feast.protos.feast.types.Value_pb2 import Value as ValueProto
-from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
-from feast.infra.online_stores.helpers import _mmh3, _redis_key, _redis_key_prefix
-from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
-from feast.protos.feast.types.Value_pb2 import (
-    BoolList,
-    BytesList,
-    DoubleList,
-    FloatList,
-    Int32List,
-    Int64List,
-    StringList,
-)
+import pytest
+from google.protobuf.timestamp_pb2 import Timestamp
 from redis import Redis
+
+from feast import Entity, FeatureView, Field, FileSource, RepoConfig, ValueType
+from feast.infra.online_stores.helpers import _mmh3, _redis_key
+from feast.infra.online_stores.redis import RedisOnlineStore, RedisOnlineStoreConfig
+from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
+from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.sorted_feature_view import SortedFeatureView, SortKey
 from feast.types import (
-    Array,
-    Bool,
-    Bytes,
     Float32,
-    Float64,
     Int32,
-    Int64,
-    String,
     UnixTimestamp,
 )
-from feast.types import Int32
-
 from tests.unit.infra.online_store.redis_online_store_creator import (
     RedisOnlineStoreCreator,
 )
@@ -97,7 +79,7 @@ def test_generate_entity_redis_keys(redis_online_store: RedisOnlineStore, repo_c
 
 
 def test_generate_hset_keys_for_features(
-        redis_online_store: RedisOnlineStore, feature_view
+    redis_online_store: RedisOnlineStore, feature_view
 ):
     actual = redis_online_store._generate_hset_keys_for_features(feature_view)
     expected = (
@@ -108,7 +90,7 @@ def test_generate_hset_keys_for_features(
 
 
 def test_generate_hset_keys_for_features_with_requested_features(
-        redis_online_store: RedisOnlineStore, feature_view
+    redis_online_store: RedisOnlineStore, feature_view
 ):
     actual = redis_online_store._generate_hset_keys_for_features(
         feature_view=feature_view, requested_features=["my-feature-view:feature1"]
@@ -121,7 +103,7 @@ def test_generate_hset_keys_for_features_with_requested_features(
 
 
 def test_convert_redis_values_to_protobuf(
-        redis_online_store: RedisOnlineStore, feature_view
+    redis_online_store: RedisOnlineStore, feature_view
 ):
     requested_features = [
         "feature_view_1:feature_10",
@@ -173,8 +155,8 @@ def test_get_features_for_entity(redis_online_store: RedisOnlineStore, feature_v
 
 
 def test_redis_online_write_batch_with_timestamp_as_sortkey(
-        repo_config: RepoConfig,
-        redis_online_store: RedisOnlineStore,
+    repo_config: RepoConfig,
+    redis_online_store: RedisOnlineStore,
 ):
     (
         feature_view,
@@ -230,8 +212,12 @@ def test_redis_online_write_batch_with_timestamp_as_sortkey(
     assert len(driver_2_zset_members) == 5
 
     # Get last 3 trips for both drivers from the respective sorted sets
-    last_3_trips_driver_1 = r.zrevrangebyscore(zset_key_driver_1, "+inf", "-inf", start=0, num=3)
-    last_3_trips_driver_2 = r.zrevrangebyscore(zset_key_driver_2, "+inf", "-inf", start=0, num=3)
+    last_3_trips_driver_1 = r.zrevrangebyscore(
+        zset_key_driver_1, "+inf", "-inf", start=0, num=3
+    )
+    last_3_trips_driver_2 = r.zrevrangebyscore(
+        zset_key_driver_2, "+inf", "-inf", start=0, num=3
+    )
 
     # Look up features for last 3 trips for driver 1
     for id in last_3_trips_driver_1:
@@ -253,8 +239,8 @@ def test_redis_online_write_batch_with_timestamp_as_sortkey(
 
 
 def test_redis_online_write_batch_with_float_as_sortkey(
-        repo_config: RepoConfig,
-        redis_online_store: RedisOnlineStore,
+    repo_config: RepoConfig,
+    redis_online_store: RedisOnlineStore,
 ):
     (
         feature_view,
@@ -409,18 +395,26 @@ def _create_sorted_feature_view_with_float_as_sortkey(n=10):
 
 def _make_rows(n=10):
     """Generate 10 rows split between driver_id 1 (first 5) and 2 (rest),
-        with rating = i + 0.5 and an event_timestamp spanning ~15 minutes."""
+    with rating = i + 0.5 and an event_timestamp spanning ~15 minutes."""
     return [
         (
             EntityKeyProto(
                 join_keys=["driver_id"],
-                entity_values=[ValueProto(int32_val=1) if i <= 4 else ValueProto(int32_val=2)],
+                entity_values=[
+                    ValueProto(int32_val=1) if i <= 4 else ValueProto(int32_val=2)
+                ],
             ),
             {
                 "trip_id": ValueProto(int32_val=i),
                 "rating": ValueProto(float_val=i + 0.5),
-                "event_timestamp": ValueProto(unix_timestamp_val=int(
-                    ((datetime.utcnow() - timedelta(minutes=15)) + timedelta(minutes=i)).timestamp())),
+                "event_timestamp": ValueProto(
+                    unix_timestamp_val=int(
+                        (
+                            (datetime.utcnow() - timedelta(minutes=15))
+                            + timedelta(minutes=i)
+                        ).timestamp()
+                    )
+                ),
             },
             datetime.utcnow(),
             None,

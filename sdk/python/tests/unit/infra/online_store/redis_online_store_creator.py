@@ -1,7 +1,7 @@
 from typing import Dict
 
-from testcontainers.redis import RedisContainer
 from testcontainers.core.waiting_utils import wait_for_logs
+from testcontainers.redis import RedisContainer
 
 from tests.integration.feature_repos.universal.online_store_creator import (
     OnlineStoreCreator,
