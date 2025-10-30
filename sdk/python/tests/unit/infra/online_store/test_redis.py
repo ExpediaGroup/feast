@@ -43,6 +43,7 @@ from tests.unit.infra.online_store.redis_online_store_creator import (
 def redis_online_store() -> RedisOnlineStore:
     return RedisOnlineStore()
 
+
 @pytest.fixture(scope="session")
 def redis_online_store_config():
     creator = RedisOnlineStoreCreator("redis_project")
@@ -50,11 +51,15 @@ def redis_online_store_config():
     yield config
     creator.teardown()
 
+
 @pytest.fixture
-def repo_config():
+def repo_config(redis_online_store_config):
     return RepoConfig(
         provider="local",
         project="test",
+        online_store=RedisOnlineStoreConfig(
+            connection_string=redis_online_store_config["connection_string"],
+        ),
         entity_key_serialization_version=2,
         registry="dummy_registry.db",
     )
@@ -92,7 +97,7 @@ def test_generate_entity_redis_keys(redis_online_store: RedisOnlineStore, repo_c
 
 
 def test_generate_hset_keys_for_features(
-    redis_online_store: RedisOnlineStore, feature_view
+        redis_online_store: RedisOnlineStore, feature_view
 ):
     actual = redis_online_store._generate_hset_keys_for_features(feature_view)
     expected = (
@@ -103,7 +108,7 @@ def test_generate_hset_keys_for_features(
 
 
 def test_generate_hset_keys_for_features_with_requested_features(
-    redis_online_store: RedisOnlineStore, feature_view
+        redis_online_store: RedisOnlineStore, feature_view
 ):
     actual = redis_online_store._generate_hset_keys_for_features(
         feature_view=feature_view, requested_features=["my-feature-view:feature1"]
@@ -116,7 +121,7 @@ def test_generate_hset_keys_for_features_with_requested_features(
 
 
 def test_convert_redis_values_to_protobuf(
-    redis_online_store: RedisOnlineStore, feature_view
+        redis_online_store: RedisOnlineStore, feature_view
 ):
     requested_features = [
         "feature_view_1:feature_10",
@@ -165,6 +170,7 @@ def test_get_features_for_entity(redis_online_store: RedisOnlineStore, feature_v
     assert "feature_view_1:feature_11" in features
     assert features["feature_view_1:feature_10"].int32_val == 1
     assert features["feature_view_1:feature_11"].int32_val == 2
+
 
 def test_redis_online_write_batch_with_timestamp_as_sortkey(
         repo_config: RepoConfig,
