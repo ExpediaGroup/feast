@@ -498,6 +498,7 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
 }
 
 type getOnlineFeaturesRangeRequest struct {
@@ -739,7 +740,6 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Healthy")
 }
-
 func (s *HttpServer) Stop() error {
 	if s.server != nil {
 		return s.server.Shutdown(context.Background())

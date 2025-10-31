@@ -33,7 +33,7 @@ IntelliJ IDE has a good Merge conflict resolution tool.
 ```sh
     python -m  venv .venv
     source .venv/bin/activate
-    make install-python-ci-dependencies-uv-venv
+    make install-python-dependencies-dev
     make test-python-unit
     make test-python-universal # Snowflake tests may fail. Rest all should pass. 
 ```

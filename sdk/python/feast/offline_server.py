@@ -1,15 +1,20 @@
 import ast
 import json
 import logging
+import os
+import sys
 import traceback
 from datetime import datetime
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List, Optional, cast
 
+import click
 import pyarrow as pa
 import pyarrow.flight as fl
+from google.protobuf.json_format import Parse
 
 from feast import FeatureStore, FeatureView, utils
 from feast.arrow_error_handler import arrow_server_error_handling_decorator
+from feast.data_source import DataSource
 from feast.feature_logging import FeatureServiceLoggingSource
 from feast.feature_view import DUMMY_ENTITY_NAME
 from feast.infra.offline_stores.offline_utils import get_offline_store_from_config
@@ -26,6 +31,7 @@ from feast.permissions.server.utils import (
     init_security_manager,
     str_to_auth_manager_type,
 )
+from feast.protos.feast.core.DataSource_pb2 import DataSource as DataSourceProto
 from feast.saved_dataset import SavedDatasetStorage
 
 logger = logging.getLogger(__name__)
@@ -33,12 +39,21 @@ logger.setLevel(logging.INFO)
 
 
 class OfflineServer(fl.FlightServerBase):
-    def __init__(self, store: FeatureStore, location: str, **kwargs):
+    def __init__(
+        self,
+        store: FeatureStore,
+        location: str,
+        host: str = "localhost",
+        tls_certificates: List = [],
+        **kwargs,
+    ):
         super(OfflineServer, self).__init__(
-            location,
+            location=location,
             middleware=self.arrow_flight_auth_middleware(
                 str_to_auth_manager_type(store.config.auth_config.type)
             ),
+            tls_certificates=tls_certificates,
+            verify_client=False,  # this is needed for when we don't need mTLS
             **kwargs,
         )
         self._location = location
@@ -46,6 +61,8 @@ class OfflineServer(fl.FlightServerBase):
         self.flights: Dict[str, Any] = {}
         self.store = store
         self.offline_store = get_offline_store_from_config(store.config.offline_store)
+        self.host = host
+        self.tls_certificates = tls_certificates
 
     def arrow_flight_auth_middleware(
         self,
@@ -75,8 +92,13 @@ class OfflineServer(fl.FlightServerBase):
         )
 
     def _make_flight_info(self, key: Any, descriptor: fl.FlightDescriptor):
-        endpoints = [fl.FlightEndpoint(repr(key), [self._location])]
-        # TODO calculate actual schema from the given features
+        if len(self.tls_certificates) != 0:
+            location = fl.Location.for_grpc_tls(self.host, self.port)
+        else:
+            location = fl.Location.for_grpc_tcp(self.host, self.port)
+        endpoints = [
+            fl.FlightEndpoint(repr(key), [location]),
+        ]
         schema = pa.schema([])
 
         return fl.FlightInfo(schema, descriptor, endpoints, -1, -1)
@@ -137,6 +159,9 @@ class OfflineServer(fl.FlightServerBase):
                 remove_data = True
             elif api == OfflineServer.persist.__name__:
                 self.persist(command, key)
+                remove_data = True
+            elif api == OfflineServer.validate_data_source.__name__:
+                self.validate_data_source(command)
                 remove_data = True
         except Exception as e:
             remove_data = True
@@ -224,6 +249,11 @@ class OfflineServer(fl.FlightServerBase):
                 table = self.pull_all_from_table_or_query(command).to_arrow()
             elif api == OfflineServer.pull_latest_from_table_or_query.__name__:
                 table = self.pull_latest_from_table_or_query(command).to_arrow()
+            elif (
+                api
+                == OfflineServer.get_table_column_names_and_types_from_data_source.__name__
+            ):
+                table = self.get_table_column_names_and_types_from_data_source(command)
             else:
                 raise NotImplementedError
         except Exception as e:
@@ -324,13 +354,16 @@ class OfflineServer(fl.FlightServerBase):
         assert_permissions(data_source, actions=[AuthzedAction.READ_OFFLINE])
 
         return self.offline_store.pull_all_from_table_or_query(
-            self.store.config,
-            data_source,
-            command["join_key_columns"],
-            command["feature_name_columns"],
-            command["timestamp_field"],
-            utils.make_tzaware(datetime.fromisoformat(command["start_date"])),
-            utils.make_tzaware(datetime.fromisoformat(command["end_date"])),
+            config=self.store.config,
+            data_source=data_source,
+            join_key_columns=command["join_key_columns"],
+            feature_name_columns=command["feature_name_columns"],
+            created_timestamp_column=command["created_timestamp_column"],
+            timestamp_field=command["timestamp_field"],
+            start_date=utils.make_tzaware(
+                datetime.fromisoformat(command["start_date"])
+            ),
+            end_date=utils.make_tzaware(datetime.fromisoformat(command["end_date"])),
         )
 
     def _validate_pull_latest_from_table_or_query_parameters(self, command: dict):
@@ -380,20 +413,24 @@ class OfflineServer(fl.FlightServerBase):
             ),
         ]
 
-    def _validate_get_historical_features_parameters(self, command: dict, key: str):
-        assert key in self.flights, f"missing key={key}"
+    def _validate_get_historical_features_parameters(
+        self, command: dict, key: Optional[str] = None
+    ):
+        if key:
+            assert key in self.flights, f"missing key={key}"
         assert "feature_view_names" in command, "feature_view_names is mandatory"
         assert "name_aliases" in command, "name_aliases is mandatory"
         assert "feature_refs" in command, "feature_refs is mandatory"
         assert "project" in command, "project is mandatory"
         assert "full_feature_names" in command, "full_feature_names is mandatory"
 
-    def get_historical_features(self, command: dict, key: str):
+    def get_historical_features(self, command: dict, key: Optional[str] = None):
         self._validate_get_historical_features_parameters(command, key)
-
-        # Extract parameters from the internal flights dictionary
-        entity_df_value = self.flights[key]
-        entity_df = pa.Table.to_pandas(entity_df_value)
+        entity_df = None
+        if key:
+            # Extract parameters from the internal flights dictionary
+            entity_df_value = self.flights[key]
+            entity_df = pa.Table.to_pandas(entity_df_value)
 
         feature_view_names = command["feature_view_names"]
         name_aliases = command["name_aliases"]
@@ -457,6 +494,59 @@ class OfflineServer(fl.FlightServerBase):
             traceback.print_exc()
             raise e
 
+    @staticmethod
+    def _extract_data_source_from_command(command) -> DataSource:
+        data_source_proto_str = command["data_source_proto"]
+        logger.debug(f"Extracted data_source_proto {data_source_proto_str}")
+        data_source_proto = DataSourceProto()
+        Parse(data_source_proto_str, data_source_proto)
+        data_source = DataSource.from_proto(data_source_proto)
+        logger.debug(f"Converted to DataSource {data_source}")
+        return data_source
+
+    def validate_data_source(self, command: dict):
+        data_source = OfflineServer._extract_data_source_from_command(command)
+        logger.debug(f"Validating data source {data_source.name}")
+        assert_permissions(data_source, actions=[AuthzedAction.READ_OFFLINE])
+
+        self.offline_store.validate_data_source(
+            config=self.store.config,
+            data_source=data_source,
+        )
+
+    def get_table_column_names_and_types_from_data_source(self, command: dict):
+        data_source = OfflineServer._extract_data_source_from_command(command)
+        logger.debug(f"Fetching table columns metadata from {data_source.name}")
+        assert_permissions(data_source, actions=[AuthzedAction.READ_OFFLINE])
+
+        column_names_and_types = data_source.get_table_column_names_and_types(
+            self.store.config
+        )
+
+        column_names, types = zip(*column_names_and_types)
+        logger.debug(
+            f"DataSource {data_source.name} has columns {column_names} with types {types}"
+        )
+        return pa.table({"name": column_names, "type": types})
+
+    def serve(self):
+        message = "offline server starting with pid: "
+        logger.info(
+            message + "[%d]",
+            os.getpid(),
+            extra={"color_message": message + "[" + click.style("%d", fg="cyan") + "]"},
+        )
+        super().serve()
+
+    def shutdown(self):
+        message = "Sending a shutdown signal to the offline server running with pid:: "
+        logger.info(
+            message + "[%d]",
+            os.getpid(),
+            extra={"color_message": message + "[" + click.style("%d", fg="cyan") + "]"},
+        )
+        super().shutdown()
+
 
 def remove_dummies(fv: FeatureView) -> FeatureView:
     """
@@ -482,10 +572,37 @@ def start_server(
     store: FeatureStore,
     host: str,
     port: int,
+    tls_key_path: str = "",
+    tls_cert_path: str = "",
 ):
     _init_auth_manager(store)
 
-    location = "grpc+tcp://{}:{}".format(host, port)
-    server = OfflineServer(store, location)
-    logger.info(f"Offline store server serving on {location}")
-    server.serve()
+    tls_certificates = []
+    scheme = "grpc+tcp"
+    if tls_key_path and tls_cert_path:
+        logger.info(
+            "Found SSL certificates in the args so going to start offline server in TLS(SSL) mode."
+        )
+        scheme = "grpc+tls"
+        with open(tls_cert_path, "rb") as cert_file:
+            tls_cert_chain = cert_file.read()
+        with open(tls_key_path, "rb") as key_file:
+            tls_private_key = key_file.read()
+        tls_certificates.append((tls_cert_chain, tls_private_key))
+
+    location = "{}://{}:{}".format(scheme, host, port)
+    server = OfflineServer(
+        store,
+        location=location,
+        host=host,
+        tls_certificates=tls_certificates,
+    )
+    try:
+        logger.info(f"Offline store server serving at: {location}")
+        server.serve()
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt received, stopping the offline server.")
+    finally:
+        server.shutdown()
+        logger.info("offline server stopped.")
+        sys.exit(0)

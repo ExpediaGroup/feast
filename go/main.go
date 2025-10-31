@@ -27,6 +27,9 @@ type ServerStarter interface {
 	StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error
 	StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error
 	StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService) error
+	// TODO: MERGE-CONFLICT resolve different logging setups
+	//StartHttpServer(fs *feast.FeatureStore, host string, port int, writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback, loggingOpts *logging.LoggingOptions) error
+	//StartGrpcServer(fs *feast.FeatureStore, host string, port int, writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback, loggingOpts *logging.LoggingOptions) error
 }
 
 type RealServerStarter struct{}

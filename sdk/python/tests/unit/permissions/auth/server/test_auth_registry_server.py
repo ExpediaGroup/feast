@@ -30,11 +30,7 @@ from tests.utils.http_server import check_port_open  # noqa: E402
 
 @pytest.fixture
 def start_registry_server(
-    request,
-    auth_config,
-    server_port,
-    feature_store,
-    monkeypatch,
+    request, auth_config, server_port, feature_store, monkeypatch, tls_mode
 ):
     if "kubernetes" in auth_config:
         mock_utils.mock_kubernetes(request=request, monkeypatch=monkeypatch)
@@ -48,12 +44,23 @@ def start_registry_server(
 
     assertpy.assert_that(server_port).is_not_equal_to(0)
 
-    print(f"Starting Registry at {server_port}")
-    server = start_server(
-        feature_store,
-        server_port,
-        wait_for_termination=False,
-    )
+    is_tls_mode, tls_key_path, tls_cert_path, tls_ca_file_path = tls_mode
+    if is_tls_mode:
+        print(f"Starting Registry in TLS mode at {server_port}")
+        server = start_server(
+            store=feature_store,
+            port=server_port,
+            wait_for_termination=False,
+            tls_key_path=tls_key_path,
+            tls_cert_path=tls_cert_path,
+        )
+    else:
+        print(f"Starting Registry in Non-TLS mode at {server_port}")
+        server = start_server(
+            feature_store,
+            server_port,
+            wait_for_termination=False,
+        )
     print("Waiting server availability")
     wait_retry_backoff(
         lambda: (None, check_port_open("localhost", server_port)),
@@ -67,8 +74,12 @@ def start_registry_server(
     server.stop(grace=None)  # Teardown server
 
 
+@pytest.mark.parametrize(
+    "tls_mode", [("True", "True"), ("True", "False"), ("False", "")], indirect=True
+)
 def test_registry_apis(
     auth_config,
+    tls_mode,
     temp_dir,
     server_port,
     start_registry_server,
@@ -76,7 +87,9 @@ def test_registry_apis(
     applied_permissions,
 ):
     print(f"Running for\n:{auth_config}")
-    remote_feature_store = get_remote_registry_store(server_port, feature_store)
+    remote_feature_store = get_remote_registry_store(
+        server_port, feature_store, tls_mode
+    )
     permissions = _test_list_permissions(remote_feature_store, applied_permissions)
     _test_get_entity(remote_feature_store, applied_permissions)
     _test_list_entities(remote_feature_store, applied_permissions)
@@ -157,7 +170,8 @@ def _test_list_entities(client_fs: FeatureStore, permissions: list[Permission]):
 
 
 def _no_permission_retrieved(permissions: list[Permission]) -> bool:
-    return len(permissions) == 0
+    # With security-first approach, no permissions means access should be denied
+    return False
 
 
 def _test_list_permissions(
@@ -265,13 +279,17 @@ def _is_permission_enabled(
     permissions: list[Permission],
     permission: Permission,
 ):
-    return _is_auth_enabled(client_fs) and (
-        _no_permission_retrieved(permissions)
-        or (
-            _permissions_exist_in_permission_list(
-                [read_permissions_perm, permission], permissions
-            )
-        )
+    # With security-first approach, if no permissions are defined, access should be denied
+    if not _is_auth_enabled(client_fs):
+        return True  # No auth enabled, allow access
+
+    # If auth is enabled but no permissions are defined, deny access (security-first)
+    if len(permissions) == 0:
+        return False
+
+    # Check if the specific permission exists
+    return _permissions_exist_in_permission_list(
+        [read_permissions_perm, permission], permissions
     )
 
 

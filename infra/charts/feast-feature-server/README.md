@@ -1,6 +1,6 @@
 # Feast Python / Go Feature Server Helm Charts
 
-Current chart version is `0.40.0`
+Current chart version is `0.55.0`
 
 ## Installation
 
@@ -35,28 +35,34 @@ See [here](https://github.com/feast-dev/feast/tree/master/examples/python-helm-d
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` |  |
+| commandArgs | list | `[]` | Override the default command arguments for complete control over CLI options |
+| extraEnvs | list | `[]` | Additional environment variables to be set in the container |
 | feast_mode | string | `"online"` | Feast supported deployment modes - online (default), offline, ui and registry |
 | feature_store_yaml_base64 | string | `""` | [required] a base64 encoded version of feature_store.yaml |
 | fullnameOverride | string | `""` |  |
 | image.pullPolicy | string | `"IfNotPresent"` |  |
-| image.repository | string | `"feastdev/feature-server"` | Docker image for Feature Server repository |
-| image.tag | string | `"0.40.0"` | The Docker image tag (can be overwritten if custom feature server deps are needed for on demand transforms) |
+| image.repository | string | `"quay.io/feastdev/feature-server"` | Docker image for Feature Server repository |
+| image.tag | string | `"0.55.0"` | The Docker image tag (can be overwritten if custom feature server deps are needed for on demand transforms) |
 | imagePullSecrets | list | `[]` |  |
 | livenessProbe.initialDelaySeconds | int | `30` |  |
 | livenessProbe.periodSeconds | int | `30` |  |
+| logLevel | string | `"WARNING"` |  |
 | metrics.enabled | bool | `false` |  |
 | metrics.otelCollector.endpoint | string | `""` |  |
 | metrics.otelCollector.port | int | `4317` |  |
 | nameOverride | string | `""` |  |
 | nodeSelector | object | `{}` |  |
-| otel_service.name | string | `"otelcol"` |  |
 | podAnnotations | object | `{}` |  |
 | podSecurityContext | object | `{}` |  |
 | readinessProbe.initialDelaySeconds | int | `20` |  |
 | readinessProbe.periodSeconds | int | `10` |  |
 | replicaCount | int | `1` |  |
 | resources | object | `{}` |  |
+| route.enabled | bool | `false` |  |
 | securityContext | object | `{}` |  |
 | service.port | int | `80` |  |
 | service.type | string | `"ClusterIP"` |  |
+| serviceAccount.name | string | `""` |  |
 | tolerations | list | `[]` |  |
+| volumeMounts | list | `[]` |  |
+| volumes | list | `[]` |  |

@@ -30,7 +30,10 @@ class SnowflakeOnlineStoreConfig(FeastConfigBaseModel):
     """ Online store type selector """
 
     config_path: Optional[str] = os.path.expanduser("~/.snowsql/config")
-    """ Snowflake config path -- absolute path required (Can't use ~)"""
+    """ Snowflake snowsql config path -- absolute path required (Cant use ~)"""
+
+    connection_name: Optional[str] = None
+    """ Snowflake connector connection name -- typically defined in ~/.snowflake/connections.toml """
 
     account: Optional[str] = None
     """ Snowflake deployment identifier -- drop .snowflakecomputing.com """
@@ -64,7 +67,7 @@ class SnowflakeOnlineStoreConfig(FeastConfigBaseModel):
 
     schema_: Optional[str] = Field("PUBLIC", alias="schema")
     """ Snowflake schema name """
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class SnowflakeOnlineStore(OnlineStore):
@@ -146,7 +149,7 @@ class SnowflakeOnlineStore(OnlineStore):
                             "_feast_row" = 1;
                 """
                 execute_snowflake_statement(conn, query)
-
+                conn.commit()
             if progress:
                 progress(len(data))
 

@@ -56,22 +56,31 @@ func NewFeatureStore(config *registry.RepoConfig, callback transformation.Transf
 	if err != nil {
 		return nil, err
 	}
-	registry, err := registry.NewRegistry(registryConfig, config.RepoPath, config.Project)
+	newRegistry, err := registry.NewRegistry(registryConfig, config.RepoPath, config.Project)
 	if err != nil {
 		return nil, err
 	}
-	err = registry.InitializeRegistry()
+	err = newRegistry.InitializeRegistry()
 	if err != nil {
 		return nil, err
 	}
-	sanitizedProjectName := strings.Replace(config.Project, "_", "-", -1)
-	productName := os.Getenv("PRODUCT")
-	endpoint := fmt.Sprintf("%s-transformations.%s.svc.cluster.local:80", sanitizedProjectName, productName)
-	transformationService, _ := transformation.NewGrpcTransformationService(config, endpoint)
+
+	var transformationService *transformation.GrpcTransformationService
+	if transformationServerEndpoint, ok := config.FeatureServer["transformation_service_endpoint"]; ok {
+		// Use a scalable transformation service like Python Transformation Service.
+		// Assume the user will define the "transformation_service_endpoint" in the feature_store.yaml file
+		// under the "feature_server" section.
+		transformationService, _ = transformation.NewGrpcTransformationService(config, transformationServerEndpoint.(string))
+	} else {
+		sanitizedProjectName := strings.Replace(config.Project, "_", "-", -1)
+		productName := os.Getenv("PRODUCT")
+		endpoint := fmt.Sprintf("%s-transformations.%s.svc.cluster.local:80", sanitizedProjectName, productName)
+		transformationService, _ = transformation.NewGrpcTransformationService(config, endpoint)
+	}
 
 	return &FeatureStore{
 		config:                 config,
-		registry:               registry,
+		registry:               newRegistry,
 		onlineStore:            onlineStore,
 		transformationCallback: callback,
 		transformationService:  transformationService,
@@ -201,6 +210,10 @@ func (fs *FeatureStore) GetOnlineFeatures(
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if len(requestedOnDemandFeatureViews) > 0 && fs.transformationService == nil {
+		return nil, FeastTransformationServiceNotConfigured{}
 	}
 
 	if len(requestedFeatureViews) == 0 {

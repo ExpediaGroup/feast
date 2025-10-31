@@ -47,7 +47,7 @@ const StreamFeatureViewOverviewTab = ({
     : [];
 
   return (
-    <React.Fragment>
+    <EuiFlexGroup direction="column">
       <EuiFlexGroup>
         <EuiFlexItem>
           <EuiPanel hasBorder={true}>
@@ -88,7 +88,6 @@ const StreamFeatureViewOverviewTab = ({
             <EuiHorizontalRule margin="xs" />
             <EuiFlexGroup direction="column">
               {inputs.map(([key, inputGroup]) => {
-
                 return (
                   <EuiPanel hasBorder={true} key={key}>
                     <EuiText size="xs">
@@ -96,14 +95,17 @@ const StreamFeatureViewOverviewTab = ({
                     </EuiText>
                     <EuiTitle size="s">
                       <EuiCustomLink
-                        href={`${process.env.PUBLIC_URL || ""}/p/${projectName}/data-source/${inputGroup?.name}`}
-                        to={`${process.env.PUBLIC_URL || ""}/p/${projectName}/data-source/${inputGroup?.name}`}
+                        to={`/p/${projectName}/data-source/${inputGroup?.name}`}
                       >
                         {inputGroup?.name}
                       </EuiCustomLink>
                     </EuiTitle>
                     <EuiFlexItem key={key}>
-                      <EuiCodeBlock language="json" fontSize="m" paddingSize="m">
+                      <EuiCodeBlock
+                        language="json"
+                        fontSize="m"
+                        paddingSize="m"
+                      >
                         {JSON.stringify(inputGroup, null, 2)}
                       </EuiCodeBlock>
                     </EuiFlexItem>
@@ -126,7 +128,7 @@ const StreamFeatureViewOverviewTab = ({
           </EuiPanel>
         </EuiFlexItem>
       </EuiFlexGroup>
-    </React.Fragment>
+    </EuiFlexGroup>
   );
 };
 

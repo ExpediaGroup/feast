@@ -6,8 +6,8 @@ Please see [Offline Store](../../getting-started/components/offline-store.md) fo
 [overview.md](overview.md)
 {% endcontent-ref %}
 
-{% content-ref url="file.md" %}
-[file.md](file.md)
+{% content-ref url="dask.md" %}
+[dask.md](dask.md)
 {% endcontent-ref %}
 
 {% content-ref url="snowflake.md" %}
@@ -24,6 +24,10 @@ Please see [Offline Store](../../getting-started/components/offline-store.md) fo
 
 {% content-ref url="duckdb.md" %}
 [duckdb.md](duckdb.md)
+{% endcontent-ref %}
+
+{% content-ref url="couchbase.md" %}
+[couchbase.md](couchbase.md)
 {% endcontent-ref %}
 
 {% content-ref url="spark.md" %}

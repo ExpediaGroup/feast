@@ -27,7 +27,7 @@ from feast.infra.registry.base_registry import BaseRegistry
 from feast.repo_config import FeastConfigBaseModel, RepoConfig
 
 
-def _read_data_source(data_source: DataSource) -> Table:
+def _read_data_source(data_source: DataSource, repo_path: str) -> Table:
     assert isinstance(data_source, FileSource)
 
     if isinstance(data_source.file_format, ParquetFormat):
@@ -43,6 +43,7 @@ def _read_data_source(data_source: DataSource) -> Table:
 def _write_data_source(
     table: Table,
     data_source: DataSource,
+    repo_path: str,
     mode: str = "append",
     allow_overwrite: bool = False,
 ):
@@ -50,14 +51,23 @@ def _write_data_source(
 
     file_options = data_source.file_options
 
-    if mode == "overwrite" and not allow_overwrite and os.path.exists(file_options.uri):
+    absolute_path = FileSource.get_uri_for_file_path(
+        repo_path=repo_path, uri=file_options.uri
+    )
+
+    if (
+        mode == "overwrite"
+        and not allow_overwrite
+        and os.path.exists(str(absolute_path))
+    ):
         raise SavedDatasetLocationAlreadyExists(location=file_options.uri)
 
     if isinstance(data_source.file_format, ParquetFormat):
         if mode == "overwrite":
             table = table.to_pyarrow()
+
             filesystem, path = FileSource.create_filesystem_and_path(
-                file_options.uri,
+                str(absolute_path),
                 file_options.s3_endpoint_override,
             )
 
@@ -169,8 +179,9 @@ class DuckDBOfflineStore(OfflineStore):
         join_key_columns: List[str],
         feature_name_columns: List[str],
         timestamp_field: str,
-        start_date: datetime,
-        end_date: datetime,
+        created_timestamp_column: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> RetrievalJob:
         return pull_all_from_table_or_query_ibis(
             config=config,
@@ -178,6 +189,7 @@ class DuckDBOfflineStore(OfflineStore):
             join_key_columns=join_key_columns,
             feature_name_columns=feature_name_columns,
             timestamp_field=timestamp_field,
+            created_timestamp_column=created_timestamp_column,
             start_date=start_date,
             end_date=end_date,
             data_source_reader=_read_data_source,

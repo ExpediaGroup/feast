@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import decimal
 import json
 import logging
 from collections import defaultdict
@@ -164,11 +165,22 @@ def python_type_to_feast_value_type(
         "datetime64[ns]": ValueType.UNIX_TIMESTAMP,
         "datetime64[ns, tz]": ValueType.UNIX_TIMESTAMP,  # special dtype of pandas
         "datetime64[ns, utc]": ValueType.UNIX_TIMESTAMP,
+        "date": ValueType.UNIX_TIMESTAMP,
         "category": ValueType.STRING,
     }
 
     if type_name in type_map:
         return type_map[type_name]
+
+    # Handle pandas "object" dtype by inspecting the actual value
+    if type_name == "object" and value is not None:
+        # Check the actual type of the value
+        actual_type = type(value).__name__.lower()
+        if actual_type == "str":
+            return ValueType.STRING
+        # If it's a different type wrapped in object, try to infer from the value
+        elif actual_type in type_map:
+            return type_map[actual_type]
 
     if isinstance(value, np.ndarray) and str(value.dtype) in type_map:
         item_type = type_map[str(value.dtype)]
@@ -251,6 +263,7 @@ def _convert_value_type_str_to_value_type(type_str: str) -> ValueType:
         "INT64": ValueType.INT64,
         "DOUBLE": ValueType.DOUBLE,
         "FLOAT": ValueType.FLOAT,
+        "FLOAT32": ValueType.FLOAT,
         "BOOL": ValueType.BOOL,
         "NULL": ValueType.NULL,
         "UNIX_TIMESTAMP": ValueType.UNIX_TIMESTAMP,
@@ -263,7 +276,7 @@ def _convert_value_type_str_to_value_type(type_str: str) -> ValueType:
         "BOOL_LIST": ValueType.BOOL_LIST,
         "UNIX_TIMESTAMP_LIST": ValueType.UNIX_TIMESTAMP_LIST,
     }
-    return type_map[type_str]
+    return type_map.get(type_str, ValueType.STRING)
 
 
 def _type_err(item, dtype):
@@ -309,9 +322,14 @@ PYTHON_SCALAR_VALUE_TYPE_TO_PROTO_VALUE: Dict[
         None,
     ),
     ValueType.FLOAT: ("float_val", lambda x: float(x), None),
-    ValueType.DOUBLE: ("double_val", lambda x: x, {float, np.float64, int, np.int_}),
+    ValueType.DOUBLE: (
+        "double_val",
+        lambda x: x,
+        {float, np.float64, int, np.int_, decimal.Decimal},
+    ),
     ValueType.STRING: ("string_val", lambda x: str(x), None),
     ValueType.BYTES: ("bytes_val", lambda x: x, {bytes}),
+    ValueType.IMAGE_BYTES: ("bytes_val", lambda x: x, {bytes}),
     ValueType.BOOL: ("bool_val", lambda x: x, {bool, np.bool_, int, np.int_}),
 }
 
@@ -371,11 +389,18 @@ def _python_value_to_proto_value(
                 if feast_value_type == ValueType.BYTES_LIST:
                     raise _type_err(sample, ValueType.BYTES_LIST)
 
-                json_value = json.loads(sample)
-                if isinstance(json_value, list):
+                json_sample = json.loads(sample)
+                if isinstance(json_sample, list):
+                    json_values = [json.loads(value) for value in values]
                     if feast_value_type == ValueType.BOOL_LIST:
-                        json_value = [bool(item) for item in json_value]
-                    return [ProtoValue(**{field_name: proto_type(val=json_value)})]  # type: ignore
+                        json_values = [
+                            [bool(item) for item in list_item]
+                            for list_item in json_values
+                        ]
+                    return [
+                        ProtoValue(**{field_name: proto_type(val=v)})  # type: ignore
+                        for v in json_values
+                    ]
                 raise _type_err(sample, valid_types[0])
 
             if sample is not None and not all(
@@ -449,7 +474,7 @@ def _python_value_to_proto_value(
             if (sample == 0 or sample == 0.0) and feast_value_type != ValueType.BOOL:
                 # Numpy convert 0 to int. However, in the feature view definition, the type of column may be a float.
                 # So, if value is 0, type validation must pass if scalar_types are either int or float.
-                allowed_types = {np.int64, int, np.float64, float}
+                allowed_types = {np.int64, int, np.float64, float, decimal.Decimal}
                 assert type(sample) in allowed_types, (
                     f"Type `{type(sample)}` not in {allowed_types}"
                 )
@@ -505,7 +530,36 @@ def python_values_to_proto_values(
     if value_type == ValueType.UNKNOWN:
         raise TypeError("Couldn't infer value type from empty value")
 
-    return _python_value_to_proto_value(value_type, values)
+    proto_values = _python_value_to_proto_value(value_type, values)
+
+    if len(proto_values) != len(values):
+        raise ValueError(
+            f"Number of proto values {len(proto_values)} does not match number of values {len(values)}"
+        )
+
+    return proto_values
+
+
+PROTO_VALUE_TO_VALUE_TYPE_MAP: Dict[str, ValueType] = {
+    "int32_val": ValueType.INT32,
+    "int64_val": ValueType.INT64,
+    "double_val": ValueType.DOUBLE,
+    "float_val": ValueType.FLOAT,
+    "string_val": ValueType.STRING,
+    "bytes_val": ValueType.BYTES,
+    "bool_val": ValueType.BOOL,
+    "int32_list_val": ValueType.INT32_LIST,
+    "int64_list_val": ValueType.INT64_LIST,
+    "double_list_val": ValueType.DOUBLE_LIST,
+    "float_list_val": ValueType.FLOAT_LIST,
+    "string_list_val": ValueType.STRING_LIST,
+    "bytes_list_val": ValueType.BYTES_LIST,
+    "bool_list_val": ValueType.BOOL_LIST,
+}
+
+VALUE_TYPE_TO_PROTO_VALUE_MAP: Dict[ValueType, str] = {
+    v: k for k, v in PROTO_VALUE_TO_VALUE_TYPE_MAP.items()
+}
 
 
 def _proto_value_to_value_type(proto_value: ProtoValue) -> ValueType:
@@ -519,25 +573,9 @@ def _proto_value_to_value_type(proto_value: ProtoValue) -> ValueType:
         A variant of ValueType.
     """
     proto_str = proto_value.WhichOneof("val")
-    type_map = {
-        "int32_val": ValueType.INT32,
-        "int64_val": ValueType.INT64,
-        "double_val": ValueType.DOUBLE,
-        "float_val": ValueType.FLOAT,
-        "string_val": ValueType.STRING,
-        "bytes_val": ValueType.BYTES,
-        "bool_val": ValueType.BOOL,
-        "int32_list_val": ValueType.INT32_LIST,
-        "int64_list_val": ValueType.INT64_LIST,
-        "double_list_val": ValueType.DOUBLE_LIST,
-        "float_list_val": ValueType.FLOAT_LIST,
-        "string_list_val": ValueType.STRING_LIST,
-        "bytes_list_val": ValueType.BYTES_LIST,
-        "bool_list_val": ValueType.BOOL_LIST,
-        None: ValueType.NULL,
-    }
-
-    return type_map[proto_str]
+    if proto_str is None:
+        return ValueType.UNKNOWN
+    return PROTO_VALUE_TO_VALUE_TYPE_MAP[proto_str]
 
 
 def pa_to_feast_value_type(pa_type_as_str: str) -> ValueType:
@@ -558,6 +596,13 @@ def pa_to_feast_value_type(pa_type_as_str: str) -> ValueType:
             "binary": ValueType.BYTES,
             "bool": ValueType.BOOL,
             "null": ValueType.NULL,
+            "list<element: double>": ValueType.DOUBLE_LIST,
+            "list<element: int64>": ValueType.INT64_LIST,
+            "list<element: int32>": ValueType.INT32_LIST,
+            "list<element: str>": ValueType.STRING_LIST,
+            "list<element: bool>": ValueType.BOOL_LIST,
+            "list<element: bytes>": ValueType.BYTES_LIST,
+            "list<element: float>": ValueType.FLOAT_LIST,
         }
         value_type = type_map[pa_type_as_str]
 
@@ -797,6 +842,7 @@ def spark_to_feast_value_type(spark_type_as_str: str) -> ValueType:
         "float": ValueType.FLOAT,
         "boolean": ValueType.BOOL,
         "timestamp": ValueType.UNIX_TIMESTAMP,
+        "date": ValueType.UNIX_TIMESTAMP,
         "array<byte>": ValueType.BYTES_LIST,
         "array<string>": ValueType.STRING_LIST,
         "array<int>": ValueType.INT32_LIST,
@@ -806,6 +852,7 @@ def spark_to_feast_value_type(spark_type_as_str: str) -> ValueType:
         "array<float>": ValueType.FLOAT_LIST,
         "array<boolean>": ValueType.BOOL_LIST,
         "array<timestamp>": ValueType.UNIX_TIMESTAMP_LIST,
+        "array<date>": ValueType.UNIX_TIMESTAMP_LIST,
     }
     if spark_type_as_str.startswith("decimal"):
         spark_type_as_str = "decimal"
@@ -1053,3 +1100,80 @@ def pa_to_athena_value_type(pa_type: "pyarrow.DataType") -> str:
     }
 
     return type_map[pa_type_as_str]
+
+
+def cb_columnar_type_to_feast_value_type(type_str: str) -> ValueType:
+    """
+    Convert a Couchbase Columnar type string to a Feast ValueType
+    """
+    type_map: Dict[str, ValueType] = {
+        # primitive types
+        "boolean": ValueType.BOOL,
+        "string": ValueType.STRING,
+        "bigint": ValueType.INT64,
+        "double": ValueType.DOUBLE,
+        # special types
+        "null": ValueType.NULL,
+        "missing": ValueType.UNKNOWN,
+        # composite types
+        # todo: support for arrays of primitives
+        "object": ValueType.UNKNOWN,
+        "array": ValueType.UNKNOWN,
+        "multiset": ValueType.UNKNOWN,
+        "uuid": ValueType.STRING,
+    }
+    value = (
+        type_map[type_str.lower()]
+        if type_str.lower() in type_map
+        else ValueType.UNKNOWN
+    )
+    if value == ValueType.UNKNOWN:
+        print("unknown type:", type_str)
+    return value
+
+
+def convert_scalar_column(
+    series: pd.Series, value_type: ValueType, target_pandas_type: str
+) -> pd.Series:
+    """Convert a scalar feature column to the appropriate pandas type."""
+    if value_type == ValueType.INT32:
+        return pd.to_numeric(series, errors="coerce").astype("Int32")
+    elif value_type == ValueType.INT64:
+        return pd.to_numeric(series, errors="coerce").astype("Int64")
+    elif value_type in [ValueType.FLOAT, ValueType.DOUBLE]:
+        return pd.to_numeric(series, errors="coerce").astype("float64")
+    elif value_type == ValueType.BOOL:
+        return series.astype("boolean")
+    elif value_type == ValueType.STRING:
+        return series.astype("string")
+    elif value_type == ValueType.UNIX_TIMESTAMP:
+        return pd.to_datetime(series, unit="s", errors="coerce")
+    else:
+        return series.astype(target_pandas_type)
+
+
+def convert_array_column(series: pd.Series, value_type: ValueType) -> pd.Series:
+    """Convert an array feature column to the appropriate type with proper empty array handling."""
+    base_type_map = {
+        ValueType.INT32_LIST: np.int32,
+        ValueType.INT64_LIST: np.int64,
+        ValueType.FLOAT_LIST: np.float32,
+        ValueType.DOUBLE_LIST: np.float64,
+        ValueType.BOOL_LIST: np.bool_,
+        ValueType.STRING_LIST: object,
+        ValueType.BYTES_LIST: object,
+        ValueType.UNIX_TIMESTAMP_LIST: "datetime64[s]",
+    }
+
+    target_dtype = base_type_map.get(value_type, object)
+
+    def convert_array_item(item) -> Union[np.ndarray, Any]:
+        if item is None or (isinstance(item, list) and len(item) == 0):
+            if target_dtype == object:
+                return np.empty(0, dtype=object)
+            else:
+                return np.empty(0, dtype=target_dtype)  # type: ignore
+        else:
+            return item
+
+    return series.apply(convert_array_item)

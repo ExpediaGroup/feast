@@ -15,14 +15,18 @@ jobs:
         with:
           python-version: "3.11"
           architecture: x64
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - name: Install dependencies
         run: |
-          make install-python-ci-dependencies-uv
+          make install-python-dependencies-ci
           make compile-protos-go
       - name: Lint python
         run: make lint-python
+      - name: Minimize uv cache
+        run: uv cache prune --ci
   lint-go:
     runs-on: ubuntu-latest
     steps:
@@ -32,8 +36,14 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.22.5
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
       - name: Lint go
         run: make lint-go
+      - name: Minimize uv cache
+        run: uv cache prune --ci
   lint-java:
     runs-on: ubuntu-latest
     steps:
