@@ -21,6 +21,7 @@ var REGISTRY_STORE_CLASS_FOR_SCHEME map[string]string = map[string]string{
 	"file":  "FileRegistryStore",
 	"http":  "HttpRegistryStore",
 	"https": "HttpRegistryStore",
+	"grpc":  "GrpcRegistryStore",
 	"":      "FileRegistryStore",
 }
 
@@ -182,7 +183,7 @@ func (r *Registry) InitializeRegistry() error {
 	registryProto, err := r.registryStore.GetRegistryProto()
 	if err != nil {
 		switch r.registryStore.(type) {
-		case *FileRegistryStore, *HttpRegistryStore:
+		case *FileRegistryStore, *HttpRegistryStore, *GrpcRegistryStore: // TODO: Extend to support remote registry
 			log.Error().Err(err).Msg("Registry Initialization Failed")
 			return err
 		default:
@@ -418,6 +419,8 @@ func getRegistryStoreFromType(registryStoreType string, registryConfig *Registry
 		return NewHttpRegistryStore(registryConfig, project)
 	case "S3RegistryStore":
 		return NewS3RegistryStore(registryConfig, repoPath), nil
+	case "GrpcRegistryStore":
+		return NewGrpcRegistryStore(registryConfig, project)
 	}
 	return nil, errors.GrpcInternalErrorf("only FileRegistryStore or HttpRegistryStore as a RegistryStore is supported at this moment")
 }
