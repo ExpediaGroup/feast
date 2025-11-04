@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/feast-dev/feast/go/protos/feast/core"
+
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 )
@@ -17,16 +18,6 @@ type HttpRegistryStore struct {
 	endpoint string
 	clientId string
 	client   http.Client
-}
-
-// NotImplementedError represents an error for a function that is not yet implemented.
-type NotImplementedError struct {
-	FunctionName string
-}
-
-// Error implements the error interface for NotImplementedError.
-func (e *NotImplementedError) Error() string {
-	return fmt.Sprintf("Function '%s' not implemented", e.FunctionName)
 }
 
 func NewHttpRegistryStore(config *RegistryConfig, project string) (*HttpRegistryStore, error) {
