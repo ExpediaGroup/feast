@@ -20,6 +20,16 @@ type HttpRegistryStore struct {
 	client   http.Client
 }
 
+// NotImplementedError represents an error for a function that is not yet implemented.
+type NotImplementedError struct {
+	FunctionName string
+}
+
+// Error implements the error interface for NotImplementedError.
+func (e *NotImplementedError) Error() string {
+	return fmt.Sprintf("Function '%s' not implemented", e.FunctionName)
+}
+
 func NewHttpRegistryStore(config *RegistryConfig, project string) (*HttpRegistryStore, error) {
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
