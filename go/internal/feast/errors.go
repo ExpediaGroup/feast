@@ -1,8 +1,6 @@
 package feast
 
 import (
-	"fmt"
-
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -21,14 +19,4 @@ func (FeastTransformationServiceNotConfigured) GRPCStatus() *status.Status {
 
 func (e FeastTransformationServiceNotConfigured) Error() string {
 	return e.GRPCStatus().Err().Error()
-}
-
-// NotImplementedError represents an error for a function that is not yet implemented.
-type NotImplementedError struct {
-	FunctionName string
-}
-
-// Error implements the error interface for NotImplementedError.
-func (e *NotImplementedError) Error() string {
-	return fmt.Sprintf("Function '%s' not implemented", e.FunctionName)
 }
