@@ -8,13 +8,6 @@ from feast.repo_config import RepoConfig
 
 
 class TestTokenBucketRateLimiter:
-    """Test implementation of TokenBucketRateLimiter supporting both mock and real delay modes.
-
-    This class mimics the production TokenBucketRateLimiter behavior by refilling tokens
-    continuously based on elapsed time. It exposes the same logical behaviors but accepts
-    slightly different parameter names for convenience in tests.
-    """
-
     def __init__(
         self, rate, refill_interval=1.0, usage_fraction=0.8, enforce_delay=False
     ):
@@ -140,7 +133,7 @@ def test_batching_respects_token_bucket(monkeypatch):
 
 
 def test_write_rate_limiting_enforced(monkeypatch):
-    """Test that actual rate limiting is enforced by measuring elapsed time."""
+    """Test that rate limiting is enforced by measuring elapsed time."""
     repo_config = create_repo_config_with_rate_limit(write_rate_limit=5)  # 5 tokens/sec
     provider = PassthroughProvider(repo_config)
     monkeypatch.setattr(
@@ -186,7 +179,7 @@ def test_tag_override(monkeypatch):
 
 
 def test_config_fallback(monkeypatch):
-    """Test that config value is used if no tag is present."""
+    """Test that project level config value is used if no tag is present."""
     repo_config = create_repo_config_with_rate_limit(write_rate_limit=3)
     provider = PassthroughProvider(repo_config)
     monkeypatch.setattr(
