@@ -31,7 +31,7 @@ from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import RepeatedValue
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
-from feast.rate_limiter import SlidingWindowRateLimiter  # provider-level write limiter
+from feast.rate_limiter import TokenBucketRateLimiter  # provider-level write limiter
 from feast.repo_config import BATCH_ENGINE_CLASS_FOR_TYPE, RepoConfig
 from feast.saved_dataset import SavedDataset
 from feast.sorted_feature_view import SortedFeatureView
@@ -55,7 +55,7 @@ class PassthroughProvider(Provider):
         self._offline_store = None
         self._online_store = None
         self._batch_engine: Optional[BatchMaterializationEngine] = None
-        self._write_rate_limiters: Dict[str, SlidingWindowRateLimiter] = {}
+        self._write_token_limiters: Dict[str, TokenBucketRateLimiter] = {}
 
     @property
     def online_store(self):
@@ -172,23 +172,54 @@ class PassthroughProvider(Provider):
         ],
         progress: Optional[Callable[[int], Any]],
     ) -> None:
+        """
+        Write data to the online store in rate-limited batches.
+        Uses TokenBucketRateLimiter to throttle writes.
+        """
+
+        # Resolve configured rate limit
         rate_limit = self._resolve_write_rate_limit(config, table)
-
         fv_name = getattr(table, "name", "global") if table is not None else "global"
-        key = f"{config.project}:{fv_name}"
+        limiter_key = f"{config.project}:{fv_name}"
 
-        limiter = self._write_rate_limiters.get(key)
-        # Recreate limiter if missing or if configured limit changed.
-        if limiter is None or limiter.max_calls != rate_limit:
-            self._write_rate_limiters[key] = SlidingWindowRateLimiter(rate_limit, 1)
-            limiter = self._write_rate_limiters[key]
+        # If rate limit is 0 or unset, bypass limiter
+        if rate_limit <= 0:
+            if self.online_store:
+                self.online_store.online_write_batch(config, table, data, progress)
+            return
 
-        if limiter and limiter.max_calls > 0:
-            # Block until a slot is available according to the limiter.
-            limiter.wait()
+        # Create or reuse per-feature-view limiter
+        percent_usage = 0.6
+        interval = 1.0  # seconds
 
-        if self.online_store:
-            self.online_store.online_write_batch(config, table, data, progress)
+        limiter = self._write_token_limiters.get(limiter_key)
+        if limiter is None or limiter.rate != rate_limit:
+            limiter = TokenBucketRateLimiter(
+                rate=rate_limit, interval=interval, percent_usage=percent_usage
+            )
+            self._write_token_limiters[limiter_key] = limiter
+            logger.info(
+                f"[Limiter] Initialized rate limiter for {limiter_key} at {rate_limit} writes/sec"
+            )
+
+        # Process data in dynamically sized batches based on token availability
+        total_records = len(data)
+        index = 0
+
+        while index < total_records:
+            available = limiter.get_available_tokens()
+            # Ensure we always make progress (at least 1 record)
+            batch_size = min(max(available, 1), total_records - index)
+
+            batch = data[index : index + batch_size]
+            limiter.wait_for_tokens(len(batch))  # blocks until tokens available
+
+            if self.online_store:
+                self.online_store.online_write_batch(config, table, batch, progress)
+
+            index += batch_size
+            if progress:
+                progress(batch_size)
 
     def _resolve_write_rate_limit(
         self, config: RepoConfig, table: Optional[FeatureView]
