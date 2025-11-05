@@ -46,8 +46,8 @@ def pull_latest_from_table_or_query_ibis(
     created_timestamp_column: Optional[str],
     start_date: datetime,
     end_date: datetime,
-    data_source_reader: Callable[[DataSource], Table],
-    data_source_writer: Callable[[pyarrow.Table, DataSource], None],
+    data_source_reader: Callable[[DataSource, str], Table],
+    data_source_writer: Callable[[pyarrow.Table, DataSource, str], None],
     staging_location: Optional[str] = None,
     staging_location_endpoint_override: Optional[str] = None,
 ) -> RetrievalJob:
@@ -57,7 +57,7 @@ def pull_latest_from_table_or_query_ibis(
     start_date = start_date.astimezone(tz=timezone.utc)
     end_date = end_date.astimezone(tz=timezone.utc)
 
-    table = data_source_reader(data_source)
+    table = data_source_reader(data_source, str(config.repo_path))
 
     table = table.select(*fields)
 
@@ -87,6 +87,7 @@ def pull_latest_from_table_or_query_ibis(
         data_source_writer=data_source_writer,
         staging_location=staging_location,
         staging_location_endpoint_override=staging_location_endpoint_override,
+        repo_path=str(config.repo_path),
     )
 
 
@@ -147,8 +148,8 @@ def get_historical_features_ibis(
     entity_df: Union[pd.DataFrame, str],
     registry: BaseRegistry,
     project: str,
-    data_source_reader: Callable[[DataSource], Table],
-    data_source_writer: Callable[[pyarrow.Table, DataSource], None],
+    data_source_reader: Callable[[DataSource, str], Table],
+    data_source_writer: Callable[[pyarrow.Table, DataSource, str], None],
     full_feature_names: bool = False,
     staging_location: Optional[str] = None,
     staging_location_endpoint_override: Optional[str] = None,
@@ -174,7 +175,9 @@ def get_historical_features_ibis(
     def read_fv(
         feature_view: FeatureView, feature_refs: List[str], full_feature_names: bool
     ) -> Tuple:
-        fv_table: Table = data_source_reader(feature_view.batch_source)
+        fv_table: Table = data_source_reader(
+            feature_view.batch_source, str(config.repo_path)
+        )
 
         for old_name, new_name in feature_view.batch_source.field_mapping.items():
             if old_name in fv_table.columns:
@@ -247,6 +250,7 @@ def get_historical_features_ibis(
         data_source_writer=data_source_writer,
         staging_location=staging_location,
         staging_location_endpoint_override=staging_location_endpoint_override,
+        repo_path=str(config.repo_path),
     )
 
 
@@ -256,18 +260,24 @@ def pull_all_from_table_or_query_ibis(
     join_key_columns: List[str],
     feature_name_columns: List[str],
     timestamp_field: str,
-    start_date: datetime,
-    end_date: datetime,
-    data_source_reader: Callable[[DataSource], Table],
-    data_source_writer: Callable[[pyarrow.Table, DataSource], None],
+    data_source_reader: Callable[[DataSource, str], Table],
+    data_source_writer: Callable[[pyarrow.Table, DataSource, str], None],
+    created_timestamp_column: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
     staging_location: Optional[str] = None,
     staging_location_endpoint_override: Optional[str] = None,
 ) -> RetrievalJob:
-    fields = join_key_columns + feature_name_columns + [timestamp_field]
-    start_date = start_date.astimezone(tz=timezone.utc)
-    end_date = end_date.astimezone(tz=timezone.utc)
+    timestamp_fields = [timestamp_field]
+    if created_timestamp_column:
+        timestamp_fields.append(created_timestamp_column)
+    fields = join_key_columns + feature_name_columns + timestamp_fields
+    if start_date:
+        start_date = start_date.astimezone(tz=timezone.utc)
+    if end_date:
+        end_date = end_date.astimezone(tz=timezone.utc)
 
-    table = data_source_reader(data_source)
+    table = data_source_reader(data_source, str(config.repo_path))
 
     table = table.select(*fields)
 
@@ -277,8 +287,12 @@ def pull_all_from_table_or_query_ibis(
 
     table = table.filter(
         ibis.and_(
-            table[timestamp_field] >= ibis.literal(start_date),
-            table[timestamp_field] <= ibis.literal(end_date),
+            table[timestamp_field] >= ibis.literal(start_date)
+            if start_date
+            else ibis.literal(True),
+            table[timestamp_field] <= ibis.literal(end_date)
+            if end_date
+            else ibis.literal(True),
         )
     )
 
@@ -290,6 +304,7 @@ def pull_all_from_table_or_query_ibis(
         data_source_writer=data_source_writer,
         staging_location=staging_location,
         staging_location_endpoint_override=staging_location_endpoint_override,
+        repo_path=str(config.repo_path),
     )
 
 
@@ -319,7 +334,7 @@ def offline_write_batch_ibis(
     feature_view: FeatureView,
     table: pyarrow.Table,
     progress: Optional[Callable[[int], Any]],
-    data_source_writer: Callable[[pyarrow.Table, DataSource], None],
+    data_source_writer: Callable[[pyarrow.Table, DataSource, str], None],
 ):
     pa_schema, column_names = get_pyarrow_schema_from_batch_source(
         config, feature_view.batch_source
@@ -330,7 +345,9 @@ def offline_write_batch_ibis(
             f"The schema is expected to be {pa_schema} with the columns (in this exact order) to be {column_names}."
         )
 
-    data_source_writer(ibis.memtable(table), feature_view.batch_source)
+    data_source_writer(
+        ibis.memtable(table), feature_view.batch_source, str(config.repo_path)
+    )
 
 
 def deduplicate(
@@ -469,6 +486,7 @@ class IbisRetrievalJob(RetrievalJob):
         data_source_writer,
         staging_location,
         staging_location_endpoint_override,
+        repo_path,
     ) -> None:
         super().__init__()
         self.table = table
@@ -480,6 +498,7 @@ class IbisRetrievalJob(RetrievalJob):
         self.data_source_writer = data_source_writer
         self.staging_location = staging_location
         self.staging_location_endpoint_override = staging_location_endpoint_override
+        self.repo_path = repo_path
 
     def _to_df_internal(self, timeout: Optional[int] = None) -> pd.DataFrame:
         return self.table.execute()
@@ -502,7 +521,11 @@ class IbisRetrievalJob(RetrievalJob):
         timeout: Optional[int] = None,
     ):
         self.data_source_writer(
-            self.table, storage.to_data_source(), "overwrite", allow_overwrite
+            self.table,
+            storage.to_data_source(),
+            self.repo_path,
+            "overwrite",
+            allow_overwrite,
         )
 
     @property

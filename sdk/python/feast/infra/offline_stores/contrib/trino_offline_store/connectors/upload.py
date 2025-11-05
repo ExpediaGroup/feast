@@ -45,6 +45,7 @@ CONNECTORS_DONT_SUPPORT_CREATE_TABLE: Set[str] = {
     "thrift",
     "tpcds",
     "tpch",
+    "qdrant",
 }
 CONNECTORS_WITHOUT_WITH_STATEMENTS: Set[str] = {
     "bigquery",
@@ -114,7 +115,7 @@ def format_pandas_row(df: pd.DataFrame) -> str:
 
     def _format_value(row: pd.Series, schema: Dict[str, Any]) -> str:
         formated_values = []
-        for row_name, row_value in row.iteritems():
+        for row_name, row_value in row.items():
             if schema[row_name].startswith("timestamp"):
                 if isinstance(row_value, datetime):
                     row_value = format_datetime(row_value)

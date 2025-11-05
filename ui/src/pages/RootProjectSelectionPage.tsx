@@ -4,9 +4,8 @@ import {
   EuiFlexGrid,
   EuiFlexItem,
   EuiIcon,
-  EuiLoadingContent,
-  EuiPageContent,
-  EuiPageContentBody,
+  EuiSkeletonText,
+  EuiPageTemplate,
   EuiText,
   EuiTitle,
   EuiHorizontalRule,
@@ -22,12 +21,12 @@ const RootProjectSelectionPage = () => {
   useEffect(() => {
     if (data && data.default) {
       // If a default is set, redirect there.
-      navigate(`${process.env.PUBLIC_URL || ""}/p/${data.default}`);
+      navigate(`/p/${data.default}`);
     }
 
     if (data && data.projects.length === 1) {
       // If there is only one project, redirect there.
-      navigate(`${process.env.PUBLIC_URL || ""}/p/${data.projects[0].id}`);
+      navigate(`/p/${data.projects[0].id}`);
     }
   }, [data, navigate]);
 
@@ -39,7 +38,7 @@ const RootProjectSelectionPage = () => {
           title={`${item.name}`}
           description={item?.description || ""}
           onClick={() => {
-            navigate(`${process.env.PUBLIC_URL || ""}/p/${item.id}`);
+            navigate(`/p/${item.id}`);
           }}
         />
       </EuiFlexItem>
@@ -47,14 +46,8 @@ const RootProjectSelectionPage = () => {
   });
 
   return (
-    <EuiPageContent
-      hasBorder={false}
-      hasShadow={false}
-      paddingSize="none"
-      color="transparent"
-      borderRadius="none"
-    >
-      <EuiPageContentBody>
+    <EuiPageTemplate panelled>
+      <EuiPageTemplate.Section>
         <EuiTitle size="s">
           <h1>Welcome to Feast</h1>
         </EuiTitle>
@@ -62,14 +55,14 @@ const RootProjectSelectionPage = () => {
           <p>Select one of the projects.</p>
         </EuiText>
         <EuiHorizontalRule margin="m" />
-        {isLoading && <EuiLoadingContent lines={1} />}
+        {isLoading && <EuiSkeletonText lines={1} />}
         {isSuccess && data?.projects && (
           <EuiFlexGrid columns={3} gutterSize="l">
             {projectCards}
           </EuiFlexGrid>
         )}
-      </EuiPageContentBody>
-    </EuiPageContent>
+      </EuiPageTemplate.Section>
+    </EuiPageTemplate>
   );
 };
 

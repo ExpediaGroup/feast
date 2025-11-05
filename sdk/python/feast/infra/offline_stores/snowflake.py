@@ -37,6 +37,7 @@ from feast.infra.offline_stores.offline_store import (
     RetrievalJob,
     RetrievalMetadata,
 )
+from feast.infra.offline_stores.offline_utils import get_timestamp_filter_sql
 from feast.infra.offline_stores.snowflake_source import (
     SavedDatasetSnowflakeStorage,
     SnowflakeLoggingDestination,
@@ -83,7 +84,10 @@ class SnowflakeOfflineStoreConfig(FeastConfigBaseModel):
     """ Offline store type selector """
 
     config_path: Optional[str] = os.path.expanduser("~/.snowsql/config")
-    """ Snowflake config path -- absolute path required (Cant use ~)"""
+    """ Snowflake snowsql config path -- absolute path required (Cant use ~)"""
+
+    connection_name: Optional[str] = None
+    """ Snowflake connector connection name -- typically defined in ~/.snowflake/connections.toml """
 
     account: Optional[str] = None
     """ Snowflake deployment identifier -- drop .snowflakecomputing.com """
@@ -126,7 +130,10 @@ class SnowflakeOfflineStoreConfig(FeastConfigBaseModel):
 
     convert_timestamp_columns: Optional[bool] = None
     """ Convert timestamp columns on export to a Parquet-supported format """
-    model_config = ConfigDict(populate_by_name=True)
+
+    max_file_size: Optional[int] = None
+    """ Upper size limit (in bytes) of each file that is offloaded. Default: 16777216"""
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class SnowflakeOfflineStore(OfflineStore):
@@ -226,8 +233,9 @@ class SnowflakeOfflineStore(OfflineStore):
         join_key_columns: List[str],
         feature_name_columns: List[str],
         timestamp_field: str,
-        start_date: datetime,
-        end_date: datetime,
+        created_timestamp_column: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> RetrievalJob:
         assert isinstance(config.offline_store, SnowflakeOfflineStoreConfig)
         assert isinstance(data_source, SnowflakeSource)
@@ -238,22 +246,26 @@ class SnowflakeOfflineStore(OfflineStore):
         if not data_source.database and data_source.schema and data_source.table:
             from_expression = f'"{config.offline_store.database}".{from_expression}'
 
+        timestamp_fields = [timestamp_field]
+        if created_timestamp_column:
+            timestamp_fields.append(created_timestamp_column)
         field_string = (
             '"'
-            + '", "'.join(join_key_columns + feature_name_columns + [timestamp_field])
+            + '", "'.join(join_key_columns + feature_name_columns + timestamp_fields)
             + '"'
         )
 
         with GetSnowflakeConnection(config.offline_store) as conn:
             snowflake_conn = conn
 
-        start_date = start_date.astimezone(tz=timezone.utc)
-        end_date = end_date.astimezone(tz=timezone.utc)
+        timestamp_filter = get_timestamp_filter_sql(
+            start_date, end_date, timestamp_field, tz=timezone.utc
+        )
 
         query = f"""
             SELECT {field_string}
             FROM {from_expression}
-            WHERE "{timestamp_field}" BETWEEN TIMESTAMP '{start_date}' AND TIMESTAMP '{end_date}'
+            WHERE {timestamp_filter}
         """
 
         return SnowflakeRetrievalJob(
@@ -607,6 +619,9 @@ class SnowflakeRetrievalJob(RetrievalJob):
               DETAILED_OUTPUT = TRUE
               HEADER = TRUE
         """
+        if (max_file_size := self.config.offline_store.max_file_size) is not None:
+            query += f"\nMAX_FILE_SIZE = {max_file_size}"
+
         cursor = execute_snowflake_statement(self.snowflake_conn, query)
         # s3gov schema is used by Snowflake in AWS govcloud regions
         # remove gov portion from schema and pass it to online store upload
@@ -713,8 +728,8 @@ def _get_entity_df_event_timestamp_range(
 
 MULTIPLE_FEATURE_VIEW_POINT_IN_TIME_JOIN = """
 /*
- Compute a deterministic hash for the `left_table_query_string` that will be used throughout
- all the logic as the field to GROUP BY the data
+ 0. Compute a deterministic hash for the `left_table_query_string` that will be used throughout
+ all the logic as the field to GROUP BY the data.
 */
 WITH "entity_dataframe" AS (
     SELECT *,
@@ -736,6 +751,10 @@ WITH "entity_dataframe" AS (
 
 {% for featureview in featureviews %}
 
+/*
+ 1. Only select the required columns with entities of the featureview.
+*/
+
 "{{ featureview.name }}__entity_dataframe" AS (
     SELECT
         {{ featureview.entities | map('tojson') | join(', ')}}{% if featureview.entities %},{% else %}{% endif %}
@@ -749,20 +768,7 @@ WITH "entity_dataframe" AS (
 ),
 
 /*
- This query template performs the point-in-time correctness join for a single feature set table
- to the provided entity table.
-
- 1. We first join the current feature_view to the entity dataframe that has been passed.
- This JOIN has the following logic:
-    - For each row of the entity dataframe, only keep the rows where the `timestamp_field`
-    is less than the one provided in the entity dataframe
-    - If there a TTL for the current feature_view, also keep the rows where the `timestamp_field`
-    is higher the the one provided minus the TTL
-    - For each row, Join on the entity key and retrieve the `entity_row_unique_id` that has been
-    computed previously
-
- The output of this CTE will contain all the necessary information and already filtered out most
- of the data that is not relevant.
+2. Use subquery to prepare event_timestamp, created_timestamp, entity columns and feature columns.
 */
 
 "{{ featureview.name }}__subquery" AS (
@@ -774,94 +780,61 @@ WITH "entity_dataframe" AS (
             "{{ feature }}" as {% if full_feature_names %}"{{ featureview.name }}__{{featureview.field_mapping.get(feature, feature)}}"{% else %}"{{ featureview.field_mapping.get(feature, feature) }}"{% endif %}{% if loop.last %}{% else %}, {% endif %}
         {% endfor %}
     FROM {{ featureview.table_subquery }}
-    WHERE "{{ featureview.timestamp_field }}" <= '{{ featureview.max_event_timestamp }}'
-    {% if featureview.ttl == 0 %}{% else %}
-    AND "{{ featureview.timestamp_field }}" >= '{{ featureview.min_event_timestamp }}'
-    {% endif %}
-),
-
-"{{ featureview.name }}__base" AS (
-    SELECT
-        "subquery".*,
-        "entity_dataframe"."entity_timestamp",
-        "entity_dataframe"."{{featureview.name}}__entity_row_unique_id"
-    FROM "{{ featureview.name }}__subquery" AS "subquery"
-    INNER JOIN "{{ featureview.name }}__entity_dataframe" AS "entity_dataframe"
-    ON TRUE
-        AND "subquery"."event_timestamp" <= "entity_dataframe"."entity_timestamp"
-
-        {% if featureview.ttl == 0 %}{% else %}
-        AND "subquery"."event_timestamp" >= TIMESTAMPADD(second,-{{ featureview.ttl }},"entity_dataframe"."entity_timestamp")
-        {% endif %}
-
-        {% for entity in featureview.entities %}
-        AND "subquery"."{{ entity }}" = "entity_dataframe"."{{ entity }}"
-        {% endfor %}
 ),
 
 /*
- 2. If the `created_timestamp_column` has been set, we need to
- deduplicate the data first. This is done by calculating the
- `MAX(created_at_timestamp)` for each event_timestamp.
- We then join the data on the next CTE
+3. If the `created_timestamp_column` has been set, we need to
+deduplicate the data first. This is done by calculating the
+`MAX(created_at_timestamp)` for each event_timestamp and joining back on the subquery.
+Otherwise, the ASOF JOIN can have unstable side effects
+https://docs.snowflake.com/en/sql-reference/constructs/asof-join#expected-behavior-when-ties-exist-in-the-right-table
 */
+
 {% if featureview.created_timestamp_column %}
 "{{ featureview.name }}__dedup" AS (
-    SELECT
-        "{{featureview.name}}__entity_row_unique_id",
-        "event_timestamp",
-        MAX("created_timestamp") AS "created_timestamp"
-    FROM "{{ featureview.name }}__base"
-    GROUP BY "{{featureview.name}}__entity_row_unique_id", "event_timestamp"
+    SELECT *
+    FROM "{{ featureview.name }}__subquery"
+    INNER JOIN (
+        SELECT
+            {{ featureview.entities | map('tojson') | join(', ')}}{% if featureview.entities %},{% else %}{% endif %}
+            "event_timestamp",
+            MAX("created_timestamp") AS "created_timestamp"
+        FROM "{{ featureview.name }}__subquery"
+        GROUP BY {{ featureview.entities | map('tojson') | join(', ')}}{% if featureview.entities %},{% else %}{% endif %} "event_timestamp"
+        )
+    USING({{ featureview.entities | map('tojson') | join(', ')}}{% if featureview.entities %},{% else %}{% endif %} "event_timestamp", "created_timestamp")
 ),
 {% endif %}
 
 /*
- 3. The data has been filtered during the first CTE "*__base"
- Thus we only need to compute the latest timestamp of each feature.
+4. Make ASOF JOIN of deduplicated feature CTE on reduced entity dataframe.
 */
-"{{ featureview.name }}__latest" AS (
+
+"{{ featureview.name }}__asof_join" AS (
     SELECT
-        "event_timestamp",
-        {% if featureview.created_timestamp_column %}"created_timestamp",{% endif %}
-        "{{featureview.name}}__entity_row_unique_id"
-    FROM
-    (
-        SELECT *,
-            ROW_NUMBER() OVER(
-                PARTITION BY "{{featureview.name}}__entity_row_unique_id"
-                ORDER BY "event_timestamp" DESC{% if featureview.created_timestamp_column %},"created_timestamp" DESC{% endif %}
-            ) AS "row_number"
-        FROM "{{ featureview.name }}__base"
-        {% if featureview.created_timestamp_column %}
-            INNER JOIN "{{ featureview.name }}__dedup"
-            USING ("{{featureview.name}}__entity_row_unique_id", "event_timestamp", "created_timestamp")
-        {% endif %}
-    )
-    WHERE "row_number" = 1
+        e.*,
+        v.*
+    FROM "{{ featureview.name }}__entity_dataframe" e
+    ASOF JOIN {% if featureview.created_timestamp_column %}"{{ featureview.name }}__dedup"{% else %}"{{ featureview.name }}__subquery"{% endif %} v
+    MATCH_CONDITION (e."entity_timestamp" >= v."event_timestamp")
+    {% if featureview.entities %} USING({{ featureview.entities | map('tojson') | join(', ')}}) {% endif %}
 ),
 
 /*
- 4. Once we know the latest value of each feature for a given timestamp,
- we can join again the data back to the original "base" dataset
+5. If TTL is configured filter the CTE to remove rows where the feature values are older than the configured ttl.
 */
-"{{ featureview.name }}__cleaned" AS (
-    SELECT "base".*
-    FROM "{{ featureview.name }}__base" AS "base"
-    INNER JOIN "{{ featureview.name }}__latest"
-    USING(
-        "{{featureview.name}}__entity_row_unique_id",
-        "event_timestamp"
-        {% if featureview.created_timestamp_column %}
-            ,"created_timestamp"
-        {% endif %}
-    )
-){% if loop.last %}{% else %}, {% endif %}
 
+"{{ featureview.name }}__ttl" AS (
+    SELECT *
+    FROM "{{ featureview.name }}__asof_join"
+    {% if featureview.ttl == 0 %}{% else %}
+    WHERE "event_timestamp" >= TIMESTAMPADD(second,-{{ featureview.ttl }},"entity_timestamp")
+    {% endif %}
+){% if loop.last %}{% else %}, {% endif %}
 
 {% endfor %}
 /*
- Joins the outputs of multiple time travel joins to a single table.
+ Join the outputs of multiple time travel joins to a single table.
  The entity_dataframe dataset being our source of truth here.
  */
 
@@ -874,7 +847,7 @@ LEFT JOIN (
         {% for feature in featureview.features %}
             ,{% if full_feature_names %}"{{ featureview.name }}__{{featureview.field_mapping.get(feature, feature)}}"{% else %}"{{ featureview.field_mapping.get(feature, feature) }}"{% endif %}
         {% endfor %}
-    FROM "{{ featureview.name }}__cleaned"
-) "{{ featureview.name }}__cleaned" USING ("{{featureview.name}}__entity_row_unique_id")
+    FROM "{{ featureview.name }}__ttl"
+) "{{ featureview.name }}__ttl" USING ("{{featureview.name}}__entity_row_unique_id")
 {% endfor %}
 """

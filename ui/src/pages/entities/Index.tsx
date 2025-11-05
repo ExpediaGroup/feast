@@ -1,19 +1,15 @@
 import React, { useContext } from "react";
 
-import {
-  EuiPageHeader,
-  EuiPageContent,
-  EuiPageContentBody,
-  EuiLoadingSpinner,
-} from "@elastic/eui";
+import { EuiPageTemplate, EuiLoadingSpinner } from "@elastic/eui";
 
-import { EntityIcon32 } from "../../graphics/EntityIcon";
+import { EntityIcon } from "../../graphics/EntityIcon";
 
 import useLoadRegistry from "../../queries/useLoadRegistry";
 import EntitiesListingTable from "./EntitiesListingTable";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import RegistryPathContext from "../../contexts/RegistryPathContext";
 import EntityIndexEmptyState from "./EntityIndexEmptyState";
+import ExportButton from "../../components/ExportButton";
 
 const useLoadEntities = () => {
   const registryUrl = useContext(RegistryPathContext);
@@ -36,31 +32,30 @@ const Index = () => {
   useDocumentTitle(`Entities | Feast`);
 
   return (
-    <React.Fragment>
-      <EuiPageHeader
+    <EuiPageTemplate panelled>
+      <EuiPageTemplate.Header
         restrictWidth
-        iconType={EntityIcon32}
+        iconType={EntityIcon}
         pageTitle="Entities"
+        rightSideItems={[
+          <ExportButton
+            data={data ?? []}
+            fileName="entities"
+            formats={["json"]}
+          />,
+        ]}
       />
-      <EuiPageContent
-        hasBorder={false}
-        hasShadow={false}
-        paddingSize="none"
-        color="transparent"
-        borderRadius="none"
-      >
-        <EuiPageContentBody>
-          {isLoading && (
-            <p>
-              <EuiLoadingSpinner size="m" /> Loading
-            </p>
-          )}
-          {isError && <p>We encountered an error while loading.</p>}
-          {isSuccess && !data && <EntityIndexEmptyState />}
-          {isSuccess && data && <EntitiesListingTable entities={data} />}
-        </EuiPageContentBody>
-      </EuiPageContent>
-    </React.Fragment>
+      <EuiPageTemplate.Section>
+        {isLoading && (
+          <p>
+            <EuiLoadingSpinner size="m" /> Loading
+          </p>
+        )}
+        {isError && <p>We encountered an error while loading.</p>}
+        {isSuccess && !data && <EntityIndexEmptyState />}
+        {isSuccess && data && <EntitiesListingTable entities={data} />}
+      </EuiPageTemplate.Section>
+    </EuiPageTemplate>
   );
 };
 

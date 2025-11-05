@@ -36,7 +36,7 @@ The permission model is based on the following components:
 The `Permission` class identifies a single permission configured on the feature store and is identified by these attributes:
 - `name`: The permission name.
 - `types`: The list of protected resource  types. Defaults to all managed types, e.g. the `ALL_RESOURCE_TYPES` alias. All sub-classes are included in the resource match.
-- `name_pattern`: A regex to match the resource name. Defaults to `None`, meaning that no name filtering is applied
+- `name_patterns`: A list of regex patterns to match resource names. If any regex matches, the `Permission` policy is applied. Defaults to `[]`, meaning no name filtering is applied.
 - `required_tags`: Dictionary of key-value pairs that must match the resource tags. Defaults to `None`, meaning that no tags filtering is applied.
 - `actions`: The actions authorized by this permission. Defaults to `ALL_VALUES`, an alias defined in the `action` module.
 - `policy`: The policy to be applied to validate a client request.
@@ -69,7 +69,7 @@ Permission(
     name="feature-reader",
     types=[FeatureView, FeatureService],
     policy=RoleBasedPolicy(roles=["super-reader"]),
-    actions=[AuthzedAction.DESCRIBE, READ],
+    actions=[AuthzedAction.DESCRIBE, *READ],
 )
 ```
 
@@ -95,11 +95,20 @@ The following permission grants authorization to read the offline store of all t
 Permission(
     name="reader",
     types=[FeatureView],
-    name_pattern=".*risky.*",
+    name_patterns=".*risky.*", # Accepts both `str` or `list[str]` types
     policy=RoleBasedPolicy(roles=["trusted"]),
     actions=[AuthzedAction.READ_OFFLINE],
 )
 ```
+
+## Permission granting order
+
+When mixing and matching policies in permissions script, the permission granting order is as follows:
+
+1. The first matching policy wins in the list of policies and the permission is granted based on the matching policy rules and rest policies are ignored.
+2. If any policy matches from the list of policies, the permission is granted based on the matching policy rules and rest policies are ignored
+3. If no policy matches, the permission is denied
+
 
 ## Authorization configuration
 In order to leverage the permission functionality, the `auth` section is needed in the `feature_store.yaml` configuration.

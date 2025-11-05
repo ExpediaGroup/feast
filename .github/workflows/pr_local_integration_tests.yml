@@ -2,7 +2,7 @@ name: pr-local-integration-tests
 # This runs local tests with containerized stubs of online stores. This is the main dev workflow
 
 on:
-  pull_request_target:
+  pull_request:
     types:
       - opened
       - synchronize
@@ -10,7 +10,6 @@ on:
 
 jobs:
   integration-test-python-local:
-    # when using pull_request_target, all jobs MUST have this if check for 'ok-to-test' or 'approved' for security purposes.
     if:
       ((github.event.action == 'labeled' && (github.event.label.name == 'approved' || github.event.label.name == 'lgtm' || github.event.label.name == 'ok-to-test')) ||
       (github.event.action != 'labeled' && (contains(github.event.pull_request.labels.*.name, 'ok-to-test') || contains(github.event.pull_request.labels.*.name, 'approved') || contains(github.event.pull_request.labels.*.name, 'lgtm')))) &&
@@ -27,10 +26,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # pull_request_target runs the workflow in the context of the base repo
-          # as such actions/checkout needs to be explicit configured to retrieve
-          # code from the PR.
-          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          repository: ${{ github.event.repository.full_name }}  # Uses the full repository name
+          ref: ${{ github.ref }}                                  # Uses the ref from the event
+          token: ${{ secrets.GITHUB_TOKEN }}                     # Automatically provided token
           submodules: recursive
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -38,20 +36,27 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-      - name: Get uv cache dir
-        id: uv-cache
-        run: |
-          echo "::set-output name=dir::$(uv cache dir)"
-      - name: uv cache
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: make install-python-dependencies-ci
+      - name: Cache Hadoop tarball
         uses: actions/cache@v4
         with:
-          path: ${{ steps.uv-cache.outputs.dir }}
-          key: ${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-uv-${{ hashFiles(format('**/py{0}-ci-requirements.txt', env.PYTHON)) }}
-
-      - name: Install dependencies
-        run: make install-python-ci-dependencies-uv
+          path: ~/hadoop-3.4.2.tar.gz
+          key: hadoop-3.4.2
+      - name: Install Hadoop dependencies
+        run: make install-hadoop-dependencies-ci
       - name: Test local integration tests
         if: ${{ always() }}  # this will guarantee that step won't be canceled and resources won't leak
         run: make test-python-integration-local
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22.9
+      - name: Operator Data Source types test
+        run: make -C infra/feast-operator test-datasources
+      - name: Minimize uv cache
+        run: uv cache prune --ci

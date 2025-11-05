@@ -33,6 +33,9 @@ class Field(BaseModel):
         dtype: The type of the field, such as string or float.
         description: A human-readable description.
         tags: User-defined metadata in dictionary form.
+        vector_index: If set to True the field will be indexed for vector similarity search.
+        vector_length: The length of the vector if the vector index is set to True.
+        vector_search_metric: The metric used for vector similarity search.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
@@ -41,6 +44,9 @@ class Field(BaseModel):
     dtype: FeastType
     description: str = ""
     tags: Optional[Dict[str, str]] = {}
+    vector_index: bool = False
+    vector_length: int = 0
+    vector_search_metric: Optional[str] = ""
 
     @field_validator("dtype", mode="before")
     def dtype_is_feasttype_or_string_feasttype(cls, v):
@@ -71,6 +77,9 @@ class Field(BaseModel):
             or self.dtype != other.dtype
             or self.description != other.description
             or self.tags != other.tags
+            or self.vector_length != other.vector_length
+            # or self.vector_index != other.vector_index
+            # or self.vector_search_metric != other.vector_search_metric
         ):
             return False
         return True
@@ -82,7 +91,17 @@ class Field(BaseModel):
         return self.name < other.name
 
     def __repr__(self):
-        return f"{self.name}-{self.dtype}"
+        return (
+            f"Field(\n"
+            f"    name={self.name!r},\n"
+            f"    dtype={self.dtype!r},\n"
+            f"    description={self.description!r},\n"
+            f"    tags={self.tags!r}\n"
+            f"    vector_index={self.vector_index!r}\n"
+            f"    vector_length={self.vector_length!r}\n"
+            f"    vector_search_metric={self.vector_search_metric!r}\n"
+            f")"
+        )
 
     def __str__(self):
         return f"Field(name={self.name}, dtype={self.dtype}, tags={self.tags})"
@@ -90,11 +109,15 @@ class Field(BaseModel):
     def to_proto(self) -> FieldProto:
         """Converts a Field object to its protobuf representation."""
         value_type = self.dtype.to_value_type()
+        vector_search_metric = self.vector_search_metric or ""
         return FieldProto(
             name=self.name,
             value_type=value_type.value,
             description=self.description,
             tags=self.tags,
+            vector_index=self.vector_index,
+            vector_length=self.vector_length,
+            vector_search_metric=vector_search_metric,
         )
 
     @classmethod
@@ -106,11 +129,17 @@ class Field(BaseModel):
             field_proto: FieldProto protobuf object
         """
         value_type = ValueType(field_proto.value_type)
+        vector_search_metric = getattr(field_proto, "vector_search_metric", "")
+        vector_index = getattr(field_proto, "vector_index", False)
+        vector_length = getattr(field_proto, "vector_length", 0)
         return cls(
             name=field_proto.name,
             dtype=from_value_type(value_type=value_type),
             tags=dict(field_proto.tags),
             description=field_proto.description,
+            vector_index=vector_index,
+            vector_length=vector_length,
+            vector_search_metric=vector_search_metric,
         )
 
     @classmethod

@@ -81,7 +81,10 @@ class SnowflakeRegistryConfig(RegistryConfig):
     """ Registry type selector """
 
     config_path: Optional[str] = os.path.expanduser("~/.snowsql/config")
-    """ Snowflake config path -- absolute path required (Cant use ~) """
+    """ Snowflake snowsql config path -- absolute path required (Cant use ~)"""
+
+    connection_name: Optional[str] = None
+    """ Snowflake connector connection name -- typically defined in ~/.snowflake/connections.toml """
 
     account: Optional[str] = None
     """ Snowflake deployment identifier -- drop .snowflakecomputing.com """
@@ -115,7 +118,7 @@ class SnowflakeRegistryConfig(RegistryConfig):
 
     schema_: Optional[str] = Field("PUBLIC", alias="schema")
     """ Snowflake schema name """
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(populate_by_name=True, extra="allow")
 
 
 class SnowflakeRegistry(BaseRegistry):
@@ -1007,7 +1010,7 @@ class SnowflakeRegistry(BaseRegistry):
 
     def apply_materialization(
         self,
-        feature_view: FeatureView,
+        feature_view: Union[FeatureView, OnDemandFeatureView],
         project: str,
         start_date: datetime,
         end_date: datetime,
@@ -1321,6 +1324,7 @@ class SnowflakeRegistry(BaseRegistry):
                     "DATA_SOURCES",
                     "ENTITIES",
                     "PERMISSIONS",
+                    "FEAST_METADATA",
                     "PROJECTS",
                 }:
                     query = f"""
@@ -1387,3 +1391,54 @@ class SnowflakeRegistry(BaseRegistry):
             self._refresh_cached_registry_if_necessary()
             return proto_registry_utils.list_projects(self.cached_registry_proto, tags)
         return self._list_projects(tags)
+
+    def set_project_metadata(self, project: str, key: str, value: str):
+        """Set a custom project metadata key-value pair in the FEAST_METADATA table (Snowflake backend)."""
+        with GetSnowflakeConnection(self.registry_config) as conn:
+            query = f"""
+                SELECT
+                    project_id
+                FROM
+                    {self.registry_path}.\"FEAST_METADATA\"
+                WHERE
+                    project_id = '{project}'
+                    AND metadata_key = '{key}'
+                LIMIT 1
+            """
+            df = execute_snowflake_statement(conn, query).fetch_pandas_all()
+            if not df.empty:
+                query = f"""
+                    UPDATE {self.registry_path}.\"FEAST_METADATA\"
+                        SET
+                            metadata_value = '{value}',
+                            last_updated_timestamp = CURRENT_TIMESTAMP()
+                        WHERE
+                            project_id = '{project}'
+                            AND metadata_key = '{key}'
+                """
+                execute_snowflake_statement(conn, query)
+            else:
+                query = f"""
+                    INSERT INTO {self.registry_path}.\"FEAST_METADATA\"
+                        VALUES
+                        ('{project}', '{key}', '{value}', CURRENT_TIMESTAMP())
+                """
+                execute_snowflake_statement(conn, query)
+
+    def get_project_metadata(self, project: str, key: str) -> Optional[str]:
+        """Get a custom project metadata value by key from the FEAST_METADATA table (Snowflake backend)."""
+        with GetSnowflakeConnection(self.registry_config) as conn:
+            query = f"""
+                SELECT
+                    metadata_value
+                FROM
+                    {self.registry_path}.\"FEAST_METADATA\"
+                WHERE
+                    project_id = '{project}'
+                    AND metadata_key = '{key}'
+                LIMIT 1
+            """
+            df = execute_snowflake_statement(conn, query).fetch_pandas_all()
+            if not df.empty:
+                return df.iloc[0]["METADATA_VALUE"]
+            return None

@@ -10,7 +10,7 @@ There is a CLI command that starts the server: `feast serve`. By default, Feast 
 
 ## Deploying as a service
 
-One can deploy a feature server by building a docker image that bundles in the project's `feature_store.yaml`. See this [helm chart](https://github.com/feast-dev/feast/blob/master/infra/charts/feast-feature-server) for an example on how to run Feast on Kubernetes.
+See [this](../../how-to-guides/running-feast-in-production.md#id-4.2.-deploy-feast-feature-servers-on-kubernetes) for an example on how to run Feast on Kubernetes using the Operator.
 
 ## Example
 
@@ -200,17 +200,86 @@ requests.post(
     data=json.dumps(push_data))
 ```
 
+### Materializing features
+
+The Python feature server also exposes an endpoint for materializing features from the offline store to the online store.
+
+**Standard materialization with timestamps:**
+```bash
+curl -X POST "http://localhost:6566/materialize" -d '{
+    "start_ts": "2021-01-01T00:00:00",
+    "end_ts": "2021-01-02T00:00:00",
+    "feature_views": ["driver_hourly_stats"]
+}' | jq
+```
+
+**Materialize all data without event timestamps:**
+```bash
+curl -X POST "http://localhost:6566/materialize" -d '{
+    "feature_views": ["driver_hourly_stats"],
+    "disable_event_timestamp": true
+}' | jq
+```
+
+When `disable_event_timestamp` is set to `true`, the `start_ts` and `end_ts` parameters are not required, and all available data is materialized using the current datetime as the event timestamp. This is useful when your source data lacks proper event timestamp columns.
+
+Or from Python:
+```python
+import json
+import requests
+
+# Standard materialization
+materialize_data = {
+    "start_ts": "2021-01-01T00:00:00",
+    "end_ts": "2021-01-02T00:00:00",
+    "feature_views": ["driver_hourly_stats"]
+}
+
+# Materialize without event timestamps
+materialize_data_no_timestamps = {
+    "feature_views": ["driver_hourly_stats"],
+    "disable_event_timestamp": True
+}
+
+requests.post(
+    "http://localhost:6566/materialize",
+    data=json.dumps(materialize_data))
+```
+
+## Starting the feature server in TLS(SSL) mode
+
+Enabling TLS mode ensures that data between the Feast client and server is transmitted securely. For an ideal production environment, it is recommended to start the feature server in TLS mode.
+
+### Obtaining a self-signed TLS certificate and key
+In development mode we can generate a self-signed certificate for testing. In an actual production environment it is always recommended to get it from a trusted TLS certificate provider.
+
+```shell
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes
+```
+
+The above command will generate two files
+* `key.pem` : certificate private key
+* `cert.pem`: certificate public key
+
+### Starting the Online Server in TLS(SSL) Mode
+To start the feature server in TLS mode, you need to provide the private and public keys using the `--key` and `--cert` arguments with the `feast serve` command.
+
+```shell
+feast serve --key /path/to/key.pem --cert /path/to/cert.pem
+```
+
 # Online Feature Server Permissions and Access Control
 
 ## API Endpoints and Permissions
 
-| Endpoint                     | Resource Type                   | Permission                                            | Description                                                              |
-| ---------------------------- |---------------------------------|-------------------------------------------------------| ------------------------------------------------------------------------ |
-| /get-online-features         | FeatureView,OnDemandFeatureView | Read Online                                           | Get online features from the feature store                     |
-| /push                        | FeatureView                     | Write Online, Write Offline, Write Online and Offline | Push features to the feature store (online, offline, or both)  |
-| /write-to-online-store       | FeatureView                     | Write Online                                          | Write features to the online store                             |
-| /materialize                 | FeatureView                     | Write Online                                          | Materialize features within a specified time range             |
-| /materialize-incremental     | FeatureView                     | Write Online                                          | Incrementally materialize features up to a specified timestamp |
+| Endpoint                   | Resource Type                   | Permission                                            | Description                                                    |
+|----------------------------|---------------------------------|-------------------------------------------------------|----------------------------------------------------------------|
+| /get-online-features       | FeatureView,OnDemandFeatureView | Read Online                                           | Get online features from the feature store                     |
+| /retrieve-online-documents | FeatureView                     | Read Online                                           | Retrieve online documents from the feature store for RAG       |
+| /push                      | FeatureView                     | Write Online, Write Offline, Write Online and Offline | Push features to the feature store (online, offline, or both)  |
+| /write-to-online-store     | FeatureView                     | Write Online                                          | Write features to the online store                             |
+| /materialize               | FeatureView                     | Write Online                                          | Materialize features within a specified time range             |
+| /materialize-incremental   | FeatureView                     | Write Online                                          | Incrementally materialize features up to a specified timestamp |
 
 ## How to configure Authentication and Authorization ?
 

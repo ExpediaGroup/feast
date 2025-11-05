@@ -54,8 +54,8 @@ See [Contribution process](./contributing.md) and [Community](../community.md) f
 ## Making a pull request
 We use the convention that the assignee of a PR is the person with the next action.
 
-If the assignee is empty it means that no reviewer has been found yet. 
-If a reviewer has been found, they should also be the assigned the PR. 
+If the assignee is empty it means that no reviewer has been found yet.
+If a reviewer has been found, they should also be the assigned the PR.
 Finally, if there are comments to be addressed, the PR author should be the one assigned the PR.
 
 PRs that are submitted by the general public need to be identified as `ok-to-test`. Once enabled, [Prow](https://github.com/kubernetes/test-infra/tree/master/prow) will run a range of tests to verify the submission, after which community members will help to review the pull request.
@@ -74,6 +74,7 @@ A quick list of things to keep in mind as you're making changes:
   - Ensure you leave a release note for any user facing changes in the PR. There is a field automatically generated in the PR request. You can write `NONE` in that field if there are no user facing changes.
   - Please run tests locally before submitting a PR (e.g. for Python, the [local integration tests](#local-integration-tests))
   - Try to keep PRs smaller. This makes them easier to review.
+  - Please make sure to update any useful documentation under `docs/` that impacts the area you are contributing to.
 
 ### Good practices to keep in mind
 * Fill in the description based on the default template configured when you first open the PR
@@ -120,51 +121,48 @@ Note that this means if you are midway through working through a PR and rebase, 
 
 ## Feast Python SDK and CLI
 ### Environment Setup
-Setting up your development environment for Feast Python SDK and CLI:
-1. Ensure that you have Docker installed in your environment. Docker is used to provision service dependencies during testing, and build images for feature servers and other components.
+#### Tools
+- Docker:  Docker is used to provision service dependencies during testing, and build images for feature servers and other components.
    - Please note that we use [Docker with BuiltKit](https://docs.docker.com/develop/develop-images/build_enhancements/).
    - _Alternatively_ - To use [podman](https://podman.io/) on a Fedora or RHEL machine, follow this [guide](https://github.com/feast-dev/feast/issues/4190)
-2. Ensure that you have `make` and Python (3.9 or above) installed.
-3. _Recommended:_ Create a virtual environment to isolate development dependencies to be installed
-  ```sh
-  # create & activate a virtual environment
-  python -m venv venv/
-  source venv/bin/activate
-  ```
-4. (M1 Mac only): Follow the [dev guide](https://github.com/feast-dev/feast/issues/2105)
-5. Install uv. It is recommended to use uv for managing python dependencies.
+- `make` is used to run various scripts
+- [uv](https://docs.astral.sh/) for managing python dependencies. [installation instructions](https://docs.astral.sh/uv/getting-started/installation/)
+- (M1 Mac only): Follow the [dev guide if you have issues](https://github.com/feast-dev/feast/issues/2105)
+- (Optional): Node & Yarn (needed for building the feast UI)
+- (Optional): [Pixi](https://pixi.sh/latest/) for recompile python lock files. Only when you make changes to requirements or simply want to update python lock files to reflect latest versioons.
+
+### Quick start
+- create a new virtual env: `uv venv --python 3.11` (Replace the python version with your desired version)
+- activate the venv: `source venv/bin/activate`
+- Install dependencies `make install-python-dependencies-dev`
+
+### Building the UI
+To build the UI from the latest released NPM package (hosted under @feast-dev/feast-ui):
+
 ```sh
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-or
-```ssh
-pip install uv
-```
-6. (Optional): Install Node & Yarn. Then run the following to build Feast UI artifacts for use in `feast ui`
-```
 make build-ui
 ```
-7. (Optional) install pixi. pixi is necessary to run step 8 for all python versions at once.
+
+If you want to test backend and frontend together using 'feast ui' command and with a locally built Feast UI package, you can build using:
+
 ```sh
-curl -fsSL https://pixi.sh/install.sh | bash
+make build-ui-local
 ```
-8. (Optional): Recompile python lock files. Only when you make changes to requirements or simply want to update python lock files to reflect latest versioons.
+Use this when you are making changes to the React UI code and want to see them live via the backend.
+
+### Recompiling python lock files
+Recompile python lock files. This only needs to be run when you make changes to requirements or simply want to update python lock files to reflect latest versions.
+
 ```sh
 make lock-python-dependencies-all
-``` 
-9. Install development dependencies for Feast Python SDK and CLI. This will install package versions from the lock file, install editable version of feast and compile protobufs.
-
-If running inside a virtual environment:
-```sh
-make install-python-ci-dependencies-uv-venv
 ```
 
-Otherwise:
+### Building protos
 ```sh
-make install-python-ci-dependencies-uv
+make compile-protos-python
 ```
 
-10. Spin up Docker Image
+### Building a docker image for development
 ```sh
 docker build -t docker-whale -f ./sdk/python/feast/infra/feature_servers/multicloud/Dockerfile .
 ```
@@ -405,7 +403,7 @@ It will:
 
 ### Testing with Github Actions workflows
 
-Please refer to the maintainers [doc](maintainers.md) if you would like to locally test out the github actions workflow changes. 
+Please refer to the maintainers [doc](maintainers.md) if you would like to locally test out the github actions workflow changes.
 This document will help you setup your fork to test the ci integration tests and other workflows without needing to make a pull request against feast-dev master.
 
 ## Feast Data Storage Format
@@ -414,4 +412,3 @@ Feast data storage contracts are documented in the following locations:
 
 * [Feast Offline Storage Format](https://github.com/feast-dev/feast/blob/master/docs/specs/offline_store_format.md): Used by BigQuery, Snowflake \(Future\), Redshift \(Future\).
 * [Feast Online Storage Format](https://github.com/feast-dev/feast/blob/master/docs/specs/online_store_format.md): Used by Redis, Google Datastore.
-

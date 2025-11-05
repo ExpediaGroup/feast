@@ -1,5 +1,5 @@
 import React from "react";
-import ReactDOM from "react-dom";
+import { createRoot } from "react-dom/client";
 import { QueryClient } from "react-query";
 import FeastUI from "./FeastUI";
 
@@ -91,21 +91,9 @@ const tabsRegistry = {
   ],
 };
 
-ReactDOM.render(
+const root = createRoot(document.getElementById("root")!);
+root.render(
   <React.StrictMode>
-    <FeastUI
-      reactQueryClient={queryClient}
-      feastUIConfigs={{
-        tabsRegistry: tabsRegistry,
-        projectListPromise: fetch((process.env.PUBLIC_URL || "") + "/projects-list.json", {
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }).then((res) => {
-            return res.json();
-          })
-      }}
-    />
+    <FeastUI reactQueryClient={queryClient} feastUIConfigs={{ tabsRegistry }} />
   </React.StrictMode>,
-  document.getElementById("root")
 );

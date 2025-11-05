@@ -3,7 +3,7 @@ import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -70,21 +70,44 @@ class FeastFlightClient(fl.FlightClient):
         return super().list_actions(options)
 
 
-def build_arrow_flight_client(host: str, port, auth_config: AuthConfig):
+def build_arrow_flight_client(
+    scheme: str, host: str, port, auth_config: AuthConfig, cert: str = ""
+):
+    arrow_scheme = "grpc+tcp"
+    if scheme == "https":
+        logger.info(
+            "Scheme is https so going to connect offline server in SSL(TLS) mode."
+        )
+        arrow_scheme = "grpc+tls"
+
+    kwargs = {}
+    if cert:
+        with open(cert, "rb") as root_certs:
+            kwargs["tls_root_certs"] = root_certs.read()
+
     if auth_config.type != AuthType.NONE.value:
         middlewares = [FlightAuthInterceptorFactory(auth_config)]
-        return FeastFlightClient(f"grpc://{host}:{port}", middleware=middlewares)
+        return FeastFlightClient(
+            f"{arrow_scheme}://{host}:{port}", middleware=middlewares, **kwargs
+        )
 
-    return FeastFlightClient(f"grpc://{host}:{port}")
+    return FeastFlightClient(f"{arrow_scheme}://{host}:{port}", **kwargs)
 
 
 class RemoteOfflineStoreConfig(FeastConfigBaseModel):
     type: Literal["remote"] = "remote"
+
+    scheme: Literal["http", "https"] = "http"
+
     host: StrictStr
     """ str: remote offline store server port, e.g. the host URL for offline store  of arrow flight server. """
 
     port: Optional[StrictInt] = None
     """ str: remote offline store server port."""
+
+    cert: StrictStr = ""
+    """ str: Path to the public certificate when the offline server starts in TLS(SSL) mode. This may be needed if the offline server started with a self-signed certificate, typically this file ends with `*.crt`, `*.cer`, or `*.pem`.
+    If type is 'remote', then this configuration is needed to connect to remote offline server in TLS mode. """
 
 
 class RemoteRetrievalJob(RetrievalJob):
@@ -93,7 +116,7 @@ class RemoteRetrievalJob(RetrievalJob):
         client: FeastFlightClient,
         api: str,
         api_parameters: Dict[str, Any],
-        entity_df: Union[pd.DataFrame, str] = None,
+        entity_df: Optional[Union[pd.DataFrame, str]] = None,
         table: pa.Table = None,
         metadata: Optional[RetrievalMetadata] = None,
     ):
@@ -170,7 +193,7 @@ class RemoteOfflineStore(OfflineStore):
         config: RepoConfig,
         feature_views: List[FeatureView],
         feature_refs: List[str],
-        entity_df: Union[pd.DataFrame, str],
+        entity_df: Optional[Union[pd.DataFrame, str]],
         registry: BaseRegistry,
         project: str,
         full_feature_names: bool = False,
@@ -178,7 +201,11 @@ class RemoteOfflineStore(OfflineStore):
         assert isinstance(config.offline_store, RemoteOfflineStoreConfig)
 
         client = build_arrow_flight_client(
-            config.offline_store.host, config.offline_store.port, config.auth_config
+            scheme=config.offline_store.scheme,
+            host=config.offline_store.host,
+            port=config.offline_store.port,
+            auth_config=config.auth_config,
+            cert=config.offline_store.cert,
         )
 
         feature_view_names = [fv.name for fv in feature_views]
@@ -207,14 +234,19 @@ class RemoteOfflineStore(OfflineStore):
         join_key_columns: List[str],
         feature_name_columns: List[str],
         timestamp_field: str,
-        start_date: datetime,
-        end_date: datetime,
+        created_timestamp_column: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> RetrievalJob:
         assert isinstance(config.offline_store, RemoteOfflineStoreConfig)
 
         # Initialize the client connection
         client = build_arrow_flight_client(
-            config.offline_store.host, config.offline_store.port, config.auth_config
+            scheme=config.offline_store.scheme,
+            host=config.offline_store.host,
+            port=config.offline_store.port,
+            auth_config=config.auth_config,
+            cert=config.offline_store.cert,
         )
 
         api_parameters = {
@@ -222,8 +254,9 @@ class RemoteOfflineStore(OfflineStore):
             "join_key_columns": join_key_columns,
             "feature_name_columns": feature_name_columns,
             "timestamp_field": timestamp_field,
-            "start_date": start_date.isoformat(),
-            "end_date": end_date.isoformat(),
+            "created_timestamp_column": created_timestamp_column,
+            "start_date": start_date.isoformat() if start_date else None,
+            "end_date": end_date.isoformat() if end_date else None,
         }
 
         return RemoteRetrievalJob(
@@ -247,7 +280,11 @@ class RemoteOfflineStore(OfflineStore):
 
         # Initialize the client connection
         client = build_arrow_flight_client(
-            config.offline_store.host, config.offline_store.port, config.auth_config
+            config.offline_store.scheme,
+            config.offline_store.host,
+            config.offline_store.port,
+            config.auth_config,
+            cert=config.offline_store.cert,
         )
 
         api_parameters = {
@@ -282,7 +319,11 @@ class RemoteOfflineStore(OfflineStore):
 
         # Initialize the client connection
         client = build_arrow_flight_client(
-            config.offline_store.host, config.offline_store.port, config.auth_config
+            config.offline_store.scheme,
+            config.offline_store.host,
+            config.offline_store.port,
+            config.auth_config,
+            config.offline_store.cert,
         )
 
         api_parameters = {
@@ -308,7 +349,11 @@ class RemoteOfflineStore(OfflineStore):
 
         # Initialize the client connection
         client = build_arrow_flight_client(
-            config.offline_store.host, config.offline_store.port, config.auth_config
+            config.offline_store.scheme,
+            config.offline_store.host,
+            config.offline_store.port,
+            config.auth_config,
+            config.offline_store.cert,
         )
 
         feature_view_names = [feature_view.name]
@@ -327,6 +372,65 @@ class RemoteOfflineStore(OfflineStore):
             table=table,
             entity_df=None,
         )
+
+    def validate_data_source(
+        self,
+        config: RepoConfig,
+        data_source: DataSource,
+    ):
+        assert isinstance(config.offline_store, RemoteOfflineStoreConfig)
+
+        client = build_arrow_flight_client(
+            config.offline_store.scheme,
+            config.offline_store.host,
+            config.offline_store.port,
+            config.auth_config,
+            config.offline_store.cert,
+        )
+
+        api_parameters = {
+            "data_source_proto": str(data_source),
+        }
+        logger.debug(f"validating DataSource {data_source.name}")
+        _call_put(
+            api=OfflineStore.validate_data_source.__name__,
+            api_parameters=api_parameters,
+            client=client,
+            table=None,
+            entity_df=None,
+        )
+
+    def get_table_column_names_and_types_from_data_source(
+        self, config: RepoConfig, data_source: DataSource
+    ) -> Iterable[Tuple[str, str]]:
+        assert isinstance(config.offline_store, RemoteOfflineStoreConfig)
+
+        client = build_arrow_flight_client(
+            config.offline_store.scheme,
+            config.offline_store.host,
+            config.offline_store.port,
+            config.auth_config,
+            config.offline_store.cert,
+        )
+
+        api_parameters = {
+            "data_source_proto": str(data_source),
+        }
+        logger.debug(
+            f"Calling {OfflineStore.get_table_column_names_and_types_from_data_source.__name__} with {api_parameters}"
+        )
+        table = _send_retrieve_remote(
+            api=OfflineStore.get_table_column_names_and_types_from_data_source.__name__,
+            api_parameters=api_parameters,
+            client=client,
+            table=None,
+            entity_df=None,
+        )
+
+        logger.debug(
+            f"get_table_column_names_and_types_from_data_source for {data_source.name}: {table}"
+        )
+        return zip(table.column("name").to_pylist(), table.column("type").to_pylist())
 
 
 def _create_retrieval_metadata(feature_refs: List[str], entity_df: pd.DataFrame):
@@ -378,8 +482,8 @@ def _get_entity_df_event_timestamp_range(
 def _send_retrieve_remote(
     api: str,
     api_parameters: Dict[str, Any],
-    entity_df: Union[pd.DataFrame, str],
-    table: pa.Table,
+    entity_df: Optional[Union[pd.DataFrame, str]],
+    table: Optional[pa.Table],
     client: FeastFlightClient,
 ):
     command_descriptor = _call_put(
@@ -406,7 +510,7 @@ def _call_put(
     api: str,
     api_parameters: Dict[str, Any],
     client: FeastFlightClient,
-    entity_df: Union[pd.DataFrame, str],
+    entity_df: Optional[Union[pd.DataFrame, str]],
     table: pa.Table,
 ):
     # Generate unique command identifier
@@ -431,7 +535,7 @@ def _call_put(
 
 def _put_parameters(
     command_descriptor: fl.FlightDescriptor,
-    entity_df: Union[pd.DataFrame, str],
+    entity_df: Optional[Union[pd.DataFrame, str]],
     table: pa.Table,
     client: FeastFlightClient,
 ):

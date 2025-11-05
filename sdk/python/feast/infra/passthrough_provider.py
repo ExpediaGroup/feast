@@ -2,36 +2,50 @@ import logging
 import os
 from datetime import datetime, timedelta
 from multiprocessing import Pool
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+)
 
 import pandas as pd
 import pyarrow as pa
 from tqdm import tqdm
 
-from feast import importer
+from feast import OnDemandFeatureView, importer
+from feast.base_feature_view import BaseFeatureView
 from feast.batch_feature_view import BatchFeatureView
 from feast.data_source import DataSource
 from feast.entity import Entity
 from feast.feature_logging import FeatureServiceLoggingSource
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
-from feast.infra.infra_object import Infra, InfraObject
-from feast.infra.materialization.batch_materialization_engine import (
-    BatchMaterializationEngine,
+from feast.infra.common.materialization_job import (
     MaterializationJobStatus,
     MaterializationTask,
 )
+from feast.infra.compute_engines.base import (
+    ComputeEngine,
+)
+from feast.infra.infra_object import Infra, InfraObject
 from feast.infra.offline_stores.offline_store import RetrievalJob
 from feast.infra.offline_stores.offline_utils import get_offline_store_from_config
 from feast.infra.online_stores.helpers import get_online_store_from_config
 from feast.infra.provider import Provider
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.infra.supported_async_methods import ProviderAsyncMethods
 from feast.online_response import OnlineResponse
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import RepeatedValue
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
-from feast.rate_limiter import TokenBucketRateLimiter  # provider-level write limiter
 from feast.repo_config import BATCH_ENGINE_CLASS_FOR_TYPE, RepoConfig
 from feast.saved_dataset import SavedDataset
 from feast.sorted_feature_view import SortedFeatureView
@@ -48,14 +62,15 @@ DEFAULT_BATCH_SIZE = 10_000
 
 
 class PassthroughProvider(Provider):
-    """The passthrough provider delegates all operations to the underlying online and offline stores."""
+    """
+    The passthrough provider delegates all operations to the underlying online and offline stores.
+    """
 
     def __init__(self, config: RepoConfig):
         self.repo_config = config
         self._offline_store = None
         self._online_store = None
-        self._batch_engine: Optional[BatchMaterializationEngine] = None
-        self._write_token_limiters: Dict[str, TokenBucketRateLimiter] = {}
+        self._batch_engine: Optional[ComputeEngine] = None
 
     @property
     def online_store(self):
@@ -74,7 +89,13 @@ class PassthroughProvider(Provider):
         return self._offline_store
 
     @property
-    def batch_engine(self) -> BatchMaterializationEngine:
+    def async_supported(self) -> ProviderAsyncMethods:
+        return ProviderAsyncMethods(
+            online=self.online_store.async_supported,
+        )
+
+    @property
+    def batch_engine(self) -> ComputeEngine:
         if self._batch_engine:
             return self._batch_engine
         else:
@@ -135,10 +156,16 @@ class PassthroughProvider(Provider):
     ):
         # Call update only if there is an online store
         if self.online_store:
+            tables_to_keep_online = [
+                fv
+                for fv in tables_to_keep
+                if not hasattr(fv, "online") or (hasattr(fv, "online") and fv.online)
+            ]
+
             self.online_store.update(
                 config=self.repo_config,
                 tables_to_delete=tables_to_delete,
-                tables_to_keep=tables_to_keep,
+                tables_to_keep=tables_to_keep_online,
                 entities_to_keep=entities_to_keep,
                 entities_to_delete=entities_to_delete,
                 partial=partial,
@@ -254,6 +281,20 @@ class PassthroughProvider(Provider):
         # 3) Fallback to 0 (no rate limit)
         return 0
 
+    async def online_write_batch_async(
+        self,
+        config: RepoConfig,
+        table: Union[FeatureView, BaseFeatureView, OnDemandFeatureView],
+        data: List[
+            Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+        ],
+        progress: Optional[Callable[[int], Any]],
+    ) -> None:
+        if self.online_store:
+            await self.online_store.online_write_batch_async(
+                config, table, data, progress
+            )
+
     def offline_write_batch(
         self,
         config: RepoConfig,
@@ -340,7 +381,7 @@ class PassthroughProvider(Provider):
         self,
         config: RepoConfig,
         table: FeatureView,
-        requested_feature: str,
+        requested_features: Optional[List[str]],
         query: List[float],
         top_k: int,
         distance_metric: Optional[str] = None,
@@ -350,29 +391,89 @@ class PassthroughProvider(Provider):
             result = self.online_store.retrieve_online_documents(
                 config,
                 table,
-                requested_feature,
+                requested_features,
                 query,
                 top_k,
                 distance_metric,
             )
         return result
 
-    def ingest_df(
+    def retrieve_online_documents_v2(
         self,
-        feature_view: FeatureView,
+        config: RepoConfig,
+        table: FeatureView,
+        requested_features: Optional[List[str]],
+        query: Optional[List[float]],
+        top_k: int,
+        distance_metric: Optional[str] = None,
+        query_string: Optional[str] = None,
+    ) -> List:
+        result = []
+        if self.online_store:
+            result = self.online_store.retrieve_online_documents_v2(
+                config,
+                table,
+                requested_features,
+                query,
+                top_k,
+                distance_metric,
+                query_string,
+            )
+        return result
+
+    @staticmethod
+    def _prep_table_and_join_keys_for_ingestion(
+        feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView],
         df: pd.DataFrame,
+        field_mapping: Optional[Dict] = None,
     ):
         table = pa.Table.from_pandas(df)
+        if isinstance(feature_view, OnDemandFeatureView):
+            if not field_mapping:
+                field_mapping = {}
+            table = _run_pyarrow_field_mapping(table, field_mapping)
+            join_keys = {
+                entity.name: entity.dtype.to_value_type()
+                for entity in feature_view.entity_columns
+            }
+            return table, join_keys
+        else:
+            if hasattr(feature_view, "entity_columns"):
+                join_keys = {
+                    entity.name: entity.dtype.to_value_type()
+                    for entity in feature_view.entity_columns
+                }
+            else:
+                join_keys = {}
 
-        if feature_view.batch_source.field_mapping is not None:
-            table = _run_pyarrow_field_mapping(
-                table, feature_view.batch_source.field_mapping
-            )
+            # Note: A dictionary mapping of column names in this data
+            #   source to feature names in a feature table or view. Only used for feature
+            #   columns, not entity or timestamp columns.
+            if hasattr(feature_view, "batch_source"):
+                if feature_view.batch_source.field_mapping is not None:
+                    table = _run_pyarrow_field_mapping(
+                        table, feature_view.batch_source.field_mapping
+                    )
+            else:
+                table = _run_pyarrow_field_mapping(table, {})
 
-        join_keys = {
-            entity.name: entity.dtype.to_value_type()
-            for entity in feature_view.entity_columns
-        }
+            if not isinstance(feature_view, BaseFeatureView):
+                for entity in feature_view.entity_columns:
+                    join_keys[entity.name] = entity.dtype.to_value_type()
+            return table, join_keys
+
+    def ingest_df(
+        self,
+        feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView],
+        df: pd.DataFrame,
+        field_mapping: Optional[Dict] = None,
+    ):
+        table, join_keys = self._prep_table_and_join_keys_for_ingestion(
+            feature_view=feature_view,
+            df=df,
+            field_mapping=field_mapping,
+        )
+
         num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
 
         if num_spark_driver_cores > 2:
@@ -384,6 +485,7 @@ class PassthroughProvider(Provider):
 
             # Input table is split into smaller chunks and processed in parallel
             chunks = self.split_table(num_processes, table)
+
             chunks_to_parallelize = [
                 (chunk, feature_view, join_keys) for chunk in chunks
             ]
@@ -393,7 +495,8 @@ class PassthroughProvider(Provider):
         else:
             self.process(table, feature_view, join_keys)
 
-    def split_table(self, num_processes, table):
+    @staticmethod
+    def split_table(num_processes, table):
         num_table_rows = table.num_rows
         size = num_table_rows // num_processes  # base size of each chunk
         remainder = num_table_rows % num_processes  # extra rows to distribute
@@ -413,11 +516,28 @@ class PassthroughProvider(Provider):
             self.repo_config, feature_view, rows_to_write, progress=None
         )
 
+    async def ingest_df_async(
+        self,
+        feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView],
+        df: pd.DataFrame,
+        field_mapping: Optional[Dict] = None,
+    ):
+        table, join_keys = self._prep_table_and_join_keys_for_ingestion(
+            feature_view=feature_view,
+            df=df,
+            field_mapping=field_mapping,
+        )
+        rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
+        await self.online_write_batch_async(
+            self.repo_config, feature_view, rows_to_write, progress=None
+        )
+
     def ingest_df_to_offline_store(self, feature_view: FeatureView, table: pa.Table):
         if feature_view.batch_source.field_mapping is not None:
             table = _run_pyarrow_field_mapping(
                 table, feature_view.batch_source.field_mapping
             )
+
         self.offline_write_batch(self.repo_config, feature_view, table, None)
 
     def materialize_single_feature_view(
@@ -429,12 +549,21 @@ class PassthroughProvider(Provider):
         registry: BaseRegistry,
         project: str,
         tqdm_builder: Callable[[int], tqdm],
+        disable_event_timestamp: bool = False,
+        **kwargs,
     ) -> None:
+        if isinstance(feature_view, OnDemandFeatureView):
+            if not feature_view.write_to_online_store:
+                raise ValueError(
+                    f"OnDemandFeatureView {feature_view.name} does not have write_to_online_store enabled"
+                )
+            return
         assert (
             isinstance(feature_view, BatchFeatureView)
             or isinstance(feature_view, SortedFeatureView)
             or isinstance(feature_view, StreamFeatureView)
             or isinstance(feature_view, FeatureView)
+            or isinstance(feature_view, OnDemandFeatureView)
         ), f"Unexpected type for {feature_view.name}: {type(feature_view)}"
 
         if getattr(config.online_store, "lazy_table_creation", False):
@@ -468,12 +597,13 @@ class PassthroughProvider(Provider):
     def get_historical_features(
         self,
         config: RepoConfig,
-        feature_views: List[FeatureView],
+        feature_views: List[Union[FeatureView, OnDemandFeatureView]],
         feature_refs: List[str],
-        entity_df: Union[pd.DataFrame, str],
+        entity_df: Optional[Union[pd.DataFrame, str]],
         registry: BaseRegistry,
         project: str,
         full_feature_names: bool,
+        **kwargs,
     ) -> RetrievalJob:
         job = self.offline_store.get_historical_features(
             config=config,
@@ -483,7 +613,9 @@ class PassthroughProvider(Provider):
             registry=registry,
             project=project,
             full_feature_names=full_feature_names,
+            **kwargs,
         )
+
         return job
 
     def retrieve_saved_dataset(
@@ -493,8 +625,10 @@ class PassthroughProvider(Provider):
             ref.replace(":", "__") if dataset.full_feature_names else ref.split(":")[1]
             for ref in dataset.features
         ]
+
         # ToDo: replace hardcoded value
         event_ts_column = "event_timestamp"
+
         return self.offline_store.pull_all_from_table_or_query(
             config=config,
             data_source=dataset.storage.to_data_source(),
@@ -515,6 +649,7 @@ class PassthroughProvider(Provider):
         assert feature_service.logging_config is not None, (
             "Logging should be configured for the feature service before calling this function"
         )
+
         self.offline_store.write_logged_features(
             config=config,
             data=logs,
@@ -534,6 +669,7 @@ class PassthroughProvider(Provider):
         assert feature_service.logging_config is not None, (
             "Logging should be configured for the feature service before calling this function"
         )
+
         logging_source = FeatureServiceLoggingSource(feature_service, config.project)
         schema = logging_source.get_schema(registry)
         logging_config = feature_service.logging_config
@@ -556,3 +692,16 @@ class PassthroughProvider(Provider):
         data_source: DataSource,
     ):
         self.offline_store.validate_data_source(config=config, data_source=data_source)
+
+    def get_table_column_names_and_types_from_data_source(
+        self, config: RepoConfig, data_source: DataSource
+    ) -> Iterable[Tuple[str, str]]:
+        return self.offline_store.get_table_column_names_and_types_from_data_source(
+            config=config, data_source=data_source
+        )
+
+    async def initialize(self, config: RepoConfig) -> None:
+        await self.online_store.initialize(config)
+
+    async def close(self) -> None:
+        await self.online_store.close()

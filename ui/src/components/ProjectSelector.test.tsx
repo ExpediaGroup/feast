@@ -8,12 +8,14 @@ import FeastUISansProviders from "../FeastUISansProviders";
 import {
   projectsListWithDefaultProject,
   creditHistoryRegistry,
+  creditHistoryRegistryDB,
 } from "../mocks/handlers";
 
 // declare which API requests to mock
 const server = setupServer(
   projectsListWithDefaultProject,
-  creditHistoryRegistry
+  creditHistoryRegistry,
+  creditHistoryRegistryDB,
 );
 
 // establish API mocking before all tests
@@ -25,6 +27,8 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 test("in a full App render, it shows the right initial project", async () => {
+  const user = userEvent.setup();
+
   render(<FeastUISansProviders />);
 
   const select = await screen.findByRole("combobox", {
@@ -38,13 +42,13 @@ test("in a full App render, it shows the right initial project", async () => {
     name: "Top Level",
   });
 
-  within(topLevelNavigation).getByDisplayValue("Credit Score Project");
+  await within(topLevelNavigation).findByDisplayValue("Credit Score Project");
 
   expect(options.length).toBe(1);
 
   // Wait for Project Data from Registry to Load
   await screen.findAllByRole("heading", {
-    name: /Project:/i,
+    name: /Project: credit_scoring_aws/i,
   });
 
   // Before User Event: Heading is the credit scoring project
@@ -54,13 +58,13 @@ test("in a full App render, it shows the right initial project", async () => {
 
   // Do the select option user event
   // https://stackoverflow.com/a/69478957
-  userEvent.selectOptions(
+  await user.selectOptions(
     // Find the select element
     within(topLevelNavigation).getByRole("combobox"),
     // Find and select the Ireland option
     within(topLevelNavigation).getByRole("option", {
       name: "Credit Score Project",
-    })
+    }),
   );
 
   // The selection should updated
@@ -68,12 +72,12 @@ test("in a full App render, it shows the right initial project", async () => {
     within(topLevelNavigation).getByRole("option", {
       name: "Credit Score Project",
       selected: true,
-    })
+    }),
   ).toBeInTheDocument();
 
   // ... and the new heading should appear
   // meaning we successfully navigated
   await screen.findByRole("heading", {
-    name: /credit_scoring_aws/i,
+    name: /Project: credit_scoring_aws/i,
   });
 });
