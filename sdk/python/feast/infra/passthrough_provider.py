@@ -263,7 +263,9 @@ class PassthroughProvider(Provider):
             )
 
     def _resolve_write_rate_limit(
-        self, config: RepoConfig, table: Union[FeatureView, BaseFeatureView, OnDemandFeatureView]
+        self,
+        config: RepoConfig,
+        table: Union[FeatureView, BaseFeatureView, OnDemandFeatureView],
     ) -> int:
         """Resolve write_rate_limit using precedence:
         1. feature view tag 'write_rate_limit'
