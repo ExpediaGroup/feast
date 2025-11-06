@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"github.com/feast-dev/feast/go/protos/feast/types"
 	"sort"
+
+	"github.com/feast-dev/feast/go/protos/feast/types"
+	"github.com/spaolacci/murmur3"
 )
 
 func HashSerializedEntityKey(serializedEntityKey *[]byte) string {
@@ -16,6 +18,14 @@ func HashSerializedEntityKey(serializedEntityKey *[]byte) string {
 	h := sha1.New()
 	h.Write(*serializedEntityKey)
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func Mmh3(s string) string {
+	h32 := murmur3.New32()
+	h32.Write([]byte(s))
+	sum := h32.Sum32()
+	// Feast stores it as a decimal string, not hex
+	return fmt.Sprintf("%d", sum)
 }
 
 // SerializeEntityKey Serialize entity key to a bytestring so that it can be used as a lookup key in a hash table.

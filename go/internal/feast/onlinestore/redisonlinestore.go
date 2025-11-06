@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
-
 	"github.com/feast-dev/feast/go/internal/feast/utils"
 
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
@@ -359,9 +358,285 @@ func (r *RedisOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.E
 	return results, nil
 }
 
-func (r *RedisOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs *model.GroupedRangeFeatureRefs) ([][]RangeFeatureData, error) {
-	// TODO: Implement OnlineReadRange
-	return nil, errors.New("OnlineReadRange is not supported by RedisOnlineStore")
+// PIPELINE_BATCH_SIZE controls how many HMGETs are queued before flushing a pipeline
+// TODO: Tweak this number based on performance testing
+const PIPELINE_BATCH_SIZE = 500
+
+func (r *RedisOnlineStore) OnlineReadRange(
+	ctx context.Context,
+	groupedRefs *model.GroupedRangeFeatureRefs,
+) ([][]RangeFeatureData, error) {
+	if groupedRefs == nil || len(groupedRefs.EntityKeys) == 0 {
+		return nil, fmt.Errorf("no entity keys provided")
+	}
+	if len(groupedRefs.SortKeyFilters) == 0 {
+		return nil, fmt.Errorf("no sort key filters provided")
+	}
+
+	featureNames := groupedRefs.FeatureNames
+	featureViewNames := groupedRefs.FeatureViewNames
+	limit := int64(groupedRefs.Limit)
+	reverse := groupedRefs.IsReverseSortOrder
+
+	// Build ZSET score range from sort-key filters.
+	minScore, maxScore := getScoreRange(groupedRefs.SortKeyFilters)
+	if minScore == "" {
+		minScore = "-inf"
+	}
+	if maxScore == "" {
+		maxScore = "+inf"
+	}
+
+	sortKeyName := groupedRefs.SortKeyFilters[0].SortKeyName
+
+	// Choose client facade for node/cluster.
+	var redisClient interface {
+		Pipeline() redis.Pipeliner
+	} = r.client
+	if r.t == redisCluster {
+		redisClient = r.clusterClient
+	}
+
+	// Build an index for (featureView|featureName) -> column index in results row.
+	indexBy := make(map[string]int, len(featureNames))
+	for i := range featureNames {
+		indexBy[featureViewNames[i]+"|"+featureNames[i]] = i
+	}
+
+	// Group requested features by feature view (so we can HMGET one snapshot per member and decode all features in that FV).
+	type fvGroup struct {
+		view          string
+		featNames     []string
+		fieldHashes   []string // mmh3("<fv>:<feature>")
+		tsKey         string   // "_ts:<fv>"
+		columnIndexes []int    // indices into results row
+	}
+	fvGroups := map[string]*fvGroup{}
+	for i := range featureNames {
+		fv := featureViewNames[i]
+		fn := featureNames[i]
+		g := fvGroups[fv]
+		if g == nil {
+			g = &fvGroup{
+				view:          fv,
+				tsKey:         fmt.Sprintf("_ts:%s", fv),
+				featNames:     []string{},
+				fieldHashes:   []string{},
+				columnIndexes: []int{},
+			}
+			fvGroups[fv] = g
+		}
+		g.featNames = append(g.featNames, fn)
+		g.fieldHashes = append(g.fieldHashes, utils.Mmh3(fmt.Sprintf("%s:%s", fv, fn)))
+		g.columnIndexes = append(g.columnIndexes, i)
+	}
+
+	results := make([][]RangeFeatureData, len(groupedRefs.EntityKeys))
+
+	for eIdx, entityKey := range groupedRefs.EntityKeys {
+		serKey, err := utils.SerializeEntityKey(entityKey, r.config.EntityKeySerializationVersion)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize entity key: %w", err)
+		}
+		entityKeyBin := string(*serKey)
+
+		// Initialize the row: one RangeFeatureData per requested feature.
+		results[eIdx] = make([]RangeFeatureData, len(featureNames))
+		for i := range featureNames {
+			results[eIdx][i] = RangeFeatureData{
+				FeatureView:     featureViewNames[i],
+				FeatureName:     featureNames[i],
+				Values:          make([]interface{}, 0),
+				Statuses:        make([]serving.FieldStatus, 0),
+				EventTimestamps: make([]timestamppb.Timestamp, 0),
+			}
+		}
+
+		// Fetch all ZSET members for each feature view (batched with a pipeline)
+		type zrangeRes struct {
+			view    string
+			members []string
+			err     error
+		}
+		zResponses := make(map[string]zrangeRes, len(fvGroups))
+
+		p := redisClient.Pipeline()
+		zCmds := make(map[string]*redis.StringSliceCmd, len(fvGroups))
+		zrangeBy := &redis.ZRangeBy{Min: minScore, Max: maxScore, Offset: 0, Count: limit}
+
+		for fv := range fvGroups {
+			// ZSET key: <project>:<feature_view>:<sortKeyName>:<entityKeyBin>
+			zkey := fmt.Sprintf("%s:%s:%s:%s", r.project, fv, sortKeyName, entityKeyBin)
+			if reverse {
+				zCmds[fv] = p.ZRevRangeByScore(ctx, zkey, zrangeBy)
+			} else {
+				zCmds[fv] = p.ZRangeByScore(ctx, zkey, zrangeBy)
+			}
+		}
+		if _, err := p.Exec(ctx); err != nil && err != redis.Nil {
+			return nil, fmt.Errorf("ZRANGE pipeline failed: %w", err)
+		}
+		for fv, cmd := range zCmds {
+			members, err := cmd.Result()
+			if err != nil && err != redis.Nil {
+				zResponses[fv] = zrangeRes{view: fv, members: nil, err: err}
+			} else {
+				zResponses[fv] = zrangeRes{view: fv, members: members, err: nil}
+			}
+		}
+
+		// For each feature view, HMGET all members in batches.
+		for fv, grp := range fvGroups {
+			zr := zResponses[fv]
+			// No members → append a single NOT_FOUND for every feature in that FV
+			if zr.err == nil && len(zr.members) == 0 {
+				for _, col := range grp.columnIndexes {
+					results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
+					results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
+					results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, timestamppb.Timestamp{Seconds: 0, Nanos: 0})
+				}
+				continue
+			}
+			if zr.err != nil {
+				// If the ZRANGE failed for this FV, treat as NOT_FOUND
+				for _, col := range grp.columnIndexes {
+					results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
+					results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
+					results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, timestamppb.Timestamp{Seconds: 0, Nanos: 0})
+				}
+				continue
+			}
+
+			// Build the HMGET field list for this FV once: [all feature hashes..., tsKey]
+			fields := append(append([]string{}, grp.fieldHashes...), grp.tsKey)
+
+			for start := 0; start < len(zr.members); start += PIPELINE_BATCH_SIZE {
+				end := start + PIPELINE_BATCH_SIZE
+				if end > len(zr.members) {
+					end = len(zr.members)
+				}
+				batch := zr.members[start:end]
+
+				hp := redisClient.Pipeline()
+				hm := make(map[string]*redis.SliceCmd, len(batch))
+				for _, member := range batch {
+					hm[member] = hp.HMGet(ctx, member, fields...)
+				}
+				if _, err := hp.Exec(ctx); err != nil && err != redis.Nil {
+					return nil, fmt.Errorf("HMGET pipeline failed: %w", err)
+				}
+
+				// Decode this batch
+				for _, member := range batch {
+					arr, err := hm[member].Result()
+					if err != nil && !errors.Is(err, redis.Nil) {
+						// On decode failure for snapshot → mark all requested features in this FV as NOT_FOUND for this member.
+						for _, col := range grp.columnIndexes {
+							results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
+							results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
+							results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, timestamppb.Timestamp{Seconds: 0, Nanos: 0})
+						}
+						continue
+					}
+
+					// Timestamp is the last element
+					eventTS := timestamppb.Timestamp{}
+					if len(arr) > 0 {
+						if tsRaw := arr[len(arr)-1]; tsRaw != nil {
+							if tsStr, ok := tsRaw.(string); ok {
+								_ = proto.Unmarshal([]byte(tsStr), &eventTS)
+							}
+						}
+					}
+
+					// For each requested feature in this FV, decode its slot (0..len(fieldHashes)-1)
+					for i, col := range grp.columnIndexes {
+						var (
+							val    interface{} = nil
+							status             = serving.FieldStatus_NOT_FOUND
+						)
+						if i < len(arr)-1 { // guard (last item is ts)
+							if fieldRaw := arr[i]; fieldRaw != nil {
+								if strVal, ok := fieldRaw.(string); ok {
+									if decoded, st, e := UnmarshalStoredProto([]byte(strVal)); e == nil {
+										val = decoded
+										status = st
+									} else {
+										// leave as NOT_FOUND
+									}
+								} else {
+									// Redis returned non-string; treat as NOT_FOUND
+								}
+							} else {
+								val = nil
+								status = serving.FieldStatus_NULL_VALUE
+							}
+						}
+						results[eIdx][col].Values = append(results[eIdx][col].Values, val)
+						results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, status)
+						results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, eventTS)
+					}
+				}
+			}
+		}
+	}
+
+	return results, nil
+}
+
+// getScoreRange builds Redis ZRANGEBYSCORE min/max bounds from Feast SortKeyFilters.
+// Redis syntax:
+//   - "-inf" / "+inf" - unbounded
+//   - "(123" - exclusive lower/upper bound
+//   - "123" - inclusive lower/upper bound
+func getScoreRange(filters []*model.SortKeyFilter) (string, string) {
+	if len(filters) == 0 {
+		return "-inf", "+inf"
+	}
+
+	var minStr, maxStr string
+	minSet, maxSet := false, false
+
+	for _, f := range filters {
+		if f == nil {
+			continue
+		}
+
+		// Equality condition → exact match range.
+		if f.Equals != nil {
+			s := fmt.Sprintf("%v", f.Equals)
+			return s, s
+		}
+
+		// Range start (lower bound)
+		if f.RangeStart != nil {
+			s := fmt.Sprintf("%v", f.RangeStart)
+			if !f.StartInclusive {
+				s = "(" + s
+			}
+			minStr = s
+			minSet = true
+		}
+
+		// Range end (upper bound)
+		if f.RangeEnd != nil {
+			s := fmt.Sprintf("%v", f.RangeEnd)
+			if !f.EndInclusive {
+				s = "(" + s
+			}
+			maxStr = s
+			maxSet = true
+		}
+	}
+
+	if !minSet {
+		minStr = "-inf"
+	}
+	if !maxSet {
+		maxStr = "+inf"
+	}
+
+	return minStr, maxStr
 }
 
 // Dummy destruct function to conform with plugin OnlineStore interface
