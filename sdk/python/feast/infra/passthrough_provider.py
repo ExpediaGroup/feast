@@ -46,6 +46,7 @@ from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import RepeatedValue
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
+from feast.rate_limiter import TokenBucketRateLimiter
 from feast.repo_config import BATCH_ENGINE_CLASS_FOR_TYPE, RepoConfig
 from feast.saved_dataset import SavedDataset
 from feast.sorted_feature_view import SortedFeatureView
@@ -71,6 +72,7 @@ class PassthroughProvider(Provider):
         self._offline_store = None
         self._online_store = None
         self._batch_engine: Optional[ComputeEngine] = None
+        self._write_token_limiters: Dict[str, TokenBucketRateLimiter] = {}
 
     @property
     def online_store(self):
