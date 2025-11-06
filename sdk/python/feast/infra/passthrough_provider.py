@@ -251,7 +251,9 @@ class PassthroughProvider(Provider):
                 progress(batch_size)
 
     def _resolve_write_rate_limit(
-        self, config: RepoConfig, table: Union[FeatureView, BaseFeatureView, OnDemandFeatureView]
+        self,
+        config: RepoConfig,
+        table: Union[FeatureView, BaseFeatureView, OnDemandFeatureView],
     ) -> int:
         """Resolve write_rate_limit using precedence:
         1. feature view tag 'write_rate_limit'
@@ -512,7 +514,12 @@ class PassthroughProvider(Provider):
             offset += length
         return chunks
 
-    def process(self, table, feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView], join_keys):
+    def process(
+        self,
+        table,
+        feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView],
+        join_keys,
+    ):
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
