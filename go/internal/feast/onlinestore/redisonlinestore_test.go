@@ -23,7 +23,6 @@ import (
 func TestOnlineReadRange_TimestampRange(t *testing.T) {
 	ctx := context.Background()
 
-	// --- Setup Redis client ---
 	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 	defer client.FlushDB(ctx)
 
@@ -34,26 +33,21 @@ func TestOnlineReadRange_TimestampRange(t *testing.T) {
 		config:  &registry.RepoConfig{EntityKeySerializationVersion: 3},
 	}
 
-	// --- Mock Entity Key ---
 	entityKey := &types.EntityKey{
 		JoinKeys:     []string{"driver_id"},
 		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "1006"}}},
 	}
 
-	// --- Serialize key (matches materialization) ---
 	serializedKey, err := utils.SerializeEntityKey(entityKey, 3)
 	require.NoError(t, err)
 	redisKeyBin := string(*serializedKey)
 
-	// --- Test setup parameters ---
 	featureView := "driver_features"
 	sortKeyName := "event_timestamp" // the ZSET is grouped by sort key, not feature name
 	featureName := "trip_completed"
 
-	// --- ZSET key now uses sort key name (Model B) ---
 	zsetKey := fmt.Sprintf("%s:%s:%s:%s", store.project, featureView, sortKeyName, redisKeyBin)
 
-	// --- Simulate Model B write (ZSET + multi-feature HSETs) ---
 	t1 := time.Unix(1738699283, 0) // within range
 	t2 := time.Unix(1738699290, 0) // within range
 	t3 := time.Unix(1738699300, 0) // outside range
@@ -108,7 +102,6 @@ func TestOnlineReadRange_TimestampRange(t *testing.T) {
 	}
 	fmt.Println("=======================================")
 
-	// --- GroupedRangeFeatureRefs reflects the new key layout ---
 	groupedRefs := &model.GroupedRangeFeatureRefs{
 		EntityKeys:         []*types.EntityKey{entityKey},
 		FeatureNames:       []string{featureName},
@@ -136,7 +129,7 @@ func TestOnlineReadRange_TimestampRange(t *testing.T) {
 	require.Equal(t, featureView, rangeData.FeatureView)
 	require.Equal(t, featureName, rangeData.FeatureName)
 
-	// --- Validate: only t1 and t2 are within range ---
+	// Validate: only t1 and t2 are within range
 	require.Len(t, rangeData.Values, 2)
 	require.Equal(t, serving.FieldStatus_PRESENT, rangeData.Statuses[0])
 	require.Equal(t, serving.FieldStatus_PRESENT, rangeData.Statuses[1])
