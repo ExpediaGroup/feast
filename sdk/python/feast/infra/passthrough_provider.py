@@ -149,7 +149,7 @@ class PassthroughProvider(Provider):
         self,
         project: str,
         tables_to_delete: Sequence[FeatureView],
-        tables_to_keep: Sequence[FeatureView],
+        tables_to_keep: Sequence[Union[FeatureView, OnDemandFeatureView]],
         entities_to_delete: Sequence[Entity],
         entities_to_keep: Sequence[Entity],
         partial: bool,
@@ -193,7 +193,7 @@ class PassthroughProvider(Provider):
     def online_write_batch(
         self,
         config: RepoConfig,
-        table: FeatureView,
+        table: Union[FeatureView, BaseFeatureView, OnDemandFeatureView],
         data: List[
             Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
         ],
@@ -510,7 +510,7 @@ class PassthroughProvider(Provider):
             offset += length
         return chunks
 
-    def process(self, table, feature_view: FeatureView, join_keys):
+    def process(self, table, feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView], join_keys):
         rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
@@ -543,7 +543,7 @@ class PassthroughProvider(Provider):
     def materialize_single_feature_view(
         self,
         config: RepoConfig,
-        feature_view: FeatureView,
+        feature_view: Union[FeatureView, OnDemandFeatureView],
         start_date: datetime,
         end_date: datetime,
         registry: BaseRegistry,
@@ -586,8 +586,9 @@ class PassthroughProvider(Provider):
             start_time=start_date,
             end_time=end_date,
             tqdm_builder=tqdm_builder,
+            disable_event_timestamp=disable_event_timestamp,
         )
-        jobs = self.batch_engine.materialize(registry, [task])
+        jobs = self.batch_engine.materialize(registry, task, **kwargs)
         assert len(jobs) == 1
         if jobs[0].status() == MaterializationJobStatus.ERROR and jobs[0].error():
             e = jobs[0].error()
