@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/feast/utils"
@@ -19,124 +20,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-func TestOnlineReadRange_TimestampRange(t *testing.T) {
-	ctx := context.Background()
-
-	client := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
-	defer client.FlushDB(ctx)
-
-	store := RedisOnlineStore{
-		project: "test_project",
-		t:       0, // redisNode
-		client:  client,
-		config:  &registry.RepoConfig{EntityKeySerializationVersion: 3},
-	}
-
-	entityKey := &types.EntityKey{
-		JoinKeys:     []string{"driver_id"},
-		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "1006"}}},
-	}
-
-	serializedKey, err := utils.SerializeEntityKey(entityKey, 3)
-	require.NoError(t, err)
-	redisKeyBin := string(*serializedKey)
-
-	featureView := "driver_features"
-	sortKeyName := "event_timestamp" // the ZSET is grouped by sort key, not feature name
-	featureName := "trip_completed"
-
-	zsetKey := fmt.Sprintf("%s:%s:%s:%s", store.project, featureView, sortKeyName, redisKeyBin)
-
-	t1 := time.Unix(1738699283, 0) // within range
-	t2 := time.Unix(1738699290, 0) // within range
-	t3 := time.Unix(1738699300, 0) // outside range
-
-	hsetKeys := []string{
-		fmt.Sprintf("%s:%s:%s:1", store.project, featureView, redisKeyBin),
-		fmt.Sprintf("%s:%s:%s:2", store.project, featureView, redisKeyBin),
-		fmt.Sprintf("%s:%s:%s:3", store.project, featureView, redisKeyBin),
-	}
-	eventTimes := []*timestamppb.Timestamp{
-		timestamppb.New(t1),
-		timestamppb.New(t2),
-		timestamppb.New(t3),
-	}
-
-	fmt.Println("=== Writing HSET snapshots (Model B layout) ===")
-	for i, hk := range hsetKeys {
-		tsKey := fmt.Sprintf("_ts:%s", featureView)
-
-		// All feature fields hashed by mmh3(<fv>:<feature>)
-		fKeyTrip := utils.Mmh3(fmt.Sprintf("%s:%s", featureView, featureName))
-		fKeyDriver := utils.Mmh3(fmt.Sprintf("%s:%s", featureView, "driver_rating"))
-
-		tsBytes, _ := proto.Marshal(eventTimes[i])
-		valTrip := &types.Value{Val: &types.Value_StringVal{StringVal: fmt.Sprintf("trip%d", i+1)}}
-		valDriver := &types.Value{Val: &types.Value_Int32Val{Int32Val: int32(80 + i)}}
-
-		valTripBytes, _ := proto.Marshal(valTrip)
-		valDriverBytes, _ := proto.Marshal(valDriver)
-
-		entityHset := map[string]interface{}{
-			tsKey:      tsBytes,
-			fKeyTrip:   valTripBytes,
-			fKeyDriver: valDriverBytes,
-		}
-
-		err := client.HSet(ctx, hk, entityHset).Err()
-		require.NoError(t, err)
-
-		score := float64(eventTimes[i].Seconds)
-		err = client.ZAdd(ctx, zsetKey, redis.Z{Score: score, Member: hk}).Err()
-		require.NoError(t, err)
-
-		fmt.Printf("HSET [%s]: _ts=%v  trip_completed=%v  driver_rating=%v (score=%.0f)\n",
-			hk, eventTimes[i].Seconds, fmt.Sprintf("trip%d", i+1), 80+i, score)
-	}
-
-	zmembers, _ := client.ZRangeWithScores(ctx, zsetKey, 0, -1).Result()
-	fmt.Println("=== ZSET Members ===")
-	for _, z := range zmembers {
-		fmt.Printf("Member: %s | Score: %.0f\n", z.Member, z.Score)
-	}
-	fmt.Println("=======================================")
-
-	groupedRefs := &model.GroupedRangeFeatureRefs{
-		EntityKeys:         []*types.EntityKey{entityKey},
-		FeatureNames:       []string{featureName},
-		FeatureViewNames:   []string{featureView},
-		Limit:              10,
-		IsReverseSortOrder: false,
-		SortKeyFilters: []*model.SortKeyFilter{
-			{
-				SortKeyName:    sortKeyName,
-				RangeStart:     int64(1738699283),
-				RangeEnd:       int64(1738699290),
-				StartInclusive: true,
-				EndInclusive:   true,
-			},
-		},
-	}
-
-	// Execute OnlineReadRange
-	results, err := store.OnlineReadRange(ctx, groupedRefs)
-	require.NoError(t, err)
-	require.Len(t, results, 1)
-	require.Len(t, results[0], 1)
-
-	rangeData := results[0][0]
-	require.Equal(t, featureView, rangeData.FeatureView)
-	require.Equal(t, featureName, rangeData.FeatureName)
-
-	// Validate: only t1 and t2 are within range
-	require.Len(t, rangeData.Values, 2)
-	require.Equal(t, serving.FieldStatus_PRESENT, rangeData.Statuses[0])
-	require.Equal(t, serving.FieldStatus_PRESENT, rangeData.Statuses[1])
-
-	fmt.Printf("Retrieved values: %+v\n", rangeData.Values)
-	fmt.Printf("Event timestamps: %+v\n", rangeData.EventTimestamps)
-}
 
 func TestNewRedisOnlineStore(t *testing.T) {
 	var config = map[string]interface{}{
@@ -320,4 +203,151 @@ func TestBuildRedisKeys(t *testing.T) {
 		_, _, err := r.buildRedisKeys(entityKeys)
 		assert.NotNil(t, err)
 	})
+}
+
+func newMockRedisStore(t *testing.T) (*RedisOnlineStore, *miniredis.Miniredis) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	t.Cleanup(mr.Close)
+
+	client := redis.NewClient(&redis.Options{
+		Addr: mr.Addr(),
+	})
+
+	store := &RedisOnlineStore{
+		project: "test_project",
+		t:       redisNode,
+		client:  client,
+		config:  &registry.RepoConfig{EntityKeySerializationVersion: 3},
+	}
+
+	return store, mr
+}
+
+func TestOnlineReadRange(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMockRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"driver_id"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "1006"}}},
+	}
+	serKey, _ := utils.SerializeEntityKey(entityKey, 3)
+	entityKeyBin := string(*serKey)
+
+	view := "driver_features"
+	sortKey := "event_timestamp"
+	feat := "trip_completed"
+	zkey := fmt.Sprintf("%s:%s:%s:%s", store.project, view, sortKey, entityKeyBin)
+
+	t1 := time.Unix(1738699283, 0)
+	t2 := time.Unix(1738699290, 0)
+	t3 := time.Unix(1738699300, 0)
+	timestamps := []*timestamppb.Timestamp{timestamppb.New(t1), timestamppb.New(t2), timestamppb.New(t3)}
+
+	hsetKeys := []string{
+		fmt.Sprintf("%s:%s:%s:1", store.project, view, entityKeyBin),
+		fmt.Sprintf("%s:%s:%s:2", store.project, view, entityKeyBin),
+		fmt.Sprintf("%s:%s:%s:3", store.project, view, entityKeyBin),
+	}
+	for i, hk := range hsetKeys {
+		tsKey := fmt.Sprintf("_ts:%s", view)
+		fieldHash := utils.Mmh3(fmt.Sprintf("%s:%s", view, feat))
+		tsBytes, _ := proto.Marshal(timestamps[i])
+		valBytes, _ := proto.Marshal(&types.Value{Val: &types.Value_StringVal{StringVal: fmt.Sprintf("val%d", i+1)}})
+		require.NoError(t, store.client.HSet(ctx, hk, tsKey, tsBytes, fieldHash, valBytes).Err())
+		require.NoError(t, store.client.ZAdd(ctx, zkey, redis.Z{Score: float64(timestamps[i].Seconds), Member: hk}).Err())
+	}
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{feat},
+		FeatureViewNames:   []string{view},
+		Limit:              10,
+		IsReverseSortOrder: false,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{SortKeyName: sortKey, RangeStart: int64(1738699283), RangeEnd: int64(1738699290), StartInclusive: true, EndInclusive: true},
+		},
+	}
+
+	results, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Len(t, results[0], 1)
+	require.Len(t, results[0][0].Values, 2)
+	require.Equal(t, "val1", results[0][0].Values[0].(*types.Value).GetStringVal())
+	require.Equal(t, "val2", results[0][0].Values[1].(*types.Value).GetStringVal())
+}
+
+func TestOnlineReadRange_ReverseOrder(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMockRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"user_id"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "r1"}}},
+	}
+	serKey, _ := utils.SerializeEntityKey(entityKey, 3)
+	entityKeyBin := string(*serKey)
+
+	view := "reverse_features"
+	sortKey := "event_ts"
+	feat := "rev_count"
+	zkey := fmt.Sprintf("%s:%s:%s:%s", store.project, view, sortKey, entityKeyBin)
+
+	t1 := timestamppb.New(time.Unix(10, 0))
+	t2 := timestamppb.New(time.Unix(20, 0))
+	hk1 := fmt.Sprintf("%s:%s:%s:1", store.project, view, entityKeyBin)
+	hk2 := fmt.Sprintf("%s:%s:%s:2", store.project, view, entityKeyBin)
+	fieldHash := utils.Mmh3(fmt.Sprintf("%s:%s", view, feat))
+	tsKey := fmt.Sprintf("_ts:%s", view)
+	ts1, _ := proto.Marshal(t1)
+	ts2, _ := proto.Marshal(t2)
+	val1, _ := proto.Marshal(&types.Value{Val: &types.Value_StringVal{StringVal: "v1"}})
+	val2, _ := proto.Marshal(&types.Value{Val: &types.Value_StringVal{StringVal: "v2"}})
+	store.client.HSet(ctx, hk1, tsKey, ts1, fieldHash, val1)
+	store.client.HSet(ctx, hk2, tsKey, ts2, fieldHash, val2)
+	store.client.ZAdd(ctx, zkey, redis.Z{Score: float64(t1.Seconds), Member: hk1}, redis.Z{Score: float64(t2.Seconds), Member: hk2})
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{feat},
+		FeatureViewNames:   []string{view},
+		Limit:              5,
+		IsReverseSortOrder: true,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{SortKeyName: sortKey, RangeStart: int64(0), RangeEnd: int64(30)},
+		},
+	}
+
+	results, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	require.Len(t, results[0][0].Values, 2)
+	// reverse order: v2 first
+	require.Equal(t, "v2", results[0][0].Values[0].(*types.Value).GetStringVal())
+	require.Equal(t, "v1", results[0][0].Values[1].(*types.Value).GetStringVal())
+}
+
+func TestOnlineReadRange_EmptyZset(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMockRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"uid"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "nope"}}},
+	}
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{"fv"},
+		FeatureViewNames:   []string{"fvn"},
+		Limit:              3,
+		IsReverseSortOrder: false,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{SortKeyName: "ts", RangeStart: int64(1), RangeEnd: int64(5)},
+		},
+	}
+	results, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+	require.Equal(t, serving.FieldStatus_NOT_FOUND, results[0][0].Statuses[0])
 }

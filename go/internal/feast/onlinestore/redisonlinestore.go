@@ -389,7 +389,6 @@ func (r *RedisOnlineStore) OnlineReadRange(
 
 	sortKeyName := groupedRefs.SortKeyFilters[0].SortKeyName
 
-	// Choose client facade for node/cluster.
 	var redisClient interface {
 		Pipeline() redis.Pipeliner
 	} = r.client
@@ -397,7 +396,7 @@ func (r *RedisOnlineStore) OnlineReadRange(
 		redisClient = r.clusterClient
 	}
 
-	// Build an index for (featureView|featureName) -> column index in results row.
+	// Build an index for (featureView|featureName) to maintain results
 	indexBy := make(map[string]int, len(featureNames))
 	for i := range featureNames {
 		indexBy[featureViewNames[i]+"|"+featureNames[i]] = i
@@ -507,7 +506,7 @@ func (r *RedisOnlineStore) OnlineReadRange(
 				continue
 			}
 
-			// Build the HMGET field list for this FV once: [all feature hashes..., tsKey]
+			// Build the HMGET field list for this FV
 			fields := append(append([]string{}, grp.fieldHashes...), grp.tsKey)
 
 			for start := 0; start < len(zr.members); start += PIPELINE_BATCH_SIZE {
@@ -539,7 +538,6 @@ func (r *RedisOnlineStore) OnlineReadRange(
 						continue
 					}
 
-					// Timestamp is the last element
 					eventTS := timestamppb.Timestamp{}
 					if len(arr) > 0 {
 						if tsRaw := arr[len(arr)-1]; tsRaw != nil {
@@ -549,13 +547,12 @@ func (r *RedisOnlineStore) OnlineReadRange(
 						}
 					}
 
-					// For each requested feature in this FV, decode its slot (0..len(fieldHashes)-1)
 					for i, col := range grp.columnIndexes {
 						var (
 							val    interface{} = nil
 							status             = serving.FieldStatus_NOT_FOUND
 						)
-						if i < len(arr)-1 { // guard (last item is ts)
+						if i < len(arr)-1 {
 							if fieldRaw := arr[i]; fieldRaw != nil {
 								if strVal, ok := fieldRaw.(string); ok {
 									if decoded, st, e := UnmarshalStoredProto([]byte(strVal)); e == nil {
@@ -602,13 +599,11 @@ func getScoreRange(filters []*model.SortKeyFilter) (string, string) {
 			continue
 		}
 
-		// Equality condition → exact match range.
 		if f.Equals != nil {
 			s := fmt.Sprintf("%v", f.Equals)
 			return s, s
 		}
 
-		// Range start (lower bound)
 		if f.RangeStart != nil {
 			s := fmt.Sprintf("%v", f.RangeStart)
 			if !f.StartInclusive {
@@ -618,7 +613,6 @@ func getScoreRange(filters []*model.SortKeyFilter) (string, string) {
 			minSet = true
 		}
 
-		// Range end (upper bound)
 		if f.RangeEnd != nil {
 			s := fmt.Sprintf("%v", f.RangeEnd)
 			if !f.EndInclusive {
