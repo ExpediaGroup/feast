@@ -378,7 +378,6 @@ func (r *RedisOnlineStore) OnlineReadRange(
 	limit := int64(groupedRefs.Limit)
 	reverse := groupedRefs.IsReverseSortOrder
 
-	// Build ZSET score range from sort-key filters.
 	minScore, maxScore := getScoreRange(groupedRefs.SortKeyFilters)
 	if minScore == "" {
 		minScore = "-inf"
@@ -406,9 +405,9 @@ func (r *RedisOnlineStore) OnlineReadRange(
 	type fvGroup struct {
 		view          string
 		featNames     []string
-		fieldHashes   []string // mmh3("<fv>:<feature>")
-		tsKey         string   // "_ts:<fv>"
-		columnIndexes []int    // indices into results row
+		fieldHashes   []string
+		tsKey         string
+		columnIndexes []int
 	}
 	fvGroups := map[string]*fvGroup{}
 	for i := range featureNames {
@@ -487,7 +486,6 @@ func (r *RedisOnlineStore) OnlineReadRange(
 		// For each feature view, HMGET all members in batches.
 		for fv, grp := range fvGroups {
 			zr := zResponses[fv]
-			// No members → append a single NOT_FOUND for every feature in that FV
 			if zr.err == nil && len(zr.members) == 0 {
 				for _, col := range grp.columnIndexes {
 					results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
@@ -497,7 +495,6 @@ func (r *RedisOnlineStore) OnlineReadRange(
 				continue
 			}
 			if zr.err != nil {
-				// If the ZRANGE failed for this FV, treat as NOT_FOUND
 				for _, col := range grp.columnIndexes {
 					results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
 					results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
@@ -529,7 +526,6 @@ func (r *RedisOnlineStore) OnlineReadRange(
 				for _, member := range batch {
 					arr, err := hm[member].Result()
 					if err != nil && !errors.Is(err, redis.Nil) {
-						// On decode failure for snapshot → mark all requested features in this FV as NOT_FOUND for this member.
 						for _, col := range grp.columnIndexes {
 							results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
 							results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
