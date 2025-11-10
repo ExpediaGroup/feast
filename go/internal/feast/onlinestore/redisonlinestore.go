@@ -386,6 +386,11 @@ func (r *RedisOnlineStore) OnlineReadRange(
 		maxScore = "+inf"
 	}
 
+	if len(groupedRefs.SortKeyFilters) > 1 {
+		log.Warn().
+			Int("sort_key_count", len(groupedRefs.SortKeyFilters)).
+			Msg("OnlineReadRange: detected more than one sort key filter; only the first one will be used")
+	}
 	sortKeyName := groupedRefs.SortKeyFilters[0].SortKeyName
 
 	var redisClient interface {
