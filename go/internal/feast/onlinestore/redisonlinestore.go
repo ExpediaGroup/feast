@@ -543,27 +543,47 @@ func (r *RedisOnlineStore) OnlineReadRange(
 					if len(arr) > 0 {
 						if tsRaw := arr[len(arr)-1]; tsRaw != nil {
 							if tsStr, ok := tsRaw.(string); ok {
-								_ = proto.Unmarshal([]byte(tsStr), &eventTS)
+								if err := proto.Unmarshal([]byte(tsStr), &eventTS); err != nil {
+									log.Warn().
+										Err(err).
+										Str("member", member).
+										Str("feature_view", fv).
+										Msg("OnlineReadRange: failed to unmarshal event timestamp, using zero timestamp instead")
+									eventTS = timestamppb.Timestamp{}
+								}
 							}
 						}
 					}
-
+					// Decode each Feature Value
 					for i, col := range grp.columnIndexes {
 						var (
 							val    interface{} = nil
 							status             = serving.FieldStatus_NOT_FOUND
 						)
-						if i < len(arr)-1 {
+						if i < len(arr)-1 { // exclude timestamp field
 							if fieldRaw := arr[i]; fieldRaw != nil {
 								if strVal, ok := fieldRaw.(string); ok {
-									if decoded, st, e := UnmarshalStoredProto([]byte(strVal)); e == nil {
+									decoded, st, err := UnmarshalStoredProto([]byte(strVal))
+									if err != nil {
+										log.Warn().
+											Err(err).
+											Str("member", member).
+											Str("feature_view", fv).
+											Str("feature_name", grp.featNames[i]).
+											Msg("OnlineReadRange: failed to unmarshal feature value, marking as NOT_FOUND")
+										val = nil
+										status = serving.FieldStatus_NOT_FOUND
+									} else {
 										val = decoded
 										status = st
-									} else {
-										// leave as NOT_FOUND
 									}
 								} else {
-									// Redis returned non-string; treat as NOT_FOUND
+									log.Warn().
+										Str("feature_view", fv).
+										Str("feature_name", grp.featNames[i]).
+										Msg("OnlineReadRange: Redis returned non-string feature value, marking as NOT_FOUND")
+									val = nil
+									status = serving.FieldStatus_NOT_FOUND
 								}
 							} else {
 								val = nil
