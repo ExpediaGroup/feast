@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import json
-import logging
 import base64
 import hashlib
+import json
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import (
@@ -300,7 +300,8 @@ class RedisOnlineStore(OnlineStore):
             if isinstance(table, SortedFeatureView):
                 if len(table.sort_keys) != 1:
                     raise ValueError(
-                        f"Only one sort key is supported for Range query use cases in Redis, but found {len(table.sort_keys)} sort keys in the feature view {table.name}."
+                        f"Only one sort key is supported for Range query use cases in Redis, "
+                        f"but found {len(table.sort_keys)} sort keys in the feature view {table.name}."
                     )
 
                 sort_key_type = table.sort_keys[0].value_type
@@ -312,7 +313,7 @@ class RedisOnlineStore(OnlineStore):
                 sort_key_name = table.sort_keys[0].name
                 num_cmds = 0
                 # Picking an arbitrary number to start with and will be tuned after perf testing
-                #TODO : Make this a config as this can be different for different users based on payload size etc..
+                # TODO : Make this a config as this can be different for different users based on payload size etc..
                 num_cmds_per_pipeline_execute = 3000
                 for entity_key, values, timestamp, _ in data:
                     entity_key_bytes = _redis_key(
@@ -321,7 +322,11 @@ class RedisOnlineStore(OnlineStore):
                         entity_key_serialization_version=config.entity_key_serialization_version,
                     )
                     sort_key_val = values[sort_key_name]
-                    sort_key_bytes = RedisOnlineStore.sort_key_bytes(sort_key_name, sort_key_val, v=config.entity_key_serialization_version)
+                    sort_key_bytes = RedisOnlineStore.sort_key_bytes(
+                        sort_key_name,
+                        sort_key_val,
+                        v=config.entity_key_serialization_version,
+                    )
 
                     event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
                     ts = Timestamp()
@@ -333,8 +338,12 @@ class RedisOnlineStore(OnlineStore):
                         f_key = _mmh3(f"{feature_view}:{feature_name}")
                         entity_hset[f_key] = val.SerializeToString()
 
-                    zset_key = RedisOnlineStore.zset_key_bytes(table.name, entity_key_bytes)
-                    hash_key = RedisOnlineStore.hash_key_bytes(entity_key_bytes, sort_key_bytes)
+                    zset_key = RedisOnlineStore.zset_key_bytes(
+                        table.name, entity_key_bytes
+                    )
+                    hash_key = RedisOnlineStore.hash_key_bytes(
+                        entity_key_bytes, sort_key_bytes
+                    )
                     zset_score = RedisOnlineStore.zset_score(sort_key_val)
                     zset_member = sort_key_bytes
 
@@ -365,7 +374,7 @@ class RedisOnlineStore(OnlineStore):
                 prev_event_timestamps = [i[0] for i in prev_event_timestamps]
 
                 for redis_key_bin, prev_event_time, (_, values, timestamp, _) in zip(
-                        keys, prev_event_timestamps, data
+                    keys, prev_event_timestamps, data
                 ):
                     event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
 
@@ -415,7 +424,7 @@ class RedisOnlineStore(OnlineStore):
         feast_value_type = sort_key_value.WhichOneof("val")
         if feast_value_type == "unix_timestamp_val":
             feature_value = (
-                    sort_key_value.unix_timestamp_val * 1000
+                sort_key_value.unix_timestamp_val * 1000
             )  # Convert to milliseconds
         else:
             feature_value = getattr(sort_key_value, str(feast_value_type))
@@ -435,7 +444,9 @@ class RedisOnlineStore(OnlineStore):
         sorted set key format: {<slot_tag>}<feature_view><ek_bytes>
         """
         slot_tag = RedisOnlineStore.slot_tag_from_entity_key(entity_key_bytes)
-        return b"".join([b"{", slot_tag, b"}", feature_view.encode("utf-8"), entity_key_bytes])
+        return b"".join(
+            [b"{", slot_tag, b"}", feature_view.encode("utf-8"), entity_key_bytes]
+        )
 
     @staticmethod
     def sort_key_bytes(sort_key_name: str, sort_val: ValueProto, v: int = 3) -> bytes:
