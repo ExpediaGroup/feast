@@ -411,6 +411,9 @@ class RedisOnlineStore(OnlineStore):
         """
         Derive a short, stable hash-tag from the serialized entity key.
         Result is used inside {...} in hash key and zset key so the hash key and sorted set land on the same Redis slot for a given entity.
+
+        Serialized entity key bytes or any bytes can't be used directly between hash tags {} for Redis, because if the raw bytes itself contains braces,
+        then that would break the tags. Hence, we have to use the encoded form.
         """
         digest = hashlib.sha256(ek_bytes).digest()
         tag = base64.urlsafe_b64encode(digest).rstrip(b"=")
