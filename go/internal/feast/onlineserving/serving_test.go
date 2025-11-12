@@ -5,6 +5,7 @@ package onlineserving
 import (
 	"fmt"
 	"github.com/apache/arrow/go/v17/arrow"
+	types2 "github.com/feast-dev/feast/go/types"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -2190,6 +2191,24 @@ func BenchmarkTransposeFeatureRowsIntoColumnsWithoutArrowConversion(b *testing.B
 		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, false)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
+		}
+	}
+}
+
+func BenchmarkFullLoopArrowConversion(b *testing.B) {
+	numRows, featureData2D, groupRef, requestedFeatureViews, arrowAllocator := mockDataForBenchmarkTransposeFeatureRowsIntoColumns()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		vectors, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
+		if err != nil {
+			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
+		}
+		for _, v := range vectors {
+			_, e := types2.ArrowValuesToProtoValues(v.Values.(arrow.Array))
+			if e != nil {
+				b.Fatalf("Error during ArrowValuesToProtoValues for %s: %v", v.Name, e)
+			}
 		}
 	}
 }
