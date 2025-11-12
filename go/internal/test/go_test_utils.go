@@ -123,6 +123,11 @@ func CreateFeatureViewProto(name string, entities []*core.Entity, features ...*c
 	return &viewProto
 }
 
+func CreateFeatureViewModel(name string, entities []*core.Entity, features ...*core.FeatureSpecV2) *model.FeatureView {
+	viewProto := CreateFeatureViewProto(name, entities, features...)
+	return model.NewFeatureViewFromProto(viewProto)
+}
+
 func CreateSortKeyProto(name string, order core.SortOrder_Enum, valueType types.ValueType_Enum) *core.SortKey {
 	return &core.SortKey{
 		Name:             name,
