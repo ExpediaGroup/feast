@@ -2143,7 +2143,7 @@ func BenchmarkValidateFeatureRefs(b *testing.B) {
 	// Reset the timer to exclude setup time
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		err := ValidateFeatureRefs(requestedFeatures, fullFeatureNames)
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
@@ -2175,7 +2175,7 @@ func BenchmarkTransposeFeatureRowsIntoColumnsWithArrowConversion(b *testing.B) {
 	numRows, featureData2D, groupRef, requestedFeatureViews, arrowAllocator := mockDataForBenchmarkTransposeFeatureRowsIntoColumns()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
@@ -2187,7 +2187,7 @@ func BenchmarkTransposeFeatureRowsIntoColumnsWithoutArrowConversion(b *testing.B
 	numRows, featureData2D, groupRef, requestedFeatureViews, arrowAllocator := mockDataForBenchmarkTransposeFeatureRowsIntoColumns()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, false)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
@@ -2199,7 +2199,7 @@ func BenchmarkFullLoopArrowConversion(b *testing.B) {
 	numRows, featureData2D, groupRef, requestedFeatureViews, arrowAllocator := mockDataForBenchmarkTransposeFeatureRowsIntoColumns()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		vectors, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)

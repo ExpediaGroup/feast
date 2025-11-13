@@ -1,8 +1,6 @@
 module github.com/feast-dev/feast
 
-go 1.23.0
-
-toolchain go1.23.12
+go 1.25
 
 require (
 	github.com/DataDog/dd-trace-go/contrib/gocql/gocql/v2 v2.2.3
