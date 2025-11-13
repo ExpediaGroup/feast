@@ -11,8 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import base64
-import hashlib
 import json
 import logging
 from datetime import datetime, timezone
@@ -432,9 +430,7 @@ class RedisOnlineStore(OnlineStore):
         """
         sorted set key format: <feature_view><ek_bytes>
         """
-        return b"".join(
-            [feature_view.encode("utf-8"), entity_key_bytes]
-        )
+        return b"".join([feature_view.encode("utf-8"), entity_key_bytes])
 
     @staticmethod
     def sort_key_bytes(sort_key_name: str, sort_val: ValueProto, v: int = 3) -> bytes:
