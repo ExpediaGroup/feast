@@ -26,6 +26,12 @@ from tests.unit.infra.online_store.redis_online_store_creator import (
 def redis_online_store() -> RedisOnlineStore:
     return RedisOnlineStore()
 
+@pytest.fixture(scope="session")
+def redis_online_store_config():
+    creator = RedisOnlineStoreCreator("redis_project")
+    config = creator.create_online_store()
+    yield config
+    creator.teardown()
 
 @pytest.fixture(scope="session")
 def redis_online_store_config():
