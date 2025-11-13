@@ -407,19 +407,6 @@ class RedisOnlineStore(OnlineStore):
                 progress(len(results))
 
     @staticmethod
-    def slot_tag_from_entity_key(ek_bytes: bytes, out_chars: int = 16) -> bytes:
-        """
-        Derive a short, stable hash-tag from the serialized entity key.
-        Result is used inside {...} in hash key and zset key so the hash key and sorted set land on the same Redis slot for a given entity.
-
-        Serialized entity key bytes or any bytes can't be used directly between hash tags {} for Redis, because if the raw bytes itself contains braces,
-        then that would break the tags. Hence, we have to use the encoded form.
-        """
-        digest = hashlib.sha256(ek_bytes).digest()
-        tag = base64.urlsafe_b64encode(digest).rstrip(b"=")
-        return tag[:out_chars]
-
-    @staticmethod
     def zset_score(sort_key_value: ValueProto):
         """
         # Get sorted set score from sorted set value
@@ -436,19 +423,17 @@ class RedisOnlineStore(OnlineStore):
     @staticmethod
     def hash_key_bytes(entity_key_bytes: bytes, sort_key_bytes: bytes) -> bytes:
         """
-        hash key format: {<slot_tag>}<ek_bytes><sort_ek_bytes>
+        hash key format: <ek_bytes><sort_key_bytes>
         """
-        slot_tag = RedisOnlineStore.slot_tag_from_entity_key(entity_key_bytes)
-        return b"".join([b"{", slot_tag, b"}", entity_key_bytes, sort_key_bytes])
+        return b"".join([entity_key_bytes, sort_key_bytes])
 
     @staticmethod
     def zset_key_bytes(feature_view: str, entity_key_bytes: bytes) -> bytes:
         """
-        sorted set key format: {<slot_tag>}<feature_view><ek_bytes>
+        sorted set key format: <feature_view><ek_bytes>
         """
-        slot_tag = RedisOnlineStore.slot_tag_from_entity_key(entity_key_bytes)
         return b"".join(
-            [b"{", slot_tag, b"}", feature_view.encode("utf-8"), entity_key_bytes]
+            [feature_view.encode("utf-8"), entity_key_bytes]
         )
 
     @staticmethod
