@@ -487,7 +487,7 @@ def _create_sorted_feature_view_with_non_numeric_sortkey(n=10):
 
 def _create_sorted_feature_view_with_float_as_sortkey(n=10):
     fv = SortedFeatureView(
-        name="driver_stats",
+        name="driver_stats_float",
         source=FileSource(
             name="my_file_source",
             path="test.parquet",
