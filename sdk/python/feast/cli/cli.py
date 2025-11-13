@@ -141,7 +141,7 @@ def version():
     Display Feast SDK version
     """
     print(
-        f'{Style.BRIGHT + Fore.BLUE}Feast SDK Version: {Style.BRIGHT + Fore.GREEN}"{importlib_version("feast")}"'
+        f'{Style.BRIGHT + Fore.BLUE}Feast SDK Version: {Style.BRIGHT + Fore.GREEN}"{importlib_version("eg-feast")}"'
     )
 
 

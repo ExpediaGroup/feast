@@ -194,7 +194,7 @@ class SortedFeatureView(FeatureView):
     def proto_class(self) -> Type[Message]:
         return SortedFeatureViewProto
 
-    def to_proto(self):
+    def to_proto(self) -> SortedFeatureViewProto:
         """
         Converts this SortedFeatureView to its protobuf representation.
         """
@@ -238,7 +238,7 @@ class SortedFeatureView(FeatureView):
         return SortedFeatureViewProto(spec=spec, meta=meta)
 
     @classmethod
-    def from_proto(cls, sfv_proto):
+    def from_proto(cls, sfv_proto) -> "SortedFeatureView":
         """
         Creates a SortedFeatureView from its protobuf representation.
         """
