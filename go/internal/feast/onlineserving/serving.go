@@ -1050,7 +1050,7 @@ func KeepOnlyRequestedFeatures[T FeatureVectorType](
 	return expectedVectors, nil
 }
 
-func EntitiesToFeatureVectors(entityColumns map[string]*prototypes.RepeatedValue, arrowAllocator memory.Allocator, numRows int) ([]*FeatureVector, error) {
+func EntitiesToFeatureVectors(entityColumns map[string]*prototypes.RepeatedValue, arrowAllocator memory.Allocator, numRows int, useArrow bool) ([]*FeatureVector, error) {
 	vectors := make([]*FeatureVector, 0)
 	presentVector := make([]serving.FieldStatus, numRows)
 	timestampVector := make([]*timestamppb.Timestamp, numRows)
@@ -1059,51 +1059,23 @@ func EntitiesToFeatureVectors(entityColumns map[string]*prototypes.RepeatedValue
 		timestampVector[idx] = timestamppb.Now()
 	}
 	for entityName, values := range entityColumns {
-		arrowColumn, err := types.ProtoValuesToArrowArray(values.Val, arrowAllocator, numRows)
+		var entityColumn interface{}
+		var err error
+		if useArrow {
+			entityColumn, err = types.ProtoValuesToArrowArray(values.Val, arrowAllocator, numRows)
+		} else {
+			entityColumn = values.Val
+		}
 		if err != nil {
 			return nil, errors.GrpcFromError(err)
 		}
 		vectors = append(vectors, &FeatureVector{
 			Name:       entityName,
-			Values:     arrowColumn,
+			Values:     entityColumn,
 			Statuses:   presentVector,
 			Timestamps: timestampVector,
 		})
 	}
-	return vectors, nil
-}
-
-func EntitiesToRangeFeatureVectors(
-	entityColumns map[string]*prototypes.RepeatedValue,
-	arrowAllocator memory.Allocator,
-	numRows int) ([]*RangeFeatureVector, error) {
-
-	vectors := make([]*RangeFeatureVector, 0)
-
-	for entityName, values := range entityColumns {
-		entityRangeValues := make([]*prototypes.RepeatedValue, numRows)
-		rangeStatuses := make([][]serving.FieldStatus, numRows)
-		rangeTimestamps := make([][]*timestamppb.Timestamp, numRows)
-
-		for idx := 0; idx < numRows; idx++ {
-			entityRangeValues[idx] = &prototypes.RepeatedValue{Val: []*prototypes.Value{values.Val[idx]}}
-			rangeStatuses[idx] = []serving.FieldStatus{serving.FieldStatus_PRESENT}
-			rangeTimestamps[idx] = []*timestamppb.Timestamp{timestamppb.Now()}
-		}
-
-		arrowRangeValues, err := types.RepeatedProtoValuesToArrowArray(entityRangeValues, arrowAllocator)
-		if err != nil {
-			return nil, err
-		}
-
-		vectors = append(vectors, &RangeFeatureVector{
-			Name:            entityName,
-			RangeValues:     arrowRangeValues,
-			RangeStatuses:   rangeStatuses,
-			RangeTimestamps: rangeTimestamps,
-		})
-	}
-
 	return vectors, nil
 }
 

@@ -265,6 +265,8 @@ func (fs *FeatureStore) GetOnlineFeatures(
 	// Flatten channel into 1D
 	var result []*onlineserving.FeatureVector
 
+	transformationRequired := len(requestedOnDemandFeatureViews) > 0
+
 	v2Batching := os.Getenv("ENABLE_V2_BATCHING")
 	if v2Batching != "false" {
 		groupedRefsV2, err := onlineserving.GroupFeatureRefsV2(requestedFeatureViews, joinKeyToEntityValues, entityNameToJoinKeyMap, fullFeatureNames, fs.onlineStore.GetDataModelType())
@@ -291,7 +293,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						requestedFeatureViews,
 						arrowMemory,
 						numRows,
-						fs.transformationCallback != nil || fs.transformationService != nil,
+						transformationRequired,
 					)
 					if err != nil {
 						return err
@@ -333,7 +335,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						requestedFeatureViews,
 						arrowMemory,
 						numRows,
-						fs.transformationCallback != nil || fs.transformationService != nil,
+						transformationRequired,
 					)
 					if err != nil {
 						return err
@@ -355,7 +357,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 		}
 	}
 
-	if fs.transformationCallback != nil || fs.transformationService != nil {
+	if transformationRequired {
 		onDemandFeatures, err := transformation.AugmentResponseWithOnDemandTransforms(
 			ctx,
 			requestedOnDemandFeatureViews,
@@ -379,7 +381,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 		return nil, err
 	}
 
-	entityColumns, err := onlineserving.EntitiesToFeatureVectors(joinKeyToEntityValues, arrowMemory, numRows)
+	entityColumns, err := onlineserving.EntitiesToFeatureVectors(joinKeyToEntityValues, arrowMemory, numRows, transformationRequired)
 	result = append(entityColumns, result...)
 	return result, nil
 }

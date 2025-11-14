@@ -444,7 +444,16 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		}
 		// Note, that vector.Values is an Arrow Array, but this type implements JSON Marshaller.
 		// So, it's not necessary to pre-process it in any way.
-		result["values"] = vector.Values
+		if vector.UsesArrow() {
+			result["values"] = vector.Values
+		} else {
+			protoValues, _ := vector.GetProtoValues()
+			goValues := make([]interface{}, len(protoValues))
+			for i, val := range protoValues {
+				goValues[i] = types.ValueTypeToGoTypeTimestampAsString(val)
+			}
+			result["values"] = goValues
+		}
 
 		results = append(results, result)
 	}

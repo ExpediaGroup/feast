@@ -18,6 +18,7 @@ import (
 )
 
 var httpServer *server.HttpServer
+var getOnlineFeaturesHandler http.HandlerFunc
 var getOnlineFeaturesRangeHandler http.HandlerFunc
 
 func TestMain(m *testing.M) {
@@ -30,9 +31,10 @@ func TestMain(m *testing.M) {
 
 	// GetOnlineFeaturesRange Handler should be the second handler in the list returned by DefaultHttpHandlers
 	for _, handler := range server.DefaultHttpHandlers(httpServer) {
-		if handler.Path == "/get-online-features-range" {
+		if handler.Path == "/get-online-features" {
+			getOnlineFeaturesHandler = handler.HandlerFunc.(http.HandlerFunc)
+		} else if handler.Path == "/get-online-features-range" {
 			getOnlineFeaturesRangeHandler = handler.HandlerFunc.(http.HandlerFunc)
-			break
 		}
 	}
 
@@ -55,6 +57,58 @@ func loadResponse(fileName string) ([]byte, error) {
 		return nil, err
 	}
 	return os.ReadFile(filePath)
+}
+
+func TestGetOnlineFeatures_Http(t *testing.T) {
+	requestJson := []byte(`{
+	  "features": [
+		"all_dtypes:int_val",
+		"all_dtypes:long_val",
+		"all_dtypes:float_val",
+		"all_dtypes:double_val",
+		"all_dtypes:byte_val",
+		"all_dtypes:string_val",
+		"all_dtypes:timestamp_val",
+		"all_dtypes:boolean_val",
+		"all_dtypes:array_int_val",
+		"all_dtypes:array_long_val",
+		"all_dtypes:array_float_val",
+		"all_dtypes:array_double_val",
+		"all_dtypes:array_byte_val",
+		"all_dtypes:array_string_val",
+		"all_dtypes:array_timestamp_val",
+		"all_dtypes:array_boolean_val",
+		"all_dtypes:null_int_val",
+		"all_dtypes:null_long_val",
+		"all_dtypes:null_float_val",
+		"all_dtypes:null_double_val",
+		"all_dtypes:null_byte_val",
+		"all_dtypes:null_string_val",
+		"all_dtypes:null_timestamp_val",
+		"all_dtypes:null_boolean_val",
+		"all_dtypes:null_array_int_val",
+		"all_dtypes:null_array_long_val",
+		"all_dtypes:null_array_float_val",
+		"all_dtypes:null_array_double_val",
+		"all_dtypes:null_array_byte_val",
+		"all_dtypes:null_array_string_val",
+		"all_dtypes:null_array_timestamp_val",
+		"all_dtypes:null_array_boolean_val"
+	  ],
+	  "entities": {
+		"index_id": [1, 2, 3]
+	  }
+	}`)
+
+	request := httptest.NewRequest(http.MethodPost, "/get-online-features?include-metadata=true", bytes.NewBuffer(requestJson))
+	responseRecorder := httptest.NewRecorder()
+
+	getOnlineFeaturesHandler.ServeHTTP(responseRecorder, request)
+	assert.Equal(t, responseRecorder.Code, http.StatusOK, "Expected HTTP status code 200 OK response body is: %s", responseRecorder.Body.String())
+	actual := responseRecorder.Body.String()
+	expectedResponse, err := loadResponse("valid_get_features_response.json")
+	require.NoError(t, err, "Failed to load expected response from file")
+	assert.JSONEq(t, string(expectedResponse), actual, "Response body does not match expected JSON")
 }
 
 func TestGetOnlineFeaturesRange_Http(t *testing.T) {
