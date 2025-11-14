@@ -1,17 +1,19 @@
 from typing import Dict
 
-from testcontainers.core.waiting_utils import wait_for_logs
 from testcontainers.core.container import DockerContainer
+from testcontainers.core.waiting_utils import wait_for_logs
 
 from tests.integration.feature_repos.universal.online_store_creator import (
     OnlineStoreCreator,
 )
+
 
 class ValkeyContainer(DockerContainer):
     def __init__(self, image: str = "valkey/valkey:8.0"):
         super().__init__(image=image)
         self.with_exposed_ports(6379)
         self.port = 6379
+
 
 class ValkeyOnlineStoreCreator(OnlineStoreCreator):
     def __init__(self, project_name: str, **kwargs):

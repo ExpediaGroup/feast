@@ -1,12 +1,14 @@
 from datetime import datetime, timedelta
 
 import pytest
-from google.protobuf.timestamp_pb2 import Timestamp
 from valkey import Valkey
 
-from feast import Entity, FeatureView, Field, FileSource, RepoConfig, ValueType
+from feast import Entity, Field, FileSource, RepoConfig, ValueType
+from feast.infra.online_stores.eg_valkey import (
+    EGValkeyOnlineStore,
+    EGValkeyOnlineStoreConfig,
+)
 from feast.infra.online_stores.helpers import _mmh3, _redis_key
-from feast.infra.online_stores.eg_valkey import EGValkeyOnlineStore, EGValkeyOnlineStoreConfig
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
