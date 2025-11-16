@@ -154,7 +154,7 @@ def test_get_features_for_entity(redis_online_store: RedisOnlineStore, feature_v
     assert features["feature_view_1:feature_10"].int32_val == 1
     assert features["feature_view_1:feature_11"].int32_val == 2
 
-
+@pytest.mark.docker
 def test_redis_online_write_batch_with_timestamp_as_sortkey(
     repo_config: RepoConfig,
     redis_online_store: RedisOnlineStore,
@@ -244,7 +244,7 @@ def test_redis_online_write_batch_with_timestamp_as_sortkey(
         trip_id_drivers.append(val.int32_val)
     assert trip_id_drivers == [4, 3, 2, 9, 8, 7]
 
-
+@pytest.mark.docker
 def test_redis_online_write_batch_with_float_as_sortkey(
     repo_config: RepoConfig,
     redis_online_store: RedisOnlineStore,

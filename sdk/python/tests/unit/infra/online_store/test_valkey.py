@@ -49,7 +49,7 @@ def repo_config(valkey_online_store_config):
         registry="dummy_registry.db",
     )
 
-
+@pytest.mark.docker
 def test_valkey_online_write_batch_with_timestamp_as_sortkey(
     repo_config: RepoConfig,
     valkey_online_store: EGValkeyOnlineStore,
@@ -139,7 +139,7 @@ def test_valkey_online_write_batch_with_timestamp_as_sortkey(
         trip_id_drivers.append(val.int32_val)
     assert trip_id_drivers == [4, 3, 2, 9, 8, 7]
 
-
+@pytest.mark.docker
 def test_valkey_online_write_batch_with_float_as_sortkey(
     repo_config: RepoConfig,
     valkey_online_store: EGValkeyOnlineStore,
