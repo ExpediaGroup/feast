@@ -17,8 +17,8 @@ import (
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 
-	redisprometheus "github.com/redis/go-redis/extra/redisprometheus/v9"
-	redis "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/extra/redisprometheus/v9"
+	"github.com/redis/go-redis/v9"
 	"github.com/spaolacci/murmur3"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -598,11 +598,17 @@ func (r *RedisOnlineStore) OnlineReadRange(
 		for fv := range fvGroups {
 			// ZSET key = <feature_view><entity_key_bytes>
 			zkey := utils.BuildZsetKey(fv, entityKeyBin)
-			if reverse {
-				zCmds[fv] = p.ZRevRangeByScore(ctx, zkey, zrangeBy)
-			} else {
-				zCmds[fv] = p.ZRangeByScore(ctx, zkey, zrangeBy)
+
+			args := redis.ZRangeArgs{
+				Key:     zkey,
+				Start:   zrangeBy.Min,
+				Stop:    zrangeBy.Max,
+				ByScore: true,
+				Rev:     reverse,
+				Offset:  zrangeBy.Offset,
+				Count:   zrangeBy.Count,
 			}
+			zCmds[fv] = p.ZRangeArgs(ctx, args)
 		}
 
 		if _, err := p.Exec(ctx); err != nil && err != redis.Nil {

@@ -127,7 +127,6 @@ func fmtInterface(v interface{}) (string, error) {
 		return "", fmt.Errorf("nil value")
 	}
 
-	// --- Unwrap pointers (important for your tests)
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Ptr {
 		if rv.IsNil() {

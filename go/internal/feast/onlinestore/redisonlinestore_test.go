@@ -10,7 +10,7 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
-	feastutils "github.com/feast-dev/feast/go/internal/feast/utils"
+	"github.com/feast-dev/feast/go/internal/feast/utils"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/redis/go-redis/v9"
@@ -233,7 +233,7 @@ func Test_batchHMGET(t *testing.T) {
 	grp := &fvGroup{
 		view:          "fv",
 		featNames:     []string{"f1"},
-		fieldHashes:   []string{feastutils.Mmh3FieldHash("fv", "f1")},
+		fieldHashes:   []string{utils.Mmh3FieldHash("fv", "f1")},
 		tsKey:         "_ts:fv",
 		columnIndexes: []int{0},
 	}
@@ -251,7 +251,7 @@ func Test_batchHMGET(t *testing.T) {
 
 	// test hashes matching pattern HASH = entityKeyBytes+sortKeyBytes
 	for _, sk := range members {
-		hk := feastutils.BuildHashKey(entityKeyBin, sk)
+		hk := utils.BuildHashKey(entityKeyBin, sk)
 		ts := timestamppb.Now()
 		tsB, _ := proto.Marshal(ts)
 		vB, _ := proto.Marshal(&types.Value{
@@ -297,13 +297,13 @@ func writeTestRecord(
 	ctx := context.Background()
 
 	// ZSET key = fv + entity_key_bytes
-	zkey := feastutils.BuildZsetKey(fv, entityBin)
+	zkey := utils.BuildZsetKey(fv, entityBin)
 
 	// HASH key = entity_key_bytes + sort_key_bytes
-	hkey := feastutils.BuildHashKey(entityBin, sortKeyBytes)
+	hkey := utils.BuildHashKey(entityBin, sortKeyBytes)
 
 	tsKey := "_ts:" + fv
-	fieldHash := feastutils.Mmh3FieldHash(fv, feat) // use new mmh3
+	fieldHash := utils.Mmh3FieldHash(fv, feat) // use new mmh3
 
 	tsB, _ := proto.Marshal(ts)
 	valB, _ := proto.Marshal(&types.Value{
