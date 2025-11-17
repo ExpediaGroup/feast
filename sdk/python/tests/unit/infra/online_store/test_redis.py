@@ -56,9 +56,7 @@ def repo_config_without_docker_connection_string(base_repo_config_kwargs) -> Rep
 
 
 @pytest.fixture
-def repo_config(
-    redis_online_store_config, base_repo_config_kwargs
-) -> RepoConfig:
+def repo_config(redis_online_store_config, base_repo_config_kwargs) -> RepoConfig:
     return RepoConfig(
         **base_repo_config_kwargs,
         online_store=RedisOnlineStoreConfig(
@@ -84,7 +82,9 @@ def feature_view():
     return feature_view
 
 
-def test_generate_entity_redis_keys(redis_online_store: RedisOnlineStore, repo_config_without_docker_connection_string):
+def test_generate_entity_redis_keys(
+    redis_online_store: RedisOnlineStore, repo_config_without_docker_connection_string
+):
     entity_keys = [
         EntityKeyProto(join_keys=["entity"], entity_values=[ValueProto(int32_val=1)]),
     ]
@@ -191,9 +191,7 @@ def test_redis_online_write_batch_with_timestamp_as_sortkey(
         progress=None,
     )
 
-    connection_string = (
-        repo_config.online_store.connection_string
-    )
+    connection_string = repo_config.online_store.connection_string
     connection_string_split = connection_string.split(":")
     conn_dict = {}
     conn_dict["host"] = connection_string_split[0]
@@ -284,9 +282,7 @@ def test_redis_online_write_batch_with_float_as_sortkey(
         progress=None,
     )
 
-    connection_string = (
-        repo_config.online_store.connection_string
-    )
+    connection_string = repo_config.online_store.connection_string
     connection_string_split = connection_string.split(":")
     conn_dict = {}
     conn_dict["host"] = connection_string_split[0]
@@ -371,7 +367,8 @@ def repo_config_before(redis_online_store_config):
 
 
 def test_multiple_sort_keys_not_supported(
-    repo_config_without_docker_connection_string: RepoConfig, redis_online_store: RedisOnlineStore
+    repo_config_without_docker_connection_string: RepoConfig,
+    redis_online_store: RedisOnlineStore,
 ):
     (
         feature_view,
@@ -391,7 +388,8 @@ def test_multiple_sort_keys_not_supported(
 
 
 def test_non_numeric_sort_key_not_supported(
-    repo_config_without_docker_connection_string: RepoConfig, redis_online_store: RedisOnlineStore
+    repo_config_without_docker_connection_string: RepoConfig,
+    redis_online_store: RedisOnlineStore,
 ):
     (
         feature_view,

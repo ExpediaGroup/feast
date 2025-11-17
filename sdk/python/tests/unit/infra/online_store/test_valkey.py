@@ -58,9 +58,7 @@ def repo_config_without_docker_connection_string(base_repo_config_kwargs) -> Rep
 
 
 @pytest.fixture
-def repo_config(
-    valkey_online_store_config, base_repo_config_kwargs
-) -> RepoConfig:
+def repo_config(valkey_online_store_config, base_repo_config_kwargs) -> RepoConfig:
     return RepoConfig(
         **base_repo_config_kwargs,
         online_store=EGValkeyOnlineStoreConfig(
@@ -86,9 +84,7 @@ def test_valkey_online_write_batch_with_timestamp_as_sortkey(
         progress=None,
     )
 
-    connection_string = (
-        repo_config.online_store.connection_string
-    )
+    connection_string = repo_config.online_store.connection_string
     connection_string_split = connection_string.split(":")
     conn_dict = {}
     conn_dict["host"] = connection_string_split[0]
@@ -179,9 +175,7 @@ def test_valkey_online_write_batch_with_float_as_sortkey(
         progress=None,
     )
 
-    connection_string = (
-        repo_config.online_store.connection_string
-    )
+    connection_string = repo_config.online_store.connection_string
     connection_string_split = connection_string.split(":")
     conn_dict = {}
     conn_dict["host"] = connection_string_split[0]
@@ -253,7 +247,8 @@ def test_valkey_online_write_batch_with_float_as_sortkey(
 
 
 def test_multiple_sort_keys_not_supported(
-    repo_config_without_docker_connection_string: RepoConfig, valkey_online_store: EGValkeyOnlineStore
+    repo_config_without_docker_connection_string: RepoConfig,
+    valkey_online_store: EGValkeyOnlineStore,
 ):
     (
         feature_view,
@@ -273,7 +268,8 @@ def test_multiple_sort_keys_not_supported(
 
 
 def test_non_numeric_sort_key_not_supported(
-    repo_config_without_docker_connection_string: RepoConfig, valkey_online_store: EGValkeyOnlineStore
+    repo_config_without_docker_connection_string: RepoConfig,
+    valkey_online_store: EGValkeyOnlineStore,
 ):
     (
         feature_view,
