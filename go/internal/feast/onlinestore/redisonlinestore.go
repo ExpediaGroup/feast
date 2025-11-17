@@ -11,11 +11,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/feast-dev/feast/go/internal/feast/model"
-	"github.com/feast-dev/feast/go/internal/feast/utils"
-
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
+	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/internal/feast/utils"
 
 	"github.com/redis/go-redis/extra/redisprometheus/v9"
 	"github.com/redis/go-redis/v9"
@@ -517,7 +516,12 @@ func (r *RedisOnlineStore) OnlineReadRange(
 	featureNames := groupedRefs.FeatureNames
 	featureViewNames := groupedRefs.FeatureViewNames
 	limit := int64(groupedRefs.Limit)
-	reverse := groupedRefs.IsReverseSortOrder
+
+	effectiveReverse := utils.ComputeEffectiveReverse(
+		groupedRefs.SortKeyFilters,
+		groupedRefs.IsReverseSortOrder,
+	)
+
 	minScore, maxScore := utils.GetScoreRange(groupedRefs.SortKeyFilters)
 
 	if len(groupedRefs.SortKeyFilters) > 1 {
@@ -604,7 +608,7 @@ func (r *RedisOnlineStore) OnlineReadRange(
 				Start:   zrangeBy.Min,
 				Stop:    zrangeBy.Max,
 				ByScore: true,
-				Rev:     reverse,
+				Rev:     effectiveReverse,
 				Offset:  zrangeBy.Offset,
 				Count:   zrangeBy.Count,
 			}

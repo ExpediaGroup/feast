@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
+	"github.com/feast-dev/feast/go/protos/feast/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -96,5 +97,95 @@ func TestGetScoreRange(t *testing.T) {
 			assert.Equal(t, tc.min, min)
 			assert.Equal(t, tc.max, max)
 		})
+	}
+}
+
+func TestEffectiveReverse_ASC_Default_NoUserReverse(t *testing.T) {
+	filter := &model.SortKeyFilter{
+		SortKeyName:  "sort1",
+		RangeEnd:     12,
+		EndInclusive: true,
+		Order:        &model.SortOrder{Order: core.SortOrder_ASC},
+	}
+
+	got := ComputeEffectiveReverse([]*model.SortKeyFilter{filter}, false)
+
+	if got {
+		t.Fatalf("ASC + userReverse=false: expected Rev=false, got true")
+	}
+}
+
+func TestEffectiveReverse_ASC_WithUserReverse(t *testing.T) {
+	filter := &model.SortKeyFilter{
+		SortKeyName:  "sort1",
+		RangeEnd:     12,
+		EndInclusive: true,
+		Order:        &model.SortOrder{Order: core.SortOrder_ASC},
+	}
+
+	got := ComputeEffectiveReverse([]*model.SortKeyFilter{filter}, true)
+
+	if !got {
+		t.Fatalf("ASC + userReverse=true: expected Rev=true, got false")
+	}
+}
+
+func TestEffectiveReverse_DESC_Default_NoUserReverse(t *testing.T) {
+	filter := &model.SortKeyFilter{
+		SortKeyName:  "sort1",
+		RangeEnd:     12,
+		EndInclusive: true,
+		Order:        &model.SortOrder{Order: core.SortOrder_DESC},
+	}
+
+	got := ComputeEffectiveReverse([]*model.SortKeyFilter{filter}, false)
+
+	// Expect true: DESC requires flipping once
+	if !got {
+		t.Fatalf("DESC + userReverse=false: expected Rev=true, got false")
+	}
+}
+
+func TestEffectiveReverse_DESC_WithUserReverse(t *testing.T) {
+	filter := &model.SortKeyFilter{
+		SortKeyName:  "sort1",
+		RangeEnd:     12,
+		EndInclusive: true,
+		Order:        &model.SortOrder{Order: core.SortOrder_DESC},
+	}
+
+	got := ComputeEffectiveReverse([]*model.SortKeyFilter{filter}, true)
+
+	if got {
+		t.Fatalf("DESC + userReverse=true: expected Rev=false, got true")
+	}
+}
+
+func TestEffectiveReverse_NoFilters(t *testing.T) {
+	got := ComputeEffectiveReverse(nil, false)
+	if got {
+		t.Fatalf("no filters + userReverse=false: expected Rev=false, got true")
+	}
+
+	got = ComputeEffectiveReverse(nil, true)
+	if !got {
+		t.Fatalf("no filters + userReverse=true: expected Rev=true, got false")
+	}
+}
+
+func TestEffectiveReverse_FilterWithNilOrder(t *testing.T) {
+	filter := &model.SortKeyFilter{
+		SortKeyName: "sort1",
+		RangeEnd:    12,
+	}
+
+	got := ComputeEffectiveReverse([]*model.SortKeyFilter{filter}, false)
+	if got {
+		t.Fatalf("nil order + userReverse=false: expected Rev=false, got true")
+	}
+
+	got = ComputeEffectiveReverse([]*model.SortKeyFilter{filter}, true)
+	if !got {
+		t.Fatalf("nil order + userReverse=true: expected Rev=true, got false")
 	}
 }

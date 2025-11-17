@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
+	"github.com/feast-dev/feast/go/protos/feast/core"
 	"github.com/rs/zerolog/log"
 	"github.com/spaolacci/murmur3"
 	"google.golang.org/protobuf/proto"
@@ -158,4 +159,27 @@ func fmtInterface(v interface{}) (string, error) {
 
 	// fallback
 	return fmt.Sprintf("%v", v), nil
+}
+
+// computeEffectiveReverse combines the SortedFeatureView / SortKeyFilter order
+// with the user-provided reverse_sort_order flag.
+func ComputeEffectiveReverse(filters []*model.SortKeyFilter, userReverse bool) bool {
+	effective := userReverse
+
+	if len(filters) == 0 {
+		return effective
+	}
+	skf := filters[0]
+	if skf == nil || skf.Order == nil {
+		return effective
+	}
+
+	switch skf.Order.Order {
+	case core.SortOrder_DESC:
+		return !effective
+	case core.SortOrder_ASC, core.SortOrder_INVALID:
+		return effective
+	default:
+		return effective
+	}
 }
