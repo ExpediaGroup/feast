@@ -380,7 +380,6 @@ func valkeyBatchHMGET(
 			cmds = append(cmds, client.B().Hmget().Key(hashKey).Field(fields...).Build())
 		}
 
-		// Execute in a single round trip
 		multi := client.DoMulti(ctx, cmds...)
 
 		// Decode each HMGET result
@@ -437,7 +436,6 @@ func valkeyBatchHMGET(
 				if fieldIdx < len(arr)-1 {
 					fvResp := arr[fieldIdx]
 					if fvResp.IsNil() {
-						// Match Redis semantics: nil => NULL_VALUE
 						val = nil
 						status = serving.FieldStatus_NULL_VALUE
 					} else {
@@ -519,7 +517,6 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 		g.columnIndexes = append(g.columnIndexes, i)
 	}
 
-	// final result array
 	results := make([][]RangeFeatureData, len(groupedRefs.EntityKeys))
 
 	// process each entity key
@@ -534,7 +531,6 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 			return nil, fmt.Errorf("failed to serialize entity key: %w", err)
 		}
 
-		// Initialise result array
 		results[eIdx] = make([]RangeFeatureData, len(featureNames))
 		for i := range featureNames {
 			results[eIdx][i] = RangeFeatureData{
