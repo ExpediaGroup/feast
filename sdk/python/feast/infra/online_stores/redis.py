@@ -351,10 +351,10 @@ class RedisOnlineStore(OnlineStore):
                     num_cmds += 2
                     if num_cmds >= num_cmds_per_pipeline_execute:
                         # TODO: May be add retries with backoff
-                        pipe.execute()  # flush
+                        results = pipe.execute()  # flush
                         num_cmds = 0
                 if num_cmds:
-                    pipe.execute()  # flush any remaining data in the last batch
+                    results = pipe.execute()  # flush any remaining data in the last batch
             else:
                 # check if a previous record under the key bin exists
                 # TODO: investigate if check and set is a better approach rather than pulling all entity ts and then setting
@@ -400,7 +400,7 @@ class RedisOnlineStore(OnlineStore):
                     ttl = online_store_config.key_ttl_seconds
                     if ttl:
                         pipe.expire(name=redis_key_bin, time=ttl)
-            results = pipe.execute()
+                results = pipe.execute()
             if progress:
                 progress(len(results))
 
