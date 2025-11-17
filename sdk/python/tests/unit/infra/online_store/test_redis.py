@@ -176,7 +176,7 @@ def test_get_features_for_entity(redis_online_store: RedisOnlineStore, feature_v
 
 @pytest.mark.docker
 def test_redis_online_write_batch_with_timestamp_as_sortkey(
-    repo_config: RepoConfig,
+    repo_config_with_docker_connection_string: RepoConfig,
     redis_online_store: RedisOnlineStore,
 ):
     (
@@ -185,7 +185,7 @@ def test_redis_online_write_batch_with_timestamp_as_sortkey(
     ) = _create_sorted_feature_view_with_timestamp_as_sortkey()
 
     redis_online_store.online_write_batch(
-        config=repo_config,
+        config=repo_config_with_docker_connection_string,
         table=feature_view,
         data=data,
         progress=None,
@@ -209,9 +209,9 @@ def test_redis_online_write_batch_with_timestamp_as_sortkey(
     )
 
     redis_key_bin_driver_1 = _redis_key(
-        repo_config.project,
+        repo_config_with_docker_connection_string.project,
         entity_key_driver_1,
-        entity_key_serialization_version=repo_config.entity_key_serialization_version,
+        entity_key_serialization_version=repo_config_with_docker_connection_string.entity_key_serialization_version,
     )
 
     zset_key_driver_1 = redis_online_store.zset_key_bytes(
@@ -223,9 +223,9 @@ def test_redis_online_write_batch_with_timestamp_as_sortkey(
         entity_values=[ValueProto(int32_val=2)],
     )
     redis_key_bin_driver_2 = _redis_key(
-        repo_config.project,
+        repo_config_with_docker_connection_string.project,
         entity_key_driver_2,
-        entity_key_serialization_version=repo_config.entity_key_serialization_version,
+        entity_key_serialization_version=repo_config_with_docker_connection_string.entity_key_serialization_version,
     )
 
     zset_key_driver_2 = redis_online_store.zset_key_bytes(
@@ -269,7 +269,7 @@ def test_redis_online_write_batch_with_timestamp_as_sortkey(
 
 @pytest.mark.docker
 def test_redis_online_write_batch_with_float_as_sortkey(
-    repo_config: RepoConfig,
+    repo_config_with_docker_connection_string: RepoConfig,
     redis_online_store: RedisOnlineStore,
 ):
     (
@@ -278,7 +278,7 @@ def test_redis_online_write_batch_with_float_as_sortkey(
     ) = _create_sorted_feature_view_with_float_as_sortkey()
 
     redis_online_store.online_write_batch(
-        config=repo_config,
+        config=repo_config_with_docker_connection_string,
         table=feature_view,
         data=data,
         progress=None,
@@ -302,9 +302,9 @@ def test_redis_online_write_batch_with_float_as_sortkey(
     )
 
     redis_key_bin_driver_1 = _redis_key(
-        repo_config.project,
+        repo_config_with_docker_connection_string.project,
         entity_key_driver_1,
-        entity_key_serialization_version=repo_config.entity_key_serialization_version,
+        entity_key_serialization_version=repo_config_with_docker_connection_string.entity_key_serialization_version,
     )
 
     zset_key_driver_1 = redis_online_store.zset_key_bytes(
@@ -316,9 +316,9 @@ def test_redis_online_write_batch_with_float_as_sortkey(
         entity_values=[ValueProto(int32_val=2)],
     )
     redis_key_bin_driver_2 = _redis_key(
-        repo_config.project,
+        repo_config_with_docker_connection_string.project,
         entity_key_driver_2,
-        entity_key_serialization_version=repo_config.entity_key_serialization_version,
+        entity_key_serialization_version=repo_config_with_docker_connection_string.entity_key_serialization_version,
     )
 
     zset_key_driver_2 = redis_online_store.zset_key_bytes(
@@ -355,6 +355,19 @@ def test_redis_online_write_batch_with_float_as_sortkey(
         val.ParseFromString(feature_dict[trip_id_feature_name])
         trip_id_drivers.append(val.int32_val)
     assert trip_id_drivers == [2, 3, 4, 7, 8, 9]
+
+
+@pytest.fixture
+def repo_config_before(redis_online_store_config):
+    return RepoConfig(
+        provider="local",
+        project="test",
+        online_store=RedisOnlineStoreConfig(
+            connection_string=redis_online_store_config["connection_string"],
+        ),
+        entity_key_serialization_version=3,
+        registry="dummy_registry.db",
+    )
 
 
 def test_multiple_sort_keys_not_supported(
