@@ -329,7 +329,7 @@ func (r *RedisOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.E
 			} else {
 				resContainsNonNil = true
 				var value *types.Value
-				if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
+				if value, _, err = utils.UnmarshalStoredProto([]byte(valueString)); err != nil {
 					return nil, errors.New("error converting parsed redis Value to types.Value")
 				} else {
 					featureName := featureNamesWithTimeStamps[featureIndex]
@@ -375,40 +375,6 @@ func SerializeEntityKeyWithProject(
 		return nil, fmt.Errorf("buildRedisKey returned nil")
 	}
 	return *key, nil
-}
-
-// DecodeFeatureValue Helper function to decode feature value protobuf
-func DecodeFeatureValue(raw interface{}, fv, fn, member string) (interface{}, serving.FieldStatus) {
-	if raw == nil {
-		return nil, serving.FieldStatus_NULL_VALUE
-	}
-
-	var byt []byte
-	switch value := raw.(type) {
-	case string:
-		byt = []byte(value)
-	case []byte:
-		byt = value
-	default:
-		log.Warn().
-			Str("feature_view", fv).
-			Str("feature_name", fn).
-			Str("type", fmt.Sprintf("%T", raw)).
-			Msg("OnlineReadRange: Redis returned unexpected feature value type, marking as NOT_FOUND")
-		return nil, serving.FieldStatus_NOT_FOUND
-	}
-
-	decoded, st, err := UnmarshalStoredProto(byt)
-	if err != nil {
-		log.Warn().
-			Err(err).
-			Str("feature_view", fv).
-			Str("feature_name", fn).
-			Str("member", member).
-			Msg("OnlineReadRange: failed to unmarshal feature value, marking as NOT_FOUND")
-		return nil, serving.FieldStatus_NOT_FOUND
-	}
-	return decoded, st
 }
 
 // Group of fields per Feature View
@@ -486,7 +452,7 @@ func batchHMGET(
 				)
 
 				if fieldIdx < len(arr)-1 {
-					val, status = DecodeFeatureValue(arr[fieldIdx], fv, grp.featNames[i], memberKey)
+					val, status = utils.DecodeFeatureValue(arr[fieldIdx], fv, grp.featNames[i], memberKey)
 				} else {
 					val = nil
 					status = serving.FieldStatus_NOT_FOUND

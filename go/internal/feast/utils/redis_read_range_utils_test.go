@@ -6,6 +6,8 @@ import (
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/protos/feast/core"
+	"github.com/feast-dev/feast/go/protos/feast/serving"
+	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -188,4 +190,16 @@ func TestEffectiveReverse_FilterWithNilOrder(t *testing.T) {
 	if !got {
 		t.Fatalf("nil order + userReverse=true: expected Rev=true, got false")
 	}
+}
+
+func TestDecodeFeatureValue(t *testing.T) {
+	valPb := &types.Value{Val: &types.Value_StringVal{StringVal: "hello"}}
+	b, _ := proto.Marshal(valPb)
+
+	val, status := DecodeFeatureValue(b, "fv", "feat", "member")
+	assert.Equal(t, serving.FieldStatus_PRESENT, status)
+	assert.Equal(t, "hello", val.(*types.Value).GetStringVal())
+
+	_, st2 := DecodeFeatureValue(nil, "fv", "feat", "m")
+	assert.Equal(t, serving.FieldStatus_NULL_VALUE, st2)
 }

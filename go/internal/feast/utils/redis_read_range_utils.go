@@ -8,6 +8,7 @@ import (
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/protos/feast/core"
+	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/rs/zerolog/log"
 	"github.com/spaolacci/murmur3"
 	"google.golang.org/protobuf/proto"
@@ -36,6 +37,40 @@ func Mmh3FieldHash(fv, fn string) string {
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, sum)
 	return string(buf)
+}
+
+// DecodeFeatureValue Helper function to decode feature value protobuf
+func DecodeFeatureValue(raw interface{}, fv, fn, member string) (interface{}, serving.FieldStatus) {
+	if raw == nil {
+		return nil, serving.FieldStatus_NULL_VALUE
+	}
+
+	var byt []byte
+	switch value := raw.(type) {
+	case string:
+		byt = []byte(value)
+	case []byte:
+		byt = value
+	default:
+		log.Warn().
+			Str("feature_view", fv).
+			Str("feature_name", fn).
+			Str("type", fmt.Sprintf("%T", raw)).
+			Msg("OnlineReadRange: Redis returned unexpected feature value type, marking as NOT_FOUND")
+		return nil, serving.FieldStatus_NOT_FOUND
+	}
+
+	decoded, st, err := UnmarshalStoredProto(byt)
+	if err != nil {
+		log.Warn().
+			Err(err).
+			Str("feature_view", fv).
+			Str("feature_name", fn).
+			Str("member", member).
+			Msg("OnlineReadRange: failed to unmarshal feature value, marking as NOT_FOUND")
+		return nil, serving.FieldStatus_NOT_FOUND
+	}
+	return decoded, st
 }
 
 // DecodeTimestamp Helper function to decode timestamp protobuf from Redis HSET value
@@ -177,7 +212,7 @@ func ComputeEffectiveReverse(filters []*model.SortKeyFilter, userReverse bool) b
 	switch skf.Order.Order {
 	case core.SortOrder_DESC:
 		return !effective
-	case core.SortOrder_ASC, core.SortOrder_INVALID:
+	case core.SortOrder_ASC:
 		return effective
 	default:
 		return effective

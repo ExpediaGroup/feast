@@ -439,15 +439,3 @@ func TestOnlineReadRange_EmptyResult(t *testing.T) {
 
 	assert.Equal(t, serving.FieldStatus_NOT_FOUND, res[0][0].Statuses[0])
 }
-
-func TestDecodeFeatureValue(t *testing.T) {
-	valPb := &types.Value{Val: &types.Value_StringVal{StringVal: "hello"}}
-	b, _ := proto.Marshal(valPb)
-
-	val, status := DecodeFeatureValue(b, "fv", "feat", "member")
-	assert.Equal(t, serving.FieldStatus_PRESENT, status)
-	assert.Equal(t, "hello", val.(*types.Value).GetStringVal())
-
-	_, st2 := DecodeFeatureValue(nil, "fv", "feat", "m")
-	assert.Equal(t, serving.FieldStatus_NULL_VALUE, st2)
-}

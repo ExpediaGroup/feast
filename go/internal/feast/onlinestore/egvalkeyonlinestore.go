@@ -320,7 +320,7 @@ func (v *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 					return nil, errors.New("error parsing Value from valkey")
 				}
 				resContainsNonNil = true
-				if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
+				if value, _, err = utils.UnmarshalStoredProto([]byte(valueString)); err != nil {
 					return nil, errors.New("error converting parsed valkey Value to types.Value")
 				}
 			}
@@ -367,10 +367,7 @@ func valkeyBatchHMGET(
 	eIdx int,
 ) error {
 	for start := 0; start < len(members); start += PIPELINE_BATCH_SIZE {
-		end := start + PIPELINE_BATCH_SIZE
-		if end > len(members) {
-			end = len(members)
-		}
+		end := max(start+PIPELINE_BATCH_SIZE, len(members))
 		batch := members[start:end]
 
 		// Build all HMGET commands for this batch
@@ -451,7 +448,7 @@ func valkeyBatchHMGET(
 							status = serving.FieldStatus_NOT_FOUND
 						} else {
 							raw := interface{}(strVal)
-							val, status = DecodeFeatureValue(raw, fv, grp.featNames[iCol], memberKey)
+							val, status = utils.DecodeFeatureValue(raw, fv, grp.featNames[iCol], memberKey)
 						}
 					}
 				} else {
