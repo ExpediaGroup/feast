@@ -1641,19 +1641,21 @@ class SqlRegistry(CachingRegistry):
 
         with self.read_engine.begin() as conn:
             if not in_memory_filtering_required:
-                stmt = (
-                    select(feature_views)
-                    .where(
+                stmt = select(feature_views).order_by(feature_views.c.feature_view_name)
+                
+                if search_text:  # Only add search filter if search_text is not empty
+                    stmt = stmt.where(
                         feature_views.c.feature_view_name.like(
                             bindparam("search_pattern")
                         )
                     )
-                    .order_by(feature_views.c.feature_view_name)
-                    .limit(page_size)
-                    .offset(offset)
-                )
 
-                rows = conn.execute(stmt, {"search_pattern": f"%{search_text}%"}).all()
+                stmt = stmt.limit(page_size).offset(offset)
+
+                if search_text:
+                    rows = conn.execute(stmt, {"search_pattern": f"%{search_text}%"}).all()
+                else:
+                    rows = conn.execute(stmt).all()
 
                 for row in rows:
                     feature_view_proto = FeatureViewProto.FromString(
@@ -1663,22 +1665,23 @@ class SqlRegistry(CachingRegistry):
                     fv = FeatureView.from_proto(feature_view_proto)
                     results.append(fv)
 
-                total_stmt = (
-                    select(func.count())
-                    .select_from(feature_views)
-                    .where(
+                total_stmt = select(func.count()).select_from(feature_views)
+                if search_text:  # Only add search filter if search_text is not empty
+                    total_stmt = total_stmt.where(
                         feature_views.c.feature_view_name.like(
                             bindparam("search_pattern")
                         )
                     )
-                )
 
-                total_count = (
-                    conn.execute(
-                        total_stmt, {"search_pattern": f"%{search_text}%"}
-                    ).scalar()
-                    or 0
-                )
+                if search_text:
+                    total_count = (
+                        conn.execute(
+                            total_stmt, {"search_pattern": f"%{search_text}%"}
+                        ).scalar()
+                        or 0
+                    )
+                else:
+                    total_count = conn.execute(total_stmt).scalar() or 0
                 total_page_indices = (total_count + page_size - 1) // page_size
 
                 return ExpediaSearchFeatureViewsResponse(

@@ -22,6 +22,8 @@ from feast.feature_view import FeatureView
 from feast.grpc_error_interceptor import ErrorInterceptor
 from feast.infra.infra_object import Infra
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.infra.registry.sql import SqlRegistry
+from feast.infra.registry.sql_fallback import SqlFallbackRegistry
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.action import AuthzedAction
 from feast.permissions.permission import Permission
@@ -1271,6 +1273,9 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ExpediaSearchProjects(
         self, request: RegistryServer_pb2.ExpediaSearchProjectsRequest, context
     ):
+        if not (isinstance(self.proxied_registry, SqlRegistry) or isinstance(self.proxied_registry, SqlFallbackRegistry)):
+            raise TypeError("Registry must be SqlRegistry or SqlFallbackRegistry")
+
         # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
         response = self.proxied_registry.expedia_search_projects(  # type: ignore[attr-defined]
             request=ExpediaSearchProjectsRequest.from_proto(request)
