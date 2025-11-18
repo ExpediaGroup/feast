@@ -1642,7 +1642,7 @@ class SqlRegistry(CachingRegistry):
         with self.read_engine.begin() as conn:
             if not in_memory_filtering_required:
                 stmt = select(feature_views).order_by(feature_views.c.feature_view_name)
-                
+
                 if search_text:  # Only add search filter if search_text is not empty
                     stmt = stmt.where(
                         feature_views.c.feature_view_name.like(
@@ -1653,7 +1653,9 @@ class SqlRegistry(CachingRegistry):
                 stmt = stmt.limit(page_size).offset(offset)
 
                 if search_text:
-                    rows = conn.execute(stmt, {"search_pattern": f"%{search_text}%"}).all()
+                    rows = conn.execute(
+                        stmt, {"search_pattern": f"%{search_text}%"}
+                    ).all()
                 else:
                     rows = conn.execute(stmt).all()
 

@@ -7,11 +7,20 @@ from feast.feature_view import FeatureView
 from feast.project import Project
 from feast.protos.feast.registry.RegistryServer_pb2 import (
     ExpediaProjectAndRelatedFeatureViews as ExpediaProjectAndRelatedFeatureViewsProto,
-    ExpediaSearchFeatureViewsRequest as ExpediaSearchFeatureViewsRequestProto,
-    ExpediaSearchFeatureViewsResponse as ExpediaSearchFeatureViewsResponseProto,
-    ExpediaSearchProjectsRequest as ExpediaSearchProjectsRequestProto,
-    ExpediaSearchProjectsResponse as ExpediaSearchProjectsResponseProto
 )
+from feast.protos.feast.registry.RegistryServer_pb2 import (
+    ExpediaSearchFeatureViewsRequest as ExpediaSearchFeatureViewsRequestProto,
+)
+from feast.protos.feast.registry.RegistryServer_pb2 import (
+    ExpediaSearchFeatureViewsResponse as ExpediaSearchFeatureViewsResponseProto,
+)
+from feast.protos.feast.registry.RegistryServer_pb2 import (
+    ExpediaSearchProjectsRequest as ExpediaSearchProjectsRequestProto,
+)
+from feast.protos.feast.registry.RegistryServer_pb2 import (
+    ExpediaSearchProjectsResponse as ExpediaSearchProjectsResponseProto,
+)
+
 
 class ExpediaProjectAndRelatedFeatureViews:
     """

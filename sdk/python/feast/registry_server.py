@@ -1273,7 +1273,10 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ExpediaSearchProjects(
         self, request: RegistryServer_pb2.ExpediaSearchProjectsRequest, context
     ):
-        if not (isinstance(self.proxied_registry, SqlRegistry) or isinstance(self.proxied_registry, SqlFallbackRegistry)):
+        if not (
+            isinstance(self.proxied_registry, SqlRegistry)
+            or isinstance(self.proxied_registry, SqlFallbackRegistry)
+        ):
             raise TypeError("Registry must be SqlRegistry or SqlFallbackRegistry")
 
         # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
