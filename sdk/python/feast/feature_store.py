@@ -77,7 +77,6 @@ from feast.infra.registry.base_registry import BaseRegistry
 from feast.infra.registry.http import HttpRegistry
 from feast.infra.registry.registry import Registry
 from feast.infra.registry.sql import SqlRegistry
-from feast.infra.registry.sql_fallback import SqlFallbackRegistry
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.online_response import OnlineResponse
 from feast.permissions.permission import Permission
