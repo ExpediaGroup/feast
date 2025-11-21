@@ -782,19 +782,47 @@ func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bo
 	case *types.Value_BoolVal:
 		return x.BoolVal
 	case *types.Value_BoolListVal:
-		return x.BoolListVal.Val
+		v := x.BoolListVal.Val
+		if v == nil {
+			return make([]bool, 0)
+		}
+		return v
 	case *types.Value_StringListVal:
-		return x.StringListVal.Val
+		v := x.StringListVal.Val
+		if v == nil {
+			return make([]string, 0)
+		}
+		return v
 	case *types.Value_BytesListVal:
-		return x.BytesListVal.Val
+		v := x.BytesListVal.Val
+		if v == nil {
+			return make([][]byte, 0)
+		}
+		return v
 	case *types.Value_Int32ListVal:
-		return x.Int32ListVal.Val
+		v := x.Int32ListVal.Val
+		if v == nil {
+			return make([]int32, 0)
+		}
+		return v
 	case *types.Value_Int64ListVal:
-		return x.Int64ListVal.Val
+		v := x.Int64ListVal.Val
+		if v == nil {
+			return make([]int64, 0)
+		}
+		return v
 	case *types.Value_FloatListVal:
-		return x.FloatListVal.Val
+		v := x.FloatListVal.Val
+		if v == nil {
+			return make([]float32, 0)
+		}
+		return v
 	case *types.Value_DoubleListVal:
-		return x.DoubleListVal.Val
+		v := x.DoubleListVal.Val
+		if v == nil {
+			return make([]float64, 0)
+		}
+		return v
 	case *types.Value_UnixTimestampVal:
 		if timestampAsString {
 			return time.Unix(x.UnixTimestampVal, 0).UTC().Format(TimestampFormat)

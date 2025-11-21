@@ -25,7 +25,6 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/core"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
-	types2 "github.com/feast-dev/feast/go/types"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
@@ -501,14 +500,15 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	assert.NotNil(t, accRateVector)
 	assert.NotNil(t, convRateVector)
 
-	accRateValues, err := types2.ArrowValuesToProtoValues(accRateVector.RangeValues)
+	accRateValues, err := accRateVector.GetProtoValues()
 	assert.NoError(t, err)
-	convRateValues, err := types2.ArrowValuesToProtoValues(convRateVector.RangeValues)
+	convRateValues, err := convRateVector.GetProtoValues()
 	assert.NoError(t, err)
-	assert.Equal(t, []float64{0.91, 0.92, 0.94}, accRateValues[0].GetDoubleListVal().Val)
-	assert.Equal(t, []float64{0.85, 0.87, 0.89}, convRateValues[0].GetDoubleListVal().Val)
-	assert.Equal(t, []float64{0.85, 0.88}, accRateValues[1].GetDoubleListVal().Val)
-	assert.Equal(t, []float64{0.78, 0.80}, convRateValues[1].GetDoubleListVal().Val)
+
+	validateRepeatedDoubleValue(t, []float64{0.91, 0.92, 0.94}, accRateValues[0])
+	validateRepeatedDoubleValue(t, []float64{0.85, 0.87, 0.89}, convRateValues[0])
+	validateRepeatedDoubleValue(t, []float64{0.85, 0.88}, accRateValues[1])
+	validateRepeatedDoubleValue(t, []float64{0.78, 0.80}, convRateValues[1])
 
 	assert.Equal(t, 3, len(accRateVector.RangeStatuses[0]))
 	assert.Equal(t, 3, len(convRateVector.RangeStatuses[0]))
@@ -516,6 +516,12 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 	assert.Equal(t, 2, len(convRateVector.RangeStatuses[1]))
 
 	mockStore.AssertExpectations(t)
+}
+
+func validateRepeatedDoubleValue(t *testing.T, expectedVals []float64, actual *types.RepeatedValue) {
+	for i, val := range actual.GetVal() {
+		assert.Equal(t, expectedVals[i], val.GetDoubleVal())
+	}
 }
 
 // This is a test helper function that mimics the core logic of FeatureStore.GetOnlineFeaturesRange
@@ -601,6 +607,7 @@ func testGetOnlineFeaturesRange(
 			sortedFeatureViews,
 			arrowAllocator,
 			numRows,
+			false,
 		)
 		if err != nil {
 			return nil, err

@@ -219,7 +219,7 @@ func (s *OnlineFeatureService) GetOnlineFeatures(
 		outputFields = append(outputFields,
 			arrow.Field{
 				Name: featureVector.Name,
-				Type: featureVector.Values.DataType()})
+				Type: featureVector.Values.(arrow.Array).DataType()})
 		outputFields = append(outputFields,
 			arrow.Field{
 				Name: fmt.Sprintf("%s__status", featureVector.Name),
@@ -229,7 +229,7 @@ func (s *OnlineFeatureService) GetOnlineFeatures(
 				Name: fmt.Sprintf("%s__timestamp", featureVector.Name),
 				Type: arrow.PrimitiveTypes.Int64})
 
-		outputColumns = append(outputColumns, featureVector.Values)
+		outputColumns = append(outputColumns, featureVector.Values.(arrow.Array))
 
 		statusColumnBuilder := array.NewInt32Builder(pool)
 		for _, status := range featureVector.Statuses {
@@ -250,7 +250,7 @@ func (s *OnlineFeatureService) GetOnlineFeatures(
 		s.tsColumnBuildersToRelease = append(s.tsColumnBuildersToRelease, tsColumnBuilder)
 		s.arraysToRelease = append(s.arraysToRelease, statusColumn)
 		s.arraysToRelease = append(s.arraysToRelease, tsColumn)
-		s.arraysToRelease = append(s.arraysToRelease, featureVector.Values)
+		s.arraysToRelease = append(s.arraysToRelease, featureVector.Values.(arrow.Array))
 	}
 
 	result := array.NewRecord(arrow.NewSchema(outputFields, nil), outputColumns, int64(numRows))

@@ -4,6 +4,8 @@ package onlineserving
 
 import (
 	"fmt"
+	"github.com/apache/arrow/go/v17/arrow"
+	types2 "github.com/feast-dev/feast/go/types"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -1707,7 +1709,112 @@ func TestGetUniqueEntityRows_MultipleJoinKeys(t *testing.T) {
 	assert.Equal(t, []int{1}, mappingIndices[1])
 }
 
+func TestTransposeFeatureRowsIntoColumns(t *testing.T) {
+	vector := testTransposeFeatureRowsIntoColumns(t, true)
+	resultsA, e := vector.GetProtoValues()
+	vector.Values.(arrow.Array).Release()
+	assert.NoError(t, e)
+	resultsB, e := testTransposeFeatureRowsIntoColumns(t, false).GetProtoValues()
+	assert.NoError(t, e)
+	assert.ElementsMatch(t, resultsA, resultsB)
+}
+
+func testTransposeFeatureRowsIntoColumns(t *testing.T, useArrow bool) *FeatureVector {
+	arrowAllocator := memory.NewGoAllocator()
+	numRows := 2
+
+	entity1 := test.CreateEntityProto("driver", types.ValueType_INT64, "driver")
+	fv := test.CreateFeatureViewModel("testView", []*core.Entity{entity1}, test.CreateFeature("f1", types.ValueType_DOUBLE), test.CreateFeature("f2", types.ValueType_DOUBLE_LIST))
+
+	featureViews := []*FeatureViewAndRefs{
+		{View: fv, FeatureRefs: []string{"f1"}},
+	}
+
+	entityKeys := make([]*types.EntityKey, numRows)
+	for i := range numRows {
+		entityKeys[i] = &types.EntityKey{
+			JoinKeys:     []string{"driver"},
+			EntityValues: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: int64(i)}}},
+		}
+	}
+
+	groupRef := &GroupedFeaturesPerEntitySet{
+		FeatureNames:        []string{"f1", "f2"},
+		FeatureViewNames:    []string{"testView"},
+		AliasedFeatureNames: []string{"testView__f1"},
+		EntityKeys:          entityKeys,
+		Indices:             [][]int{{0}, {1}},
+	}
+
+	nowTime := time.Now()
+	yesterdayTime := nowTime.Add(-24 * time.Hour)
+
+	featureData := [][]onlinestore.FeatureData{
+		{
+			{
+				Reference: serving.FeatureReferenceV2{
+					FeatureViewName: "testView",
+					FeatureName:     "f1",
+				},
+				Timestamp: timestamppb.Timestamp{Seconds: nowTime.Unix()},
+				Value:     types.Value{Val: &types.Value_DoubleVal{DoubleVal: 10.0}},
+			},
+			{
+				Reference: serving.FeatureReferenceV2{
+					FeatureViewName: "testView",
+					FeatureName:     "f2",
+				},
+				Timestamp: timestamppb.Timestamp{Seconds: nowTime.Unix()},
+				Value:     types.Value{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{1.1, 1.2}}}},
+			},
+		},
+		{
+			{
+				Reference: serving.FeatureReferenceV2{
+					FeatureViewName: "testView",
+					FeatureName:     "f1",
+				},
+				Timestamp: timestamppb.Timestamp{Seconds: yesterdayTime.Unix()},
+				Value:     types.Value{Val: &types.Value_DoubleVal{DoubleVal: 20.0}},
+			},
+			{
+				Reference: serving.FeatureReferenceV2{
+					FeatureViewName: "testView",
+					FeatureName:     "f2",
+				},
+				Timestamp: timestamppb.Timestamp{Seconds: yesterdayTime.Unix()},
+				Value:     types.Value{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{2.1, 2.2}}}},
+			},
+		},
+	}
+
+	vectors, err := TransposeFeatureRowsIntoColumns(featureData, groupRef, featureViews, arrowAllocator, numRows, useArrow)
+
+	assert.NoError(t, err)
+	assert.Len(t, vectors, 1)
+	vector := vectors[0]
+	assert.Equal(t, "testView__f1", vector.Name)
+	assert.Len(t, vector.Statuses, numRows)
+	assert.Len(t, vector.Timestamps, numRows)
+	assert.Len(t, vector.Statuses, 2)
+	assert.Len(t, vector.Timestamps, 2)
+	assert.Equal(t, serving.FieldStatus_PRESENT, vector.Statuses[0])
+	assert.Equal(t, serving.FieldStatus_PRESENT, vector.Statuses[1])
+	assert.NotNil(t, vector.Values)
+	return vector
+}
+
 func TestTransposeRangeFeatureRowsIntoColumns(t *testing.T) {
+	vector := testTransposeRangeFeatureRowsIntoColumns(t, true)
+	resultsA, e := vector.GetProtoValues()
+	vector.RangeValues.(arrow.Array).Release()
+	assert.NoError(t, e)
+	resultsB, e := testTransposeRangeFeatureRowsIntoColumns(t, false).GetProtoValues()
+	assert.NoError(t, e)
+	assert.ElementsMatch(t, resultsA, resultsB)
+}
+
+func testTransposeRangeFeatureRowsIntoColumns(t *testing.T, useArrow bool) *RangeFeatureVector {
 	arrowAllocator := memory.NewGoAllocator()
 	numRows := 2
 
@@ -1756,7 +1863,7 @@ func TestTransposeRangeFeatureRowsIntoColumns(t *testing.T) {
 		},
 	}
 
-	vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows)
+	vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, useArrow)
 
 	assert.NoError(t, err)
 	assert.Len(t, vectors, 1)
@@ -1771,7 +1878,7 @@ func TestTransposeRangeFeatureRowsIntoColumns(t *testing.T) {
 	assert.Len(t, vector.RangeTimestamps[1], 1)
 	assert.Equal(t, serving.FieldStatus_PRESENT, vector.RangeStatuses[1][0])
 	assert.NotNil(t, vector.RangeValues)
-	vector.RangeValues.Release()
+	return vector
 }
 
 func TestValidateFeatureRefs(t *testing.T) {
@@ -2064,7 +2171,49 @@ func generateMockFeatureViewAndRefs(numViews, numFeatures int) []*FeatureViewAnd
 	return featureViews
 }
 
-func BenchmarkTransposeFeatureRowsIntoColumns(b *testing.B) {
+func BenchmarkTransposeFeatureRowsIntoColumnsWithArrowConversion(b *testing.B) {
+	numRows, featureData2D, groupRef, requestedFeatureViews, arrowAllocator := mockDataForBenchmarkTransposeFeatureRowsIntoColumns()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
+		if err != nil {
+			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
+		}
+	}
+}
+
+func BenchmarkTransposeFeatureRowsIntoColumnsWithoutArrowConversion(b *testing.B) {
+	numRows, featureData2D, groupRef, requestedFeatureViews, arrowAllocator := mockDataForBenchmarkTransposeFeatureRowsIntoColumns()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, false)
+		if err != nil {
+			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
+		}
+	}
+}
+
+func BenchmarkFullLoopArrowConversion(b *testing.B) {
+	numRows, featureData2D, groupRef, requestedFeatureViews, arrowAllocator := mockDataForBenchmarkTransposeFeatureRowsIntoColumns()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		vectors, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
+		if err != nil {
+			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
+		}
+		for _, v := range vectors {
+			_, e := types2.ArrowValuesToProtoValues(v.Values.(arrow.Array))
+			if e != nil {
+				b.Fatalf("Error during ArrowValuesToProtoValues for %s: %v", v.Name, e)
+			}
+		}
+	}
+}
+
+func mockDataForBenchmarkTransposeFeatureRowsIntoColumns() (int, [][]onlinestore.FeatureData, *GroupedFeaturesPerEntitySet, []*FeatureViewAndRefs, *memory.GoAllocator) {
 	// Mock Data
 	numRows := 1000
 	numFeatures := 100
@@ -2109,14 +2258,7 @@ func BenchmarkTransposeFeatureRowsIntoColumns(b *testing.B) {
 	}
 
 	arrowAllocator := memory.NewGoAllocator()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows)
-		if err != nil {
-			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
-		}
-	}
+	return numRows, featureData2D, groupRef, requestedFeatureViews, arrowAllocator
 }
 
 func TestBatchGroupedFeatureRef_VariableBatchSizes(t *testing.T) {
