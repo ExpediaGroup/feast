@@ -46,6 +46,7 @@ from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import RepeatedValue
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
+from feast.rate_limiter import TokenBucketRateLimiter
 from feast.repo_config import BATCH_ENGINE_CLASS_FOR_TYPE, RepoConfig
 from feast.saved_dataset import SavedDataset
 from feast.sorted_feature_view import SortedFeatureView
@@ -71,6 +72,7 @@ class PassthroughProvider(Provider):
         self._offline_store = None
         self._online_store = None
         self._batch_engine: Optional[ComputeEngine] = None
+        self._write_token_limiters: Dict[str, TokenBucketRateLimiter] = {}
 
     @property
     def online_store(self):
@@ -199,8 +201,89 @@ class PassthroughProvider(Provider):
         ],
         progress: Optional[Callable[[int], Any]],
     ) -> None:
-        if self.online_store:
-            self.online_store.online_write_batch(config, table, data, progress)
+        """
+        Write data to the online store in rate-limited batches.
+        Uses TokenBucketRateLimiter to throttle writes.
+        """
+
+        # Resolve configured rate limit
+        rate_limit = self._resolve_write_rate_limit(config, table)
+        fv_name = getattr(table, "name", "global") if table is not None else "global"
+        limiter_key = f"{config.project}:{fv_name}"
+
+        # If rate limit is 0 or unset, bypass limiter
+        if rate_limit <= 0:
+            if self.online_store:
+                self.online_store.online_write_batch(config, table, data, progress)
+            return
+
+        # Create or reuse per-feature-view limiter
+        percent_usage = 0.6
+        interval = 1.0  # seconds
+
+        limiter = self._write_token_limiters.get(limiter_key)
+        if limiter is None or limiter.rate != rate_limit:
+            limiter = TokenBucketRateLimiter(
+                rate=rate_limit, interval=interval, percent_usage=percent_usage
+            )
+            self._write_token_limiters[limiter_key] = limiter
+            logger.info(
+                f"[Limiter] Initialized rate limiter for {limiter_key} at {rate_limit} writes/sec"
+            )
+
+        # Process data in dynamically sized batches based on token availability
+        total_records = len(data)
+        index = 0
+
+        while index < total_records:
+            available = limiter.get_available_tokens()
+            # Ensure we always make progress (at least 1 record)
+            batch_size = min(max(available, 1), total_records - index)
+
+            batch = data[index : index + batch_size]
+            limiter.wait_for_tokens(len(batch))  # blocks until tokens available
+
+            if self.online_store:
+                self.online_store.online_write_batch(config, table, batch, progress)
+
+            index += batch_size
+            if progress:
+                progress(batch_size)
+
+    def _resolve_write_rate_limit(
+        self,
+        config: RepoConfig,
+        table: Union[FeatureView, BaseFeatureView, OnDemandFeatureView],
+    ) -> int:
+        """Resolve write_rate_limit using precedence:
+        1. feature view tag 'write_rate_limit'
+        2. config.online_store.write_rate_limit
+        3. fallback 0
+        """
+        # 1) Feature view tag override
+        if table is not None and hasattr(table, "tags") and table.tags:
+            tag_val = table.tags.get("write_rate_limit")
+            if tag_val is not None:
+                try:
+                    return int(tag_val)
+                except Exception:
+                    logger.warning(
+                        "Invalid write_rate_limit on feature view %s: %s; falling back",
+                        getattr(table, "name", "<unknown>"),
+                        tag_val,
+                    )
+
+        # 2) Project / online store level config
+        try:
+            if config.online_store and hasattr(config.online_store, "write_rate_limit"):
+                return int(getattr(config.online_store, "write_rate_limit") or 0)
+        except Exception:
+            logger.warning(
+                "Invalid write_rate_limit on online_store config; falling back to 0"
+            )
+
+        # 3) Fallback to 0 (no rate limit)
+        return 0
 
     async def online_write_batch_async(
         self,
@@ -396,6 +479,7 @@ class PassthroughProvider(Provider):
         )
 
         num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
+
         if num_spark_driver_cores > 2:
             # Leaving one core for operating system and other background processes
             num_processes = num_spark_driver_cores - 1
