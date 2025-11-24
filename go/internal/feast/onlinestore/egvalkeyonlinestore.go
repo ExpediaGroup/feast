@@ -551,36 +551,25 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 			zkey := utils.BuildZsetKey(fv, entityKeyBin)
 
 			var cmd valkey.Completed
-
 			if effectiveReverse {
 				// Reverse sort order: use BYSCORE + REV and swap min/max
-				zr := v.client.B().
+				cmd = v.client.B().
 					Zrange().
 					Key(zkey).
 					Min(maxScore).
 					Max(minScore).
 					Byscore().
-					Rev()
-
-				if limit > 0 {
-					cmd = zr.Limit(0, limit).Build()
-				} else {
-					cmd = zr.Build()
-				}
+					Rev().
+					Build()
 			} else {
 				// Forward sort order: normal min/max BYSCORE
-				zr := v.client.B().
+				cmd = v.client.B().
 					Zrange().
 					Key(zkey).
 					Min(minScore).
 					Max(maxScore).
-					Byscore()
-
-				if limit > 0 {
-					cmd = zr.Limit(0, limit).Build()
-				} else {
-					cmd = zr.Build()
-				}
+					Byscore().
+					Build()
 			}
 
 			fvOrder = append(fvOrder, fv)
@@ -648,9 +637,20 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 			); err != nil {
 				return nil, err
 			}
+			if limit > 0 {
+				for _, col := range grp.columnIndexes {
+					if len(results[eIdx][col].Values) > int(limit) {
+						results[eIdx][col].Values =
+							results[eIdx][col].Values[:limit]
+						results[eIdx][col].Statuses =
+							results[eIdx][col].Statuses[:limit]
+						results[eIdx][col].EventTimestamps =
+							results[eIdx][col].EventTimestamps[:limit]
+					}
+				}
+			}
 		}
 	}
-
 	return results, nil
 }
 

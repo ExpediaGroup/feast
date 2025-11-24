@@ -573,3 +573,99 @@ func TestGetOnlineFeaturesRangeValkey_RangeStartInclusive(t *testing.T) {
 		}
 	}
 }
+
+func TestGetOnlineFeaturesRangeValkey_LimitAppliedAfterHMGET(t *testing.T) {
+	entities := map[string]*types.RepeatedValue{
+		"index_id": {
+			Val: []*types.Value{
+				{Val: &types.Value_Int64Val{Int64Val: 1}},
+			},
+		},
+	}
+
+	featureNames := getAllSortedFeatureNames()
+	fvNames := buildFeatureRefs(featureNames)
+
+	// Very small limit (5) to verify truncation AFTER HMGET
+	const limit = 5
+
+	req := &serving.GetOnlineFeaturesRangeRequest{
+		Kind: &serving.GetOnlineFeaturesRangeRequest_Features{
+			Features: &serving.FeatureList{Val: fvNames},
+		},
+		Entities: entities,
+		SortKeyFilters: []*serving.SortKeyFilter{
+			{
+				SortKeyName: "event_timestamp",
+				Query: &serving.SortKeyFilter_Range{
+					Range: &serving.SortKeyFilter_RangeQuery{
+						RangeStart: &types.Value{
+							Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 0},
+						},
+						StartInclusive: true,
+					},
+				},
+			},
+		},
+		Limit:           limit,
+		IncludeMetadata: true,
+	}
+
+	resp, err := client.GetOnlineFeaturesRange(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+
+	rows := loadParquetRows(t)
+
+	entCol := resp.Entities["index_id"]
+	require.Equal(t, 1, len(entCol.Val))
+	entityID := entCol.Val[0].GetInt64Val()
+
+	// Parquet ground truth, sorted ASC (since reverse_sort_order = false)
+	expectedRows := test.FilterRowsByColumn(rows, "index_id", entityID)
+	sort.Slice(expectedRows, func(i, j int) bool {
+		return expectedRows[i]["event_timestamp"].(int64) <
+			expectedRows[j]["event_timestamp"].(int64)
+	})
+
+	// Apply limit AFTER filtering, like the backend does now
+	if len(expectedRows) > limit {
+		expectedRows = expectedRows[:limit]
+	}
+
+	// Validate each feature
+	for fIdx, feature := range featureNames {
+		result := resp.Results[fIdx]
+
+		// Only one entity → len(result.Values) must be 1
+		require.Equal(t, 1, len(result.Values))
+
+		actualVals := result.Values[0].Val
+		actualStatuses := result.Statuses[0].Status
+		actualTS := result.EventTimestamps[0].Val
+
+		require.Equal(t, len(expectedRows), len(actualVals),
+			"expected %d rows for feature %s, got %d",
+			len(expectedRows), feature, len(actualVals))
+
+		for i := range expectedRows {
+			expVal := convertParquetValue(expectedRows[i][feature], feature)
+			actVal := actualVals[i]
+
+			assert.Equal(t, expVal, actVal,
+				"feature=%s idx=%d expected=%v actual=%v",
+				feature, i, expVal, actVal)
+
+			expTS := expectedRows[i]["event_timestamp"].(int64)
+			actTS := actualTS[i].GetUnixTimestampVal()
+			assert.Equal(t, expTS, actTS,
+				"timestamp mismatch feature=%s idx=%d", feature, i)
+
+			if expectedRows[i][feature] == nil {
+				assert.Equal(t, serving.FieldStatus_NULL_VALUE, actualStatuses[i])
+			} else {
+				assert.Equal(t, serving.FieldStatus_PRESENT, actualStatuses[i])
+			}
+		}
+	}
+}
