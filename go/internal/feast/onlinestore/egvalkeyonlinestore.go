@@ -366,9 +366,10 @@ func valkeyBatchHMGET(
 	grp *fvGroup,
 	results [][]RangeFeatureData,
 	eIdx int,
+	batchSize int,
 ) error {
-	for start := 0; start < len(members); start += PIPELINE_BATCH_SIZE {
-		end := min(start+PIPELINE_BATCH_SIZE, len(members))
+	for start := 0; start < len(members); start += batchSize {
+		end := min(start+batchSize, len(members))
 		batch := members[start:end]
 
 		// Build all HMGET commands for this batch
@@ -634,6 +635,7 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 				grp,
 				results,
 				eIdx,
+				v.ReadBatchSize,
 			); err != nil {
 				return nil, err
 			}
