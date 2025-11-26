@@ -633,7 +633,7 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 				continue
 			}
 
-			// HMGET fields: feature hashes + tsKey
+			// HMGET fields: feature hashes + ts Key
 			fields := append(append([]string{}, grp.fieldHashes...), grp.tsKey)
 
 			if err := valkeyBatchHMGET(
