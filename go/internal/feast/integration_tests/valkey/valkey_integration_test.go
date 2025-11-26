@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/feast-dev/feast/go/internal/feast/server"
 	"github.com/feast-dev/feast/go/internal/test"
@@ -342,10 +343,14 @@ func assertRangeResponseMatchesParquet(
 }
 
 func TestGetOnlineFeaturesRangeValkey(t *testing.T) {
+	start := time.Now()
 	entities := buildEntities()
+	t.Logf("buildEntities took: %d ms", time.Since(start).Milliseconds())
 
+	start = time.Now()
 	featureNames := getAllSortedFeatureNames()
 	fvNames := buildFeatureRefs(featureNames)
+	t.Logf("building feature names + refs took: %d ms", time.Since(start).Milliseconds())
 
 	req := &serving.GetOnlineFeaturesRangeRequest{
 		Kind: &serving.GetOnlineFeaturesRangeRequest_Features{
@@ -368,9 +373,15 @@ func TestGetOnlineFeaturesRangeValkey(t *testing.T) {
 		IncludeMetadata: true,
 	}
 
+	start = time.Now()
 	resp, err := client.GetOnlineFeaturesRange(ctx, req)
+	t.Logf("GetOnlineFeaturesRange RPC latency: %d ms", time.Since(start).Milliseconds())
+
 	require.NoError(t, err)
+
+	start = time.Now()
 	assertRangeResponseMatchesParquet(t, resp, featureNames)
+	t.Logf("assertRangeResponseMatchesParquet took: %d ms", time.Since(start).Milliseconds())
 }
 
 func TestGetOnlineFeaturesRangeValkey_NoSortKeyFilter(t *testing.T) {

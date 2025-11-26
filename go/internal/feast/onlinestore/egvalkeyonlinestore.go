@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -368,94 +369,104 @@ func valkeyBatchHMGET(
 	eIdx int,
 	batchSize int,
 ) error {
-	for start := 0; start < len(members); start += batchSize {
-		end := min(start+batchSize, len(members))
-		batch := members[start:end]
+	// Build keys for MGET
+	keys := make([]string, 0, len(members))
+	for _, sortKeyBytes := range members {
+		hashKey := utils.BuildHashKey(entityKeyBin, sortKeyBytes)
+		keys = append(keys, hashKey)
+	}
 
-		// Build all HMGET commands for this batch
-		cmds := make([]valkey.Completed, 0, len(batch))
-		for _, sortKeyBytes := range batch {
-			hashKey := utils.BuildHashKey(entityKeyBin, sortKeyBytes)
-			cmds = append(cmds, client.B().Hmget().Key(hashKey).Field(fields...).Build())
+	// Execute MGET
+	cmd := client.B().Mget().Key(keys...).Build()
+	result, err := client.Do(ctx, cmd).AsStrSlice()
+	if err != nil {
+		return fmt.Errorf("mget failed: %w", err)
+	}
+
+	// Process each result
+	for i, sortKeyBytes := range members {
+		memberKey := base64.StdEncoding.EncodeToString(sortKeyBytes)
+
+		// Skip if key doesn't exist
+		if i >= len(result) || result[i] == "" {
+			continue
 		}
 
-		multi := client.DoMulti(ctx, cmds...)
+		// Parse JSON
+		var record map[string]interface{}
+		if err := json.Unmarshal([]byte(result[i]), &record); err != nil {
+			continue
+		}
 
-		// Decode each HMGET result
-		for i, sortKeyBytes := range batch {
-			memberKey := base64.StdEncoding.EncodeToString(sortKeyBytes)
-			cmdRes := multi[i]
+		featureFieldCount := len(grp.featNames)
 
-			// If hash key is missing or HMGET failed: skip this ZSET member entirely.
-			if err := cmdRes.Error(); err != nil {
-				continue
-			}
-
-			arr, err := cmdRes.ToArray()
-			if err != nil || len(arr) == 0 {
-				continue
-			}
-
-			featureFieldCount := len(grp.featNames)
-
-			allNil := true
-			for fi := 0; fi < featureFieldCount && fi < len(arr)-1; fi++ {
-				if !arr[fi].IsNil() {
+		// Check if all feature fields are nil
+		allNil := true
+		for fi := 0; fi < featureFieldCount; fi++ {
+			if fi < len(fields)-1 {
+				fieldName := fields[fi]
+				if val, exists := record[fieldName]; exists && val != nil {
 					allNil = false
 					break
 				}
 			}
-			if allNil {
+		}
+		if allNil {
+			continue
+		}
+
+		// Decode timestamp (last field)
+		var eventTS timestamppb.Timestamp
+		if len(fields) > 0 {
+			tsField := fields[len(fields)-1]
+			if tsVal, exists := record[tsField]; exists && tsVal != nil {
+				if tsStr, ok := tsVal.(string); ok {
+					eventTS = utils.DecodeTimestamp(tsStr)
+				}
+			}
+		}
+
+		// Decode each feature
+		for iCol, col := range grp.columnIndexes {
+			fieldIdx := iCol
+
+			if fieldIdx >= len(fields)-1 {
 				continue
 			}
 
-			// Decode timestamp (last field)
-			var eventTS timestamppb.Timestamp
-			if len(arr) > 0 {
-				tsVal := arr[len(arr)-1]
-				if !tsVal.IsNil() {
-					tsStr, err := tsVal.ToString()
-					if err == nil {
-						eventTS = utils.DecodeTimestamp(tsStr)
-					}
+			fieldName := fields[fieldIdx]
+
+			var (
+				val    interface{}
+				status serving.FieldStatus
+			)
+
+			rawVal, exists := record[fieldName]
+			if !exists || rawVal == nil {
+				val = nil
+				status = serving.FieldStatus_NULL_VALUE
+			} else {
+				// Convert to string if needed for DecodeFeatureValue
+				var strVal string
+				switch v := rawVal.(type) {
+				case string:
+					strVal = v
+				default:
+					// Handle numeric types or convert to string
+					strVal = fmt.Sprintf("%v", v)
 				}
-			}
 
-			// Decode each feature
-			for iCol, col := range grp.columnIndexes {
-				fieldIdx := iCol
+				raw := interface{}(strVal)
+				val, status = utils.DecodeFeatureValue(raw, fv, grp.featNames[iCol], memberKey)
 
-				if fieldIdx >= len(arr)-1 {
-					continue
-				}
-
-				fvResp := arr[fieldIdx]
-
-				var (
-					val    interface{}
-					status serving.FieldStatus
-				)
-
-				if fvResp.IsNil() {
+				if status == serving.FieldStatus_NULL_VALUE {
 					val = nil
-					status = serving.FieldStatus_NULL_VALUE
-				} else {
-					strVal, err := fvResp.ToString()
-					if err != nil {
-						continue
-					}
-					raw := interface{}(strVal)
-					val, status = utils.DecodeFeatureValue(raw, fv, grp.featNames[iCol], memberKey)
-
-					if status == serving.FieldStatus_NULL_VALUE {
-						val = nil
-					}
 				}
-
-				results[eIdx][col].Values = append(results[eIdx][col].Values, val)
-				results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, status)
-				results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, eventTS)
 			}
+
+			results[eIdx][col].Values = append(results[eIdx][col].Values, val)
+			results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, status)
+			results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, eventTS)
 		}
 	}
 	return nil
