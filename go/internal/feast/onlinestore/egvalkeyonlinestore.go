@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/utils"
@@ -368,96 +369,121 @@ func valkeyBatchHMGET(
 	eIdx int,
 	batchSize int,
 ) error {
-	for start := 0; start < len(members); start += batchSize {
-		end := min(start+batchSize, len(members))
-		batch := members[start:end]
 
-		// Build all HMGET commands for this batch
-		cmds := make([]valkey.Completed, 0, len(batch))
-		for _, sortKeyBytes := range batch {
-			hashKey := utils.BuildHashKey(entityKeyBin, sortKeyBytes)
-			cmds = append(cmds, client.B().Hmget().Key(hashKey).Field(fields...).Build())
+	nBatches := (len(members) + batchSize - 1) / batchSize
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, nBatches)
+
+	for b := 0; b < nBatches; b++ {
+		start := b * batchSize
+		end := start + batchSize
+		if end > len(members) {
+			end = len(members)
 		}
 
-		multi := client.DoMulti(ctx, cmds...)
+		batch := members[start:end]
 
-		// Decode each HMGET result
-		for i, sortKeyBytes := range batch {
-			memberKey := base64.StdEncoding.EncodeToString(sortKeyBytes)
-			cmdRes := multi[i]
+		wg.Add(1)
+		go func(batch [][]byte) {
+			defer wg.Done()
 
-			// If hash key is missing or HMGET failed: skip this ZSET member entirely.
-			if err := cmdRes.Error(); err != nil {
-				continue
+			// Build all HMGET commands for this batch
+			cmds := make([]valkey.Completed, 0, len(batch))
+			for _, sortKeyBytes := range batch {
+				hashKey := utils.BuildHashKey(entityKeyBin, sortKeyBytes)
+				cmds = append(cmds, client.B().Hmget().Key(hashKey).Field(fields...).Build())
 			}
 
-			arr, err := cmdRes.ToArray()
-			if err != nil || len(arr) == 0 {
-				continue
-			}
+			multi := client.DoMulti(ctx, cmds...)
 
-			featureFieldCount := len(grp.featNames)
+			for i, sortKeyBytes := range batch {
+				memberKey := base64.StdEncoding.EncodeToString(sortKeyBytes)
+				cmdRes := multi[i]
 
-			allNil := true
-			for fi := 0; fi < featureFieldCount && fi < len(arr)-1; fi++ {
-				if !arr[fi].IsNil() {
-					allNil = false
-					break
-				}
-			}
-			if allNil {
-				continue
-			}
-
-			// Decode timestamp (last field)
-			var eventTS timestamppb.Timestamp
-			if len(arr) > 0 {
-				tsVal := arr[len(arr)-1]
-				if !tsVal.IsNil() {
-					tsStr, err := tsVal.ToString()
-					if err == nil {
-						eventTS = utils.DecodeTimestamp(tsStr)
-					}
-				}
-			}
-
-			// Decode each feature
-			for iCol, col := range grp.columnIndexes {
-				fieldIdx := iCol
-
-				if fieldIdx >= len(arr)-1 {
+				if err := cmdRes.Error(); err != nil {
+					// Cassandra code simply returns (we do same style)
 					continue
 				}
 
-				fvResp := arr[fieldIdx]
+				arr, err := cmdRes.ToArray()
+				if err != nil || len(arr) == 0 {
+					continue
+				}
 
-				var (
-					val    interface{}
-					status serving.FieldStatus
-				)
+				featureFieldCount := len(grp.featNames)
 
-				if fvResp.IsNil() {
-					val = nil
-					status = serving.FieldStatus_NULL_VALUE
-				} else {
-					strVal, err := fvResp.ToString()
-					if err != nil {
-						continue
+				// All-nil detection
+				allNil := true
+				for fi := 0; fi < featureFieldCount && fi < len(arr)-1; fi++ {
+					if !arr[fi].IsNil() {
+						allNil = false
+						break
 					}
-					raw := interface{}(strVal)
-					val, status = utils.DecodeFeatureValue(raw, fv, grp.featNames[iCol], memberKey)
-
-					if status == serving.FieldStatus_NULL_VALUE {
-						val = nil
+				}
+				if allNil {
+					continue
+				}
+				// Decode timestamp (last element)
+				var eventTS timestamppb.Timestamp
+				if len(arr) > 0 {
+					tsVal := arr[len(arr)-1]
+					if !tsVal.IsNil() {
+						tsStr, err := tsVal.ToString()
+						if err == nil {
+							eventTS = utils.DecodeTimestamp(tsStr)
+						}
 					}
 				}
 
-				results[eIdx][col].Values = append(results[eIdx][col].Values, val)
-				results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, status)
-				results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, eventTS)
+				// Append feature values
+				for iCol, col := range grp.columnIndexes {
+					fieldIdx := iCol
+
+					if fieldIdx >= len(arr)-1 {
+						continue
+					}
+
+					fvResp := arr[fieldIdx]
+
+					var (
+						val    interface{}
+						status serving.FieldStatus
+					)
+
+					if fvResp.IsNil() {
+						val = nil
+						status = serving.FieldStatus_NULL_VALUE
+					} else {
+						strVal, err := fvResp.ToString()
+						if err != nil {
+							continue
+						}
+						raw := interface{}(strVal)
+						val, status = utils.DecodeFeatureValue(raw, fv, grp.featNames[iCol], memberKey)
+						if status == serving.FieldStatus_NULL_VALUE {
+							val = nil
+						}
+					}
+
+					results[eIdx][col].Values = append(results[eIdx][col].Values, val)
+					results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, status)
+					results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, eventTS)
+				}
 			}
+		}(batch)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Cassandra returns combined errors — here we return first non-nil
+	for err := range errChan {
+		if err != nil {
+			return err
 		}
 	}
+
 	return nil
 }
 
