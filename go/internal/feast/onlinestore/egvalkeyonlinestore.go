@@ -814,7 +814,6 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 		}(eIdx, entityKey)
 	}
 
-	// Wait for all goroutines to complete
 	wg.Wait()
 	close(errChan)
 
