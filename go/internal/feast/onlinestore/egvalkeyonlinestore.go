@@ -10,6 +10,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/utils"
@@ -355,7 +357,14 @@ func (v *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 	return results, nil
 }
 
-// valkeyBatchHMGET executes HMGET in pipelined batches for a single feature view.
+type mgetBatchResult struct {
+	memberIdx int
+	memberKey string
+	values    map[int]interface{}
+	statuses  map[int]serving.FieldStatus
+	timestamp timestamppb.Timestamp
+}
+
 func valkeyBatchHMGET(
 	ctx context.Context,
 	client valkey.Client,
@@ -368,50 +377,85 @@ func valkeyBatchHMGET(
 	eIdx int,
 	batchSize int,
 ) error {
-	for start := 0; start < len(members); start += batchSize {
-		end := min(start+batchSize, len(members))
-		batch := members[start:end]
 
-		// Build all HMGET commands for this batch
-		cmds := make([]valkey.Completed, 0, len(batch))
-		for _, sortKeyBytes := range batch {
-			hashKey := utils.BuildHashKey(entityKeyBin, sortKeyBytes)
-			cmds = append(cmds, client.B().Hmget().Key(hashKey).Field(fields...).Build())
+	if len(members) == 0 {
+		return nil
+	}
+	if batchSize <= 0 {
+		batchSize = len(members)
+	}
+
+	nBatches := (len(members) + batchSize - 1) / batchSize
+
+	batchResults := make([]*mgetBatchResult, len(members))
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, nBatches)
+
+	for b := 0; b < nBatches; b++ {
+
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			close(errChan)
+			return ctx.Err()
+		default:
 		}
 
-		multi := client.DoMulti(ctx, cmds...)
+		startIdx := b * batchSize
+		end := startIdx + batchSize
+		if end > len(members) {
+			end = len(members)
+		}
 
-		// Decode each HMGET result
-		for i, sortKeyBytes := range batch {
-			memberKey := base64.StdEncoding.EncodeToString(sortKeyBytes)
-			cmdRes := multi[i]
+		batch := members[startIdx:end]
 
-			// If hash key is missing or HMGET failed: skip this ZSET member entirely.
-			if err := cmdRes.Error(); err != nil {
-				continue
+		wg.Add(1)
+		go func(startIdx int, batch [][]byte) {
+			defer wg.Done()
+
+			select {
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			default:
 			}
 
-			arr, err := cmdRes.ToArray()
-			if err != nil || len(arr) == 0 {
-				continue
+			cmds := make([]valkey.Completed, 0, len(batch))
+			for _, sortKeyBytes := range batch {
+				hashKey := utils.BuildHashKey(entityKeyBin, sortKeyBytes)
+				cmds = append(cmds, client.B().Hmget().Key(hashKey).Field(fields...).Build())
 			}
 
-			featureFieldCount := len(grp.featNames)
+			multi := client.DoMulti(ctx, cmds...)
 
-			allNil := true
-			for fi := 0; fi < featureFieldCount && fi < len(arr)-1; fi++ {
-				if !arr[fi].IsNil() {
-					allNil = false
-					break
+			for i, sortKeyBytes := range batch {
+				memberIdx := startIdx + i
+				memberKey := base64.StdEncoding.EncodeToString(sortKeyBytes)
+				cmdRes := multi[i]
+
+				if err := cmdRes.Error(); err != nil {
+					continue
 				}
-			}
-			if allNil {
-				continue
-			}
 
-			// Decode timestamp (last field)
-			var eventTS timestamppb.Timestamp
-			if len(arr) > 0 {
+				arr, err := cmdRes.ToArray()
+				if err != nil || len(arr) == 0 {
+					continue
+				}
+
+				featureCount := len(grp.featNames)
+				allNil := true
+				for fi := 0; fi < featureCount && fi < len(arr)-1; fi++ {
+					if !arr[fi].IsNil() {
+						allNil = false
+						break
+					}
+				}
+				if allNil {
+					continue
+				}
+
+				var eventTS timestamppb.Timestamp
 				tsVal := arr[len(arr)-1]
 				if !tsVal.IsNil() {
 					tsStr, err := tsVal.ToString()
@@ -419,45 +463,231 @@ func valkeyBatchHMGET(
 						eventTS = utils.DecodeTimestamp(tsStr)
 					}
 				}
-			}
 
-			// Decode each feature
-			for iCol, col := range grp.columnIndexes {
-				fieldIdx := iCol
-
-				if fieldIdx >= len(arr)-1 {
-					continue
+				res := &mgetBatchResult{
+					memberIdx: memberIdx,
+					memberKey: memberKey,
+					values:    make(map[int]interface{}),
+					statuses:  make(map[int]serving.FieldStatus),
+					timestamp: eventTS,
 				}
 
-				fvResp := arr[fieldIdx]
-
-				var (
-					val    interface{}
-					status serving.FieldStatus
-				)
-
-				if fvResp.IsNil() {
-					val = nil
-					status = serving.FieldStatus_NULL_VALUE
-				} else {
-					strVal, err := fvResp.ToString()
-					if err != nil {
+				for localIdx, col := range grp.columnIndexes {
+					if localIdx >= len(arr)-1 {
 						continue
 					}
-					raw := interface{}(strVal)
-					val, status = utils.DecodeFeatureValue(raw, fv, grp.featNames[iCol], memberKey)
 
-					if status == serving.FieldStatus_NULL_VALUE {
+					fvResp := arr[localIdx]
+
+					var val interface{}
+					var status serving.FieldStatus
+
+					if fvResp.IsNil() {
 						val = nil
+						status = serving.FieldStatus_NULL_VALUE
+					} else {
+						strVal, err := fvResp.ToString()
+						if err != nil {
+							continue
+						}
+
+						decoded, st := utils.DecodeFeatureValue(
+							strVal, fv, grp.featNames[localIdx], memberKey,
+						)
+
+						if st == serving.FieldStatus_NULL_VALUE {
+							val = nil
+						} else {
+							val = decoded
+						}
+
+						status = st
 					}
+
+					_ = col
+					res.values[localIdx] = val
+					res.statuses[localIdx] = status
 				}
 
-				results[eIdx][col].Values = append(results[eIdx][col].Values, val)
-				results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, status)
-				results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, eventTS)
+				batchResults[memberIdx] = res
+			}
+
+		}(startIdx, batch)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var allErrors []error
+	for e := range errChan {
+		if e != nil {
+			allErrors = append(allErrors, e)
+		}
+	}
+	if len(allErrors) > 0 {
+		return errors.Join(allErrors...)
+	}
+
+	for _, result := range batchResults {
+		if result == nil {
+			continue
+		}
+		for localIdx, col := range grp.columnIndexes {
+			results[eIdx][col].Values = append(results[eIdx][col].Values, result.values[localIdx])
+			results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, result.statuses[localIdx])
+			results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, result.timestamp)
+		}
+	}
+	return nil
+}
+
+func (v *ValkeyOnlineStore) processEntityKey(
+	ctx context.Context,
+	eIdx int,
+	entityKey *types.EntityKey,
+	fvGroups map[string]*fvGroup,
+	effectiveReverse bool,
+	minScore, maxScore string,
+	limit int64,
+	results [][]RangeFeatureData,
+	featNames, fvNames []string,
+) error {
+
+	start := time.Now()
+	log.Debug().Msgf("OnlineReadRange: processEntityKey[%d]: start", eIdx)
+	defer func() {
+		log.Debug().Msgf(
+			"OnlineReadRange: processEntityKey[%d]: completed in %s",
+			eIdx, time.Since(start),
+		)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	entityKeyBin, err := SerializeEntityKeyWithProject(
+		v.project,
+		entityKey,
+		v.config.EntityKeySerializationVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to serialize entity key: %w", err)
+	}
+
+	// Initialize results row
+	results[eIdx] = make([]RangeFeatureData, len(featNames))
+	for i := range featNames {
+		results[eIdx][i] = RangeFeatureData{
+			FeatureView:     fvNames[i],
+			FeatureName:     featNames[i],
+			Values:          []interface{}{},
+			Statuses:        []serving.FieldStatus{},
+			EventTimestamps: []timestamppb.Timestamp{},
+		}
+	}
+
+	// ---- ZRANGE ----
+	zCmds := make([]valkey.Completed, 0, len(fvGroups))
+	fvOrder := make([]string, 0, len(fvGroups))
+
+	for fv := range fvGroups {
+		zkey := utils.BuildZsetKey(fv, entityKeyBin)
+		var cmd valkey.Completed
+
+		if effectiveReverse {
+			cmd = v.client.B().
+				Zrange().
+				Key(zkey).
+				Min(maxScore).Max(minScore).Byscore().Rev().
+				Build()
+		} else {
+			cmd = v.client.B().
+				Zrange().
+				Key(zkey).
+				Min(minScore).Max(maxScore).Byscore().
+				Build()
+		}
+
+		zCmds = append(zCmds, cmd)
+		fvOrder = append(fvOrder, fv)
+	}
+
+	zResults := v.client.DoMulti(ctx, zCmds...)
+
+	zMembers := map[string][][]byte{}
+	for i, fv := range fvOrder {
+		raw := zResults[i]
+		if err := raw.Error(); err != nil {
+			zMembers[fv] = nil
+			continue
+		}
+
+		arr, err := raw.ToArray()
+		if err != nil {
+			zMembers[fv] = nil
+			continue
+		}
+
+		out := make([][]byte, 0, len(arr))
+		for _, itm := range arr {
+			if itm.IsNil() {
+				continue
+			}
+			s, err := itm.ToString()
+			if err != nil {
+				continue
+			}
+			out = append(out, []byte(s))
+		}
+		zMembers[fv] = out
+	}
+
+	// ---- HMGET (parallel batches) ----
+
+	for fv, grp := range fvGroups {
+		members := zMembers[fv]
+
+		if len(members) == 0 {
+			for _, col := range grp.columnIndexes {
+				results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
+				results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
+				results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, timestamppb.Timestamp{})
+			}
+			continue
+		}
+
+		fields := append(append([]string{}, grp.fieldHashes...), grp.tsKey)
+
+		if err := valkeyBatchHMGET(
+			ctx,
+			v.client,
+			entityKeyBin,
+			members,
+			fields,
+			fv,
+			grp,
+			results,
+			eIdx,
+			v.ReadBatchSize,
+		); err != nil {
+			return err
+		}
+
+		if limit > 0 {
+			for _, col := range grp.columnIndexes {
+				r := &results[eIdx][col]
+				if len(r.Values) > int(limit) {
+					r.Values = r.Values[:limit]
+					r.Statuses = r.Statuses[:limit]
+					r.EventTimestamps = r.EventTimestamps[:limit]
+				}
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -466,24 +696,35 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 	groupedRefs *model.GroupedRangeFeatureRefs,
 ) ([][]RangeFeatureData, error) {
 
+	start := time.Now()
+	defer func() {
+		dur := time.Since(start)
+		log.Info().Msgf("OnlineReadRange: completed in %s", dur)
+	}()
+
 	if groupedRefs == nil || len(groupedRefs.EntityKeys) == 0 {
+		log.Warn().Msg("OnlineReadRange: no entity keys provided")
 		return nil, fmt.Errorf("no entity keys provided")
 	}
 
-	featureNames := groupedRefs.FeatureNames
-	featureViewNames := groupedRefs.FeatureViewNames
+	log.Info().Msgf(
+		"OnlineReadRange: started (entity_keys=%d, features=%d, limit=%d)",
+		len(groupedRefs.EntityKeys),
+		len(groupedRefs.FeatureNames),
+		groupedRefs.Limit,
+	)
+
+	featNames := groupedRefs.FeatureNames
+	fvNames := groupedRefs.FeatureViewNames
 	limit := int64(groupedRefs.Limit)
 
 	effectiveReverse := utils.ComputeEffectiveReverse(
 		groupedRefs.SortKeyFilters,
 		groupedRefs.IsReverseSortOrder,
 	)
-	var minScore, maxScore string
-	if len(groupedRefs.SortKeyFilters) == 0 {
-		// No predicate on sort key: fetch all, subject to Limit.
-		minScore = "-inf"
-		maxScore = "+inf"
-	} else {
+
+	minScore, maxScore := "-inf", "+inf"
+	if len(groupedRefs.SortKeyFilters) != 0 {
 		minScore, maxScore = utils.GetScoreRange(groupedRefs.SortKeyFilters)
 		if len(groupedRefs.SortKeyFilters) > 1 {
 			log.Warn().
@@ -492,10 +733,10 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 		}
 	}
 
-	//group features by feature view
+	groupStart := time.Now()
 	fvGroups := map[string]*fvGroup{}
-	for i := range featureNames {
-		fv, fn := featureViewNames[i], featureNames[i]
+	for i := range featNames {
+		fv, fn := fvNames[i], featNames[i]
 		g := fvGroups[fv]
 		if g == nil {
 			g = &fvGroup{
@@ -511,147 +752,59 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 		g.fieldHashes = append(g.fieldHashes, utils.Mmh3FieldHash(fv, fn))
 		g.columnIndexes = append(g.columnIndexes, i)
 	}
+	log.Debug().Msgf(
+		"OnlineReadRange: feature view grouping completed in %s (feature_views=%d)",
+		time.Since(groupStart),
+		len(fvGroups),
+	)
 
 	results := make([][]RangeFeatureData, len(groupedRefs.EntityKeys))
 
-	// process each entity key
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(groupedRefs.EntityKeys))
+
+	log.Debug().Msgf(
+		"OnlineReadRange: launching %d entity workers (limit=%d, reverse=%v, score=[%s,%s])",
+		len(groupedRefs.EntityKeys),
+		limit,
+		effectiveReverse,
+		minScore,
+		maxScore,
+	)
+
+	// RUN EACH ENTITY IN PARALLEL
 	for eIdx, entityKey := range groupedRefs.EntityKeys {
-
-		entityKeyBin, err := SerializeEntityKeyWithProject(
-			v.project,
-			entityKey,
-			v.config.EntityKeySerializationVersion,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to serialize entity key: %w", err)
-		}
-
-		results[eIdx] = make([]RangeFeatureData, len(featureNames))
-		for i := range featureNames {
-			results[eIdx][i] = RangeFeatureData{
-				FeatureView:     featureViewNames[i],
-				FeatureName:     featureNames[i],
-				Values:          []interface{}{},
-				Statuses:        []serving.FieldStatus{},
-				EventTimestamps: []timestamppb.Timestamp{},
-			}
-		}
-
-		type zrangeRes struct {
-			view    string
-			members [][]byte
-			err     error
-		}
-
-		zResponses := make(map[string]zrangeRes)
-		zCmds := make([]valkey.Completed, 0, len(fvGroups))
-		fvOrder := make([]string, 0, len(fvGroups))
-
-		for fv := range fvGroups {
-
-			zkey := utils.BuildZsetKey(fv, entityKeyBin)
-
-			var cmd valkey.Completed
-			if effectiveReverse {
-				// Reverse sort order: use BYSCORE + REV and swap min/max
-				cmd = v.client.B().
-					Zrange().
-					Key(zkey).
-					Min(maxScore).
-					Max(minScore).
-					Byscore().
-					Rev().
-					Build()
-			} else {
-				// Forward sort order: normal min/max BYSCORE
-				cmd = v.client.B().
-					Zrange().
-					Key(zkey).
-					Min(minScore).
-					Max(maxScore).
-					Byscore().
-					Build()
-			}
-
-			fvOrder = append(fvOrder, fv)
-			zCmds = append(zCmds, cmd)
-		}
-
-		// Execute batch ZRANGE
-		zResults := v.client.DoMulti(ctx, zCmds...)
-
-		// Decode ZRANGE MEMBERS
-		for i, fv := range fvOrder {
-			res := zResults[i]
-			if err := res.Error(); err != nil {
-				zResponses[fv] = zrangeRes{view: fv, members: nil, err: err}
-				continue
-			}
-
-			arr, err := res.ToArray()
-			if err != nil {
-				zResponses[fv] = zrangeRes{view: fv, members: nil, err: err}
-				continue
-			}
-
-			out := make([][]byte, 0, len(arr))
-			for _, itm := range arr {
-				if itm.IsNil() {
-					continue
-				}
-				s, err := itm.ToString()
-				if err != nil {
-					continue
-				}
-				out = append(out, []byte(s))
-			}
-
-			zResponses[fv] = zrangeRes{view: fv, members: out, err: nil}
-		}
-
-		//HMGET batching per FV
-		for fv, grp := range fvGroups {
-			zr := zResponses[fv]
-
-			if zr.err != nil || len(zr.members) == 0 {
-				for _, col := range grp.columnIndexes {
-					results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
-					results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
-					results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, timestamppb.Timestamp{})
-				}
-				continue
-			}
-
-			// HMGET fields: feature hashes + tsKey
-			fields := append(append([]string{}, grp.fieldHashes...), grp.tsKey)
-
-			if err := valkeyBatchHMGET(
+		wg.Add(1)
+		go func(idx int, ek *types.EntityKey) {
+			defer wg.Done()
+			if err := v.processEntityKey(
 				ctx,
-				v.client,
-				entityKeyBin,
-				zr.members,
-				fields,
-				fv,
-				grp,
+				idx,
+				ek,
+				fvGroups,
+				effectiveReverse,
+				minScore, maxScore,
+				limit,
 				results,
-				eIdx,
-				v.ReadBatchSize,
+				featNames, fvNames,
 			); err != nil {
-				return nil, err
+				errChan <- err
 			}
-			if limit > 0 {
-				for _, col := range grp.columnIndexes {
-					if len(results[eIdx][col].Values) > int(limit) {
-						results[eIdx][col].Values =
-							results[eIdx][col].Values[:limit]
-						results[eIdx][col].Statuses =
-							results[eIdx][col].Statuses[:limit]
-						results[eIdx][col].EventTimestamps =
-							results[eIdx][col].EventTimestamps[:limit]
-					}
-				}
-			}
+		}(eIdx, entityKey)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var allErrors []error
+	for err := range errChan {
+		if err != nil {
+			allErrors = append(allErrors, err)
 		}
+	}
+
+	if len(allErrors) > 0 {
+		return nil, errors.Join(allErrors...)
 	}
 	return results, nil
 }
