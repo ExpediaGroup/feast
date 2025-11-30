@@ -410,9 +410,19 @@ func valkeyBatchHMGET(
 
 		batch := members[startIdx:end]
 
+		log.Debug().
+			Int("entity_index", eIdx).
+			Str("feature_view", fv).
+			Int("batch_number", b).
+			Int("batch_start", startIdx).
+			Int("batch_end", end).
+			Msg("valkeyBatchHMGET: scheduling batch")
+
 		wg.Add(1)
-		go func(startIdx int, batch [][]byte) {
+		go func(startIdx int, batch [][]byte, batchNum int) {
 			defer wg.Done()
+
+			batchStart := time.Now()
 
 			select {
 			case <-ctx.Done():
@@ -512,7 +522,15 @@ func valkeyBatchHMGET(
 				batchResults[memberIdx] = res
 			}
 
-		}(startIdx, batch)
+			log.Info().
+				Int("entity_index", eIdx).
+				Str("feature_view", fv).
+				Int("batch_num", batchNum).
+				Int("hmget_count", len(batch)).
+				Dur("batch_duration", time.Since(batchStart)).
+				Msg("valkeyBatchHMGET: batch completed")
+
+		}(startIdx, batch, b)
 	}
 
 	wg.Wait()
@@ -528,6 +546,7 @@ func valkeyBatchHMGET(
 		return errors.Join(allErrors...)
 	}
 
+	mergeStart := time.Now()
 	for _, result := range batchResults {
 		if result == nil {
 			continue
@@ -538,6 +557,12 @@ func valkeyBatchHMGET(
 			results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, result.timestamp)
 		}
 	}
+
+	log.Info().
+		Int("entity_index", eIdx).
+		Str("feature_view", fv).
+		Dur("merge_duration", time.Since(mergeStart)).
+		Msg("valkeyBatchHMGET: merge completed")
 	return nil
 }
 
@@ -588,8 +613,7 @@ func (v *ValkeyOnlineStore) processEntityKey(
 			EventTimestamps: []timestamppb.Timestamp{},
 		}
 	}
-
-	// ---- ZRANGE ----
+	zStart := time.Now()
 	zCmds := make([]valkey.Completed, 0, len(fvGroups))
 	fvOrder := make([]string, 0, len(fvGroups))
 
@@ -621,6 +645,11 @@ func (v *ValkeyOnlineStore) processEntityKey(
 	for i, fv := range fvOrder {
 		raw := zResults[i]
 		if err := raw.Error(); err != nil {
+			log.Warn().
+				Int("entity_index", eIdx).
+				Str("feature_view", fv).
+				Err(err).
+				Msg("ZRANGE error")
 			zMembers[fv] = nil
 			continue
 		}
@@ -642,11 +671,21 @@ func (v *ValkeyOnlineStore) processEntityKey(
 			}
 			out = append(out, []byte(s))
 		}
+		log.Debug().
+			Int("entity_index", eIdx).
+			Str("feature_view", fv).
+			Int("member_count", len(out)).
+			Msg("ZRANGE members")
 		zMembers[fv] = out
 	}
 
-	// ---- HMGET (parallel batches) ----
+	log.Info().
+		Int("entity_index", eIdx).
+		Dur("zrange_duration", time.Since(zStart)).
+		Msg("processEntityKey: ZRANGE completed")
 
+	// HMGET feature values for each feature view in parallel batches
+	hmTotalStart := time.Now()
 	for fv, grp := range fvGroups {
 		members := zMembers[fv]
 
@@ -660,7 +699,7 @@ func (v *ValkeyOnlineStore) processEntityKey(
 		}
 
 		fields := append(append([]string{}, grp.fieldHashes...), grp.tsKey)
-
+		fvStart := time.Now()
 		if err := valkeyBatchHMGET(
 			ctx,
 			v.client,
@@ -675,6 +714,13 @@ func (v *ValkeyOnlineStore) processEntityKey(
 		); err != nil {
 			return err
 		}
+		log.Info().
+			Int("entity_index", eIdx).
+			Str("feature_view", fv).
+			Int("members", len(members)).
+			Int("batch_size", v.ReadBatchSize).
+			Dur("fv_hmget_duration", time.Since(fvStart)).
+			Msg("processEntityKey: HMGET for FV completed")
 
 		if limit > 0 {
 			for _, col := range grp.columnIndexes {
@@ -687,6 +733,11 @@ func (v *ValkeyOnlineStore) processEntityKey(
 			}
 		}
 	}
+
+	log.Info().
+		Int("entity_index", eIdx).
+		Dur("hmget_total_duration", time.Since(hmTotalStart)).
+		Msg("processEntityKey: HMGET phase completed")
 
 	return nil
 }
@@ -806,6 +857,9 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 	if len(allErrors) > 0 {
 		return nil, errors.Join(allErrors...)
 	}
+	log.Info().
+		Dur("total_request_duration", time.Since(start)).
+		Msg("OnlineReadRange: request completed")
 	return results, nil
 }
 
