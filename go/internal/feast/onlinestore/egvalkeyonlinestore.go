@@ -772,7 +772,7 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 		maxScore,
 	)
 
-	// RUN EACH ENTITY IN PARALLEL
+	// Run each entity key in parallel
 	for eIdx, entityKey := range groupedRefs.EntityKeys {
 		wg.Add(1)
 		go func(idx int, ek *types.EntityKey) {
