@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/utils"
@@ -683,12 +682,6 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 	ctx context.Context,
 	groupedRefs *model.GroupedRangeFeatureRefs,
 ) ([][]RangeFeatureData, error) {
-
-	start := time.Now()
-	defer func() {
-		dur := time.Since(start)
-		log.Info().Msgf("OnlineReadRange: completed in %s", dur)
-	}()
 
 	if groupedRefs == nil || len(groupedRefs.EntityKeys) == 0 {
 		log.Warn().Msg("OnlineReadRange: no entity keys provided")
