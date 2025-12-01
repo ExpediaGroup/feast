@@ -356,10 +356,11 @@ func (v *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 	return results, nil
 }
 
+// Each mgetBatchResult stores the HMGET output for one member (sort-key)
 type mgetBatchResult struct {
-	memberIdx int
-	memberKey string
-	values    map[int]interface{}
+	memberIdx int                 // index of this member in the overall result array
+	memberKey string              // base64-encoded sort-key
+	values    map[int]interface{} // decoded feature values for this member
 	statuses  map[int]serving.FieldStatus
 	timestamp timestamppb.Timestamp
 }
@@ -386,6 +387,7 @@ func valkeyBatchHMGET(
 
 	nBatches := (len(members) + batchSize - 1) / batchSize
 
+	// Results array to store results from each member
 	batchResults := make([]*mgetBatchResult, len(members))
 
 	var wg sync.WaitGroup
@@ -409,6 +411,7 @@ func valkeyBatchHMGET(
 
 		batch := members[startIdx:end]
 
+		// launch a goroutine for each batch
 		wg.Add(1)
 		go func(startIdx int, batch [][]byte) {
 			defer wg.Done()
@@ -538,6 +541,14 @@ func valkeyBatchHMGET(
 	return nil
 }
 
+// processEntityKey processes a single entity key.
+//
+// It performs the following steps:
+//   - Generates the Valkey/zset key.
+//   - Executes one ZRANGE per feature view.
+//   - For each feature view, calls valkeyBatchHMGET.
+//   - Applies the limit.
+//   - Writes the output into results[eIdx].
 func (v *ValkeyOnlineStore) processEntityKey(
 	ctx context.Context,
 	eIdx int,
@@ -602,6 +613,7 @@ func (v *ValkeyOnlineStore) processEntityKey(
 
 	zResults := v.client.DoMulti(ctx, zCmds...)
 
+	// Parse ZRANGE results by reading each result into zMembers
 	zMembers := map[string][][]byte{}
 	for i, fv := range fvOrder {
 		raw := zResults[i]
@@ -647,7 +659,7 @@ func (v *ValkeyOnlineStore) processEntityKey(
 			}
 			continue
 		}
-
+		// build list of hash fields to retrieve
 		fields := append(append([]string{}, grp.fieldHashes...), grp.tsKey)
 		if err := valkeyBatchHMGET(
 			ctx,
@@ -663,7 +675,7 @@ func (v *ValkeyOnlineStore) processEntityKey(
 		); err != nil {
 			return err
 		}
-
+		// apply limit if set by truncating each feature's result lists after HMGET
 		if limit > 0 {
 			for _, col := range grp.columnIndexes {
 				r := &results[eIdx][col]
@@ -678,6 +690,14 @@ func (v *ValkeyOnlineStore) processEntityKey(
 	return nil
 }
 
+// OnlineReadRange performs the online read for range querying
+//
+// It executes the following steps:
+//   - Groups features by feature view (FV).
+//   - Spawns a goroutine per entity key.
+//   - For each entity, runs processEntityKey.
+//   - Waits for all entity goroutines to complete.
+//   - Returns the final matrix.
 func (v *ValkeyOnlineStore) OnlineReadRange(
 	ctx context.Context,
 	groupedRefs *model.GroupedRangeFeatureRefs,
