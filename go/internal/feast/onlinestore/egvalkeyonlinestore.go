@@ -356,15 +356,6 @@ func (v *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 	return results, nil
 }
 
-// Each mgetBatchResult stores the HMGET output for one member (sort-key)
-type mgetBatchResult struct {
-	memberIdx int                 // index of this member in the overall result array
-	memberKey string              // base64-encoded sort-key
-	values    map[int]interface{} // decoded feature values for this member
-	statuses  map[int]serving.FieldStatus
-	timestamp timestamppb.Timestamp
-}
-
 func valkeyBatchHMGET(
 	ctx context.Context,
 	client valkey.Client,
@@ -372,7 +363,7 @@ func valkeyBatchHMGET(
 	members [][]byte,
 	fields []string,
 	fv string,
-	grp *fvGroup,
+	grp *utils.FvGroup,
 	results [][]RangeFeatureData,
 	eIdx int,
 	batchSize int,
@@ -382,13 +373,13 @@ func valkeyBatchHMGET(
 		return nil
 	}
 	if batchSize <= 0 {
-		batchSize = 100
+		batchSize = utils.DefaultBatchSize
 	}
 
 	nBatches := (len(members) + batchSize - 1) / batchSize
 
 	// Results array to store results from each member
-	batchResults := make([]*mgetBatchResult, len(members))
+	batchResults := make([]*utils.MgetBatchResult, len(members))
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, nBatches)
@@ -444,7 +435,7 @@ func valkeyBatchHMGET(
 					continue
 				}
 
-				featureCount := len(grp.featNames)
+				featureCount := len(grp.FeatNames)
 				allNil := true
 				for fi := 0; fi < featureCount && fi < len(arr)-1; fi++ {
 					if !arr[fi].IsNil() {
@@ -465,15 +456,15 @@ func valkeyBatchHMGET(
 					}
 				}
 
-				res := &mgetBatchResult{
-					memberIdx: memberIdx,
-					memberKey: memberKey,
-					values:    make(map[int]interface{}),
-					statuses:  make(map[int]serving.FieldStatus),
-					timestamp: eventTS,
+				res := &utils.MgetBatchResult{
+					MemberIdx: memberIdx,
+					MemberKey: memberKey,
+					Values:    make(map[int]interface{}),
+					Statuses:  make(map[int]serving.FieldStatus),
+					Timestamp: eventTS,
 				}
 
-				for localIdx, col := range grp.columnIndexes {
+				for localIdx, col := range grp.ColumnIndexes {
 					if localIdx >= len(arr)-1 {
 						continue
 					}
@@ -493,7 +484,7 @@ func valkeyBatchHMGET(
 						}
 
 						decoded, st := utils.DecodeFeatureValue(
-							strVal, fv, grp.featNames[localIdx], memberKey,
+							strVal, fv, grp.FeatNames[localIdx], memberKey,
 						)
 
 						if st == serving.FieldStatus_NULL_VALUE {
@@ -506,8 +497,8 @@ func valkeyBatchHMGET(
 					}
 
 					_ = col
-					res.values[localIdx] = val
-					res.statuses[localIdx] = status
+					res.Values[localIdx] = val
+					res.Statuses[localIdx] = status
 				}
 
 				batchResults[memberIdx] = res
@@ -532,10 +523,10 @@ func valkeyBatchHMGET(
 		if result == nil {
 			continue
 		}
-		for localIdx, col := range grp.columnIndexes {
-			results[eIdx][col].Values = append(results[eIdx][col].Values, result.values[localIdx])
-			results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, result.statuses[localIdx])
-			results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, result.timestamp)
+		for localIdx, col := range grp.ColumnIndexes {
+			results[eIdx][col].Values = append(results[eIdx][col].Values, result.Values[localIdx])
+			results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, result.Statuses[localIdx])
+			results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, result.Timestamp)
 		}
 	}
 	return nil
@@ -553,7 +544,7 @@ func (v *ValkeyOnlineStore) processEntityKey(
 	ctx context.Context,
 	eIdx int,
 	entityKey *types.EntityKey,
-	fvGroups map[string]*fvGroup,
+	fvGroups map[string]*utils.FvGroup,
 	effectiveReverse bool,
 	minScore, maxScore string,
 	limit int64,
@@ -652,7 +643,7 @@ func (v *ValkeyOnlineStore) processEntityKey(
 		members := zMembers[fv]
 
 		if len(members) == 0 {
-			for _, col := range grp.columnIndexes {
+			for _, col := range grp.ColumnIndexes {
 				results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
 				results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
 				results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, timestamppb.Timestamp{})
@@ -660,7 +651,7 @@ func (v *ValkeyOnlineStore) processEntityKey(
 			continue
 		}
 		// build list of hash fields to retrieve
-		fields := append(append([]string{}, grp.fieldHashes...), grp.tsKey)
+		fields := append(append([]string{}, grp.FieldHashes...), grp.TsKey)
 		if err := valkeyBatchHMGET(
 			ctx,
 			v.client,
@@ -677,7 +668,7 @@ func (v *ValkeyOnlineStore) processEntityKey(
 		}
 		// apply limit if set by truncating each feature's result lists after HMGET
 		if limit > 0 {
-			for _, col := range grp.columnIndexes {
+			for _, col := range grp.ColumnIndexes {
 				r := &results[eIdx][col]
 				if len(r.Values) > int(limit) {
 					r.Values = r.Values[:limit]
@@ -727,23 +718,23 @@ func (v *ValkeyOnlineStore) OnlineReadRange(
 		}
 	}
 
-	fvGroups := map[string]*fvGroup{}
+	fvGroups := map[string]*utils.FvGroup{}
 	for i := range featNames {
 		fv, fn := fvNames[i], featNames[i]
 		g := fvGroups[fv]
 		if g == nil {
-			g = &fvGroup{
-				view:          fv,
-				tsKey:         fmt.Sprintf("_ts:%s", fv),
-				featNames:     []string{},
-				fieldHashes:   []string{},
-				columnIndexes: []int{},
+			g = &utils.FvGroup{
+				View:          fv,
+				TsKey:         fmt.Sprintf("_ts:%s", fv),
+				FeatNames:     []string{},
+				FieldHashes:   []string{},
+				ColumnIndexes: []int{},
 			}
 			fvGroups[fv] = g
 		}
-		g.featNames = append(g.featNames, fn)
-		g.fieldHashes = append(g.fieldHashes, utils.Mmh3FieldHash(fv, fn))
-		g.columnIndexes = append(g.columnIndexes, i)
+		g.FeatNames = append(g.FeatNames, fn)
+		g.FieldHashes = append(g.FieldHashes, utils.Mmh3FieldHash(fv, fn))
+		g.ColumnIndexes = append(g.ColumnIndexes, i)
 	}
 
 	results := make([][]RangeFeatureData, len(groupedRefs.EntityKeys))
