@@ -15,7 +15,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-const DefaultBatchSize = 100 // or 100, whatever you prefer
+const DefaultBatchSize = 100
 
 // FvGroup Group of fields per Feature View
 type FvGroup struct {
