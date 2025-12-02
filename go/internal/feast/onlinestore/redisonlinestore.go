@@ -594,16 +594,6 @@ func (r *RedisOnlineStore) processEntityKey(
 	}
 
 	// Build ZRANGE commands for all feature views
-	// Swap min/max when reversed to match Valkey behavior
-	var start, stop string
-	if effectiveReverse {
-		start = maxScore
-		stop = minScore
-	} else {
-		start = minScore
-		stop = maxScore
-	}
-
 	p := client.Pipeline()
 	zCmds := make(map[string]*redis.StringSliceCmd)
 
@@ -611,8 +601,8 @@ func (r *RedisOnlineStore) processEntityKey(
 		zkey := utils.BuildZsetKey(fv, entityKeyBin)
 		args := redis.ZRangeArgs{
 			Key:     zkey,
-			Start:   start,
-			Stop:    stop,
+			Start:   minScore,
+			Stop:    maxScore,
 			ByScore: true,
 			Rev:     effectiveReverse,
 			Offset:  0,
