@@ -440,7 +440,6 @@ func batchHMGET(
 				hm[memberKey] = pipe.HMGet(ctx, hashKey, fields...)
 			}
 
-			// Execute pipeline
 			if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
 				errChan <- fmt.Errorf("HMGET pipeline failed: %w", err)
 				return
@@ -527,7 +526,6 @@ func batchHMGET(
 	wg.Wait()
 	close(errChan)
 
-	// Check for errors
 	var allErrors []error
 	for e := range errChan {
 		if e != nil {
@@ -538,7 +536,6 @@ func batchHMGET(
 		return errors.Join(allErrors...)
 	}
 
-	// Append results in order
 	for _, result := range batchResults {
 		if result == nil {
 			continue
@@ -671,7 +668,6 @@ func (r *RedisOnlineStore) processEntityKey(
 			return err
 		}
 
-		// Apply limit if set by truncating each feature's result lists
 		if limit > 0 {
 			for _, col := range grp.ColumnIndexes {
 				r := &results[eIdx][col]
@@ -717,7 +713,6 @@ func (r *RedisOnlineStore) OnlineReadRange(
 		}
 	}
 
-	// Determine which client to use
 	var client redis.UniversalClient
 	if r.t == redisCluster {
 		client = r.clusterClient
@@ -775,7 +770,6 @@ func (r *RedisOnlineStore) OnlineReadRange(
 	wg.Wait()
 	close(errChan)
 
-	// Check for errors
 	var allErrors []error
 	for err := range errChan {
 		if err != nil {
