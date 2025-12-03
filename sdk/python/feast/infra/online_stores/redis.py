@@ -303,6 +303,8 @@ class RedisOnlineStore(OnlineStore):
         # redis pipelining optimization: send multiple commands to redis server without waiting for every reply
         with client.pipeline(transaction=False) as pipe:
             if isinstance(table, SortedFeatureView):
+                logger.info(f"Using SortedFeatureView: {table.name}")
+
                 if len(table.sort_keys) != 1:
                     raise ValueError(
                         f"Only one sort key is supported for Range query use cases in Redis, "
@@ -312,27 +314,18 @@ class RedisOnlineStore(OnlineStore):
                 sort_key_type = table.sort_keys[0].value_type
                 is_sort_key_timestamp = sort_key_type == ValueType.UNIX_TIMESTAMP
 
-                if sort_key_type in (ValueType.STRING, ValueType.BYTES, ValueType.BOOL):
+                if sort_key_type not in (ValueType.UNIX_TIMESTAMP,):
                     raise TypeError(
-                        f"Unsupported sort key type {sort_key_type.name}. Only numerics or timestamp type is supported as a sort key."
+                        f"Unsupported sort key type {sort_key_type.name}. Only timestamp type is supported as a sort key."
                     )
 
                 sort_key_name = table.sort_keys[0].name
                 num_cmds = 0
                 # Picking an arbitrary number to start with and will be tuned after perf testing
                 # TODO : Make this a config as this can be different for different users based on payload size etc..
-                num_cmds_per_pipeline_execute = 200
+                num_cmds_per_pipeline_execute = 500
                 ttl_feature_view = table.ttl
-                max_events = None
-                if table.tags:
-                    tag_value = table.tags.get("max_retained_events")
-                    if tag_value is not None:
-                        try:
-                            max_events = int(tag_value)
-                        except Exception:
-                            logger.warning(
-                                f"Invalid max_retained_events tag value: {tag_value}"
-                            )
+
                 for entity_key, values, timestamp, _ in data:
                     ttl = None
                     if ttl_feature_view:
@@ -403,34 +396,43 @@ class RedisOnlineStore(OnlineStore):
                         )
                         raise
 
-                run_cleanup_by_event_time = (ttl is not None) and is_sort_key_timestamp
-                run_cleanup_by_retained_events = (
-                    max_events is not None and max_events > 0
+                ttl_feature_view_seconds = (
+                    int(ttl_feature_view.total_seconds()) if ttl_feature_view else None
                 )
-                # AFTER batch flush: run TTL cleanup + trimming for all zsets touched
-                if run_cleanup_by_event_time or run_cleanup_by_retained_events:
-                    for zset_key, entity_key_bytes in zsets_to_cleanup:
-                        if run_cleanup_by_event_time and ttl:
-                            try:
-                                self._run_cleanup_by_event_time(
-                                    client, zset_key, entity_key_bytes, ttl
-                                )
-                            except Exception:
-                                logger.exception(
-                                    "Failed TTL cleanup by event time for zset %r",
-                                    zset_key,
-                                )
 
-                        if run_cleanup_by_retained_events and max_events:
+                run_cleanup_by_event_time = (
+                    ttl_feature_view_seconds is not None
+                ) and is_sort_key_timestamp
+
+                # AFTER batch flush: run TTL cleanup
+                if run_cleanup_by_event_time and ttl_feature_view_seconds:
+                    cleanup_cmds = 0
+                    cleanup_cmds_per_execute = 500
+                    cutoff = (int(time.time()) - ttl_feature_view_seconds) * 1000
+                    for zset_key, entity_key_bytes in zsets_to_cleanup:
+                        self._run_cleanup_by_event_time(
+                            pipe, zset_key, ttl_feature_view_seconds, cutoff
+                        )
+                        cleanup_cmds += 2
+                        if cleanup_cmds >= cleanup_cmds_per_execute:
                             try:
-                                self._run_cleanup_by_retained_events(
-                                    client, zset_key, entity_key_bytes, max_events
-                                )
-                            except Exception:
+                                pipe.execute()
+                            except RedisError:
                                 logger.exception(
-                                    "Failed TTL cleanup by retained events for zset %r",
-                                    zset_key,
+                                    "Error executing Redis cleanup pipeline for feature view %s",
+                                    feature_view,
                                 )
+                                raise
+                            cleanup_cmds = 0
+                    if cleanup_cmds:
+                        try:
+                            pipe.execute()
+                        except RedisError:
+                            logger.exception(
+                                "Error executing Redis cleanup pipeline for feature view %s",
+                                feature_view,
+                            )
+                            raise
             else:
                 # check if a previous record under the key bin exists
                 # TODO: investigate if check and set is a better approach rather than pulling all entity ts and then setting
@@ -531,51 +533,10 @@ class RedisOnlineStore(OnlineStore):
         return math.ceil(ttl_remaining.total_seconds())
 
     def _run_cleanup_by_event_time(
-        self, client, zset_key: bytes, entity_key_bytes: bytes, ttl_seconds: int
+        self, pipe, zset_key: bytes, ttl_seconds: int, cutoff
     ):
-        now = int(time.time())
-        cutoff = now - ttl_seconds
-        old_members = client.zrange(
-            zset_key, 0, cutoff, byscore=True
-        )  # Limitation: This works only when the sorted set score is timestamp.
-        if not old_members:
-            return
-
-        with client.pipeline(transaction=False) as pipe:
-            for sort_key_bytes in old_members:
-                hash_key = RedisOnlineStore.hash_key_bytes(
-                    entity_key_bytes, sort_key_bytes
-                )
-                pipe.delete(hash_key)
-                pipe.zrem(zset_key, sort_key_bytes)
-            pipe.execute()
-
-        if client.zcard(zset_key) == 0:
-            client.delete(zset_key)
-
-    def _run_cleanup_by_retained_events(
-        self, client, zset_key: bytes, entity_key_bytes: bytes, max_events: int
-    ):
-        current_size = client.zcard(zset_key)
-        if current_size <= max_events:
-            return
-        num_to_remove = current_size - max_events
-
-        # Remove oldest entries atomically
-        popped = client.zpopmin(zset_key, num_to_remove)
-        if not popped:
-            return
-
-        with client.pipeline(transaction=False) as pipe:
-            for sort_key_bytes, _score in popped:
-                hash_key = RedisOnlineStore.hash_key_bytes(
-                    entity_key_bytes, sort_key_bytes
-                )
-                pipe.delete(hash_key)
-            pipe.execute()
-
-        if client.zcard(zset_key) == 0:
-            client.delete(zset_key)
+        pipe.zremrangebyscore(zset_key, "-inf", cutoff)
+        pipe.expire(zset_key, ttl_seconds)
 
     def _generate_redis_keys_for_entities(
         self, config: RepoConfig, entity_keys: List[EntityKeyProto]
