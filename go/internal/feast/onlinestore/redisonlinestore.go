@@ -803,6 +803,6 @@ func (r *RedisOnlineStore) GetDataModelType() OnlineStoreDataModel {
 }
 
 func (r *RedisOnlineStore) GetReadBatchSize() int {
-	return -1 // No Batching
+	return r.ReadBatchSize
 
 }

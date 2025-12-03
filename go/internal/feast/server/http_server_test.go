@@ -294,7 +294,7 @@ func TestProcessFeatureVectors_NotFoundReturnsNull(t *testing.T) {
 			{{Seconds: 1234567890}},
 		},
 	}
-	defer featureVector.RangeValues.Release()
+	defer featureVector.RangeValues.(arrow.Array).Release()
 
 	featureNames, entities, results, err := processFeatureVectors(
 		[]*onlineserving.RangeFeatureVector{featureVector},
@@ -354,7 +354,7 @@ func TestProcessFeatureVectors_TimestampHandling(t *testing.T) {
 			{{Seconds: 0, Nanos: 0}},
 		},
 	}
-	defer featureVector.RangeValues.Release()
+	defer featureVector.RangeValues.(arrow.Array).Release()
 
 	featureNames, _, results, err := processFeatureVectors(
 		[]*onlineserving.RangeFeatureVector{featureVector},
@@ -398,7 +398,7 @@ func TestProcessFeatureVectors_NullValueReturnsNull(t *testing.T) {
 			{{Seconds: 1234567890}},
 		},
 	}
-	defer featureVector.RangeValues.Release()
+	defer featureVector.RangeValues.(arrow.Array).Release()
 
 	featureNames, entities, results, err := processFeatureVectors(
 		[]*onlineserving.RangeFeatureVector{featureVector},

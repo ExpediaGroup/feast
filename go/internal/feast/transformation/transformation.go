@@ -66,7 +66,7 @@ func AugmentResponseWithOnDemandTransforms(
 
 		retrievedFeatures := make(map[string]arrow.Array)
 		for _, vector := range features {
-			retrievedFeatures[vector.Name] = vector.Values
+			retrievedFeatures[vector.Name] = vector.Values.(arrow.Array)
 		}
 
 		var onDemandFeatures []*onlineserving.FeatureVector
