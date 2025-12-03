@@ -15,6 +15,26 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const DefaultBatchSize = 100
+
+// FvGroup Group of fields per Feature View
+type FvGroup struct {
+	View          string
+	FeatNames     []string
+	FieldHashes   []string
+	TsKey         string
+	ColumnIndexes []int
+}
+
+// MgetBatchResult Each mgetBatchResult stores the HMGET output for one member (sort-key)
+type MgetBatchResult struct {
+	MemberIdx int                 // index of this member in the overall result array
+	MemberKey string              // base64-encoded sort-key
+	Values    map[int]interface{} // decoded feature values for this member
+	Statuses  map[int]serving.FieldStatus
+	Timestamp timestamppb.Timestamp
+}
+
 // BuildZsetKey Helper function to build ZSET key = <feature_view><entity_key_bytes>
 func BuildZsetKey(featureView string, entityKeyBin []byte) string {
 	return featureView + string(entityKeyBin)
