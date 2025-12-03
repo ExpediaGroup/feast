@@ -25,7 +25,6 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/core"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
-	types2 "github.com/feast-dev/feast/go/types"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
