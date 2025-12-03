@@ -3,22 +3,22 @@ package onlinestore
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
-
-	"github.com/feast-dev/feast/go/internal/feast/model"
-
-	"github.com/feast-dev/feast/go/internal/feast/utils"
+	"sync"
 
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
+	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/internal/feast/utils"
 
-	redisprometheus "github.com/redis/go-redis/extra/redisprometheus/v9"
-	redis "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/extra/redisprometheus/v9"
+	"github.com/redis/go-redis/v9"
 	"github.com/spaolacci/murmur3"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -230,7 +230,7 @@ func (r *RedisOnlineStore) buildRedisKeys(entityKeys []*types.EntityKey) ([]*[]b
 	redisKeys := make([]*[]byte, len(entityKeys))
 	redisKeyToEntityIndex := make(map[string]int)
 	for i := 0; i < len(entityKeys); i++ {
-		var key, err = buildRedisKey(r.project, entityKeys[i], r.config.EntityKeySerializationVersion)
+		var key, err = BuildRedisKey(r.project, entityKeys[i], r.config.EntityKeySerializationVersion)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -326,7 +326,7 @@ func (r *RedisOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.E
 			} else {
 				resContainsNonNil = true
 				var value *types.Value
-				if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
+				if value, _, err = utils.UnmarshalStoredProto([]byte(valueString)); err != nil {
 					return nil, errors.New("error converting parsed redis Value to types.Value")
 				} else {
 					featureName := featureNamesWithTimeStamps[featureIndex]
@@ -359,9 +359,429 @@ func (r *RedisOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.E
 	return results, nil
 }
 
-func (r *RedisOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs *model.GroupedRangeFeatureRefs) ([][]RangeFeatureData, error) {
-	// TODO: Implement OnlineReadRange
-	return nil, errors.New("OnlineReadRange is not supported by RedisOnlineStore")
+func SerializeEntityKeyWithProject(
+	project string,
+	entityKey *types.EntityKey,
+	version int64,
+) ([]byte, error) {
+	key, err := BuildRedisKey(project, entityKey, version)
+	if err != nil {
+		return nil, err
+	}
+	if key == nil {
+		return nil, fmt.Errorf("buildRedisKey returned nil")
+	}
+	return *key, nil
+}
+
+// batchHMGET performs parallel batched HMGET operations for a slice of members
+func batchHMGET(
+	ctx context.Context,
+	client redis.UniversalClient,
+	entityKeyBin []byte,
+	members [][]byte,
+	fields []string,
+	fv string,
+	grp *utils.FvGroup,
+	results [][]RangeFeatureData,
+	eIdx int,
+	batchSize int,
+) error {
+	if len(members) == 0 {
+		return nil
+	}
+	if batchSize <= 0 {
+		batchSize = utils.DefaultBatchSize
+	}
+
+	nBatches := (len(members) + batchSize - 1) / batchSize
+
+	// Results array to store results from each member
+	batchResults := make([]*utils.MgetBatchResult, len(members))
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, nBatches)
+
+	// Process batches in parallel
+	for b := 0; b < nBatches; b++ {
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			close(errChan)
+			return ctx.Err()
+		default:
+		}
+
+		startIdx := b * batchSize
+		end := startIdx + batchSize
+		if end > len(members) {
+			end = len(members)
+		}
+		batch := members[startIdx:end]
+
+		wg.Add(1)
+		go func(startIdx int, batch [][]byte) {
+			defer wg.Done()
+
+			select {
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			default:
+			}
+
+			// Build pipeline for this batch
+			pipe := client.Pipeline()
+			hm := make(map[string]*redis.SliceCmd, len(batch))
+
+			for _, sortKeyBytes := range batch {
+				memberKey := base64.StdEncoding.EncodeToString(sortKeyBytes)
+				hashKey := utils.BuildHashKey(entityKeyBin, sortKeyBytes)
+				hm[memberKey] = pipe.HMGet(ctx, hashKey, fields...)
+			}
+
+			if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
+				errChan <- fmt.Errorf("HMGET pipeline failed: %w", err)
+				return
+			}
+
+			// Process results from this batch
+			for i, sortKeyBytes := range batch {
+				memberIdx := startIdx + i
+				memberKey := base64.StdEncoding.EncodeToString(sortKeyBytes)
+
+				cmd, ok := hm[memberKey]
+				if !ok {
+					continue
+				}
+
+				arr, err := cmd.Result()
+				if err != nil && !errors.Is(err, redis.Nil) {
+					continue
+				}
+
+				featureCount := len(grp.FeatNames)
+
+				// Check if all feature fields are nil
+				allNil := true
+				for fi := 0; fi < featureCount && fi < len(arr)-1; fi++ {
+					if arr[fi] != nil {
+						allNil = false
+						break
+					}
+				}
+				if allNil {
+					continue
+				}
+
+				// Decode timestamp (last field)
+				var eventTS timestamppb.Timestamp
+				if len(arr) > 0 {
+					eventTS = utils.DecodeTimestamp(arr[len(arr)-1])
+				}
+
+				res := &utils.MgetBatchResult{
+					MemberIdx: memberIdx,
+					MemberKey: memberKey,
+					Values:    make(map[int]interface{}),
+					Statuses:  make(map[int]serving.FieldStatus),
+					Timestamp: eventTS,
+				}
+
+				// Decode each feature
+				for localIdx, col := range grp.ColumnIndexes {
+					if localIdx >= len(arr)-1 {
+						continue
+					}
+
+					var val interface{}
+					var status serving.FieldStatus
+
+					if arr[localIdx] == nil {
+						val = nil
+						status = serving.FieldStatus_NULL_VALUE
+					} else {
+						decoded, st := utils.DecodeFeatureValue(
+							arr[localIdx], fv, grp.FeatNames[localIdx], memberKey,
+						)
+
+						if st == serving.FieldStatus_NULL_VALUE {
+							val = nil
+						} else {
+							val = decoded
+						}
+						status = st
+					}
+
+					_ = col
+					res.Values[localIdx] = val
+					res.Statuses[localIdx] = status
+				}
+
+				batchResults[memberIdx] = res
+			}
+		}(startIdx, batch)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var allErrors []error
+	for e := range errChan {
+		if e != nil {
+			allErrors = append(allErrors, e)
+		}
+	}
+	if len(allErrors) > 0 {
+		return errors.Join(allErrors...)
+	}
+
+	for _, result := range batchResults {
+		if result == nil {
+			continue
+		}
+		for localIdx, col := range grp.ColumnIndexes {
+			results[eIdx][col].Values = append(results[eIdx][col].Values, result.Values[localIdx])
+			results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, result.Statuses[localIdx])
+			results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, result.Timestamp)
+		}
+	}
+
+	return nil
+}
+
+// processEntityKey processes a single entity key
+func (r *RedisOnlineStore) processEntityKey(
+	ctx context.Context,
+	eIdx int,
+	entityKey *types.EntityKey,
+	fvGroups map[string]*utils.FvGroup,
+	effectiveReverse bool,
+	minScore, maxScore string,
+	limit int64,
+	results [][]RangeFeatureData,
+	featNames, fvNames []string,
+	client redis.UniversalClient,
+) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	entityKeyBin, err := SerializeEntityKeyWithProject(
+		r.project,
+		entityKey,
+		r.config.EntityKeySerializationVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to serialize entity key: %w", err)
+	}
+
+	// Initialize results row
+	results[eIdx] = make([]RangeFeatureData, len(featNames))
+	for i := range featNames {
+		results[eIdx][i] = RangeFeatureData{
+			FeatureView:     fvNames[i],
+			FeatureName:     featNames[i],
+			Values:          []interface{}{},
+			Statuses:        []serving.FieldStatus{},
+			EventTimestamps: []timestamppb.Timestamp{},
+		}
+	}
+
+	// Build ZRANGE commands for all feature views
+	p := client.Pipeline()
+	zCmds := make(map[string]*redis.StringSliceCmd)
+
+	for fv := range fvGroups {
+		zkey := utils.BuildZsetKey(fv, entityKeyBin)
+		args := redis.ZRangeArgs{
+			Key:     zkey,
+			Start:   minScore,
+			Stop:    maxScore,
+			ByScore: true,
+			Rev:     effectiveReverse,
+			Offset:  0,
+			Count:   limit,
+		}
+		zCmds[fv] = p.ZRangeArgs(ctx, args)
+	}
+
+	// Execute ZRANGE pipeline
+	if _, err := p.Exec(ctx); err != nil && err != redis.Nil {
+		return fmt.Errorf("ZRANGE pipeline failed: %w", err)
+	}
+
+	// Parse ZRANGE results
+	zMembers := make(map[string][][]byte)
+	for fv, cmd := range zCmds {
+		members, err := cmd.Result()
+		if err != nil && err != redis.Nil {
+			log.Warn().
+				Int("entity_index", eIdx).
+				Str("feature_view", fv).
+				Err(err).
+				Msg("ZRANGE error")
+			zMembers[fv] = nil
+			continue
+		}
+
+		// Convert string members to byte slices
+		memberBytes := make([][]byte, len(members))
+		for i, m := range members {
+			memberBytes[i] = []byte(m)
+		}
+		zMembers[fv] = memberBytes
+	}
+
+	// HMGET feature values for each feature view
+	for fv, grp := range fvGroups {
+		members := zMembers[fv]
+
+		if len(members) == 0 {
+			for _, col := range grp.ColumnIndexes {
+				results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
+				results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
+				results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, timestamppb.Timestamp{})
+			}
+			continue
+		}
+
+		// Build list of hash fields to retrieve
+		fields := make([]string, 0, len(grp.FieldHashes)+1)
+		fields = append(fields, grp.FieldHashes...)
+		fields = append(fields, grp.TsKey)
+
+		if err := batchHMGET(
+			ctx,
+			client,
+			entityKeyBin,
+			members,
+			fields,
+			fv,
+			grp,
+			results,
+			eIdx,
+			utils.DefaultBatchSize,
+		); err != nil {
+			return err
+		}
+
+		if limit > 0 {
+			for _, col := range grp.ColumnIndexes {
+				r := &results[eIdx][col]
+				if len(r.Values) > int(limit) {
+					r.Values = r.Values[:limit]
+					r.Statuses = r.Statuses[:limit]
+					r.EventTimestamps = r.EventTimestamps[:limit]
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// OnlineReadRange performs the online read for range querying with parallel entity processing
+func (r *RedisOnlineStore) OnlineReadRange(
+	ctx context.Context,
+	groupedRefs *model.GroupedRangeFeatureRefs,
+) ([][]RangeFeatureData, error) {
+
+	if groupedRefs == nil || len(groupedRefs.EntityKeys) == 0 {
+		log.Warn().Msg("OnlineReadRange: no entity keys provided")
+		return nil, fmt.Errorf("no entity keys provided")
+	}
+
+	featNames := groupedRefs.FeatureNames
+	fvNames := groupedRefs.FeatureViewNames
+	limit := int64(groupedRefs.Limit)
+
+	effectiveReverse := utils.ComputeEffectiveReverse(
+		groupedRefs.SortKeyFilters,
+		groupedRefs.IsReverseSortOrder,
+	)
+
+	minScore, maxScore := "-inf", "+inf"
+	if len(groupedRefs.SortKeyFilters) != 0 {
+		minScore, maxScore = utils.GetScoreRange(groupedRefs.SortKeyFilters)
+		if len(groupedRefs.SortKeyFilters) > 1 {
+			log.Warn().
+				Int("sort_key_count", len(groupedRefs.SortKeyFilters)).
+				Msg("OnlineReadRange: more than one sort key filter provided; only the first will be used")
+		}
+	}
+
+	var client redis.UniversalClient
+	if r.t == redisCluster {
+		client = r.clusterClient
+	} else {
+		client = r.client
+	}
+
+	// Group features by feature view
+	fvGroups := map[string]*utils.FvGroup{}
+	for i := range featNames {
+		fv, fn := fvNames[i], featNames[i]
+		g := fvGroups[fv]
+		if g == nil {
+			g = &utils.FvGroup{
+				View:          fv,
+				TsKey:         fmt.Sprintf("_ts:%s", fv),
+				FeatNames:     []string{},
+				FieldHashes:   []string{},
+				ColumnIndexes: []int{},
+			}
+			fvGroups[fv] = g
+		}
+		g.FeatNames = append(g.FeatNames, fn)
+		g.FieldHashes = append(g.FieldHashes, utils.Mmh3FieldHash(fv, fn))
+		g.ColumnIndexes = append(g.ColumnIndexes, i)
+	}
+
+	results := make([][]RangeFeatureData, len(groupedRefs.EntityKeys))
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(groupedRefs.EntityKeys))
+
+	// Process each entity key in parallel
+	for eIdx, entityKey := range groupedRefs.EntityKeys {
+		wg.Add(1)
+		go func(idx int, ek *types.EntityKey) {
+			defer wg.Done()
+			if err := r.processEntityKey(
+				ctx,
+				idx,
+				ek,
+				fvGroups,
+				effectiveReverse,
+				minScore, maxScore,
+				limit,
+				results,
+				featNames, fvNames,
+				client,
+			); err != nil {
+				errChan <- err
+			}
+		}(eIdx, entityKey)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var allErrors []error
+	for err := range errChan {
+		if err != nil {
+			allErrors = append(allErrors, err)
+		}
+	}
+
+	if len(allErrors) > 0 {
+		return nil, errors.Join(allErrors...)
+	}
+
+	return results, nil
 }
 
 // Dummy destruct function to conform with plugin OnlineStore interface
@@ -369,7 +789,7 @@ func (r *RedisOnlineStore) Destruct() {
 
 }
 
-func buildRedisKey(project string, entityKey *types.EntityKey, entityKeySerializationVersion int64) (*[]byte, error) {
+func BuildRedisKey(project string, entityKey *types.EntityKey, entityKeySerializationVersion int64) (*[]byte, error) {
 	serKey, err := utils.SerializeEntityKey(entityKey, entityKeySerializationVersion)
 	if err != nil {
 		return nil, err

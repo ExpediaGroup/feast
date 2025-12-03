@@ -13,7 +13,9 @@
 # limitations under the License.
 import json
 import logging
-from datetime import datetime, timezone
+import math
+import time
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import (
     Any,
@@ -30,13 +32,17 @@ from typing import (
 
 from google.protobuf.timestamp_pb2 import Timestamp
 from pydantic import StrictStr
+from redis.exceptions import RedisError
 
 from feast import Entity, FeatureView, RepoConfig, utils
+from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.helpers import _mmh3, _redis_key, _redis_key_prefix
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 from feast.repo_config import FeastConfigBaseModel
+from feast.sorted_feature_view import SortedFeatureView
+from feast.value_type import ValueType
 
 try:
     from redis import Redis
@@ -290,55 +296,247 @@ class RedisOnlineStore(OnlineStore):
         feature_view = table.name
         ts_key = f"_ts:{feature_view}"
         keys = []
+        # Track all ZSET keys touched in this batch for TTL cleanup & trimming
+        zsets_to_cleanup: set[Tuple[bytes, bytes]] = (
+            set()
+        )  # (zset_key, entity_key_bytes)
         # redis pipelining optimization: send multiple commands to redis server without waiting for every reply
         with client.pipeline(transaction=False) as pipe:
-            # check if a previous record under the key bin exists
-            # TODO: investigate if check and set is a better approach rather than pulling all entity ts and then setting
-            # it may be significantly slower but avoids potential (rare) race conditions
-            for entity_key, _, _, _ in data:
-                redis_key_bin = _redis_key(
-                    project,
-                    entity_key,
-                    entity_key_serialization_version=config.entity_key_serialization_version,
-                )
-                keys.append(redis_key_bin)
-                pipe.hmget(redis_key_bin, ts_key)
-            prev_event_timestamps = pipe.execute()
-            # flattening the list of lists. `hmget` does the lookup assuming a list of keys in the key bin
-            prev_event_timestamps = [i[0] for i in prev_event_timestamps]
+            if isinstance(table, SortedFeatureView):
+                logger.info(f"Using SortedFeatureView: {table.name}")
 
-            for redis_key_bin, prev_event_time, (_, values, timestamp, _) in zip(
-                keys, prev_event_timestamps, data
-            ):
-                event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
+                if len(table.sort_keys) != 1:
+                    raise ValueError(
+                        f"Only one sort key is supported for Range query use cases in Redis, "
+                        f"but found {len(table.sort_keys)} sort keys in the feature view {table.name}."
+                    )
 
-                # ignore if event_timestamp is before the event features that are currently in the feature store
-                if prev_event_time:
-                    prev_ts = Timestamp()
-                    prev_ts.ParseFromString(prev_event_time)
-                    if prev_ts.seconds and event_time_seconds <= prev_ts.seconds:
-                        # TODO: somehow signal that it's not overwriting the current record?
-                        if progress:
-                            progress(1)
+                sort_key_type = table.sort_keys[0].value_type
+                is_sort_key_timestamp = sort_key_type == ValueType.UNIX_TIMESTAMP
+
+                if sort_key_type not in (ValueType.UNIX_TIMESTAMP,):
+                    raise TypeError(
+                        f"Unsupported sort key type {sort_key_type.name}. Only timestamp type is supported as a sort key."
+                    )
+
+                sort_key_name = table.sort_keys[0].name
+                num_cmds = 0
+                # Picking an arbitrary number to start with and will be tuned after perf testing
+                # TODO : Make this a config as this can be different for different users based on payload size etc..
+                num_cmds_per_pipeline_execute = 500
+                ttl_feature_view = table.ttl
+
+                for entity_key, values, timestamp, _ in data:
+                    ttl = None
+                    if ttl_feature_view:
+                        ttl = RedisOnlineStore._get_ttl(ttl_feature_view, timestamp)
+                    # Negative TTL means already expired, skip this row
+                    if ttl and ttl < 0:
                         continue
 
-                ts = Timestamp()
-                ts.seconds = event_time_seconds
-                entity_hset = dict()
-                entity_hset[ts_key] = ts.SerializeToString()
+                    entity_key_bytes = _redis_key(
+                        project,
+                        entity_key,
+                        entity_key_serialization_version=config.entity_key_serialization_version,
+                    )
+                    sort_key_val = values[sort_key_name]
+                    sort_key_bytes = RedisOnlineStore.sort_key_bytes(
+                        sort_key_name,
+                        sort_key_val,
+                        v=config.entity_key_serialization_version,
+                    )
 
-                for feature_name, val in values.items():
-                    f_key = _mmh3(f"{feature_view}:{feature_name}")
-                    entity_hset[f_key] = val.SerializeToString()
+                    event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
+                    ts = Timestamp()
+                    ts.seconds = event_time_seconds
+                    entity_hset = dict()
+                    entity_hset[ts_key] = ts.SerializeToString()
 
-                pipe.hset(redis_key_bin, mapping=entity_hset)
+                    for feature_name, val in values.items():
+                        f_key = _mmh3(f"{feature_view}:{feature_name}")
+                        entity_hset[f_key] = val.SerializeToString()
 
-                ttl = online_store_config.key_ttl_seconds
-                if ttl:
-                    pipe.expire(name=redis_key_bin, time=ttl)
-            results = pipe.execute()
+                    zset_key = RedisOnlineStore.zset_key_bytes(
+                        table.name, entity_key_bytes
+                    )
+                    hash_key = RedisOnlineStore.hash_key_bytes(
+                        entity_key_bytes, sort_key_bytes
+                    )
+                    zset_score = RedisOnlineStore.zset_score(sort_key_val)
+                    zset_member = sort_key_bytes
+                    zsets_to_cleanup.add((zset_key, entity_key_bytes))
+
+                    pipe.hset(hash_key, mapping=entity_hset)
+                    pipe.zadd(zset_key, {zset_member: zset_score})
+                    num_cmds += 2
+
+                    if ttl:
+                        pipe.expire(name=hash_key, time=ttl)
+                        num_cmds += 1
+
+                    if num_cmds >= num_cmds_per_pipeline_execute:
+                        # TODO: May be add retries with backoff
+                        try:
+                            results = pipe.execute()  # flush
+                        except RedisError:
+                            logger.exception(
+                                "Error executing Redis pipeline batch for feature view %s",
+                                feature_view,
+                            )
+                            raise
+                        num_cmds = 0
+                if num_cmds:
+                    # flush any remaining data in the last batch
+                    try:
+                        results = pipe.execute()
+                    except RedisError:
+                        logger.exception(
+                            "Error executing Redis pipeline batch for feature view %s",
+                            feature_view,
+                        )
+                        raise
+
+                ttl_feature_view_seconds = (
+                    int(ttl_feature_view.total_seconds()) if ttl_feature_view else None
+                )
+
+                run_cleanup_by_event_time = (
+                    ttl_feature_view_seconds is not None
+                ) and is_sort_key_timestamp
+
+                # AFTER batch flush: run TTL cleanup
+                if run_cleanup_by_event_time and ttl_feature_view_seconds:
+                    cleanup_cmds = 0
+                    cleanup_cmds_per_execute = 500
+                    cutoff = (int(time.time()) - ttl_feature_view_seconds) * 1000
+                    for zset_key, entity_key_bytes in zsets_to_cleanup:
+                        self._run_cleanup_by_event_time(
+                            pipe, zset_key, ttl_feature_view_seconds, cutoff
+                        )
+                        cleanup_cmds += 2
+                        if cleanup_cmds >= cleanup_cmds_per_execute:
+                            try:
+                                pipe.execute()
+                            except RedisError:
+                                logger.exception(
+                                    "Error executing Redis cleanup pipeline for feature view %s",
+                                    feature_view,
+                                )
+                                raise
+                            cleanup_cmds = 0
+                    if cleanup_cmds:
+                        try:
+                            pipe.execute()
+                        except RedisError:
+                            logger.exception(
+                                "Error executing Redis cleanup pipeline for feature view %s",
+                                feature_view,
+                            )
+                            raise
+            else:
+                # check if a previous record under the key bin exists
+                # TODO: investigate if check and set is a better approach rather than pulling all entity ts and then setting
+                # it may be significantly slower but avoids potential (rare) race conditions
+                for entity_key, _, _, _ in data:
+                    redis_key_bin = _redis_key(
+                        project,
+                        entity_key,
+                        entity_key_serialization_version=config.entity_key_serialization_version,
+                    )
+                    keys.append(redis_key_bin)
+                    pipe.hmget(redis_key_bin, ts_key)
+                prev_event_timestamps = pipe.execute()
+                # flattening the list of lists. `hmget` does the lookup assuming a list of keys in the key bin
+                prev_event_timestamps = [i[0] for i in prev_event_timestamps]
+
+                for redis_key_bin, prev_event_time, (_, values, timestamp, _) in zip(
+                    keys, prev_event_timestamps, data
+                ):
+                    event_time_seconds = int(utils.make_tzaware(timestamp).timestamp())
+
+                    # ignore if event_timestamp is before the event features that are currently in the feature store
+                    if prev_event_time:
+                        prev_ts = Timestamp()
+                        prev_ts.ParseFromString(prev_event_time)
+                        if prev_ts.seconds and event_time_seconds <= prev_ts.seconds:
+                            # TODO: somehow signal that it's not overwriting the current record?
+                            if progress:
+                                progress(1)
+                            continue
+
+                    ts = Timestamp()
+                    ts.seconds = event_time_seconds
+                    entity_hset = dict()
+                    entity_hset[ts_key] = ts.SerializeToString()
+
+                    for feature_name, val in values.items():
+                        f_key = _mmh3(f"{feature_view}:{feature_name}")
+                        entity_hset[f_key] = val.SerializeToString()
+
+                    pipe.hset(redis_key_bin, mapping=entity_hset)
+
+                    ttl = online_store_config.key_ttl_seconds
+                    if ttl:
+                        pipe.expire(name=redis_key_bin, time=ttl)
+                results = pipe.execute()
             if progress:
                 progress(len(results))
+
+    @staticmethod
+    def zset_score(sort_key_value: ValueProto):
+        """
+        # Get sorted set score from sorted set value
+        """
+        feast_value_type = sort_key_value.WhichOneof("val")
+        if feast_value_type == "unix_timestamp_val":
+            feature_value = (
+                sort_key_value.unix_timestamp_val * 1000
+            )  # Convert to milliseconds
+        else:
+            feature_value = getattr(sort_key_value, str(feast_value_type))
+        return feature_value
+
+    @staticmethod
+    def hash_key_bytes(entity_key_bytes: bytes, sort_key_bytes: bytes) -> bytes:
+        """
+        hash key format: <ek_bytes><sort_key_bytes>
+        """
+        return b"".join([entity_key_bytes, sort_key_bytes])
+
+    @staticmethod
+    def zset_key_bytes(feature_view: str, entity_key_bytes: bytes) -> bytes:
+        """
+        sorted set key format: <feature_view><ek_bytes>
+        """
+        return b"".join([feature_view.encode("utf-8"), entity_key_bytes])
+
+    @staticmethod
+    def sort_key_bytes(sort_key_name: str, sort_val: ValueProto, v: int = 3) -> bytes:
+        """
+        # Serialize sort key using the same method used for entity key
+        """
+        sk = EntityKeyProto(join_keys=[sort_key_name], entity_values=[sort_val])
+        return serialize_entity_key(sk, entity_key_serialization_version=v)
+
+    @staticmethod
+    def _get_ttl(
+        ttl_feature_view: timedelta,
+        timestamp: datetime,
+    ) -> int:
+        if ttl_feature_view > timedelta():
+            ttl_offset = ttl_feature_view
+        else:
+            return 0
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        ttl_remaining = timestamp - utils._utc_now() + ttl_offset
+        return math.ceil(ttl_remaining.total_seconds())
+
+    def _run_cleanup_by_event_time(
+        self, pipe, zset_key: bytes, ttl_seconds: int, cutoff
+    ):
+        pipe.zremrangebyscore(zset_key, "-inf", cutoff)
+        pipe.expire(zset_key, ttl_seconds)
 
     def _generate_redis_keys_for_entities(
         self, config: RepoConfig, entity_keys: List[EntityKeyProto]

@@ -3,12 +3,14 @@ package onlinestore
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/utils"
@@ -319,7 +321,7 @@ func (v *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 					return nil, errors.New("error parsing Value from valkey")
 				}
 				resContainsNonNil = true
-				if value, _, err = UnmarshalStoredProto([]byte(valueString)); err != nil {
+				if value, _, err = utils.UnmarshalStoredProto([]byte(valueString)); err != nil {
 					return nil, errors.New("error converting parsed valkey Value to types.Value")
 				}
 			}
@@ -354,9 +356,427 @@ func (v *ValkeyOnlineStore) OnlineRead(ctx context.Context, entityKeys []*types.
 	return results, nil
 }
 
-func (v *ValkeyOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs *model.GroupedRangeFeatureRefs) ([][]RangeFeatureData, error) {
-	// TODO: Implement OnlineReadRange
-	return nil, errors.New("OnlineReadRange is not supported by ValkeyOnlineStore")
+func valkeyBatchHMGET(
+	ctx context.Context,
+	client valkey.Client,
+	entityKeyBin []byte,
+	members [][]byte,
+	fields []string,
+	fv string,
+	grp *utils.FvGroup,
+	results [][]RangeFeatureData,
+	eIdx int,
+	batchSize int,
+) error {
+
+	if len(members) == 0 {
+		return nil
+	}
+	if batchSize <= 0 {
+		batchSize = utils.DefaultBatchSize
+	}
+
+	nBatches := (len(members) + batchSize - 1) / batchSize
+
+	// Results array to store results from each member
+	batchResults := make([]*utils.MgetBatchResult, len(members))
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, nBatches)
+
+	for b := 0; b < nBatches; b++ {
+
+		select {
+		case <-ctx.Done():
+			wg.Wait()
+			close(errChan)
+			return ctx.Err()
+		default:
+		}
+
+		startIdx := b * batchSize
+		end := startIdx + batchSize
+		if end > len(members) {
+			end = len(members)
+		}
+
+		batch := members[startIdx:end]
+
+		// launch a goroutine for each batch
+		wg.Add(1)
+		go func(startIdx int, batch [][]byte) {
+			defer wg.Done()
+			select {
+			case <-ctx.Done():
+				errChan <- ctx.Err()
+				return
+			default:
+			}
+
+			cmds := make([]valkey.Completed, 0, len(batch))
+			for _, sortKeyBytes := range batch {
+				hashKey := utils.BuildHashKey(entityKeyBin, sortKeyBytes)
+				cmds = append(cmds, client.B().Hmget().Key(hashKey).Field(fields...).Build())
+			}
+
+			multi := client.DoMulti(ctx, cmds...)
+
+			for i, sortKeyBytes := range batch {
+				memberIdx := startIdx + i
+				memberKey := base64.StdEncoding.EncodeToString(sortKeyBytes)
+				cmdRes := multi[i]
+
+				if err := cmdRes.Error(); err != nil {
+					continue
+				}
+
+				arr, err := cmdRes.ToArray()
+				if err != nil || len(arr) == 0 {
+					continue
+				}
+
+				featureCount := len(grp.FeatNames)
+				allNil := true
+				for fi := 0; fi < featureCount && fi < len(arr)-1; fi++ {
+					if !arr[fi].IsNil() {
+						allNil = false
+						break
+					}
+				}
+				if allNil {
+					continue
+				}
+
+				var eventTS timestamppb.Timestamp
+				tsVal := arr[len(arr)-1]
+				if !tsVal.IsNil() {
+					tsStr, err := tsVal.ToString()
+					if err == nil {
+						eventTS = utils.DecodeTimestamp(tsStr)
+					}
+				}
+
+				res := &utils.MgetBatchResult{
+					MemberIdx: memberIdx,
+					MemberKey: memberKey,
+					Values:    make(map[int]interface{}),
+					Statuses:  make(map[int]serving.FieldStatus),
+					Timestamp: eventTS,
+				}
+
+				for localIdx, col := range grp.ColumnIndexes {
+					if localIdx >= len(arr)-1 {
+						continue
+					}
+
+					fvResp := arr[localIdx]
+
+					var val interface{}
+					var status serving.FieldStatus
+
+					if fvResp.IsNil() {
+						val = nil
+						status = serving.FieldStatus_NULL_VALUE
+					} else {
+						strVal, err := fvResp.ToString()
+						if err != nil {
+							continue
+						}
+
+						decoded, st := utils.DecodeFeatureValue(
+							strVal, fv, grp.FeatNames[localIdx], memberKey,
+						)
+
+						if st == serving.FieldStatus_NULL_VALUE {
+							val = nil
+						} else {
+							val = decoded
+						}
+
+						status = st
+					}
+
+					_ = col
+					res.Values[localIdx] = val
+					res.Statuses[localIdx] = status
+				}
+
+				batchResults[memberIdx] = res
+			}
+		}(startIdx, batch)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var allErrors []error
+	for e := range errChan {
+		if e != nil {
+			allErrors = append(allErrors, e)
+		}
+	}
+	if len(allErrors) > 0 {
+		return errors.Join(allErrors...)
+	}
+
+	for _, result := range batchResults {
+		if result == nil {
+			continue
+		}
+		for localIdx, col := range grp.ColumnIndexes {
+			results[eIdx][col].Values = append(results[eIdx][col].Values, result.Values[localIdx])
+			results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, result.Statuses[localIdx])
+			results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, result.Timestamp)
+		}
+	}
+	return nil
+}
+
+// processEntityKey processes a single entity key.
+//
+// It performs the following steps:
+//   - Generates the Valkey/zset key.
+//   - Executes one ZRANGE per feature view.
+//   - For each feature view, calls valkeyBatchHMGET.
+//   - Applies the limit.
+//   - Writes the output into results[eIdx].
+func (v *ValkeyOnlineStore) processEntityKey(
+	ctx context.Context,
+	eIdx int,
+	entityKey *types.EntityKey,
+	fvGroups map[string]*utils.FvGroup,
+	effectiveReverse bool,
+	minScore, maxScore string,
+	limit int64,
+	results [][]RangeFeatureData,
+	featNames, fvNames []string,
+) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	entityKeyBin, err := SerializeEntityKeyWithProject(
+		v.project,
+		entityKey,
+		v.config.EntityKeySerializationVersion,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to serialize entity key: %w", err)
+	}
+
+	// Initialize results row
+	results[eIdx] = make([]RangeFeatureData, len(featNames))
+	for i := range featNames {
+		results[eIdx][i] = RangeFeatureData{
+			FeatureView:     fvNames[i],
+			FeatureName:     featNames[i],
+			Values:          []interface{}{},
+			Statuses:        []serving.FieldStatus{},
+			EventTimestamps: []timestamppb.Timestamp{},
+		}
+	}
+	zCmds := make([]valkey.Completed, 0, len(fvGroups))
+	fvOrder := make([]string, 0, len(fvGroups))
+
+	for fv := range fvGroups {
+		zkey := utils.BuildZsetKey(fv, entityKeyBin)
+		var cmd valkey.Completed
+
+		if effectiveReverse {
+			cmd = v.client.B().
+				Zrange().
+				Key(zkey).
+				Min(maxScore).Max(minScore).Byscore().Rev().
+				Build()
+		} else {
+			cmd = v.client.B().
+				Zrange().
+				Key(zkey).
+				Min(minScore).Max(maxScore).Byscore().
+				Build()
+		}
+
+		zCmds = append(zCmds, cmd)
+		fvOrder = append(fvOrder, fv)
+	}
+
+	zResults := v.client.DoMulti(ctx, zCmds...)
+
+	// Parse ZRANGE results by reading each result into zMembers
+	zMembers := map[string][][]byte{}
+	for i, fv := range fvOrder {
+		raw := zResults[i]
+		if err := raw.Error(); err != nil {
+			log.Warn().
+				Int("entity_index", eIdx).
+				Str("feature_view", fv).
+				Err(err).
+				Msg("ZRANGE error")
+			zMembers[fv] = nil
+			continue
+		}
+
+		arr, err := raw.ToArray()
+		if err != nil {
+			zMembers[fv] = nil
+			continue
+		}
+
+		out := make([][]byte, 0, len(arr))
+		for _, itm := range arr {
+			if itm.IsNil() {
+				continue
+			}
+			s, err := itm.ToString()
+			if err != nil {
+				continue
+			}
+			out = append(out, []byte(s))
+		}
+		zMembers[fv] = out
+	}
+
+	// HMGET feature values for each feature view in parallel batches
+	for fv, grp := range fvGroups {
+		members := zMembers[fv]
+
+		if len(members) == 0 {
+			for _, col := range grp.ColumnIndexes {
+				results[eIdx][col].Values = append(results[eIdx][col].Values, nil)
+				results[eIdx][col].Statuses = append(results[eIdx][col].Statuses, serving.FieldStatus_NOT_FOUND)
+				results[eIdx][col].EventTimestamps = append(results[eIdx][col].EventTimestamps, timestamppb.Timestamp{})
+			}
+			continue
+		}
+		// build list of hash fields to retrieve
+		fields := append(append([]string{}, grp.FieldHashes...), grp.TsKey)
+		if err := valkeyBatchHMGET(
+			ctx,
+			v.client,
+			entityKeyBin,
+			members,
+			fields,
+			fv,
+			grp,
+			results,
+			eIdx,
+			v.ReadBatchSize,
+		); err != nil {
+			return err
+		}
+		// apply limit if set by truncating each feature's result lists after HMGET
+		if limit > 0 {
+			for _, col := range grp.ColumnIndexes {
+				r := &results[eIdx][col]
+				if len(r.Values) > int(limit) {
+					r.Values = r.Values[:limit]
+					r.Statuses = r.Statuses[:limit]
+					r.EventTimestamps = r.EventTimestamps[:limit]
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// OnlineReadRange performs the online read for range querying
+//
+// It executes the following steps:
+//   - Groups features by feature view (FV).
+//   - Spawns a goroutine per entity key.
+//   - For each entity, runs processEntityKey.
+//   - Waits for all entity goroutines to complete.
+//   - Returns the final matrix.
+func (v *ValkeyOnlineStore) OnlineReadRange(
+	ctx context.Context,
+	groupedRefs *model.GroupedRangeFeatureRefs,
+) ([][]RangeFeatureData, error) {
+
+	if groupedRefs == nil || len(groupedRefs.EntityKeys) == 0 {
+		log.Warn().Msg("OnlineReadRange: no entity keys provided")
+		return nil, fmt.Errorf("no entity keys provided")
+	}
+
+	featNames := groupedRefs.FeatureNames
+	fvNames := groupedRefs.FeatureViewNames
+	limit := int64(groupedRefs.Limit)
+
+	effectiveReverse := utils.ComputeEffectiveReverse(
+		groupedRefs.SortKeyFilters,
+		groupedRefs.IsReverseSortOrder,
+	)
+
+	minScore, maxScore := "-inf", "+inf"
+	if len(groupedRefs.SortKeyFilters) != 0 {
+		minScore, maxScore = utils.GetScoreRange(groupedRefs.SortKeyFilters)
+		if len(groupedRefs.SortKeyFilters) > 1 {
+			log.Warn().
+				Int("sort_key_count", len(groupedRefs.SortKeyFilters)).
+				Msg("OnlineReadRange: more than one sort key filter provided; only the first will be used")
+		}
+	}
+
+	fvGroups := map[string]*utils.FvGroup{}
+	for i := range featNames {
+		fv, fn := fvNames[i], featNames[i]
+		g := fvGroups[fv]
+		if g == nil {
+			g = &utils.FvGroup{
+				View:          fv,
+				TsKey:         fmt.Sprintf("_ts:%s", fv),
+				FeatNames:     []string{},
+				FieldHashes:   []string{},
+				ColumnIndexes: []int{},
+			}
+			fvGroups[fv] = g
+		}
+		g.FeatNames = append(g.FeatNames, fn)
+		g.FieldHashes = append(g.FieldHashes, utils.Mmh3FieldHash(fv, fn))
+		g.ColumnIndexes = append(g.ColumnIndexes, i)
+	}
+
+	results := make([][]RangeFeatureData, len(groupedRefs.EntityKeys))
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(groupedRefs.EntityKeys))
+
+	// Run each entity key in parallel
+	for eIdx, entityKey := range groupedRefs.EntityKeys {
+		wg.Add(1)
+		go func(idx int, ek *types.EntityKey) {
+			defer wg.Done()
+			if err := v.processEntityKey(
+				ctx,
+				idx,
+				ek,
+				fvGroups,
+				effectiveReverse,
+				minScore, maxScore,
+				limit,
+				results,
+				featNames, fvNames,
+			); err != nil {
+				errChan <- err
+			}
+		}(eIdx, entityKey)
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	var allErrors []error
+	for err := range errChan {
+		if err != nil {
+			allErrors = append(allErrors, err)
+		}
+	}
+
+	if len(allErrors) > 0 {
+		return nil, errors.Join(allErrors...)
+	}
+	return results, nil
 }
 
 // Dummy destruct function to conform with plugin OnlineStore interface

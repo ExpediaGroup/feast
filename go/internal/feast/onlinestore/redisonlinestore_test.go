@@ -3,12 +3,21 @@
 package onlinestore
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/internal/feast/utils"
+	"github.com/feast-dev/feast/go/protos/feast/serving"
 	"github.com/feast-dev/feast/go/protos/feast/types"
-
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestNewRedisOnlineStore(t *testing.T) {
@@ -193,4 +202,583 @@ func TestBuildRedisKeys(t *testing.T) {
 		_, _, err := r.buildRedisKeys(entityKeys)
 		assert.NotNil(t, err)
 	})
+}
+
+func newMiniRedisStore(t *testing.T) (*RedisOnlineStore, *miniredis.Miniredis) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	t.Cleanup(mr.Close)
+
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	store := &RedisOnlineStore{
+		project: "test_project",
+		t:       redisNode,
+		client:  client,
+		config: &registry.RepoConfig{
+			EntityKeySerializationVersion: 3,
+		},
+		ReadBatchSize: 100,
+	}
+	return store, mr
+}
+
+func Test_batchHMGET(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKeyBin := []byte{0xAA, 0xBB}
+
+	// members = simulated sort keys
+	members := [][]byte{{0x01}, {0x02}}
+
+	grp := &utils.FvGroup{
+		View:          "fv",
+		FeatNames:     []string{"f1"},
+		FieldHashes:   []string{utils.Mmh3FieldHash("fv", "f1")},
+		TsKey:         "_ts:fv",
+		ColumnIndexes: []int{0},
+	}
+
+	results := make([][]RangeFeatureData, 1)
+	results[0] = []RangeFeatureData{
+		{
+			FeatureView:     "fv",
+			FeatureName:     "f1",
+			Values:          []interface{}{},
+			Statuses:        []serving.FieldStatus{},
+			EventTimestamps: []timestamppb.Timestamp{},
+		},
+	}
+
+	// test hashes matching pattern HASH = entityKeyBytes+sortKeyBytes
+	for _, sk := range members {
+		hk := utils.BuildHashKey(entityKeyBin, sk)
+		ts := timestamppb.Now()
+		tsB, _ := proto.Marshal(ts)
+		vB, _ := proto.Marshal(&types.Value{
+			Val: &types.Value_StringVal{StringVal: "val-" + string(sk)},
+		})
+
+		require.NoError(t, store.client.HSet(
+			ctx,
+			hk,
+			grp.TsKey, tsB,
+			grp.FieldHashes[0], vB,
+		).Err())
+	}
+
+	err := batchHMGET(
+		ctx,
+		store.client,
+		entityKeyBin,
+		members,
+		[]string{grp.FieldHashes[0], grp.TsKey},
+		"fv",
+		grp,
+		results,
+		0,
+		utils.DefaultBatchSize,
+	)
+	require.NoError(t, err)
+
+	require.Len(t, results[0][0].Values, 2)
+	assert.Equal(t, "val-\x01", results[0][0].Values[0].(*types.Value).GetStringVal())
+	assert.Equal(t, "val-\x02", results[0][0].Values[1].(*types.Value).GetStringVal())
+}
+
+func Test_batchHMGET_EmptyMembers(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKeyBin := []byte{0xAA, 0xBB}
+	members := [][]byte{} // Empty
+
+	grp := &utils.FvGroup{
+		View:          "fv",
+		FeatNames:     []string{"f1"},
+		FieldHashes:   []string{utils.Mmh3FieldHash("fv", "f1")},
+		TsKey:         "_ts:fv",
+		ColumnIndexes: []int{0},
+	}
+
+	results := make([][]RangeFeatureData, 1)
+	results[0] = []RangeFeatureData{
+		{
+			FeatureView:     "fv",
+			FeatureName:     "f1",
+			Values:          []interface{}{},
+			Statuses:        []serving.FieldStatus{},
+			EventTimestamps: []timestamppb.Timestamp{},
+		},
+	}
+
+	err := batchHMGET(
+		ctx,
+		store.client,
+		entityKeyBin,
+		members,
+		[]string{grp.FieldHashes[0], grp.TsKey},
+		"fv",
+		grp,
+		results,
+		0,
+		utils.DefaultBatchSize,
+	)
+	require.NoError(t, err)
+	// Should return with no values added
+	assert.Len(t, results[0][0].Values, 0)
+}
+
+func Test_batchHMGET_WithSmallBatchSize(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKeyBin := []byte{0xAA, 0xBB}
+
+	// Create 5 members to test batching with batch size of 2
+	members := [][]byte{{0x01}, {0x02}, {0x03}, {0x04}, {0x05}}
+
+	grp := &utils.FvGroup{
+		View:          "fv",
+		FeatNames:     []string{"f1"},
+		FieldHashes:   []string{utils.Mmh3FieldHash("fv", "f1")},
+		TsKey:         "_ts:fv",
+		ColumnIndexes: []int{0},
+	}
+
+	results := make([][]RangeFeatureData, 1)
+	results[0] = []RangeFeatureData{
+		{
+			FeatureView:     "fv",
+			FeatureName:     "f1",
+			Values:          []interface{}{},
+			Statuses:        []serving.FieldStatus{},
+			EventTimestamps: []timestamppb.Timestamp{},
+		},
+	}
+	// Insert 5 records
+	for _, sk := range members {
+		hk := utils.BuildHashKey(entityKeyBin, sk)
+		ts := timestamppb.Now()
+		tsB, _ := proto.Marshal(ts)
+		vB, _ := proto.Marshal(&types.Value{
+			Val: &types.Value_StringVal{StringVal: "val-" + string(sk)},
+		})
+		require.NoError(t, store.client.HSet(
+			ctx,
+			hk,
+			grp.TsKey, tsB,
+			grp.FieldHashes[0], vB,
+		).Err())
+	}
+
+	// Use small batch size of 2 (will create 3 batches: 2+2+1)
+	err := batchHMGET(
+		ctx,
+		store.client,
+		entityKeyBin,
+		members,
+		[]string{grp.FieldHashes[0], grp.TsKey},
+		"fv",
+		grp,
+		results,
+		0,
+		2,
+	)
+	require.NoError(t, err)
+
+	require.Len(t, results[0][0].Values, 5)
+}
+
+func writeTestRecord(
+	t *testing.T,
+	store *RedisOnlineStore,
+	entityBin []byte,
+	fv string,
+	sortKeyBytes []byte,
+	ts *timestamppb.Timestamp,
+	feat string,
+	val string,
+) {
+	ctx := context.Background()
+
+	// ZSET key = fv + entity_key_bytes
+	zkey := utils.BuildZsetKey(fv, entityBin)
+
+	// HASH key = entity_key_bytes + sort_key_bytes
+	hkey := utils.BuildHashKey(entityBin, sortKeyBytes)
+
+	tsKey := "_ts:" + fv
+	fieldHash := utils.Mmh3FieldHash(fv, feat)
+
+	tsB, _ := proto.Marshal(ts)
+	valB, _ := proto.Marshal(&types.Value{
+		Val: &types.Value_StringVal{StringVal: val},
+	})
+
+	require.NoError(t, store.client.HSet(
+		ctx,
+		hkey,
+		tsKey, tsB,
+		fieldHash, valB,
+	).Err())
+	require.NoError(t, store.client.ZAdd(ctx, zkey, redis.Z{
+		Score:  float64(ts.AsTime().Unix()),
+		Member: string(sortKeyBytes),
+	}).Err())
+}
+
+func TestOnlineReadRange(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"driver_id"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "D1"}}},
+	}
+
+	entityKeyBin, err := SerializeEntityKeyWithProject("test_project", entityKey, 3)
+	require.NoError(t, err)
+
+	fv := "driver_fv"
+	feat := "trip_count"
+
+	// three records with increasing timestamps
+	ts1 := timestamppb.New(time.Unix(1000, 0))
+	ts2 := timestamppb.New(time.Unix(2000, 0))
+	ts3 := timestamppb.New(time.Unix(3000, 0))
+
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x01}, ts1, feat, "one")
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x02}, ts2, feat, "two")
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x03}, ts3, feat, "three")
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{feat},
+		FeatureViewNames:   []string{fv},
+		Limit:              10,
+		IsReverseSortOrder: false,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{
+				SortKeyName:    "ts",
+				RangeStart:     int64(1000),
+				RangeEnd:       int64(2500),
+				StartInclusive: true,
+				EndInclusive:   true,
+			},
+		},
+	}
+
+	res, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+
+	require.Len(t, res, 1)
+	require.Len(t, res[0], 1)
+
+	out := res[0][0]
+	require.Len(t, out.Values, 2)
+	assert.Equal(t, "one", out.Values[0].(*types.Value).GetStringVal())
+	assert.Equal(t, "two", out.Values[1].(*types.Value).GetStringVal())
+}
+
+func TestOnlineReadRange_Reverse(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"user"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "U1"}}},
+	}
+
+	entityKeyBin, _ := SerializeEntityKeyWithProject("test_project", entityKey, 3)
+
+	fv := "rev_fv"
+	feat := "rev"
+	ts1 := timestamppb.New(time.Unix(10, 0))
+	ts2 := timestamppb.New(time.Unix(20, 0))
+
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x01}, ts1, feat, "A")
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x02}, ts2, feat, "B")
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{feat},
+		FeatureViewNames:   []string{fv},
+		Limit:              10,
+		IsReverseSortOrder: true,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{
+				SortKeyName: "ts",
+				RangeStart:  int64(0),
+				RangeEnd:    int64(30)},
+		},
+	}
+
+	res, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+
+	out := res[0][0]
+	require.Len(t, out.Values, 2)
+	assert.Equal(t, "B", out.Values[0].(*types.Value).GetStringVal())
+	assert.Equal(t, "A", out.Values[1].(*types.Value).GetStringVal())
+}
+
+func TestOnlineReadRange_EmptyResult(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"missing"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "none"}}},
+	}
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{"feat"},
+		FeatureViewNames:   []string{"fv"},
+		Limit:              10,
+		IsReverseSortOrder: false,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10)},
+		},
+	}
+
+	res, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+
+	assert.Equal(t, serving.FieldStatus_NOT_FOUND, res[0][0].Statuses[0])
+}
+
+func TestOnlineReadRange_WithLimit(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"driver_id"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "D2"}}},
+	}
+
+	entityKeyBin, err := SerializeEntityKeyWithProject("test_project", entityKey, 3)
+	require.NoError(t, err)
+
+	fv := "limit_fv"
+	feat := "limit_feat"
+
+	// Create 5 records
+	for i := 1; i <= 5; i++ {
+		ts := timestamppb.New(time.Unix(int64(i*1000), 0))
+		writeTestRecord(t, store, entityKeyBin, fv, []byte{byte(i)}, ts, feat, string(rune('A'+i-1)))
+	}
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{feat},
+		FeatureViewNames:   []string{fv},
+		Limit:              3, // Only get 3
+		IsReverseSortOrder: false,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10000)},
+		},
+	}
+
+	res, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+
+	out := res[0][0]
+	require.Len(t, out.Values, 3)
+	assert.Equal(t, "A", out.Values[0].(*types.Value).GetStringVal())
+	assert.Equal(t, "B", out.Values[1].(*types.Value).GetStringVal())
+	assert.Equal(t, "C", out.Values[2].(*types.Value).GetStringVal())
+}
+
+func TestOnlineReadRange_MultipleEntityKeys(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKey1 := &types.EntityKey{
+		JoinKeys:     []string{"driver_id"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "D1"}}},
+	}
+	entityKey2 := &types.EntityKey{
+		JoinKeys:     []string{"driver_id"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "D2"}}},
+	}
+
+	entityKeyBin1, _ := SerializeEntityKeyWithProject("test_project", entityKey1, 3)
+	entityKeyBin2, _ := SerializeEntityKeyWithProject("test_project", entityKey2, 3)
+
+	fv := "multi_entity_fv"
+	feat := "feat"
+
+	ts1 := timestamppb.New(time.Unix(1000, 0))
+	ts2 := timestamppb.New(time.Unix(2000, 0))
+
+	writeTestRecord(t, store, entityKeyBin1, fv, []byte{0x01}, ts1, feat, "entity1_val")
+	writeTestRecord(t, store, entityKeyBin2, fv, []byte{0x01}, ts2, feat, "entity2_val")
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey1, entityKey2},
+		FeatureNames:       []string{feat},
+		FeatureViewNames:   []string{fv},
+		Limit:              10,
+		IsReverseSortOrder: false,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000)},
+		},
+	}
+
+	res, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+
+	require.Len(t, res, 2)
+
+	// Entity 1
+	require.Len(t, res[0][0].Values, 1)
+	assert.Equal(t, "entity1_val", res[0][0].Values[0].(*types.Value).GetStringVal())
+
+	// Entity 2
+	require.Len(t, res[1][0].Values, 1)
+	assert.Equal(t, "entity2_val", res[1][0].Values[0].(*types.Value).GetStringVal())
+}
+
+func TestOnlineReadRange_MultipleFeatureViews(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"driver_id"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "D1"}}},
+	}
+
+	entityKeyBin, _ := SerializeEntityKeyWithProject("test_project", entityKey, 3)
+
+	fv1 := "fv1"
+	fv2 := "fv2"
+	feat1 := "feat1"
+	feat2 := "feat2"
+
+	ts := timestamppb.New(time.Unix(1000, 0))
+
+	writeTestRecord(t, store, entityKeyBin, fv1, []byte{0x01}, ts, feat1, "fv1_val")
+	writeTestRecord(t, store, entityKeyBin, fv2, []byte{0x01}, ts, feat2, "fv2_val")
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{feat1, feat2},
+		FeatureViewNames:   []string{fv1, fv2},
+		Limit:              10,
+		IsReverseSortOrder: false,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000)},
+		},
+	}
+
+	res, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+
+	require.Len(t, res, 1)
+	require.Len(t, res[0], 2)
+
+	assert.Equal(t, "fv1_val", res[0][0].Values[0].(*types.Value).GetStringVal())
+	assert.Equal(t, "fv2_val", res[0][1].Values[0].(*types.Value).GetStringVal())
+}
+
+func TestOnlineReadRange_NoSortKeyFilters(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"driver_id"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "D1"}}},
+	}
+
+	entityKeyBin, _ := SerializeEntityKeyWithProject("test_project", entityKey, 3)
+
+	fv := "no_filter_fv"
+	feat := "feat"
+
+	ts1 := timestamppb.New(time.Unix(1000, 0))
+	ts2 := timestamppb.New(time.Unix(2000, 0))
+
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x01}, ts1, feat, "val1")
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x02}, ts2, feat, "val2")
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{feat},
+		FeatureViewNames:   []string{fv},
+		Limit:              10,
+		IsReverseSortOrder: false,
+		SortKeyFilters:     []*model.SortKeyFilter{}, // No filters - should use -inf to +inf
+	}
+
+	res, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+
+	out := res[0][0]
+	require.Len(t, out.Values, 2)
+	assert.Equal(t, "val1", out.Values[0].(*types.Value).GetStringVal())
+	assert.Equal(t, "val2", out.Values[1].(*types.Value).GetStringVal())
+}
+
+func TestOnlineReadRange_EmptyEntityKeys(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:       []*types.EntityKey{},
+		FeatureNames:     []string{"feat"},
+		FeatureViewNames: []string{"fv"},
+	}
+
+	_, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no entity keys provided")
+}
+
+func TestOnlineReadRange_ExclusiveRangeBounds(t *testing.T) {
+	ctx := context.Background()
+	store, _ := newMiniRedisStore(t)
+
+	entityKey := &types.EntityKey{
+		JoinKeys:     []string{"driver_id"},
+		EntityValues: []*types.Value{{Val: &types.Value_StringVal{StringVal: "D1"}}},
+	}
+
+	entityKeyBin, _ := SerializeEntityKeyWithProject("test_project", entityKey, 3)
+
+	fv := "exclusive_fv"
+	feat := "feat"
+
+	ts1 := timestamppb.New(time.Unix(1000, 0))
+	ts2 := timestamppb.New(time.Unix(2000, 0))
+	ts3 := timestamppb.New(time.Unix(3000, 0))
+
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x01}, ts1, feat, "one")
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x02}, ts2, feat, "two")
+	writeTestRecord(t, store, entityKeyBin, fv, []byte{0x03}, ts3, feat, "three")
+
+	groupedRefs := &model.GroupedRangeFeatureRefs{
+		EntityKeys:         []*types.EntityKey{entityKey},
+		FeatureNames:       []string{feat},
+		FeatureViewNames:   []string{fv},
+		Limit:              10,
+		IsReverseSortOrder: false,
+		SortKeyFilters: []*model.SortKeyFilter{
+			{
+				SortKeyName:    "ts",
+				RangeStart:     int64(1000),
+				RangeEnd:       int64(3000),
+				StartInclusive: false, // Exclude 1000
+				EndInclusive:   false, // Exclude 3000
+			},
+		},
+	}
+
+	res, err := store.OnlineReadRange(ctx, groupedRefs)
+	require.NoError(t, err)
+
+	out := res[0][0]
+	require.Len(t, out.Values, 1)
+	assert.Equal(t, "two", out.Values[0].(*types.Value).GetStringVal())
 }
