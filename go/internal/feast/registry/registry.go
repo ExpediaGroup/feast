@@ -21,6 +21,7 @@ var REGISTRY_STORE_CLASS_FOR_SCHEME map[string]string = map[string]string{
 	"file":  "FileRegistryStore",
 	"http":  "HttpRegistryStore",
 	"https": "HttpRegistryStore",
+	"grpc":  "GrpcRegistryStore",
 	"":      "FileRegistryStore",
 }
 
@@ -182,7 +183,7 @@ func (r *Registry) InitializeRegistry() error {
 	registryProto, err := r.registryStore.GetRegistryProto()
 	if err != nil {
 		switch r.registryStore.(type) {
-		case *FileRegistryStore, *HttpRegistryStore:
+		case *FileRegistryStore, *HttpRegistryStore, *GrpcRegistryStore: // TODO: Extend to support remote registry
 			log.Error().Err(err).Msg("Registry Initialization Failed")
 			return err
 		default:
@@ -264,53 +265,37 @@ func loadModels[U any, T any](protoList []U, cachedModels *cacheMap[T], modelFac
 	}
 }
 
-func (r *Registry) GetEntity(project string, entityName string) (*model.Entity, error) {
-	if r.registryStore.HasFallback() {
-		return r.cachedEntities.getOrLoad(project, entityName, r.GetEntityFromRegistry)
-	}
-
-	if entity, ok := r.cachedEntities.get(project, entityName); ok {
-		return entity, nil
-	}
-
-	return nil, errors.GrpcNotFoundErrorf("no cached entity %s found for project %s", entityName, project)
-}
-
 func (r *Registry) GetEntityFromRegistry(entityName string, project string) (*model.Entity, error) {
-	entityProto, err := r.registryStore.(*HttpRegistryStore).getEntity(entityName, true)
+	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
+	if !ok {
+		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
+	}
+
+	entityProto, err := remoteStore.GetEntity(entityName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no entity %s found in project %s", entityName, project)
 			return nil, errors.GrpcNotFoundErrorf("no entity %s found in project %s", entityName, project)
 		}
-
-		log.Error().Err(err).Msgf("no entity %s found in project %s", entityName, project)
+		log.Error().Err(err).Msgf("error retrieving entity %s in project %s", entityName, project)
 		return nil, errors.GrpcInternalErrorf("error retrieving entity %s in project %s: %v", entityName, project, err)
 	}
 
 	return model.NewEntityFromProto(entityProto), nil
 }
 
-func (r *Registry) GetFeatureView(project string, featureViewName string) (*model.FeatureView, error) {
-	if r.registryStore.HasFallback() {
-		return r.cachedFeatureViews.getOrLoad(project, featureViewName, r.GetFeatureViewFromRegistry)
-	}
-
-	if cachedFeatureView, ok := r.cachedFeatureViews.get(project, featureViewName); ok {
-		return cachedFeatureView, nil
-	}
-
-	return nil, errors.GrpcNotFoundErrorf("no cached feature view %s found for project %s", featureViewName, project)
-}
-
 func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project string) (*model.FeatureView, error) {
-	featureViewProto, err := r.registryStore.(*HttpRegistryStore).getFeatureView(featureViewName, true)
+	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
+	if !ok {
+		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
+	}
+
+	featureViewProto, err := remoteStore.GetFeatureView(featureViewName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no feature view %s found in project %s", featureViewName, project)
 			return nil, errors.GrpcNotFoundErrorf("no feature view %s found in project %s", featureViewName, project)
 		}
-
 		log.Error().Err(err).Msgf("error retrieving feature view %s in project %s", featureViewName, project)
 		return nil, errors.GrpcInternalErrorf("error retrieving feature view %s in project %s: %v", featureViewName, project, err)
 	}
@@ -318,26 +303,18 @@ func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project st
 	return model.NewFeatureViewFromProto(featureViewProto), nil
 }
 
-func (r *Registry) GetSortedFeatureView(project string, sortedFeatureViewName string) (*model.SortedFeatureView, error) {
-	if r.registryStore.HasFallback() {
-		return r.cachedSortedFeatureViews.getOrLoad(project, sortedFeatureViewName, r.GetSortedFeatureViewFromRegistry)
-	}
-
-	if cachedSortedFeatureView, ok := r.cachedSortedFeatureViews.get(project, sortedFeatureViewName); ok {
-		return cachedSortedFeatureView, nil
-	}
-
-	return nil, errors.GrpcNotFoundErrorf("no cached sorted feature view %s found for project %s", sortedFeatureViewName, project)
-}
-
 func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string, project string) (*model.SortedFeatureView, error) {
-	sortedFeatureViewProto, err := r.registryStore.(*HttpRegistryStore).getSortedFeatureView(sortedFeatureViewName, true)
+	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
+	if !ok {
+		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
+	}
+
+	sortedFeatureViewProto, err := remoteStore.GetSortedFeatureView(sortedFeatureViewName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no sorted feature view %s found in project %s", sortedFeatureViewName, project)
 			return nil, errors.GrpcNotFoundErrorf("no sorted feature view %s found in project %s", sortedFeatureViewName, project)
 		}
-
 		log.Error().Err(err).Msgf("error retrieving sorted feature view %s in project %s", sortedFeatureViewName, project)
 		return nil, errors.GrpcInternalErrorf("error retrieving sorted feature view %s in project %s: %v", sortedFeatureViewName, project, err)
 	}
@@ -345,26 +322,18 @@ func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string
 	return model.NewSortedFeatureViewFromProto(sortedFeatureViewProto), nil
 }
 
-func (r *Registry) GetFeatureService(project string, featureServiceName string) (*model.FeatureService, error) {
-	if r.registryStore.HasFallback() {
-		return r.cachedFeatureServices.getOrLoad(project, featureServiceName, r.GetFeatureServiceFromRegistry)
-	}
-
-	if cachedFeatureService, ok := r.cachedFeatureServices.get(project, featureServiceName); ok {
-		return cachedFeatureService, nil
-	}
-
-	return nil, errors.GrpcNotFoundErrorf("no cached feature service %s found for project %s", featureServiceName, project)
-}
-
 func (r *Registry) GetFeatureServiceFromRegistry(featureServiceName string, project string) (*model.FeatureService, error) {
-	featureServiceProto, err := r.registryStore.(*HttpRegistryStore).getFeatureService(featureServiceName, true)
+	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
+	if !ok {
+		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
+	}
+
+	featureServiceProto, err := remoteStore.GetFeatureService(featureServiceName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no feature service %s found in project %s", featureServiceName, project)
 			return nil, errors.GrpcNotFoundErrorf("no feature service %s found in project %s", featureServiceName, project)
 		}
-
 		log.Error().Err(err).Msgf("error retrieving feature service %s in project %s", featureServiceName, project)
 		return nil, errors.GrpcInternalErrorf("error retrieving feature service %s in project %s: %v", featureServiceName, project, err)
 	}
@@ -372,26 +341,18 @@ func (r *Registry) GetFeatureServiceFromRegistry(featureServiceName string, proj
 	return model.NewFeatureServiceFromProto(featureServiceProto), nil
 }
 
-func (r *Registry) GetOnDemandFeatureView(project string, onDemandFeatureViewName string) (*model.OnDemandFeatureView, error) {
-	if r.registryStore.HasFallback() {
-		return r.cachedOnDemandFeatureViews.getOrLoad(project, onDemandFeatureViewName, r.GetOnDemandFeatureViewFromRegistry)
-	}
-
-	if cachedOnDemandFeatureView, ok := r.cachedOnDemandFeatureViews.get(project, onDemandFeatureViewName); ok {
-		return cachedOnDemandFeatureView, nil
-	}
-
-	return nil, errors.GrpcNotFoundErrorf("no cached on demand feature view %s found for project %s", onDemandFeatureViewName, project)
-}
-
 func (r *Registry) GetOnDemandFeatureViewFromRegistry(onDemandFeatureViewName string, project string) (*model.OnDemandFeatureView, error) {
-	onDemandFeatureViewProto, err := r.registryStore.(*HttpRegistryStore).getOnDemandFeatureView(onDemandFeatureViewName, true)
+	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
+	if !ok {
+		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
+	}
+
+	onDemandFeatureViewProto, err := remoteStore.GetOnDemandFeatureView(onDemandFeatureViewName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no on demand feature view %s found in project %s", onDemandFeatureViewName, project)
 			return nil, errors.GrpcNotFoundErrorf("no on demand feature view %s found in project %s", onDemandFeatureViewName, project)
 		}
-
 		log.Error().Err(err).Msgf("error retrieving on demand feature view %s in project %s", onDemandFeatureViewName, project)
 		return nil, errors.GrpcInternalErrorf("error retrieving on demand feature view %s in project %s: %v", onDemandFeatureViewName, project, err)
 	}
@@ -412,10 +373,12 @@ func getRegistryStoreFromScheme(registryPath string, registryConfig *RegistryCon
 
 func getRegistryStoreFromType(registryStoreType string, registryConfig *RegistryConfig, repoPath string, project string) (RegistryStore, error) {
 	switch registryStoreType {
-	case "FileRegistryStore":
-		return NewFileRegistryStore(registryConfig, repoPath), nil
 	case "HttpRegistryStore":
 		return NewHttpRegistryStore(registryConfig, project)
+	case "GrpcRegistryStore":
+		return NewGrpcRegistryStore(registryConfig, project)
+	case "FileRegistryStore":
+		return NewFileRegistryStore(registryConfig, repoPath), nil
 	case "S3RegistryStore":
 		return NewS3RegistryStore(registryConfig, repoPath), nil
 	}

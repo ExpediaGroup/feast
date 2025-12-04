@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/feast-dev/feast/go/protos/feast/core"
+
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 )
