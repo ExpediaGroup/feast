@@ -333,10 +333,9 @@ class EGValkeyOnlineStore(OnlineStore):
                 sort_key_name = table.sort_keys[0].name
 
                 num_cmds = 0
-                max_pipeline_commands: int | None = online_store_config.max_pipeline_commands
                 max_pipeline_commands_per_process = (
                     EGValkeyOnlineStore._get_max_pipeline_commands_per_process(
-                        max_pipeline_commands
+                        online_store_config.max_pipeline_commands
                     )
                 )
 
@@ -549,7 +548,7 @@ class EGValkeyOnlineStore(OnlineStore):
 
     @staticmethod
     def _get_max_pipeline_commands_per_process(
-        max_pipeline_commands: int,
+        max_pipeline_commands: int | None,
     ) -> int:
         num_processes = int(os.environ.get("NUM_PROCESSES", 1))
         max_pipeline_commands_per_process = max(
