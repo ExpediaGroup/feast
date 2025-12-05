@@ -90,7 +90,7 @@ class RedisOnlineStoreConfig(FeastConfigBaseModel):
     """(Optional) number of keys to read in a single batch for online read requests. Anything < 1 means no batching."""
 
     max_pipeline_commands: Optional[int] = 500
-    """(Optional) The maximum number of Redis commands to queue in a pipeline before sending them to Redis in a single batch."""
+    """(Optional) The maximum number of Redis commands to queue in a pipeline before sending them to Redis in a single batch.In most cases, limiting the size of the pipeline to 100-1000 operations per shard gives the best results."""
 
 
 class RedisOnlineStore(OnlineStore):
@@ -325,7 +325,7 @@ class RedisOnlineStore(OnlineStore):
 
                 sort_key_name = table.sort_keys[0].name
                 num_cmds = 0
-                max_pipeline_commands: int = online_store_config.max_pipeline_commands
+                max_pipeline_commands: int | None = online_store_config.max_pipeline_commands
                 max_pipeline_commands_per_process = (
                     RedisOnlineStore._get_max_pipeline_commands_per_process(
                         max_pipeline_commands
