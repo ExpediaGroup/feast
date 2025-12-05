@@ -403,6 +403,8 @@ class PassthroughProvider(Provider):
             if table.num_rows < num_processes:
                 num_processes = table.num_rows
 
+            os.environ["NUM_PROCESSES"] = str(num_processes)
+
             # Input table is split into smaller chunks and processed in parallel
             chunks = self.split_table(num_processes, table)
 
@@ -413,6 +415,7 @@ class PassthroughProvider(Provider):
             with Pool(processes=num_processes) as pool:
                 pool.starmap(self.process, chunks_to_parallelize)
         else:
+            os.environ["NUM_PROCESSES"] = "1"
             self.process(table, feature_view, join_keys)
 
     @staticmethod
