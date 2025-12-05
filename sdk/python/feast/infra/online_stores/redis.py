@@ -14,6 +14,7 @@
 import json
 import logging
 import math
+import os
 import time
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -87,6 +88,9 @@ class RedisOnlineStoreConfig(FeastConfigBaseModel):
 
     read_batch_size: Optional[int] = 100
     """(Optional) number of keys to read in a single batch for online read requests. Anything < 1 means no batching."""
+
+    max_pipeline_commands: Optional[int] = 500
+    """(Optional) The maximum number of Redis commands to queue in a pipeline before sending them to Redis in a single batch."""
 
 
 class RedisOnlineStore(OnlineStore):
@@ -321,9 +325,12 @@ class RedisOnlineStore(OnlineStore):
 
                 sort_key_name = table.sort_keys[0].name
                 num_cmds = 0
-                # Picking an arbitrary number to start with and will be tuned after perf testing
-                # TODO : Make this a config as this can be different for different users based on payload size etc..
-                num_cmds_per_pipeline_execute = 500
+                max_pipeline_commands_per_process = (
+                    RedisOnlineStore._get_max_pipeline_commands_per_process(
+                        online_store_config.max_pipeline_commands
+                    )
+                )
+
                 ttl_feature_view = table.ttl
 
                 for entity_key, values, timestamp, _ in data:
@@ -374,7 +381,7 @@ class RedisOnlineStore(OnlineStore):
                         pipe.expire(name=hash_key, time=ttl)
                         num_cmds += 1
 
-                    if num_cmds >= num_cmds_per_pipeline_execute:
+                    if num_cmds >= max_pipeline_commands_per_process:
                         # TODO: May be add retries with backoff
                         try:
                             results = pipe.execute()  # flush
@@ -407,14 +414,13 @@ class RedisOnlineStore(OnlineStore):
                 # AFTER batch flush: run TTL cleanup
                 if run_cleanup_by_event_time and ttl_feature_view_seconds:
                     cleanup_cmds = 0
-                    cleanup_cmds_per_execute = 500
                     cutoff = (int(time.time()) - ttl_feature_view_seconds) * 1000
                     for zset_key, entity_key_bytes in zsets_to_cleanup:
                         self._run_cleanup_by_event_time(
                             pipe, zset_key, ttl_feature_view_seconds, cutoff
                         )
                         cleanup_cmds += 2
-                        if cleanup_cmds >= cleanup_cmds_per_execute:
+                        if cleanup_cmds >= max_pipeline_commands_per_process:
                             try:
                                 pipe.execute()
                             except RedisError:
@@ -517,6 +523,16 @@ class RedisOnlineStore(OnlineStore):
         """
         sk = EntityKeyProto(join_keys=[sort_key_name], entity_values=[sort_val])
         return serialize_entity_key(sk, entity_key_serialization_version=v)
+
+    @staticmethod
+    def _get_max_pipeline_commands_per_process(
+        max_pipeline_commands: int,
+    ) -> int:
+        num_processes = int(os.environ.get("NUM_PROCESSES", 1))
+        max_pipeline_commands_per_process = max(
+            1, math.ceil(max_pipeline_commands / num_processes)
+        )
+        return max_pipeline_commands_per_process
 
     @staticmethod
     def _get_ttl(

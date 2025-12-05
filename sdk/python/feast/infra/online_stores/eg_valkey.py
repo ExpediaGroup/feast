@@ -100,6 +100,7 @@ class EGValkeyOnlineStoreConfig(FeastConfigBaseModel):
     max_pipeline_commands: Optional[int] = 500
     """(Optional) The maximum number of Valkey commands to queue in a pipeline before sending them to Valkey in a single batch."""
 
+
 class EGValkeyOnlineStore(OnlineStore):
     """
     Valkey implementation of the online store interface. Implementation is similar to Redis online store.
@@ -332,9 +333,15 @@ class EGValkeyOnlineStore(OnlineStore):
                 sort_key_name = table.sort_keys[0].name
 
                 num_cmds = 0
-                max_pipeline_commands_per_process = EGValkeyOnlineStore._get_max_pipeline_commands_per_process(online_store_config.max_pipeline_commands)
+                max_pipeline_commands_per_process = (
+                    EGValkeyOnlineStore._get_max_pipeline_commands_per_process(
+                        online_store_config.max_pipeline_commands
+                    )
+                )
 
-                logger.info(f"max_pipeline_commands_per_process: {max_pipeline_commands_per_process}")
+                logger.info(
+                    f"max_pipeline_commands_per_process: {max_pipeline_commands_per_process}"
+                )
 
                 ttl_feature_view = table.ttl
 
@@ -545,11 +552,12 @@ class EGValkeyOnlineStore(OnlineStore):
 
     @staticmethod
     def _get_max_pipeline_commands_per_process(
-            max_pipeline_commands: int,
+        max_pipeline_commands: int,
     ) -> int:
-
         num_processes = int(os.environ.get("NUM_PROCESSES", 1))
-        max_pipeline_commands_per_process = max(1, math.ceil(max_pipeline_commands / num_processes))
+        max_pipeline_commands_per_process = max(
+            1, math.ceil(max_pipeline_commands / num_processes)
+        )
         return max_pipeline_commands_per_process
 
     def _run_cleanup_by_event_time(
