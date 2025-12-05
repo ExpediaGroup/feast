@@ -333,14 +333,11 @@ class EGValkeyOnlineStore(OnlineStore):
                 sort_key_name = table.sort_keys[0].name
 
                 num_cmds = 0
+                max_pipeline_commands: int = online_store_config.max_pipeline_commands
                 max_pipeline_commands_per_process = (
                     EGValkeyOnlineStore._get_max_pipeline_commands_per_process(
-                        online_store_config.max_pipeline_commands
+                        max_pipeline_commands
                     )
-                )
-
-                logger.info(
-                    f"max_pipeline_commands_per_process: {max_pipeline_commands_per_process}"
                 )
 
                 ttl_feature_view = table.ttl
