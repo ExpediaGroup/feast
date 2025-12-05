@@ -528,6 +528,7 @@ class RedisOnlineStore(OnlineStore):
     def _get_max_pipeline_commands_per_process(
         max_pipeline_commands: int | None,
     ) -> int:
+        assert max_pipeline_commands is not None
         num_processes = int(os.environ.get("NUM_PROCESSES", 1))
         max_pipeline_commands_per_process = max(
             1, math.ceil(max_pipeline_commands / num_processes)
