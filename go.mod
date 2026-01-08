@@ -18,7 +18,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.43.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.79.3
 	github.com/ghodss/yaml v1.0.0
-	github.com/gocql/gocql v1.6.0
+	github.com/gocql/gocql v1.7.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus v1.1.0
 	github.com/mattn/go-sqlite3 v1.14.32
