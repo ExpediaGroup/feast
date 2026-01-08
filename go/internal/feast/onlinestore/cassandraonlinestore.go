@@ -256,7 +256,7 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	}
 	createdSession, err := gocqltrace.CreateTracedSession(store.clusterConfigs, gocqltrace.WithService(cassandraTraceServiceName))
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to the ScyllaDB database")
+		return nil, fmt.Errorf("unable to connect to the Cassandra database")
 	}
 	store.session = createdSession
 
