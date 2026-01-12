@@ -211,11 +211,11 @@ func (r *Registry) RefreshRegistryOnInterval() {
 
 func (r *Registry) refresh() error {
 	if r.registryStore.HasFallback() {
-		r.cachedEntities.expireCachedModels(r.GetEntityFromRegistry)
-		r.cachedFeatureServices.expireCachedModels(r.GetFeatureServiceFromRegistry)
-		r.cachedFeatureViews.expireCachedModels(r.GetFeatureViewFromRegistry)
-		r.cachedSortedFeatureViews.expireCachedModels(r.GetSortedFeatureViewFromRegistry)
-		r.cachedOnDemandFeatureViews.expireCachedModels(r.GetOnDemandFeatureViewFromRegistry)
+		r.cachedEntities.expireCachedModels(r.GetEntity)
+		r.cachedFeatureServices.expireCachedModels(r.GetFeatureService)
+		r.cachedFeatureViews.expireCachedModels(r.GetFeatureView)
+		r.cachedSortedFeatureViews.expireCachedModels(r.GetSortedFeatureView)
+		r.cachedOnDemandFeatureViews.expireCachedModels(r.GetOnDemandFeatureView)
 	} else {
 		registryProto, err := r.registryStore.GetRegistryProto()
 		if err != nil {
@@ -265,7 +265,7 @@ func loadModels[U any, T any](protoList []U, cachedModels *cacheMap[T], modelFac
 	}
 }
 
-func (r *Registry) GetEntityFromRegistry(entityName string, project string) (*model.Entity, error) {
+func (r *Registry) GetEntity(entityName string, project string) (*model.Entity, error) {
 	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
 	if !ok {
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
@@ -284,7 +284,7 @@ func (r *Registry) GetEntityFromRegistry(entityName string, project string) (*mo
 	return model.NewEntityFromProto(entityProto), nil
 }
 
-func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project string) (*model.FeatureView, error) {
+func (r *Registry) GetFeatureView(featureViewName string, project string) (*model.FeatureView, error) {
 	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
 	if !ok {
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
@@ -303,7 +303,7 @@ func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project st
 	return model.NewFeatureViewFromProto(featureViewProto), nil
 }
 
-func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string, project string) (*model.SortedFeatureView, error) {
+func (r *Registry) GetSortedFeatureView(sortedFeatureViewName string, project string) (*model.SortedFeatureView, error) {
 	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
 	if !ok {
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
@@ -322,7 +322,7 @@ func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string
 	return model.NewSortedFeatureViewFromProto(sortedFeatureViewProto), nil
 }
 
-func (r *Registry) GetFeatureServiceFromRegistry(featureServiceName string, project string) (*model.FeatureService, error) {
+func (r *Registry) GetFeatureService(featureServiceName string, project string) (*model.FeatureService, error) {
 	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
 	if !ok {
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
@@ -341,7 +341,7 @@ func (r *Registry) GetFeatureServiceFromRegistry(featureServiceName string, proj
 	return model.NewFeatureServiceFromProto(featureServiceProto), nil
 }
 
-func (r *Registry) GetOnDemandFeatureViewFromRegistry(onDemandFeatureViewName string, project string) (*model.OnDemandFeatureView, error) {
+func (r *Registry) GetOnDemandFeatureView(onDemandFeatureViewName string, project string) (*model.OnDemandFeatureView, error) {
 	remoteStore, ok := r.registryStore.(RemoteRegistryStore)
 	if !ok {
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
