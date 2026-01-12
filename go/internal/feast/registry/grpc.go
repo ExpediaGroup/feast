@@ -80,7 +80,7 @@ func (grs *GrpcRegistryStore) withMetadata(ctx context.Context) context.Context 
 	return ctx
 }
 
-func (grs *GrpcRegistryStore) GetEntity(name string, allowCache bool) (*core.Entity, error) {
+func (grs *GrpcRegistryStore) getEntity(name string, allowCache bool) (*core.Entity, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), grs.timeout)
 	defer cancel()
 
@@ -100,7 +100,7 @@ func (grs *GrpcRegistryStore) GetEntity(name string, allowCache bool) (*core.Ent
 	return entity, nil
 }
 
-func (grs *GrpcRegistryStore) GetFeatureView(name string, allowCache bool) (*core.FeatureView, error) {
+func (grs *GrpcRegistryStore) getFeatureView(name string, allowCache bool) (*core.FeatureView, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), grs.timeout)
 	defer cancel()
 
@@ -120,7 +120,7 @@ func (grs *GrpcRegistryStore) GetFeatureView(name string, allowCache bool) (*cor
 	return fv, nil
 }
 
-func (grs *GrpcRegistryStore) GetSortedFeatureView(name string, allowCache bool) (*core.SortedFeatureView, error) {
+func (grs *GrpcRegistryStore) getSortedFeatureView(name string, allowCache bool) (*core.SortedFeatureView, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), grs.timeout)
 	defer cancel()
 
@@ -140,7 +140,7 @@ func (grs *GrpcRegistryStore) GetSortedFeatureView(name string, allowCache bool)
 	return sfv, nil
 }
 
-func (grs *GrpcRegistryStore) GetFeatureService(name string, allowCache bool) (*core.FeatureService, error) {
+func (grs *GrpcRegistryStore) getFeatureService(name string, allowCache bool) (*core.FeatureService, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), grs.timeout)
 	defer cancel()
 
@@ -160,7 +160,7 @@ func (grs *GrpcRegistryStore) GetFeatureService(name string, allowCache bool) (*
 	return fs, nil
 }
 
-func (grs *GrpcRegistryStore) GetOnDemandFeatureView(name string, allowCache bool) (*core.OnDemandFeatureView, error) {
+func (grs *GrpcRegistryStore) getOnDemandFeatureView(name string, allowCache bool) (*core.OnDemandFeatureView, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), grs.timeout)
 	defer cancel()
 
