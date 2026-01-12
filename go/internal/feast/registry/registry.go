@@ -271,7 +271,7 @@ func (r *Registry) GetEntity(entityName string, project string) (*model.Entity, 
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
 	}
 
-	entityProto, err := remoteStore.GetEntity(entityName, true)
+	entityProto, err := remoteStore.getEntity(entityName, true)
 	if err != nil {
 		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no entity %s found in project %s", entityName, project)
@@ -290,7 +290,7 @@ func (r *Registry) GetFeatureView(featureViewName string, project string) (*mode
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
 	}
 
-	featureViewProto, err := remoteStore.GetFeatureView(featureViewName, true)
+	featureViewProto, err := remoteStore.getFeatureView(featureViewName, true)
 	if err != nil {
 		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no feature view %s found in project %s", featureViewName, project)
@@ -309,7 +309,7 @@ func (r *Registry) GetSortedFeatureView(sortedFeatureViewName string, project st
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
 	}
 
-	sortedFeatureViewProto, err := remoteStore.GetSortedFeatureView(sortedFeatureViewName, true)
+	sortedFeatureViewProto, err := remoteStore.getSortedFeatureView(sortedFeatureViewName, true)
 	if err != nil {
 		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no sorted feature view %s found in project %s", sortedFeatureViewName, project)
@@ -328,7 +328,7 @@ func (r *Registry) GetFeatureService(featureServiceName string, project string) 
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
 	}
 
-	featureServiceProto, err := remoteStore.GetFeatureService(featureServiceName, true)
+	featureServiceProto, err := remoteStore.getFeatureService(featureServiceName, true)
 	if err != nil {
 		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no feature service %s found in project %s", featureServiceName, project)
@@ -347,7 +347,7 @@ func (r *Registry) GetOnDemandFeatureView(onDemandFeatureViewName string, projec
 		return nil, errors.GrpcInternalErrorf("registry store does not support remote operations")
 	}
 
-	onDemandFeatureViewProto, err := remoteStore.GetOnDemandFeatureView(onDemandFeatureViewName, true)
+	onDemandFeatureViewProto, err := remoteStore.getOnDemandFeatureView(onDemandFeatureViewName, true)
 	if err != nil {
 		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no on demand feature view %s found in project %s", onDemandFeatureViewName, project)

@@ -15,9 +15,9 @@ type RegistryStore interface {
 type RemoteRegistryStore interface {
 	RegistryStore // Add base interface for composition.
 
-	GetEntity(name string, allowCache bool) (*core.Entity, error)
-	GetFeatureView(name string, allowCache bool) (*core.FeatureView, error)
-	GetSortedFeatureView(name string, allowCache bool) (*core.SortedFeatureView, error)
-	GetFeatureService(name string, allowCache bool) (*core.FeatureService, error)
-	GetOnDemandFeatureView(name string, allowCache bool) (*core.OnDemandFeatureView, error)
+	getEntity(name string, allowCache bool) (*core.Entity, error)
+	getFeatureView(name string, allowCache bool) (*core.FeatureView, error)
+	getSortedFeatureView(name string, allowCache bool) (*core.SortedFeatureView, error)
+	getFeatureService(name string, allowCache bool) (*core.FeatureService, error)
+	getOnDemandFeatureView(name string, allowCache bool) (*core.OnDemandFeatureView, error)
 }
