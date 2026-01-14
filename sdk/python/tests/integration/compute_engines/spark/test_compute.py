@@ -120,7 +120,9 @@ def test_spark_compute_engine_materialize():
     fs = spark_environment.feature_store
     registry = fs.registry
 
-    data_source = create_feature_dataset(spark_environment)
+    # Use include_created_timestamp=False to avoid issues with the UDF
+    # not preserving the 'created' column that Spark deduplication needs
+    data_source = create_feature_dataset(spark_environment, include_created_timestamp=False)
 
     def transform_feature(df: DataFrame) -> DataFrame:
         df = df.withColumn("conv_rate", df["conv_rate"] * 2)
