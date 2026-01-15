@@ -42,6 +42,7 @@ def test_spark_materialization_consistency():
         df,
         spark_environment.feature_store.project,
         field_mapping={"ts_1": "ts"},
+        created_timestamp_column=None,  # Avoid created_ts column issue with Spark deduplication
     )
 
     fs = spark_environment.feature_store
