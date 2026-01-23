@@ -45,4 +45,7 @@ message FeatureSpecV2 {
 
     // Field indicating the vector length
     int32 vector_length = 7;
+
+    // Default value to be used for the feature when its value is missing/expired.
+    feast.types.Value default_value = 8;
 }
