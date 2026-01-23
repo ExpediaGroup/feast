@@ -108,6 +108,16 @@ message GetOnlineFeaturesRequest {
 
     // Whether to include the timestamp/status metadata in the response
     bool include_metadata = 10;
+
+    // Mode for handling features with default values when feature value is missing
+    UseDefaultsMode use_defaults = 11;
+}
+
+enum UseDefaultsMode {
+      USE_DEFAULTS_UNSPECIFIED = 0; // Field not set - use server default behavior (currently OFF)
+      USE_DEFAULTS_OFF = 1;        // Explicitly disable default replacement
+      USE_DEFAULTS_FLEXIBLE = 2;   // Ignore if default missing
+      USE_DEFAULTS_STRICT = 3;     // Fail if default is missing
 }
 
 message GetOnlineFeaturesResponse {
@@ -200,6 +210,10 @@ message GetOnlineFeaturesRangeRequest {
 
     // Whether to include the timestamp and status metadata in the response
     bool include_metadata = 9;
+
+    // Mode for handling features with default values when feature value is missing
+    UseDefaultsMode use_defaults = 11;
+
 }
 
 message GetOnlineFeaturesRangeResponse {

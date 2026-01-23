@@ -21,6 +21,7 @@ from feast.feature import Feature
 from feast.protos.feast.core.Feature_pb2 import FeatureSpecV2 as FieldProto
 from feast.types import FeastType, from_string, from_value_type
 from feast.value_type import ValueType
+from feast.protos.feast.types import Value_pb2 as ValueProto
 
 
 @typechecked
@@ -47,6 +48,20 @@ class Field(BaseModel):
     vector_index: bool = False
     vector_length: int = 0
     vector_search_metric: Optional[str] = ""
+    default_value: Optional[ValueProto.Value] = None
+
+    @field_validator("default_value")
+    def validate_default_value_type(cls, v, info):
+        """Validate that default_value matches dtype"""
+        if v is not None:
+            dtype = info.data.get('dtype')
+            if dtype is not None:
+                value_type = dtype.to_value_type()
+                if not _is_value_compatible_with_type(v, value_type):
+                    raise ValueError(
+                        f"default_value type does not match dtype {dtype}"
+                    )
+        return v
 
     @field_validator("dtype", mode="before")
     def dtype_is_feasttype_or_string_feasttype(cls, v):
@@ -110,7 +125,7 @@ class Field(BaseModel):
         """Converts a Field object to its protobuf representation."""
         value_type = self.dtype.to_value_type()
         vector_search_metric = self.vector_search_metric or ""
-        return FieldProto(
+        proto = FieldProto(
             name=self.name,
             value_type=value_type.value,
             description=self.description,
@@ -119,6 +134,10 @@ class Field(BaseModel):
             vector_length=self.vector_length,
             vector_search_metric=vector_search_metric,
         )
+        if self.default_value is not None:
+            proto.default_value.CopyFrom(self.default_value)
+
+        return proto
 
     @classmethod
     def from_proto(cls, field_proto: FieldProto):
@@ -132,15 +151,19 @@ class Field(BaseModel):
         vector_search_metric = getattr(field_proto, "vector_search_metric", "")
         vector_index = getattr(field_proto, "vector_index", False)
         vector_length = getattr(field_proto, "vector_length", 0)
+        default_value = None
+        if field_proto.HasField("default_value"):
+            default_value = field_proto.default_value
         return cls(
-            name=field_proto.name,
-            dtype=from_value_type(value_type=value_type),
-            tags=dict(field_proto.tags),
-            description=field_proto.description,
-            vector_index=vector_index,
-            vector_length=vector_length,
-            vector_search_metric=vector_search_metric,
-        )
+                name=field_proto.name,
+                dtype=from_value_type(value_type=value_type),
+                tags=dict(field_proto.tags),
+                description=field_proto.description,
+                vector_index=vector_index,
+                vector_length=vector_length,
+                vector_search_metric=vector_search_metric,
+                default_value=default_value,
+            )
 
     @classmethod
     def from_feature(cls, feature: Feature):
@@ -156,3 +179,31 @@ class Field(BaseModel):
             description=feature.description,
             tags=feature.labels,
         )
+
+    def _is_value_compatible_with_type(
+            value: ValueProto.Value,
+            value_type: ValueType
+    ) -> bool:
+        """Check if a Value proto matches a ValueType"""
+        val_case = value.WhichOneof('val')
+
+        type_mapping = {
+            'int32_val': ValueType.INT32,
+            'int64_val': ValueType.INT64,
+            'double_val': ValueType.DOUBLE,
+            'float_val': ValueType.FLOAT,
+            'string_val': ValueType.STRING,
+            'bytes_val': ValueType.BYTES,
+            'bool_val': ValueType.BOOL,
+            'int32_list_val': ValueType.INT32_LIST,
+            'int64_list_val': ValueType.INT64_LIST,
+            'double_list_val': ValueType.DOUBLE_LIST,
+            'float_list_val': ValueType.FLOAT_LIST,
+            'string_list_val': ValueType.STRING_LIST,
+            'bytes_list_val': ValueType.BYTES_LIST,
+            'bool_list_val': ValueType.BOOL_LIST,
+            'unix_timestamp_val': ValueType.UNIX_TIMESTAMP,
+            'unix_timestamp_list_val': ValueType.UNIX_TIMESTAMP_LIST,
+        }
+
+        return type_mapping.get(val_case) == value_type
