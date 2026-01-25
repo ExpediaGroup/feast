@@ -12,18 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
 from typeguard import check_type, typechecked
 
 from feast.feature import Feature
 from feast.protos.feast.core.Feature_pb2 import FeatureSpecV2 as FieldProto
+from feast.protos.feast.types import Value_pb2 as ValueProto
 from feast.types import FeastType, from_string, from_value_type
 from feast.value_type import ValueType
-
-if TYPE_CHECKING:
-    from feast.protos.feast.types import Value_pb2 as ValueProto
 
 
 @typechecked
@@ -54,7 +52,9 @@ class Field(BaseModel):
 
     @field_validator("default_value")
     @classmethod
-    def validate_default_value_type(cls, v: Optional["ValueProto.Value"], info: Any) -> Optional["ValueProto.Value"]:
+    def validate_default_value_type(
+        cls, v: Optional[ValueProto.Value], info: Any
+    ) -> Optional[ValueProto.Value]:
         """
         Validate that default_value type matches the field's dtype.
         """
@@ -62,14 +62,14 @@ class Field(BaseModel):
             return v
 
             # Get dtype from the model data
-        dtype = info.data.get('dtype')
+        dtype = info.data.get("dtype")
         if dtype is None:
             # dtype will be validated by its own validator, skip for now
             return v
 
             # Validate type compatibility
         value_type = dtype.to_value_type()
-        val_case = v.WhichOneof('val')
+        val_case = v.WhichOneof("val")
 
         if val_case is None:
             # Empty Value proto
@@ -77,22 +77,22 @@ class Field(BaseModel):
 
             # Map proto value types to ValueType enums
         type_mapping: Dict[str, ValueType] = {
-            'int32_val': ValueType.INT32,
-            'int64_val': ValueType.INT64,
-            'double_val': ValueType.DOUBLE,
-            'float_val': ValueType.FLOAT,
-            'string_val': ValueType.STRING,
-            'bytes_val': ValueType.BYTES,
-            'bool_val': ValueType.BOOL,
-            'unix_timestamp_val': ValueType.UNIX_TIMESTAMP,
-            'int32_list_val': ValueType.INT32_LIST,
-            'int64_list_val': ValueType.INT64_LIST,
-            'double_list_val': ValueType.DOUBLE_LIST,
-            'float_list_val': ValueType.FLOAT_LIST,
-            'string_list_val': ValueType.STRING_LIST,
-            'bytes_list_val': ValueType.BYTES_LIST,
-            'bool_list_val': ValueType.BOOL_LIST,
-            'unix_timestamp_list_val': ValueType.UNIX_TIMESTAMP_LIST,
+            "int32_val": ValueType.INT32,
+            "int64_val": ValueType.INT64,
+            "double_val": ValueType.DOUBLE,
+            "float_val": ValueType.FLOAT,
+            "string_val": ValueType.STRING,
+            "bytes_val": ValueType.BYTES,
+            "bool_val": ValueType.BOOL,
+            "unix_timestamp_val": ValueType.UNIX_TIMESTAMP,
+            "int32_list_val": ValueType.INT32_LIST,
+            "int64_list_val": ValueType.INT64_LIST,
+            "double_list_val": ValueType.DOUBLE_LIST,
+            "float_list_val": ValueType.FLOAT_LIST,
+            "string_list_val": ValueType.STRING_LIST,
+            "bytes_list_val": ValueType.BYTES_LIST,
+            "bool_list_val": ValueType.BOOL_LIST,
+            "unix_timestamp_list_val": ValueType.UNIX_TIMESTAMP_LIST,
         }
 
         expected_type = type_mapping.get(val_case)
@@ -199,15 +199,15 @@ class Field(BaseModel):
             # Empty Value proto, treat as None
             default_value = None
         return cls(
-                        name=field_proto.name,
-                        dtype=from_value_type(value_type=value_type),
-                        tags=dict(field_proto.tags),
-                        description=field_proto.description,
-                        vector_index=vector_index,
-                        vector_length=vector_length,
-                        vector_search_metric=vector_search_metric,
-                        default_value=default_value,
-                    )
+            name=field_proto.name,
+            dtype=from_value_type(value_type=value_type),
+            tags=dict(field_proto.tags),
+            description=field_proto.description,
+            vector_index=vector_index,
+            vector_length=vector_length,
+            vector_search_metric=vector_search_metric,
+            default_value=default_value,
+        )
 
     @classmethod
     def from_feature(cls, feature: Feature):
