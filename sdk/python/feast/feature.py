@@ -103,6 +103,13 @@ class Feature:
         """
         return self._labels
 
+    @property
+    def default_value(self) -> Dict[str, str]:
+        """
+        Gets the default value of this feature.
+        """
+        return self._default_value
+
     def to_proto(self) -> FeatureSpecProto:
         """
         Converts Feature object to its Protocol Buffer representation.
