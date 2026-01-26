@@ -15,6 +15,7 @@
 from typing import Dict, Optional
 
 from feast.protos.feast.core.Feature_pb2 import FeatureSpecV2 as FeatureSpecProto
+from feast.protos.feast.types import Value_pb2 as ValueProto
 from feast.protos.feast.types.Value_pb2 import ValueType as ValueTypeProto
 from feast.value_type import ValueType
 
@@ -35,6 +36,7 @@ class Feature:
         dtype: ValueType,
         description: str = "",
         labels: Optional[Dict[str, str]] = None,
+        default_value: Optional[ValueProto.Value] = None,
     ):
         """Creates a Feature object."""
         self._name = name
@@ -48,6 +50,7 @@ class Feature:
             self._labels = dict()
         else:
             self._labels = labels
+        self._default_value = default_value
 
     def __eq__(self, other):
         if self.name != other.name or self.dtype != other.dtype:
@@ -64,6 +67,7 @@ class Feature:
             f"    dtype={self._dtype!r},\n"
             f"    description={self._description!r},\n"
             f"    labels={self._labels!r}\n"
+            f"    default_value={self._default_value!r}\n"
             f")"
         )
 
@@ -108,12 +112,15 @@ class Feature:
         """
         value_type = ValueTypeProto.Enum.Value(self.dtype.name)
 
-        return FeatureSpecProto(
+        proto = FeatureSpecProto(
             name=self.name,
             value_type=value_type,
             description=self.description,
             tags=self.labels,
         )
+        if self.default_value is not None:
+            proto.default_value.CopyFrom(self.default_value)  # type: ignore[attr-defined]
+        return proto
 
     @classmethod
     def from_proto(cls, feature_proto: FeatureSpecProto):
@@ -124,11 +131,16 @@ class Feature:
         Returns:
             Feature object
         """
+        default_value = getattr(feature_proto, "default_value", None)
+        if default_value is not None and not default_value.WhichOneof("val"):
+            # Empty Value proto, treat as None
+            default_value = None
         feature = cls(
             name=feature_proto.name,
             dtype=ValueType(feature_proto.value_type),
             description=feature_proto.description,
             labels=dict(feature_proto.tags),
+            default_value=default_value,
         )
 
         return feature

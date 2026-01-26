@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing_extensions import Self
 
 from feast.field import Field
+from feast.protos.feast.types import Value_pb2 as ValueProto
 from feast.types import Array, PrimitiveFeastType
 
 
@@ -19,6 +20,7 @@ class FieldModel(BaseModel):
     vector_index: bool = False
     vector_length: int = 0
     vector_search_metric: Optional[str] = None
+    default_value: Optional[ValueProto.Value] = None
 
     def to_field(self) -> Field:
         """
@@ -35,6 +37,7 @@ class FieldModel(BaseModel):
             vector_index=self.vector_index,
             vector_length=self.vector_length,
             vector_search_metric=self.vector_search_metric,
+            default_value=self.default_value,
         )
 
     @classmethod
@@ -56,4 +59,5 @@ class FieldModel(BaseModel):
             vector_index=field.vector_index,
             vector_length=field.vector_length,
             vector_search_metric=field.vector_search_metric,
+            default_value=field.default_value,
         )
