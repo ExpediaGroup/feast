@@ -227,7 +227,7 @@ class PassthroughProvider(Provider):
             percent_usage = max(0.6 / (num_processes / 2), 0.25)
         else:
             # Single process - can use more tokens per batch
-            percent_usage = 0.6
+            percent_usage = 0.9
 
         interval = 1.0  # seconds
 

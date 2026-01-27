@@ -1,14 +1,8 @@
-"""
-Tests for TokenBucketRateLimiter with multiple threads and processes.
-"""
 import threading
 import time
-from multiprocessing import Pool, Manager
-from typing import List, Tuple, Dict, Any
-
-import pytest
 
 from feast.rate_limiter import TokenBucketRateLimiter
+
 
 class TestMultiThreadedRateLimiter:
     """Tests for thread-safety of TokenBucketRateLimiter."""
@@ -53,12 +47,14 @@ class TestMultiThreadedRateLimiter:
             success = limiter.wait_for_tokens(tokens_needed, timeout=0.5)
             elapsed = time.time() - start
             with lock:
-                results.append({
-                    'thread_id': thread_id,
-                    'success': success,
-                    'tokens_needed': tokens_needed,
-                    'elapsed': elapsed
-                })
+                results.append(
+                    {
+                        "thread_id": thread_id,
+                        "success": success,
+                        "tokens_needed": tokens_needed,
+                        "elapsed": elapsed,
+                    }
+                )
 
         # Launch 15 threads each wanting 5 tokens and 12 are available.
         # With 0.5s timeout, not enough time for refill to satisfy all
@@ -71,8 +67,8 @@ class TestMultiThreadedRateLimiter:
         for t in threads:
             t.join()
 
-        successful = [r for r in results if r['success']]
-        failed = [r for r in results if not r['success']]
+        successful = [r for r in results if r["success"]]
+        failed = [r for r in results if not r["success"]]
 
         # Some threads should succeed
         assert len(successful) >= 2  # At least 2 threads (10 tokens) with 60% usage
@@ -130,11 +126,9 @@ class TestMultiThreadedRateLimiter:
             success = limiter.wait_for_tokens(tokens_needed, timeout=timeout)
             elapsed = time.time() - start
             with lock:
-                results.append({
-                    'thread_id': thread_id,
-                    'success': success,
-                    'elapsed': elapsed
-                })
+                results.append(
+                    {"thread_id": thread_id, "success": success, "elapsed": elapsed}
+                )
 
         # Launch threads that need more tokens than available
         threads = []
@@ -148,11 +142,11 @@ class TestMultiThreadedRateLimiter:
             t.join()
 
         # At least one should timeout since we don't have enough tokens
-        timed_out = [r for r in results if not r['success']]
+        timed_out = [r for r in results if not r["success"]]
         assert len(timed_out) >= 1
 
         for result in timed_out:
-            assert 0.3 <= result['elapsed'] <= 0.8
+            assert 0.3 <= result["elapsed"] <= 0.8
 
     def test_atomic_token_consumption(self):
         """Test that token consumption is atomic across threads."""
@@ -258,11 +252,9 @@ class TestMultiThreadedRateLimiter:
             success = limiter.wait_for_tokens(tokens, timeout=3.0)
             elapsed = time.time() - start
             with lock:
-                results.append({
-                    'thread_id': thread_id,
-                    'success': success,
-                    'elapsed': elapsed
-                })
+                results.append(
+                    {"thread_id": thread_id, "success": success, "elapsed": elapsed}
+                )
 
         # Start threads that will wait for tokens
         threads = []
@@ -283,5 +275,4 @@ class TestMultiThreadedRateLimiter:
         # All should eventually succeed or timeout
         assert len(results) == 3
         # At least one should succeed
-        assert any(r['success'] for r in results)
-
+        assert any(r["success"] for r in results)
