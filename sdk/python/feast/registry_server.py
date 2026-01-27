@@ -1288,6 +1288,12 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
     def ExpediaSearchFeatureViews(
         self, request: RegistryServer_pb2.ExpediaSearchFeatureViewsRequest, context
     ):
+        if not (
+            isinstance(self.proxied_registry, SqlRegistry)
+            or isinstance(self.proxied_registry, SqlFallbackRegistry)
+        ):
+            raise TypeError("Registry must be SqlRegistry or SqlFallbackRegistry")
+
         # Using `type: ignore[attr-defined]` because this should only be implemented in sql registry.
         response = self.proxied_registry.expedia_search_feature_views(  # type: ignore[attr-defined]
             request=ExpediaSearchFeatureViewsRequest.from_proto(request)

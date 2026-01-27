@@ -276,7 +276,7 @@ def mysql_registry_async(mysql_server):
     yield SqlRegistry(registry_config, "project", None)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def sqlite_registry(tmp_path):
     db_file = tmp_path / "test_registry.db"
     registry_config = SqlRegistryConfig(
@@ -2511,5 +2511,61 @@ def test_expedia_search_feature_views_success(test_registry):
     assert fv1.name in fv_names  # online=True and team=team1
     assert fv2.name not in fv_names  # online=False
     assert fv3.name in fv_names  # online=True and team=team1
+
+    test_registry.teardown()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "test_registry",
+    [lazy_fixture("local_registry")],
+)
+def test_expedia_search_projects_raises_type_error_for_non_sql_registry(test_registry):
+    """Test that ExpediaSearchProjects raises TypeError for non-SQL registries."""
+    from feast.expediagroup.search import ExpediaSearchProjectsRequest
+
+    request = ExpediaSearchProjectsRequest(
+        search_text="",
+        updated_at=None,
+        page_size=10,
+        page_index=0,
+    )
+
+    with pytest.raises(
+        AttributeError,
+        match="'Registry' object has no attribute 'expedia_search_projects'",
+    ):
+        test_registry.expedia_search_projects(request)
+
+    test_registry.teardown()
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "test_registry",
+    [lazy_fixture("local_registry")],
+)
+def test_expedia_search_feature_views_raises_type_error_for_non_sql_registry(
+    test_registry,
+):
+    """Test that ExpediaSearchFeatureViews raises TypeError for non-SQL registries."""
+    from feast.expediagroup.search import ExpediaSearchFeatureViewsRequest
+
+    request = ExpediaSearchFeatureViewsRequest(
+        search_text="",
+        online=None,
+        application="",
+        team="",
+        created_at=None,
+        updated_at=None,
+        page_size=10,
+        page_index=0,
+    )
+
+    with pytest.raises(
+        AttributeError,
+        match="'Registry' object has no attribute 'expedia_search_feature_views'",
+    ):
+        test_registry.expedia_search_feature_views(request)
 
     test_registry.teardown()

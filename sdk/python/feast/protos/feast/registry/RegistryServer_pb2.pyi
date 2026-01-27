@@ -1959,7 +1959,11 @@ class ExpediaSearchFeatureViewsRequest(google.protobuf.message.Message):
     PAGE_INDEX_FIELD_NUMBER: builtins.int
     search_text: builtins.str
     @property
-    def online(self) -> google.protobuf.wrappers_pb2.BoolValue: ...
+    def online(self) -> google.protobuf.wrappers_pb2.BoolValue:
+        """
+        Using google.protobuf.BoolValue here because we need tri-state (true/false/not set),
+        which is not possible with a simple bool.
+        """
     application: builtins.str
     team: builtins.str
     @property

@@ -605,6 +605,10 @@ message ExpediaProjectAndRelatedFeatureViews {
 
 message ExpediaSearchFeatureViewsRequest {
   string search_text = 1;
+  /*
+  Using google.protobuf.BoolValue here because we need tri-state (true/false/not set),
+  which is not possible with a simple bool.
+  */
   google.protobuf.BoolValue online = 2;
   string application = 3;
   string team = 4;
@@ -629,6 +633,6 @@ message ExpediaSearchProjectsRequest {
 
 message ExpediaSearchProjectsResponse {
   repeated ExpediaProjectAndRelatedFeatureViews projects_and_related_feature_views = 1;
-  int32 total_projects = 3;
-  int32 total_page_indices = 4;
+  int32 total_projects = 2;
+  int32 total_page_indices = 3;
 }
