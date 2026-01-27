@@ -36,9 +36,7 @@ def create_entity_df() -> pd.DataFrame:
     return entity_df
 
 
-def create_feature_dataset(
-    spark_environment, include_created_timestamp: bool = True
-) -> DataSource:
+def create_feature_dataset(spark_environment) -> DataSource:
     yesterday = today - timedelta(days=1)
     last_week = today - timedelta(days=7)
     df = pd.DataFrame(
@@ -77,23 +75,12 @@ def create_feature_dataset(
             },
         ]
     )
-    if include_created_timestamp:
-        ds = spark_environment.data_source_creator.create_data_source(
-            df,
-            spark_environment.feature_store.project,
-            timestamp_field="event_timestamp",
-            created_timestamp_column="created",
-        )
-    else:
-        # Remove the 'created' column and explicitly set created_timestamp_column=None
-        # to avoid the default value of "created_ts" in SparkDataSourceCreator
-        df = df.drop(columns=["created"])
-        ds = spark_environment.data_source_creator.create_data_source(
-            df,
-            spark_environment.feature_store.project,
-            timestamp_field="event_timestamp",
-            created_timestamp_column=None,
-        )
+    ds = spark_environment.data_source_creator.create_data_source(
+        df,
+        spark_environment.feature_store.project,
+        timestamp_field="event_timestamp",
+        created_timestamp_column="created",
+    )
     return ds
 
 
