@@ -256,21 +256,21 @@ func SetupInitializedRepo(basePath string) error {
 	applyCommand.Dir = featureRepoPath
 	out, err := applyCommand.CombinedOutput()
 	if err != nil {
-		log.Printf("Repo setup error: %s", string(out))
+		log.Printf("Repo setup error: %s, %v", string(out), err)
 		return err
-	}
-
-	// Verify registry.db was created with retries
-	registryPath := filepath.Join(dataDir, "registry.db")
-	for i := 0; i < 10; i++ {
-		if _, err := os.Stat(registryPath); err == nil {
-			log.Printf("Registry file created successfully after %d attempts", i+1)
-			break
+	} else {
+		// Verify registry.db was created with retries
+		registryPath := filepath.Join(dataDir, "registry.db")
+		for i := 0; i < 10; i++ {
+			if _, err := os.Stat(registryPath); err == nil {
+				log.Printf("Registry file created successfully after %d attempts", i+1)
+				break
+			}
+			if i == 9 {
+				return fmt.Errorf("registry.db was not created after feast apply")
+			}
+			time.Sleep(1 * time.Second)
 		}
-		if i == 9 {
-			return fmt.Errorf("registry.db was not created after feast apply")
-		}
-		time.Sleep(1 * time.Second)
 	}
 	t := time.Now()
 
