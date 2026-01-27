@@ -1268,6 +1268,17 @@ def test_registry_cache(test_registry):
     test_registry.apply_data_source(batch_source, project)
     test_registry.apply_feature_view(fv1, project)
     registry_feature_views_cached = test_registry.list_feature_views(
+        project, allow_cache=False
+    )
+    registry_data_sources_cached = test_registry.list_data_sources(
+        project, allow_cache=False
+    )
+    assert len(registry_feature_views_cached) == 1
+    assert len(registry_data_sources_cached) == 1
+
+    test_registry.refresh(project)
+
+    registry_feature_views_cached = test_registry.list_feature_views(
         project, allow_cache=True
     )
     registry_data_sources_cached = test_registry.list_data_sources(
