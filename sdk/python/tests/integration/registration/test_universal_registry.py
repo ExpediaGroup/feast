@@ -277,11 +277,10 @@ def mysql_registry_async(mysql_server):
 
 
 @pytest.fixture(scope="session")
-def sqlite_registry(tmp_path):
-    db_file = tmp_path / "test_registry.db"
+def sqlite_registry():
     registry_config = SqlRegistryConfig(
         registry_type="sql",
-        path=f"sqlite:///{db_file}",
+        path="sqlite://",
         cache_ttl_seconds=2,
         cache_mode="sync",
     )
