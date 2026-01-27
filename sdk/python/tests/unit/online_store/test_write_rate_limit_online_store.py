@@ -42,7 +42,7 @@ class TestTokenBucketRateLimiter:
             return True
 
         if self.enforce_delay:
-            # Block until tokens are available, mimicking production behavior
+            # Block until tokens are available
             while True:
                 self._refill()
                 available = self.tokens * self.usage_fraction

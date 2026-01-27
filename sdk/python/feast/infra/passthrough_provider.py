@@ -216,7 +216,19 @@ class PassthroughProvider(Provider):
             return
 
         # Create or reuse per-feature-view limiter
-        percent_usage = 0.6
+        # Calculate percent_usage based on available CPU cores
+        # More processes = lower percent_usage to reduce token contention
+        num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
+
+        if num_spark_driver_cores > 2:
+            num_processes = num_spark_driver_cores - 1
+            # Decrease percent_usage as processes increase to allow fair sharing
+            # 2 processes -> 0.50, 4 processes -> 0.40, 8 processes -> 0.30
+            percent_usage = max(0.6 / (num_processes / 2), 0.25)
+        else:
+            # Single process - can use more tokens per batch
+            percent_usage = 0.6
+
         interval = 1.0  # seconds
 
         limiter = self._write_token_limiters.get(limiter_key)

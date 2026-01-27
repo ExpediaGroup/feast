@@ -200,10 +200,10 @@ func SetupCleanFeatureRepo(basePath string) error {
 	cmd.Dir = path
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-	    log.Fatal(err)
+		log.Printf("Error running feast init: %v", err)
 		return err
 	}
-    log.Printf("Repo init log: %s", string(out))
+	log.Printf("Repo init log: %s", string(out))
 	applyCommand := exec.Command(feastExec, "apply")
 	applyCommand.Env = os.Environ()
 	featureRepoPath, err := filepath.Abs(filepath.Join(path, "my_project", "feature_repo"))
@@ -213,10 +213,10 @@ func SetupCleanFeatureRepo(basePath string) error {
 	applyCommand.Dir = featureRepoPath
 	out, err = applyCommand.CombinedOutput()
 	if err != nil {
-	    log.Fatal(err)
+		log.Printf("Error running feast apply: %v", err)
 		return err
 	}
-    log.Printf("Repo apply log: %s", string(out))
+	log.Printf("Repo apply log: %s", string(out))
 	t := time.Now()
 
 	formattedTime := fmt.Sprintf("%d-%02d-%02dT%02d:%02d:%02d",
@@ -227,10 +227,10 @@ func SetupCleanFeatureRepo(basePath string) error {
 	materializeCommand.Dir = featureRepoPath
 	out, err = materializeCommand.CombinedOutput()
 	if err != nil {
-	    log.Fatal(err)
+		log.Printf("Error running feast materialize: %v", err)
 		return err
 	}
-    log.Printf("Repo materialize log: %s", string(out))
+	log.Printf("Repo materialize log: %s", string(out))
 	return nil
 }
 
