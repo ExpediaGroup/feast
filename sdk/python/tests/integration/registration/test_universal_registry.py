@@ -472,11 +472,14 @@ async_sql_fixtures = [
 ]
 
 sql_cache_fixtures = [
-    # Note: pg_registry and mysql_registry are excluded from cache tests because
-    # the CachingRegistry's sync mode caching relies on proto() which may not
-    # reflect newly applied objects immediately after refresh() in integration tests.
-    # sqlite_registry is also excluded due to in-memory database caching behavior
-    # that differs from persistent database registries.
+    pytest.param(
+        lazy_fixture("pg_registry"), marks=pytest.mark.xdist_group(name="pg_registry")
+    ),
+    pytest.param(
+        lazy_fixture("mysql_registry"),
+        marks=pytest.mark.xdist_group(name="mysql_registry"),
+    ),
+    lazy_fixture("sqlite_registry"),
 ]
 
 sql_fallback_fixtures = [
