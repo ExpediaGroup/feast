@@ -89,6 +89,7 @@ def create_chained_feature_view(base_fv: BatchFeatureView):
             path="/tmp/daily_driver_stats_sink",
             file_format="parquet",
             timestamp_field="event_timestamp",
+            created_timestamp_column="created",
         ),
     )
 
@@ -98,9 +99,7 @@ def test_spark_dag_materialize_recursive_view():
     spark_env = create_spark_environment()
     fs = spark_env.feature_store
     registry = fs.registry
-    # Use include_created_timestamp=False to avoid issues with the UDF
-    # not preserving the 'created' column that Spark deduplication needs
-    source = create_feature_dataset(spark_env, include_created_timestamp=False)
+    source = create_feature_dataset(spark_env)
 
     base_fv = create_base_feature_view(source)
     chained_fv = create_chained_feature_view(base_fv)
@@ -155,9 +154,7 @@ def test_spark_dag_materialize_multi_views():
     spark_env = create_spark_environment()
     fs = spark_env.feature_store
     registry = fs.registry
-    # Use include_created_timestamp=False to avoid issues with the UDF
-    # not preserving the 'created' column that Spark deduplication needs
-    source = create_feature_dataset(spark_env, include_created_timestamp=False)
+    source = create_feature_dataset(spark_env)
 
     base_fv = create_base_feature_view(source)
     chained_fv = create_chained_feature_view(base_fv)
@@ -178,6 +175,7 @@ def test_spark_dag_materialize_multi_views():
             path="/tmp/multi_view_sink",
             file_format="parquet",
             timestamp_field="daily_driver_stats__event_timestamp",
+            created_timestamp_column="daily_driver_stats__created",
         ),
     )
 
