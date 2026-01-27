@@ -1143,8 +1143,10 @@ class SqlRegistry(CachingRegistry):
 
             # After applying child objects (not Project itself), update the parent project's timestamp
             if not isinstance(obj, Project):
-                self._update_project_timestamp(project, update_datetime, update_time, conn)
-            
+                self._update_project_timestamp(
+                    project, update_datetime, update_time, conn
+                )
+
             if not self.purge_feast_metadata:
                 self._set_last_updated_metadata(update_datetime, project, conn)
 
@@ -1177,15 +1179,15 @@ class SqlRegistry(CachingRegistry):
     ):
         """
         Update the project's last_updated_timestamp when child objects are modified.
-        
+
         This is critical for cache invalidation: when entities, feature views, or other
         child objects are applied, the parent project must be marked as updated so that
         cached registry data is properly invalidated.
-        
+
         We need to update both:
         1. The last_updated_timestamp column (BIGINT) - used for cache comparison
         2. The project_proto blob's meta.last_updated_timestamp - used when deserializing
-        
+
         Both updates happen within the same transaction to ensure atomicity.
         """
         # Fetch the current project proto
@@ -1193,19 +1195,21 @@ class SqlRegistry(CachingRegistry):
             projects.c.project_name == project_name
         )
         project_row = conn.execute(project_select_stmt).first()
-        
+
         if project_row:
             # Deserialize, update timestamp, and re-serialize
-            project_proto = ProjectProto.FromString(project_row._mapping["project_proto"])
+            project_proto = ProjectProto.FromString(
+                project_row._mapping["project_proto"]
+            )
             project_proto.meta.last_updated_timestamp.FromDatetime(update_datetime)
-            
+
             # Update both the timestamp column and the proto blob
             project_update_stmt = (
                 update(projects)
                 .where(projects.c.project_name == project_name)
                 .values(
                     last_updated_timestamp=update_time,
-                    project_proto=project_proto.SerializeToString()
+                    project_proto=project_proto.SerializeToString(),
                 )
             )
             conn.execute(project_update_stmt)
