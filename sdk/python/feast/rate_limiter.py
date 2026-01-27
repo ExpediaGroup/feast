@@ -8,7 +8,7 @@ class TokenBucketRateLimiter:
     def __init__(self, rate: float, interval: float = 1.0, percent_usage: float = 0.6):
         """
         Args:
-            rate: Maximum tokens added per interval (writes per second)
+            rate: Maximum tokens added per interval (writes per interval)
             interval: Refill interval in seconds
             percent_usage: Fraction of available tokens allowed for writing
         """
