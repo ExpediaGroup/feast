@@ -1,6 +1,6 @@
 from typing import Dict, Optional, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing_extensions import Self
 
 from feast.field import Field
@@ -21,6 +21,8 @@ class FieldModel(BaseModel):
     vector_length: int = 0
     vector_search_metric: Optional[str] = None
     default_value: Optional[ValueProto.Value] = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def to_field(self) -> Field:
         """

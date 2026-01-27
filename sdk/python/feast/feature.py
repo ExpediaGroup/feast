@@ -104,7 +104,7 @@ class Feature:
         return self._labels
 
     @property
-    def default_value(self) -> Dict[str, str]:
+    def default_value(self) -> Optional[ValueProto.Value]:
         """
         Gets the default value of this feature.
         """
