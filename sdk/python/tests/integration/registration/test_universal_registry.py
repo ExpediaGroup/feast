@@ -1267,10 +1267,6 @@ def test_registry_cache(test_registry):
     # Register data source and feature view
     test_registry.apply_data_source(batch_source, project)
     test_registry.apply_feature_view(fv1, project)
-
-    # Refresh cache to pick up newly applied objects
-    test_registry.refresh(project)
-
     registry_feature_views_cached = test_registry.list_feature_views(
         project, allow_cache=True
     )
