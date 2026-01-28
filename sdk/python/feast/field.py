@@ -222,4 +222,5 @@ class Field(BaseModel):
             dtype=from_value_type(feature.dtype),
             description=feature.description,
             tags=feature.labels,
+            default_value=feature.default_value,
         )
