@@ -550,4 +550,3 @@ cli.add_command(serve_transformations_command)
 
 if __name__ == "__main__":
     cli()
-
