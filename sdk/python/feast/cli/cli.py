@@ -141,7 +141,7 @@ def version():
     Display Feast SDK version
     """
     print(
-        f'{Style.BRIGHT + Fore.BLUE}Feast SDK Version: {Style.BRIGHT + Fore.GREEN}"{importlib_version("eg-feast")}"'
+        f'{Style.BRIGHT + Fore.BLUE}Feast SDK Version: {Style.BRIGHT + Fore.GREEN}"{importlib_version("feast")}"'
     )
 
 
@@ -550,3 +550,4 @@ cli.add_command(serve_transformations_command)
 
 if __name__ == "__main__":
     cli()
+
