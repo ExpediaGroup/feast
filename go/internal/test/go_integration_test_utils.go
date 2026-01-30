@@ -203,7 +203,6 @@ func SetupCleanFeatureRepo(basePath string) error {
 		log.Printf("Repo init error: %s", string(out))
 		return err
 	}
-	
 	applyCommand := exec.Command(feastExec, "apply")
 	applyCommand.Env = os.Environ()
 	featureRepoPath, err := filepath.Abs(filepath.Join(path, "my_project", "feature_repo"))
@@ -216,7 +215,6 @@ func SetupCleanFeatureRepo(basePath string) error {
 		log.Printf("Repo apply error: %s", string(out))
 		return err
 	}
-	
 	t := time.Now()
 
 	formattedTime := fmt.Sprintf("%d-%02d-%02dT%02d:%02d:%02d",
@@ -230,7 +228,6 @@ func SetupCleanFeatureRepo(basePath string) error {
 		log.Printf("Repo materialize error: %s", string(out))
 		return err
 	}
-	
 	return nil
 }
 
