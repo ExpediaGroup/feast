@@ -602,7 +602,9 @@ def test_feature_view_projection_backwards_compatibility():
     assert pydantic_obj.batch_source is None
 
     minimal_json = '{"name": "test_projection_json", "desired_features": [], "features": [], "join_key_map": {}}'
-    pydantic_obj_from_json = FeatureViewProjectionModel.model_validate_json(minimal_json)
+    pydantic_obj_from_json = FeatureViewProjectionModel.model_validate_json(
+        minimal_json
+    )
     assert pydantic_obj_from_json.name == "test_projection_json"
     assert pydantic_obj_from_json.timestamp_field is None
     assert pydantic_obj_from_json.date_partition_column is None
