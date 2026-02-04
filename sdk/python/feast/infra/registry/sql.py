@@ -444,7 +444,7 @@ class SqlRegistry(CachingRegistry):
         self, project: str, commit: bool
     ) -> ProjectMetadataModel:
         self._maybe_init_project_metadata(project)
-        return self._get_project_metadata_model(project)
+        return self.get_project_metadata(project)
 
     def _get_entity(self, name: str, project: str) -> Entity:
         return self._get_object(
