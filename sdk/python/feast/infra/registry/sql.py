@@ -1519,19 +1519,7 @@ class SqlRegistry(CachingRegistry):
                         )
         return list(project_metadata_model_dict.values())
 
-    def get_project_metadata(self, project: str, key: str) -> Optional[str]:
-        """Get a custom project metadata value by key from the feast_metadata table."""
-        with self.read_engine.begin() as conn:
-            stmt = select(feast_metadata).where(
-                feast_metadata.c.project_id == project,
-                feast_metadata.c.metadata_key == key,
-            )
-            row = conn.execute(stmt).first()
-            if row:
-                return row._mapping["metadata_value"]
-            return None
-
-    def _get_project_metadata_model(
+    def get_project_metadata(
         self,
         project: str,
         allow_cache: bool = False,
