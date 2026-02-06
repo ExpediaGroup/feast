@@ -131,11 +131,12 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 		return nil, err
 	}
 
-	// parse user_name
+	// parse user_name as fallback
 	if username == "" {
-	username, err = parseStringField(onlineStoreConfig, "user_name", "")
-	if err != nil {
-		return nil, err
+		username, err = parseStringField(onlineStoreConfig, "user_name", "")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	cassandraConfig.username = username
