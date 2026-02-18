@@ -1038,4 +1038,3 @@ func (c *CassandraOnlineStore) GetDataModelType() OnlineStoreDataModel {
 func (c *CassandraOnlineStore) GetReadBatchSize() int {
 	return c.KeyBatchSize
 }
-
