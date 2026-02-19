@@ -47,6 +47,49 @@ type CassandraOnlineStore struct {
 	tableNameCache sync.Map
 }
 
+type retryPolicyWithBackoff struct {
+	numRetries int
+	minDelay   time.Duration
+	maxDelay   time.Duration
+}
+
+func (r *retryPolicyWithBackoff) Attempt(q gocql.RetryableQuery) bool {
+	attempts := q.Attempts()
+	if attempts > r.numRetries {
+		return false
+	}
+	if attempts > 0 {
+		delay := r.minDelay * time.Duration(1<<uint(attempts-1))
+		if delay > r.maxDelay {
+			delay = r.maxDelay
+		}
+		time.Sleep(delay)
+	}
+	return true
+}
+
+func (r *retryPolicyWithBackoff) GetRetryType(err error) gocql.RetryType {
+	switch t := err.(type) {
+	case *gocql.RequestErrUnavailable:
+		if t.Alive > 0 {
+			return gocql.Retry
+		}
+		return gocql.Rethrow
+	case *gocql.RequestErrWriteTimeout:
+		if t.Received > 0 {
+			return gocql.Ignore
+		}
+		return gocql.Rethrow
+	case *gocql.RequestErrReadTimeout:
+		if t.Received > 0 {
+			return gocql.Retry
+		}
+		return gocql.Rethrow
+	default:
+		return gocql.Rethrow
+	}
+}
+
 type CassandraConfig struct {
 	hosts                   []string
 	username                string
@@ -256,7 +299,11 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 		store.clusterConfigs.Timeout = time.Millisecond * time.Duration(cassandraConfig.requestTimeoutMillis)
 	}
 
-	store.clusterConfigs.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
+	store.clusterConfigs.RetryPolicy = &retryPolicyWithBackoff{
+		numRetries: 3,
+		minDelay:   150 * time.Microsecond,
+		maxDelay:   400 * time.Microsecond,
+	}
 	store.clusterConfigs.Consistency = gocql.LocalOne
 
 	cassandraTraceServiceName := os.Getenv("DD_SERVICE") + "-cassandra"
