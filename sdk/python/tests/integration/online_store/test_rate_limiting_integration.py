@@ -326,4 +326,3 @@ def test_cassandra_tag_overrides_config(environment, universal_data_sources):
 
     # At 50/sec (tag), should take ~2 seconds, NOT 10 seconds
     assert elapsed_time < 3.5
-
