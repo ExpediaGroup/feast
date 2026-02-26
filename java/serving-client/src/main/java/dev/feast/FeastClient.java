@@ -184,9 +184,7 @@ public class FeastClient implements AutoCloseable {
    * @return {@link FeastClient}
    */
   public static FeastClient createWithStub(
-      ServingServiceBlockingStub stub,
-      Optional<CallCredentials> credentials,
-      long requestTimeout) {
+      ServingServiceBlockingStub stub, Optional<CallCredentials> credentials, long requestTimeout) {
     if (requestTimeout < 0) {
       throw new IllegalArgumentException("Request timeout can't be negative");
     }
@@ -200,8 +198,7 @@ public class FeastClient implements AutoCloseable {
    * @param requestTimeout timeout in milliseconds, use 0 for no timeout
    * @return {@link FeastClient}
    */
-  public static FeastClient createWithStub(
-      ServingServiceBlockingStub stub, long requestTimeout) {
+  public static FeastClient createWithStub(ServingServiceBlockingStub stub, long requestTimeout) {
     if (requestTimeout < 0) {
       throw new IllegalArgumentException("Request timeout can't be negative");
     }
@@ -646,9 +643,7 @@ public class FeastClient implements AutoCloseable {
   }
 
   protected FeastClient(
-      ServingServiceBlockingStub stub,
-      Optional<CallCredentials> credentials,
-      long requestTimeout) {
+      ServingServiceBlockingStub stub, Optional<CallCredentials> credentials, long requestTimeout) {
     this(null, stub, credentials, requestTimeout);
   }
 

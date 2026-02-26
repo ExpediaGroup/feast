@@ -497,8 +497,7 @@ public class FeastClientTest {
           feast.proto.serving.ServingServiceGrpc.newBlockingStub(channel);
 
       IllegalArgumentException exception =
-          assertThrows(
-              IllegalArgumentException.class, () -> FeastClient.createWithStub(stub, -1));
+          assertThrows(IllegalArgumentException.class, () -> FeastClient.createWithStub(stub, -1));
       assertEquals("Request timeout can't be negative", exception.getMessage());
     } catch (Exception e) {
       throw new RuntimeException(e);
