@@ -193,7 +193,8 @@ func (fs *FeatureStore) GetOnlineFeatures(
 	featureService *model.FeatureService,
 	joinKeyToEntityValues map[string]*prototypes.RepeatedValue,
 	requestData map[string]*prototypes.RepeatedValue,
-	fullFeatureNames bool) ([]*onlineserving.FeatureVector, error) {
+	fullFeatureNames bool,
+	useDefaults serving.UseDefaultsMode) ([]*onlineserving.FeatureVector, error) {
 	var err error
 	var requestedFeatureViews []*onlineserving.FeatureViewAndRefs
 	var requestedOnDemandFeatureViews []*model.OnDemandFeatureView
@@ -294,7 +295,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						arrowMemory,
 						numRows,
 						transformationRequired,
-						serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+						useDefaults,
 					)
 					if err != nil {
 						return err
@@ -337,7 +338,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						arrowMemory,
 						numRows,
 						transformationRequired,
-						serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+						useDefaults,
 					)
 					if err != nil {
 						return err

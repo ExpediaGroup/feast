@@ -188,7 +188,8 @@ func (s *OnlineFeatureService) GetOnlineFeatures(
 		featureService,
 		entitiesProto,
 		requestDataProto,
-		fullFeatureNames)
+		fullFeatureNames,
+		serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 
 	if err != nil {
 		return err

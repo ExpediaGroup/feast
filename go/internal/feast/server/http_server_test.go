@@ -421,3 +421,48 @@ func TestProcessFeatureVectors_NullValueReturnsNull(t *testing.T) {
 	timestamps := results[0]["event_timestamps"].([][]interface{})
 	assert.Equal(t, time.Unix(1234567890, 0).UTC().Format(time.RFC3339), timestamps[0][0], "Expected timestamp to be zero for null value")
 }
+
+func TestParseUseDefaultsMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    *string
+		expected serving.UseDefaultsMode
+	}{
+		{
+			name:     "nil defaults to UNSPECIFIED",
+			input:    nil,
+			expected: serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+		},
+		{
+			name:     "OFF uppercase",
+			input:    stringPtr("OFF"),
+			expected: serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+		},
+		{
+			name:     "flexible lowercase",
+			input:    stringPtr("flexible"),
+			expected: serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+		},
+		{
+			name:     "STRICT mixed case",
+			input:    stringPtr("Strict"),
+			expected: serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+		},
+		{
+			name:     "invalid string defaults to UNSPECIFIED",
+			input:    stringPtr("INVALID"),
+			expected: serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseUseDefaultsMode(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func stringPtr(s string) *string {
+	return &s
+}

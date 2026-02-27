@@ -318,6 +318,23 @@ type getOnlineFeaturesRequest struct {
 	Entities         map[string]repeatedValue `json:"entities"`
 	FullFeatureNames bool                     `json:"full_feature_names"`
 	RequestContext   map[string]repeatedValue `json:"request_context"`
+	UseDefaults      *string                  `json:"use_defaults"`
+}
+
+func parseUseDefaultsMode(mode *string) serving.UseDefaultsMode {
+	if mode == nil {
+		return serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED
+	}
+	switch strings.ToUpper(*mode) {
+	case "OFF":
+		return serving.UseDefaultsMode_USE_DEFAULTS_OFF
+	case "FLEXIBLE":
+		return serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE
+	case "STRICT":
+		return serving.UseDefaultsMode_USE_DEFAULTS_STRICT
+	default:
+		return serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED
+	}
 }
 
 func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingService) *HttpServer {
@@ -410,7 +427,8 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		featureService,
 		entitiesProto,
 		requestContextProto,
-		request.FullFeatureNames)
+		request.FullFeatureNames,
+		parseUseDefaultsMode(request.UseDefaults))
 
 	defer func() {
 		if featureVectors != nil {
