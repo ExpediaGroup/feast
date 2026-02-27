@@ -21,15 +21,11 @@ class FieldModel(BaseModel):
     vector_index: bool = False
     vector_length: int = 0
     vector_search_metric: Optional[str] = None
-    default_value: Optional[ValueProto.Value] = PydanticField(
-        default=None,
-        alias="defaultValue"
-    )
+    default_value: Optional[ValueProto.Value] = None
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
-        json_schema_serialization_defaults_required=False,
-        populate_by_name=True  # Allow both default_value and defaultValue in validation
+        json_schema_serialization_defaults_required=False
     )
 
     @field_serializer("default_value")
