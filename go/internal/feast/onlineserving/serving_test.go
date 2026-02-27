@@ -2579,3 +2579,28 @@ func TestApplyDefaults(t *testing.T) {
 		})
 	}
 }
+
+func TestFieldDefaultValueLoadedFromProto(t *testing.T) {
+	// Create a FeatureSpecV2 proto with a default value
+	defaultVal := &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}}
+	featureProto := test.CreateFeatureWithDefault("feature_with_default", types.ValueType_INT64, defaultVal)
+
+	// Create a FeatureView from proto (this is how Feature Server loads metadata)
+	entity := test.CreateEntityProto("driver", types.ValueType_INT64, "driver")
+	fvProto := test.CreateFeatureViewProto("test_fv", []*core.Entity{entity}, featureProto)
+	fv := model.NewFeatureViewFromProto(fvProto)
+
+	// Verify the default value is loaded into the in-memory model
+	require.Len(t, fv.Base.Features, 1)
+	field := fv.Base.Features[0]
+	assert.Equal(t, "feature_with_default", field.Name)
+	require.NotNil(t, field.DefaultValue, "DefaultValue must be loaded from proto")
+	assert.Equal(t, int64(42), field.DefaultValue.GetInt64Val())
+
+	// Also verify a feature WITHOUT default has nil DefaultValue
+	featureNoDefault := test.CreateFeature("feature_no_default", types.ValueType_INT64)
+	fvProto2 := test.CreateFeatureViewProto("test_fv2", []*core.Entity{entity}, featureNoDefault)
+	fv2 := model.NewFeatureViewFromProto(fvProto2)
+	require.Len(t, fv2.Base.Features, 1)
+	assert.Nil(t, fv2.Base.Features[0].DefaultValue, "Feature without proto default must have nil DefaultValue")
+}
