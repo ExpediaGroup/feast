@@ -23,25 +23,21 @@ class FieldModel(BaseModel):
     vector_search_metric: Optional[str] = None
     default_value: Optional[ValueProto.Value] = PydanticField(
         default=None,
-        serialization_alias="defaultValue",
-        validation_alias="defaultValue"
+        alias="defaultValue"
     )
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         json_schema_serialization_defaults_required=False,
-        # Exclude None values from JSON to maintain backwards compatibility
-        # Fields without defaults won't have defaultValue key in JSON
-        ser_json_timedelta='float',
-        ser_json_bytes='base64'
+        populate_by_name=True  # Allow both default_value and defaultValue in validation
     )
 
-    @field_serializer("default_value", when_used='json')
+    @field_serializer("default_value")
     def serialize_default_value(self, value: Optional[ValueProto.Value]) -> Optional[Dict[str, Any]]:
         """
         Serialize proto Value to JSON-compatible dict using MessageToDict.
         Returns camelCase keys (int64Val, stringVal, etc.) per proto JSON format.
-        Returns None for fields without defaults (will be excluded from JSON via mode='omit' below).
+        Returns None for fields without defaults (will be excluded from JSON responses).
         """
         if value is None:
             return None
