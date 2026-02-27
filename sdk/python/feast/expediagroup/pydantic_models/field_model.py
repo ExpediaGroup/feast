@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, Union
 
 from google.protobuf.json_format import MessageToDict, ParseDict
-from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, Field as PydanticField, field_serializer, field_validator
 from typing_extensions import Self
 
 from feast.field import Field
@@ -21,9 +21,16 @@ class FieldModel(BaseModel):
     vector_index: bool = False
     vector_length: int = 0
     vector_search_metric: Optional[str] = None
-    default_value: Optional[ValueProto.Value] = None
+    default_value: Optional[ValueProto.Value] = PydanticField(
+        default=None,
+        serialization_alias="defaultValue",
+        validation_alias="defaultValue"
+    )
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        json_schema_serialization_defaults_required=False
+    )
 
     @field_serializer("default_value")
     def serialize_default_value(self, value: Optional[ValueProto.Value]) -> Optional[Dict[str, Any]]:
