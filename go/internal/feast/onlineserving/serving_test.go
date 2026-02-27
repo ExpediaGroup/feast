@@ -1788,7 +1788,7 @@ func testTransposeFeatureRowsIntoColumns(t *testing.T, useArrow bool) *FeatureVe
 		},
 	}
 
-	vectors, err := TransposeFeatureRowsIntoColumns(featureData, groupRef, featureViews, arrowAllocator, numRows, useArrow)
+	vectors, err := TransposeFeatureRowsIntoColumns(featureData, groupRef, featureViews, arrowAllocator, numRows, useArrow, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 
 	assert.NoError(t, err)
 	assert.Len(t, vectors, 1)
@@ -2176,7 +2176,7 @@ func BenchmarkTransposeFeatureRowsIntoColumnsWithArrowConversion(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
+		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
 		}
@@ -2188,7 +2188,7 @@ func BenchmarkTransposeFeatureRowsIntoColumnsWithoutArrowConversion(b *testing.B
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, false)
+		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, false, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
 		}
@@ -2200,7 +2200,7 @@ func BenchmarkFullLoopArrowConversion(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		vectors, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
+		vectors, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
 		}
@@ -2366,15 +2366,16 @@ func TestBatchGroupedFeatureRef_VariableBatchSizes(t *testing.T) {
 
 func TestApplyDefaults(t *testing.T) {
 	testCases := []struct {
-		name           string
-		useDefaults    serving.UseDefaultsMode
-		hasDefault     bool
-		defaultValue   *types.Value
-		featureDataNil bool       // if true, simulate NOT_FOUND via nil row
-		featureValue   *types.Value // if nil and featureDataNil=false, use NullVal
-		initialStatus  serving.FieldStatus
-		expectValue    *types.Value
-		expectStatus   serving.FieldStatus
+		name             string
+		useDefaults      serving.UseDefaultsMode
+		hasDefault       bool
+		defaultValue     *types.Value
+		featureDataNil   bool         // if true, simulate NOT_FOUND via nil row
+		featureValue     *types.Value // if nil and featureDataNil=false, use NullVal
+		expiredTimestamp bool         // if true, use old timestamp to trigger OUTSIDE_MAX_AGE
+		initialStatus    serving.FieldStatus
+		expectValue      *types.Value
+		expectStatus     serving.FieldStatus
 	}{
 		{
 			name:           "OFF + NOT_FOUND + has default",
@@ -2438,6 +2439,16 @@ func TestApplyDefaults(t *testing.T) {
 			expectStatus: serving.FieldStatus_PRESENT,
 		},
 		{
+			name:             "FLEXIBLE + OUTSIDE_MAX_AGE",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 1.0}},
+			expiredTimestamp: true,
+			expectValue:      &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 1.0}},
+			expectStatus:     serving.FieldStatus_OUTSIDE_MAX_AGE,
+		},
+		{
 			name:           "UNSPECIFIED + NOT_FOUND + has default",
 			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
 			hasDefault:     true,
@@ -2469,6 +2480,8 @@ func TestApplyDefaults(t *testing.T) {
 					}
 
 					fv := test.CreateFeatureViewModel("testView", []*core.Entity{entity1}, feature)
+					// Set a TTL for OUTSIDE_MAX_AGE test
+					fv.Ttl = &durationpb.Duration{Seconds: 3600} // 1 hour TTL
 
 					featureViews := []*FeatureViewAndRefs{
 						{View: fv, FeatureRefs: []string{"f1"}},
@@ -2490,17 +2503,18 @@ func TestApplyDefaults(t *testing.T) {
 					}
 
 					nowTime := time.Now()
+					// Use old timestamp for OUTSIDE_MAX_AGE test (2 hours old, TTL is 1 hour)
+					timestampToUse := nowTime
+					if tc.expiredTimestamp {
+						timestampToUse = nowTime.Add(-2 * time.Hour)
+					}
 					var featureData [][]onlinestore.FeatureData
 
 					if tc.featureDataNil {
 						// Simulate NOT_FOUND by nil row
 						featureData = [][]onlinestore.FeatureData{nil}
-					} else {
-						// Create feature data with the specified value
-						value := tc.featureValue
-						if value == nil {
-							value = &types.Value{Val: &types.Value_NullVal{}}
-						}
+					} else if tc.featureValue == nil || tc.featureValue.Val == nil {
+						// Create feature data with NULL value
 						featureData = [][]onlinestore.FeatureData{
 							{
 								{
@@ -2508,8 +2522,22 @@ func TestApplyDefaults(t *testing.T) {
 										FeatureViewName: "testView",
 										FeatureName:     "f1",
 									},
-									Timestamp: timestamppb.Timestamp{Seconds: nowTime.Unix()},
-									Value:     *value,
+									Timestamp: timestamppb.Timestamp{Seconds: timestampToUse.Unix()},
+									Value:     types.Value{Val: &types.Value_NullVal{}},
+								},
+							},
+						}
+					} else {
+						// Create feature data with the specified value
+						featureData = [][]onlinestore.FeatureData{
+							{
+								{
+									Reference: serving.FeatureReferenceV2{
+										FeatureViewName: "testView",
+										FeatureName:     "f1",
+									},
+									Timestamp: timestamppb.Timestamp{Seconds: timestampToUse.Unix()},
+									Value:     types.Value{Val: tc.featureValue.Val},
 								},
 							},
 						}
@@ -2535,7 +2563,13 @@ func TestApplyDefaults(t *testing.T) {
 
 					// Check value
 					if tc.expectValue == nil {
-						assert.Nil(t, protoValues[0], "Expected nil value")
+						// Arrow conversion creates empty Value objects for nil, non-Arrow returns nil
+						if useArrow {
+							assert.NotNil(t, protoValues[0], "Arrow should create non-nil Value")
+							assert.Nil(t, protoValues[0].Val, "Arrow Value.Val should be nil")
+						} else {
+							assert.Nil(t, protoValues[0], "Non-Arrow should return nil value")
+						}
 					} else {
 						assert.NotNil(t, protoValues[0], "Expected non-nil value")
 						assert.True(t, proto.Equal(tc.expectValue, protoValues[0]), "Value mismatch")

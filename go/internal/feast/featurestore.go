@@ -294,6 +294,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						arrowMemory,
 						numRows,
 						transformationRequired,
+						serving.UseDefaultsMode_USE_DEFAULTS_OFF,
 					)
 					if err != nil {
 						return err
@@ -336,6 +337,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						arrowMemory,
 						numRows,
 						transformationRequired,
+						serving.UseDefaultsMode_USE_DEFAULTS_OFF,
 					)
 					if err != nil {
 						return err

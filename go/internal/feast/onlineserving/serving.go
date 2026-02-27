@@ -751,12 +751,23 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 	requestedFeatureViews []*FeatureViewAndRefs,
 	arrowAllocator memory.Allocator,
 	numRows int,
-	useArrow bool) ([]*FeatureVector, error) {
+	useArrow bool,
+	useDefaults serving.UseDefaultsMode) ([]*FeatureVector, error) {
 
 	numFeatures := len(groupRef.AliasedFeatureNames)
 	fvs := make(map[string]*model.FeatureView)
 	for _, viewAndRefs := range requestedFeatureViews {
 		fvs[viewAndRefs.View.Base.Name] = viewAndRefs.View
+	}
+
+	// Build feature name -> default value lookup for defaulting
+	featureDefaults := make(map[string]*prototypes.Value)
+	for _, viewAndRefs := range requestedFeatureViews {
+		for _, field := range viewAndRefs.View.Base.Features {
+			if field.DefaultValue != nil {
+				featureDefaults[field.Name] = field.DefaultValue
+			}
+		}
 	}
 
 	var featureData *onlinestore.FeatureData
@@ -801,6 +812,19 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 					status = serving.FieldStatus_PRESENT
 				}
 			}
+
+			// Apply defaults for NOT_FOUND and NULL_VALUE statuses
+			if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE {
+				if status == serving.FieldStatus_NOT_FOUND || status == serving.FieldStatus_NULL_VALUE {
+					featureName := groupRef.FeatureNames[featureIndex]
+					if defaultVal, ok := featureDefaults[featureName]; ok {
+						// Create new Value to avoid mutating shared default
+						value = &prototypes.Value{Val: defaultVal.Val}
+						status = serving.FieldStatus_PRESENT
+					}
+				}
+			}
+
 			for _, rowIndex := range outputIndexes {
 				protoValues[rowIndex] = value
 				currentVector.Statuses[rowIndex] = status
