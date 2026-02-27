@@ -22,8 +22,8 @@ re_verification: false
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | HTTP GET FeatureView returns fields with defaultValue in JSON | ✓ VERIFIED | feature_view.py lines 127-162: GET endpoint returns FeatureViewModel with response_model_exclude_none=True; FieldModel.serialize_default_value (field_model.py:36-44) converts proto Value to JSON dict |
-| 2 | HTTP GET SortedFeatureView returns fields with defaultValue in JSON | ✓ VERIFIED | sorted_feature_view.py lines 38-82: GET endpoint returns SortedFeatureViewModel; inherits same serialization path through FieldModel |
+| 1 | HTTP GET FeatureView returns fields with default_value in JSON | ✓ VERIFIED | feature_view.py lines 127-162: GET endpoint returns FeatureViewModel with response_model_exclude_none=True; FieldModel.serialize_default_value (field_model.py:31-40) converts proto Value to JSON dict using snake_case field name (consistent with other fields) |
+| 2 | HTTP GET SortedFeatureView returns fields with default_value in JSON | ✓ VERIFIED | sorted_feature_view.py lines 38-82: GET endpoint returns SortedFeatureViewModel; inherits same serialization path through FieldModel; uses snake_case for consistency |
 | 3 | Remote Registry server serializes default_value in Field protos over gRPC | ✓ VERIFIED | Remote Registry uses FeatureView.to_proto() which calls Field.to_proto() (verified in Phase 1); test_remote_registry_default_value.py:20-73 tests proto roundtrip |
 | 4 | Remote Registry client deserializes default_value from Field protos | ✓ VERIFIED | remote.py:366-389: get_feature_view/list_feature_views call FeatureView.from_proto() which uses Field.from_proto(); test_remote_registry_default_value.py:59-72 verifies deserialization |
 | 5 | FeatureView with defaults returns same defaults via both HTTP and Remote Registry | ✓ VERIFIED | Both paths use same Field <-> FieldModel bridge (field_model.py:62-100); HTTP test (test_registry_feature_view.py:136-178) and proto test (test_remote_registry_default_value.py:20-73) validate equivalence |
