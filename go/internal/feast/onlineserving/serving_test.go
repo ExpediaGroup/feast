@@ -2363,3 +2363,185 @@ func TestBatchGroupedFeatureRef_VariableBatchSizes(t *testing.T) {
 		}
 	})
 }
+
+func TestApplyDefaults(t *testing.T) {
+	testCases := []struct {
+		name           string
+		useDefaults    serving.UseDefaultsMode
+		hasDefault     bool
+		defaultValue   *types.Value
+		featureDataNil bool       // if true, simulate NOT_FOUND via nil row
+		featureValue   *types.Value // if nil and featureDataNil=false, use NullVal
+		initialStatus  serving.FieldStatus
+		expectValue    *types.Value
+		expectStatus   serving.FieldStatus
+	}{
+		{
+			name:           "OFF + NOT_FOUND + has default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			hasDefault:     true,
+			defaultValue:   &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureDataNil: true,
+			expectValue:    nil,
+			expectStatus:   serving.FieldStatus_NOT_FOUND,
+		},
+		{
+			name:          "OFF + NULL_VALUE + has default",
+			useDefaults:   serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			hasDefault:    true,
+			defaultValue:  &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue:  &types.Value{Val: &types.Value_NullVal{}},
+			expectValue:   nil,
+			expectStatus:  serving.FieldStatus_NOT_FOUND,
+		},
+		{
+			name:           "FLEXIBLE + NOT_FOUND + has default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:     true,
+			defaultValue:   &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureDataNil: true,
+			expectValue:    &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			expectStatus:   serving.FieldStatus_PRESENT,
+		},
+		{
+			name:         "FLEXIBLE + NULL_VALUE + has default",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:   true,
+			defaultValue: &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue: &types.Value{Val: &types.Value_NullVal{}},
+			expectValue:  &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			expectStatus: serving.FieldStatus_PRESENT,
+		},
+		{
+			name:           "FLEXIBLE + NOT_FOUND + no default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:     false,
+			featureDataNil: true,
+			expectValue:    nil,
+			expectStatus:   serving.FieldStatus_NOT_FOUND,
+		},
+		{
+			name:         "FLEXIBLE + NULL_VALUE + no default",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:   false,
+			featureValue: &types.Value{Val: &types.Value_NullVal{}},
+			expectValue:  nil,
+			expectStatus: serving.FieldStatus_NOT_FOUND,
+		},
+		{
+			name:         "FLEXIBLE + PRESENT value",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:   true,
+			defaultValue: &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue: &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 99.9}},
+			expectValue:  &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 99.9}},
+			expectStatus: serving.FieldStatus_PRESENT,
+		},
+		{
+			name:           "UNSPECIFIED + NOT_FOUND + has default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+			hasDefault:     true,
+			defaultValue:   &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureDataNil: true,
+			expectValue:    nil,
+			expectStatus:   serving.FieldStatus_NOT_FOUND,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test with both Arrow and non-Arrow
+			for _, useArrow := range []bool{true, false} {
+				testName := fmt.Sprintf("useArrow=%v", useArrow)
+				t.Run(testName, func(t *testing.T) {
+					arrowAllocator := memory.NewGoAllocator()
+					numRows := 1
+
+					// Create entity
+					entity1 := test.CreateEntityProto("driver", types.ValueType_INT64, "driver")
+
+					// Create feature with or without default
+					var feature *core.FeatureSpecV2
+					if tc.hasDefault {
+						feature = test.CreateFeatureWithDefault("f1", types.ValueType_INT64, tc.defaultValue)
+					} else {
+						feature = test.CreateFeature("f1", types.ValueType_INT64)
+					}
+
+					fv := test.CreateFeatureViewModel("testView", []*core.Entity{entity1}, feature)
+
+					featureViews := []*FeatureViewAndRefs{
+						{View: fv, FeatureRefs: []string{"f1"}},
+					}
+
+					entityKeys := []*types.EntityKey{
+						{
+							JoinKeys:     []string{"driver"},
+							EntityValues: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 1}}},
+						},
+					}
+
+					groupRef := &GroupedFeaturesPerEntitySet{
+						FeatureNames:        []string{"f1"},
+						FeatureViewNames:    []string{"testView"},
+						AliasedFeatureNames: []string{"testView__f1"},
+						EntityKeys:          entityKeys,
+						Indices:             [][]int{{0}},
+					}
+
+					nowTime := time.Now()
+					var featureData [][]onlinestore.FeatureData
+
+					if tc.featureDataNil {
+						// Simulate NOT_FOUND by nil row
+						featureData = [][]onlinestore.FeatureData{nil}
+					} else {
+						// Create feature data with the specified value
+						value := tc.featureValue
+						if value == nil {
+							value = &types.Value{Val: &types.Value_NullVal{}}
+						}
+						featureData = [][]onlinestore.FeatureData{
+							{
+								{
+									Reference: serving.FeatureReferenceV2{
+										FeatureViewName: "testView",
+										FeatureName:     "f1",
+									},
+									Timestamp: timestamppb.Timestamp{Seconds: nowTime.Unix()},
+									Value:     *value,
+								},
+							},
+						}
+					}
+
+					// Call TransposeFeatureRowsIntoColumns with useDefaults parameter
+					vectors, err := TransposeFeatureRowsIntoColumns(featureData, groupRef, featureViews, arrowAllocator, numRows, useArrow, tc.useDefaults)
+
+					assert.NoError(t, err)
+					assert.Len(t, vectors, 1)
+					vector := vectors[0]
+
+					// Get proto values for comparison
+					protoValues, err := vector.GetProtoValues()
+					assert.NoError(t, err)
+
+					if useArrow {
+						vector.Values.(arrow.Array).Release()
+					}
+
+					// Check status
+					assert.Equal(t, tc.expectStatus, vector.Statuses[0], "Status mismatch")
+
+					// Check value
+					if tc.expectValue == nil {
+						assert.Nil(t, protoValues[0], "Expected nil value")
+					} else {
+						assert.NotNil(t, protoValues[0], "Expected non-nil value")
+						assert.True(t, proto.Equal(tc.expectValue, protoValues[0]), "Value mismatch")
+					}
+				})
+			}
+		})
+	}
+}
