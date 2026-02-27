@@ -1,6 +1,7 @@
-from typing import Dict, Optional, Union
+from typing import Any, Dict, Optional, Union
 
-from pydantic import BaseModel, ConfigDict
+from google.protobuf.json_format import MessageToDict, ParseDict
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 from typing_extensions import Self
 
 from feast.field import Field
@@ -23,6 +24,32 @@ class FieldModel(BaseModel):
     default_value: Optional[ValueProto.Value] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_serializer("default_value")
+    def serialize_default_value(self, value: Optional[ValueProto.Value]) -> Optional[Dict[str, Any]]:
+        """
+        Serialize proto Value to JSON-compatible dict using MessageToDict.
+        Returns camelCase keys (int64Val, stringVal, etc.) per proto JSON format.
+        """
+        if value is None:
+            return None
+        return MessageToDict(value, preserving_proto_field_name=False)
+
+    @field_validator("default_value", mode="before")
+    @classmethod
+    def validate_default_value(cls, v: Any) -> Optional[ValueProto.Value]:
+        """
+        Validate default_value: accepts proto Value object or dict.
+        When receiving dict (from JSON), convert to proto Value using ParseDict.
+        Note: ParseDict handles base64-encoded bytes automatically for bytesVal fields.
+        """
+        if v is None:
+            return None
+        if isinstance(v, ValueProto.Value):
+            return v
+        if isinstance(v, dict):
+            return ParseDict(v, ValueProto.Value())
+        return v
 
     def to_field(self) -> Field:
         """
