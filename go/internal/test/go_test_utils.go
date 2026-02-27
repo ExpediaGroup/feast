@@ -109,6 +109,14 @@ func CreateFeature(name string, valueType types.ValueType_Enum) *core.FeatureSpe
 	}
 }
 
+func CreateFeatureWithDefault(name string, valueType types.ValueType_Enum, defaultValue *types.Value) *core.FeatureSpecV2 {
+	return &core.FeatureSpecV2{
+		Name:         name,
+		ValueType:    valueType,
+		DefaultValue: defaultValue,
+	}
+}
+
 func CreateFeatureViewProto(name string, entities []*core.Entity, features ...*core.FeatureSpecV2) *core.FeatureView {
 	entityNames, entityColumns := getEntityNamesAndColumns(entities)
 	viewProto := core.FeatureView{
