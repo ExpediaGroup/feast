@@ -3,7 +3,7 @@ from pydantic_core import ValidationError
 
 from feast.field import Feature, Field
 from feast.protos.feast.types import Value_pb2 as ValueProto
-from feast.types import Array, Bool, Float32, Int32, Int64, String
+from feast.types import Array, Bool, Bytes, Float32, Float64, Int32, Int64, String
 from feast.value_type import ValueType
 
 
@@ -176,3 +176,57 @@ def test_field_default_value_edge_cases():
         name="error", dtype=Int64, default_value=ValueProto.Value(int64_val=-1)
     )
     assert field4.default_value.int64_val == -1
+
+
+def test_field_with_float32_default_value():
+    default_val = ValueProto.Value(float_val=3.14)
+    field = Field(name="temperature", dtype=Float32, default_value=default_val)
+    proto = field.to_proto()
+    assert proto.name == "temperature"
+    assert proto.HasField("default_value")
+    assert abs(proto.default_value.float_val - 3.14) < 0.001
+
+
+def test_field_with_float64_default_value():
+    default_val = ValueProto.Value(double_val=2.718281828)
+    field = Field(name="precision_value", dtype=Float64, default_value=default_val)
+    proto = field.to_proto()
+    assert proto.name == "precision_value"
+    assert proto.HasField("default_value")
+    assert abs(proto.default_value.double_val - 2.718281828) < 0.0000001
+
+
+def test_field_with_bytes_default_value():
+    default_val = ValueProto.Value(bytes_val=b"default_bytes")
+    field = Field(name="binary_data", dtype=Bytes, default_value=default_val)
+    proto = field.to_proto()
+    assert proto.name == "binary_data"
+    assert proto.HasField("default_value")
+    assert proto.default_value.bytes_val == b"default_bytes"
+
+
+def test_field_with_string_list_default_value():
+    default_val = ValueProto.Value(
+        string_list_val=ValueProto.StringList(val=["a", "b", "c"])
+    )
+    field = Field(name="tags", dtype=Array(String), default_value=default_val)
+    assert list(field.default_value.string_list_val.val) == ["a", "b", "c"]
+
+
+def test_field_with_float_list_default_value():
+    default_val = ValueProto.Value(
+        float_list_val=ValueProto.FloatList(val=[1.1, 2.2, 3.3])
+    )
+    field = Field(name="probabilities", dtype=Array(Float32), default_value=default_val)
+    assert len(field.default_value.float_list_val.val) == 3
+    assert abs(field.default_value.float_list_val.val[0] - 1.1) < 0.01
+    assert abs(field.default_value.float_list_val.val[1] - 2.2) < 0.01
+    assert abs(field.default_value.float_list_val.val[2] - 3.3) < 0.01
+
+
+def test_field_with_bool_list_default_value():
+    default_val = ValueProto.Value(
+        bool_list_val=ValueProto.BoolList(val=[True, False, True])
+    )
+    field = Field(name="flags", dtype=Array(Bool), default_value=default_val)
+    assert list(field.default_value.bool_list_val.val) == [True, False, True]
