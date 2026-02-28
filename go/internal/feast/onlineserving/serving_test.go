@@ -1881,6 +1881,204 @@ func testTransposeRangeFeatureRowsIntoColumns(t *testing.T, useArrow bool) *Rang
 	return vector
 }
 
+func TestApplyRangeDefaults(t *testing.T) {
+	arrowAllocator := memory.NewGoAllocator()
+
+	// Test cases for range value defaulting
+	testCases := []struct {
+		name            string
+		useDefaults     serving.UseDefaultsMode
+		hasDefault      bool
+		defaultValue    *types.Value
+		values          []interface{}
+		statuses        []serving.FieldStatus
+		expectedValues  []interface{}
+		expectedStatuses []serving.FieldStatus
+	}{
+		{
+			name:             "OFF mode with NOT_FOUND value",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+		},
+		{
+			name:             "OFF mode with NULL_VALUE value",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+		},
+		{
+			name:             "FLEXIBLE mode with NOT_FOUND and default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "FLEXIBLE mode with NULL_VALUE and default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "FLEXIBLE mode with NOT_FOUND and no default",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       false,
+			defaultValue:     nil,
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+		},
+		{
+			name:             "FLEXIBLE mode with NULL_VALUE and no default",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       false,
+			defaultValue:     nil,
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+		},
+		{
+			name:             "FLEXIBLE mode with PRESENT value",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{99.9},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_PRESENT},
+			expectedValues:   []interface{}{99.9},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "FLEXIBLE mode with OUTSIDE_MAX_AGE",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{99.9},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_OUTSIDE_MAX_AGE},
+			expectedValues:   []interface{}{99.9},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_OUTSIDE_MAX_AGE},
+		},
+		{
+			name:             "UNSPECIFIED mode behaves like OFF",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+		},
+	}
+
+	for _, tc := range testCases {
+		for _, useArrow := range []bool{true, false} {
+			testName := tc.name
+			if useArrow {
+				testName += " (Arrow)"
+			} else {
+				testName += " (Proto)"
+			}
+
+			t.Run(testName, func(t *testing.T) {
+				numRows := 1
+
+				// Create sorted feature view with or without default
+				sortKey1 := test.CreateSortKeyProto("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
+				entity1 := test.CreateEntityProto("driver", types.ValueType_INT64, "driver")
+
+				var feature *core.FeatureSpecV2
+				if tc.hasDefault {
+					feature = test.CreateFeatureWithDefault("f1", types.ValueType_DOUBLE, tc.defaultValue)
+				} else {
+					feature = test.CreateFeature("f1", types.ValueType_DOUBLE)
+				}
+
+				sfv := test.CreateSortedFeatureViewModel("testView", []*core.Entity{entity1}, []*core.SortKey{sortKey1}, feature)
+
+				sortedViews := []*SortedFeatureViewAndRefs{
+					{View: sfv, FeatureRefs: []string{"f1"}},
+				}
+
+				groupRef := &model.GroupedRangeFeatureRefs{
+					FeatureNames:        []string{"f1"},
+					FeatureViewNames:    []string{"testView"},
+					AliasedFeatureNames: []string{"testView__f1"},
+					Indices:             [][]int{{0}},
+				}
+
+				nowTime := time.Now()
+
+				featureData := [][]onlinestore.RangeFeatureData{
+					{
+						{
+							FeatureView:     "testView",
+							FeatureName:     "f1",
+							Values:          tc.values,
+							Statuses:        tc.statuses,
+							EventTimestamps: []timestamppb.Timestamp{{Seconds: nowTime.Unix()}},
+						},
+					},
+				}
+
+				// Call TransposeRangeFeatureRowsIntoColumns with useDefaults parameter
+				vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, useArrow, tc.useDefaults)
+
+				assert.NoError(t, err)
+				assert.Len(t, vectors, 1)
+
+				vector := vectors[0]
+				assert.Equal(t, "testView__f1", vector.Name)
+
+				// Verify status
+				assert.Len(t, vector.RangeStatuses, numRows)
+				assert.Len(t, vector.RangeStatuses[0], 1)
+				assert.Equal(t, tc.expectedStatuses[0], vector.RangeStatuses[0][0])
+
+				// Verify value
+				protoValues, err := vector.GetProtoValues()
+				assert.NoError(t, err)
+				assert.Len(t, protoValues, numRows)
+
+				if tc.expectedValues[0] == nil {
+					assert.Nil(t, protoValues[0])
+				} else {
+					assert.NotNil(t, protoValues[0])
+					assert.Len(t, protoValues[0].Val, 1)
+					if tc.expectedValues[0] != nil {
+						expectedDouble := tc.expectedValues[0].(float64)
+						actualDouble := protoValues[0].Val[0].GetDoubleVal()
+						assert.Equal(t, expectedDouble, actualDouble)
+					}
+				}
+
+				// Clean up Arrow arrays if using Arrow
+				if useArrow && vector.RangeValues != nil {
+					if arr, ok := vector.RangeValues.(arrow.Array); ok {
+						arr.Release()
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestValidateFeatureRefs(t *testing.T) {
 	t.Run("NoCollisions", func(t *testing.T) {
 		viewA := &model.FeatureView{
