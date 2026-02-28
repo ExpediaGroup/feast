@@ -162,6 +162,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		request.GetLimit(),
 		request.GetRequestContext(),
 		request.GetFullFeatureNames(),
+		request.GetUseDefaults(),
 	)
 
 	if err != nil {

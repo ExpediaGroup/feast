@@ -538,6 +538,7 @@ type getOnlineFeaturesRangeRequest struct {
 	Limit            int32                    `json:"limit"`
 	FullFeatureNames bool                     `json:"full_feature_names"`
 	RequestContext   map[string]repeatedValue `json:"request_context"`
+	UseDefaults      *string                  `json:"use_defaults"`
 }
 
 type sortKeyFilter struct {
@@ -632,7 +633,8 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		request.ReverseSortOrder,
 		request.Limit,
 		requestContextProto,
-		request.FullFeatureNames)
+		request.FullFeatureNames,
+		parseUseDefaultsMode(request.UseDefaults))
 
 	defer func() {
 		if rangeFeatureVectors != nil {

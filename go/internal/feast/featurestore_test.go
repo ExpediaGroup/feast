@@ -482,6 +482,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		0,
 		nil,
 		true,
+		serving.UseDefaultsMode_USE_DEFAULTS_OFF,
 	)
 
 	assert.NoError(t, err)
@@ -538,7 +539,8 @@ func testGetOnlineFeaturesRange(
 	reverseSortOrder bool,
 	limit int32,
 	requestData map[string]*types.RepeatedValue,
-	fullFeatureNames bool) ([]*onlineserving.RangeFeatureVector, error) {
+	fullFeatureNames bool,
+	useDefaults serving.UseDefaultsMode) ([]*onlineserving.RangeFeatureVector, error) {
 
 	sortedFeatureViews := make([]*onlineserving.SortedFeatureViewAndRefs, 0)
 	for _, view := range sortedViews {
@@ -608,7 +610,7 @@ func testGetOnlineFeaturesRange(
 			arrowAllocator,
 			numRows,
 			false,
-			serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			useDefaults,
 		)
 		if err != nil {
 			return nil, err

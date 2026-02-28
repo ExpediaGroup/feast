@@ -398,7 +398,8 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	reverseSortOrder bool,
 	limit int32,
 	requestData map[string]*prototypes.RepeatedValue,
-	fullFeatureNames bool) ([]*onlineserving.RangeFeatureVector, error) {
+	fullFeatureNames bool,
+	useDefaults serving.UseDefaultsMode) ([]*onlineserving.RangeFeatureVector, error) {
 
 	if requestData == nil {
 		requestData = make(map[string]*prototypes.RepeatedValue)
@@ -512,7 +513,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 			arrowMemory,
 			numRows,
 			false,
-			serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			useDefaults,
 		)
 		if err != nil {
 			return nil, err
