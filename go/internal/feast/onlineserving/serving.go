@@ -852,12 +852,23 @@ func TransposeRangeFeatureRowsIntoColumns(
 	sortedViews []*SortedFeatureViewAndRefs,
 	arrowAllocator memory.Allocator,
 	numRows int,
-	useArrow bool) ([]*RangeFeatureVector, error) {
+	useArrow bool,
+	useDefaults serving.UseDefaultsMode) ([]*RangeFeatureVector, error) {
 
 	numFeatures := len(groupRef.AliasedFeatureNames)
 	sfvs := make(map[string]*model.SortedFeatureView)
 	for _, viewAndRefs := range sortedViews {
 		sfvs[viewAndRefs.View.Base.Name] = viewAndRefs.View
+	}
+
+	// Build feature name -> default value lookup for range defaulting
+	featureDefaults := make(map[string]*prototypes.Value)
+	for _, viewAndRefs := range sortedViews {
+		for _, field := range viewAndRefs.View.Base.Features {
+			if field.DefaultValue != nil {
+				featureDefaults[field.Name] = field.DefaultValue
+			}
+		}
 	}
 
 	vectors := make([]*RangeFeatureVector, numFeatures)
@@ -873,7 +884,7 @@ func TransposeRangeFeatureRowsIntoColumns(
 
 		for rowEntityIndex, outputIndexes := range groupRef.Indices {
 			rangeValues, rangeStatuses, rangeTimestamps, err := processFeatureRowData(
-				featureData2D, rowEntityIndex, featureIndex, sfvs)
+				featureData2D, rowEntityIndex, featureIndex, sfvs, useDefaults, featureDefaults, groupRef.FeatureNames[featureIndex])
 			if err != nil {
 				return nil, err
 			}
@@ -915,7 +926,10 @@ func processFeatureRowData(
 	featureData2D [][]onlinestore.RangeFeatureData,
 	rowEntityIndex int,
 	featureIndex int,
-	sfvs map[string]*model.SortedFeatureView) ([]*prototypes.Value, []serving.FieldStatus, []*timestamppb.Timestamp, error) {
+	sfvs map[string]*model.SortedFeatureView,
+	useDefaults serving.UseDefaultsMode,
+	featureDefaults map[string]*prototypes.Value,
+	featureName string) ([]*prototypes.Value, []serving.FieldStatus, []*timestamppb.Timestamp, error) {
 
 	if featureData2D[rowEntityIndex] == nil || len(featureData2D[rowEntityIndex]) <= featureIndex {
 		return make([]*prototypes.Value, 0),
@@ -932,6 +946,18 @@ func processFeatureRowData(
 	}
 
 	if featureData.Values == nil {
+		// Apply defaults for entity-not-found case
+		if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE {
+			if defaultVal, ok := featureDefaults[featureName]; ok {
+				rangeValues := make([]*prototypes.Value, 1)
+				rangeValues[0] = &prototypes.Value{Val: defaultVal.Val}
+				rangeStatuses := make([]serving.FieldStatus, 1)
+				rangeStatuses[0] = serving.FieldStatus_PRESENT
+				rangeTimestamps := make([]*timestamppb.Timestamp, 1)
+				rangeTimestamps[0] = &timestamppb.Timestamp{}
+				return rangeValues, rangeStatuses, rangeTimestamps, nil
+			}
+		}
 		rangeStatuses := make([]serving.FieldStatus, 1)
 		rangeStatuses[0] = serving.FieldStatus_NOT_FOUND
 		rangeTimestamps := make([]*timestamppb.Timestamp, 1)
@@ -952,6 +978,17 @@ func processFeatureRowData(
 			fieldStatus := featureData.Statuses[i]
 
 			if val == nil {
+				// Apply defaults for nil values (NOT_FOUND or NULL_VALUE)
+				if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE {
+					if (fieldStatus == serving.FieldStatus_NOT_FOUND || fieldStatus == serving.FieldStatus_NULL_VALUE) {
+						if defaultVal, ok := featureDefaults[featureName]; ok {
+							rangeValues[i] = &prototypes.Value{Val: defaultVal.Val}
+							rangeStatuses[i] = serving.FieldStatus_PRESENT
+							rangeTimestamps[i] = eventTimestamp
+							continue
+						}
+					}
+				}
 				rangeValues[i] = nil
 				rangeStatuses[i] = featureData.Statuses[i]
 				rangeTimestamps[i] = eventTimestamp

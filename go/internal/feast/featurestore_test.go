@@ -608,6 +608,7 @@ func testGetOnlineFeaturesRange(
 			arrowAllocator,
 			numRows,
 			false,
+			serving.UseDefaultsMode_USE_DEFAULTS_OFF,
 		)
 		if err != nil {
 			return nil, err

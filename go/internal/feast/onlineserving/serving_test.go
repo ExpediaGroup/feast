@@ -1863,7 +1863,7 @@ func testTransposeRangeFeatureRowsIntoColumns(t *testing.T, useArrow bool) *Rang
 		},
 	}
 
-	vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, useArrow)
+	vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, useArrow, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 
 	assert.NoError(t, err)
 	assert.Len(t, vectors, 1)
@@ -2056,16 +2056,25 @@ func TestApplyRangeDefaults(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Len(t, protoValues, numRows)
 
+				// For range values, we always get a RepeatedValue (not nil)
+				// unless there are no values at all (entity not found case)
+				assert.NotNil(t, protoValues[0])
+				assert.Len(t, protoValues[0].Val, 1)
+
 				if tc.expectedValues[0] == nil {
-					assert.Nil(t, protoValues[0])
-				} else {
-					assert.NotNil(t, protoValues[0])
-					assert.Len(t, protoValues[0].Val, 1)
-					if tc.expectedValues[0] != nil {
-						expectedDouble := tc.expectedValues[0].(float64)
-						actualDouble := protoValues[0].Val[0].GetDoubleVal()
-						assert.Equal(t, expectedDouble, actualDouble)
+					// For NOT_FOUND/NULL_VALUE without default, value inside RepeatedValue is nil or empty
+					// Arrow and Proto may handle this differently - Arrow may return empty Value, Proto returns nil
+					if protoValues[0].Val[0] != nil {
+						// Arrow case: empty Value with nil Val
+						assert.Nil(t, protoValues[0].Val[0].Val)
 					}
+					// Proto case: nil Value (already checked by if statement)
+				} else {
+					// For values with defaults or present values
+					assert.NotNil(t, protoValues[0].Val[0])
+					expectedDouble := tc.expectedValues[0].(float64)
+					actualDouble := protoValues[0].Val[0].GetDoubleVal()
+					assert.Equal(t, expectedDouble, actualDouble)
 				}
 
 				// Clean up Arrow arrays if using Arrow

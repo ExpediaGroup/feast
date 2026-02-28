@@ -512,6 +512,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 			arrowMemory,
 			numRows,
 			false,
+			serving.UseDefaultsMode_USE_DEFAULTS_OFF,
 		)
 		if err != nil {
 			return nil, err
