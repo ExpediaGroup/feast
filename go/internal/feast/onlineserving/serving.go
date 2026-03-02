@@ -823,6 +823,22 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 						status = serving.FieldStatus_PRESENT
 					}
 				}
+			} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
+				// STRICT mode: first validate all NULL/NOT_FOUND have defaults, then apply
+				if status == serving.FieldStatus_NOT_FOUND || status == serving.FieldStatus_NULL_VALUE {
+					featureName := groupRef.FeatureNames[featureIndex]
+					if _, ok := featureDefaults[featureName]; !ok {
+						// No default defined - return error
+						featureViewName := groupRef.FeatureViewNames[featureIndex]
+						return nil, errors.GrpcInvalidArgumentErrorf(
+							"feature '%s' in feature view '%s' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)",
+							featureName, featureViewName)
+					}
+					// Default exists, apply it
+					defaultVal := featureDefaults[featureName]
+					value = &prototypes.Value{Val: defaultVal.Val}
+					status = serving.FieldStatus_PRESENT
+				}
 			}
 
 			for _, rowIndex := range outputIndexes {
@@ -957,6 +973,21 @@ func processFeatureRowData(
 				rangeTimestamps[0] = &timestamppb.Timestamp{}
 				return rangeValues, rangeStatuses, rangeTimestamps, nil
 			}
+		} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
+			// STRICT mode: entity-not-found requires default
+			if defaultVal, ok := featureDefaults[featureName]; ok {
+				rangeValues := make([]*prototypes.Value, 1)
+				rangeValues[0] = &prototypes.Value{Val: defaultVal.Val}
+				rangeStatuses := make([]serving.FieldStatus, 1)
+				rangeStatuses[0] = serving.FieldStatus_PRESENT
+				rangeTimestamps := make([]*timestamppb.Timestamp, 1)
+				rangeTimestamps[0] = &timestamppb.Timestamp{}
+				return rangeValues, rangeStatuses, rangeTimestamps, nil
+			}
+			// No default - return error
+			return nil, nil, nil, errors.GrpcInvalidArgumentErrorf(
+				"feature '%s' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)",
+				featureName)
 		}
 		rangeStatuses := make([]serving.FieldStatus, 1)
 		rangeStatuses[0] = serving.FieldStatus_NOT_FOUND
@@ -987,6 +1018,20 @@ func processFeatureRowData(
 							rangeTimestamps[i] = eventTimestamp
 							continue
 						}
+					}
+				} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
+					// STRICT mode: NULL/NOT_FOUND requires default
+					if (fieldStatus == serving.FieldStatus_NOT_FOUND || fieldStatus == serving.FieldStatus_NULL_VALUE) {
+						if defaultVal, ok := featureDefaults[featureName]; ok {
+							rangeValues[i] = &prototypes.Value{Val: defaultVal.Val}
+							rangeStatuses[i] = serving.FieldStatus_PRESENT
+							rangeTimestamps[i] = eventTimestamp
+							continue
+						}
+						// No default - return error
+						return nil, nil, nil, errors.GrpcInvalidArgumentErrorf(
+							"feature '%s' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)",
+							featureName)
 					}
 				}
 				rangeValues[i] = nil
