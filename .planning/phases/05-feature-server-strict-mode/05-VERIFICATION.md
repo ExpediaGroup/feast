@@ -1,150 +1,225 @@
 ---
 phase: 05-feature-server-strict-mode
-verified: 2026-03-02T08:52:36Z
+verified: 2026-03-02T17:21:00Z
 status: passed
-score: 11/11 must-haves verified
+score: 4/4 gap closure must-haves verified
+re_verification: true
+previous_status: passed
+previous_score: 11/11
+gap_closure: true
+gaps_closed:
+  - "Feature Server exposes feature_defaults_applied_total metric accessible to operators"
+gaps_remaining: []
+regressions: []
 ---
 
-# Phase 05: Feature Server STRICT Mode Verification Report
+# Phase 05: Feature Server STRICT Mode - Gap Closure Verification Report
 
 **Phase Goal:** Feature Server supports STRICT mode with failure on missing defaults
 
-**Verified:** 2026-03-02T08:52:36Z
+**Gap Closure Goal:** Remove Prometheus metrics per user UAT feedback, keep debug logging
+
+**Verified:** 2026-03-02T17:21:00Z
 
 **Status:** passed
 
-**Re-verification:** No - initial verification
+**Re-verification:** Yes - gap closure after UAT feedback
+
+## Gap Closure Summary
+
+**Previous Verification (2026-03-02T08:52:36Z):**
+- Status: passed (11/11 truths verified)
+- Gap reported in UAT: User feedback "No need to expose any metric?"
+- Gap closure plan: Remove Prometheus metrics, retain debug logging
+
+**This Verification:**
+- Status: passed (4/4 gap closure must-haves verified)
+- Prometheus metrics completely removed
+- All 6 debug logging statements preserved
+- No regressions in existing functionality
 
 ## Goal Achievement
 
-### Observable Truths
+### Gap Closure Observable Truths
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | GetOnlineFeatures with use_defaults=STRICT replaces NULLs with defaults when available | VERIFIED | Lines 847-869 in serving.go: STRICT mode checks NOT_FOUND/NULL_VALUE, applies default, sets PRESENT status. Tests pass for both Arrow modes. |
-| 2 | GetOnlineFeatures with use_defaults=STRICT fails request if NULL found with no default defined | VERIFIED | Lines 851-857 in serving.go: Returns GrpcInvalidArgumentErrorf with message "feature '%s' in feature view '%s' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)". Tests confirm error behavior. |
-| 3 | GetOnlineFeatures with use_defaults=STRICT keeps non-NULL values unchanged | VERIFIED | Lines 825-827 in serving.go: PRESENT values bypass defaulting logic entirely (if statement on line 849 only triggers for NOT_FOUND/NULL_VALUE). Tests verify PRESENT values unchanged. |
-| 4 | STRICT mode excludes OUTSIDE_MAX_AGE from defaulting (consistent with FLEXIBLE) | VERIFIED | Lines 847-849 in serving.go: STRICT mode if condition checks only NOT_FOUND/NULL_VALUE, explicitly excluding OUTSIDE_MAX_AGE. Test case "STRICT + OUTSIDE_MAX_AGE" passes. |
-| 5 | STRICT mode works identically for regular FVs and Sorted FVs (range queries) | VERIFIED | Lines 1010-1030 (entity-not-found) and 1068-1087 (per-value) in serving.go: processFeatureRowData implements STRICT with same error behavior. TestApplyRangeDefaults includes 8 STRICT test cases (all passing). |
-| 6 | Feature Server logs default applications at debug level with feature_view and feature_name context | VERIFIED | Lines 839-843, 863-867, 1002-1006, 1019-1023, 1059-1063, 1075-1079 in serving.go: log.Debug() calls at 6 default application points with Str("feature_view",...) and Str("feature_name",...) context. Test output shows debug logs firing. |
-| 7 | Feature Server emits feature_defaults_applied_total metric with feature_view and feature_name labels | VERIFIED | Lines 141-147: Prometheus CounterVec defined with labels ["feature_view", "feature_name"]. Lines 844, 868, 1007, 1024, 1064, 1080: featureDefaultsApplied.WithLabelValues().Inc() called at all 6 application points. |
-| 8 | Logging and metrics fire for both FLEXIBLE and STRICT mode default applications | VERIFIED | FLEXIBLE logging: lines 839-844. STRICT logging: lines 863-868. Both paths increment featureDefaultsApplied. Test output confirms debug logs for both modes. |
-| 9 | Logging and metrics fire for both regular and range query default applications | VERIFIED | Regular FV logging: lines 839-844 (FLEXIBLE), 863-868 (STRICT). Range query logging: lines 1002-1007, 1019-1024 (entity-not-found), 1059-1064, 1075-1080 (per-value). All paths have paired log.Debug() and metric Inc(). |
-| 10 | Debug logging does not fire for non-defaulted values | VERIFIED | Code inspection: All log.Debug() calls are inside the default application branches (after checking default exists and applying it). No logging for PRESENT, OUTSIDE_MAX_AGE, or OFF mode paths. |
-| 11 | Metric counter does not increment for non-defaulted values | VERIFIED | Code inspection: All featureDefaultsApplied.Inc() calls are inside default application branches, immediately after log.Debug(). Only increments when defaults actually applied. |
+| 1 | Feature Server has NO Prometheus metrics for default value application | VERIFIED | Zero occurrences of "prometheus" in serving.go and serving_test.go. Zero occurrences of "featureDefaultsApplied" in both files. |
+| 2 | Feature Server retains all 6 debug logging statements for default value application | VERIFIED | Exactly 6 log.Debug() calls in serving.go at lines 825, 848, 986, 1002, 1041, 1056. All include Str("feature_view"), Str("feature_name"), Str("mode"), and Msg(). |
+| 3 | All existing tests pass (no regressions from metric removal) | VERIFIED | go test ./go/internal/feast/onlineserving/... passes in 0.599s. 30 STRICT mode test references maintained. TestApplyDefaults and TestApplyRangeDefaults pass. |
+| 4 | go vet and compilation succeed with no unused import errors | VERIFIED | go vet ./go/internal/feast/onlineserving/... passes with no output. No prometheus import in serving.go imports section. |
 
-**Score:** 11/11 truths verified
+**Score:** 4/4 gap closure truths verified
 
-### Required Artifacts
+### Required Artifacts (Gap Closure)
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| go/internal/feast/onlineserving/serving.go | STRICT mode validation and default application in TransposeFeatureRowsIntoColumns and processFeatureRowData | VERIFIED | 1642 lines. Contains USE_DEFAULTS_STRICT branches (lines 847-869, 1010-1030, 1068-1087). Prometheus import (line 22), metric definition (lines 141-147), init() registration (lines 149-151). |
-| go/internal/feast/onlineserving/serving_test.go | STRICT mode test cases for both regular and range defaulting | VERIFIED | Contains 24 occurrences of "STRICT mode" or "USE_DEFAULTS_STRICT". TestApplyDefaults includes 6 STRICT test cases x 2 Arrow modes = 12 tests. TestApplyRangeDefaults includes 8 STRICT test cases. TestDefaultsMetricRegistered present (lines 2988-2997). |
+| go/internal/feast/onlineserving/serving.go | Serving logic with debug logging but no Prometheus metrics | VERIFIED | 1620 lines (net -22 lines from metric removal). No prometheus import. Zero featureDefaultsApplied references. Exactly 6 log.Debug() calls. STRICT mode logic intact (lines 832-842, 993-1006, 1049-1060). |
+| go/internal/feast/onlineserving/serving_test.go | Test file without metric test | VERIFIED | No prometheus import. Zero TestDefaultsMetricRegistered references. 30 STRICT mode test references maintained. TestApplyDefaults and TestApplyRangeDefaults functions present and passing. |
 
-### Key Link Verification
+### Key Link Verification (Gap Closure)
 
 | From | To | Via | Status | Details |
 |------|----|----|--------|---------|
-| TransposeFeatureRowsIntoColumns | errors.GrpcInvalidArgumentErrorf | STRICT validation check before default application | WIRED | Line 854-856: returns GrpcInvalidArgumentErrorf with exact message format including feature name, view name, and "(use_defaults=STRICT)". |
-| processFeatureRowData (entity-not-found) | errors.GrpcInvalidArgumentErrorf | STRICT validation check for range queries | WIRED | Line 1028-1030: returns GrpcInvalidArgumentErrorf with message "feature '%s' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)". |
-| processFeatureRowData (per-value) | errors.GrpcInvalidArgumentErrorf | STRICT validation check for range queries | WIRED | Line 1084-1086: returns GrpcInvalidArgumentErrorf with same message format as entity-not-found case. |
-| go/internal/feast/onlineserving/serving.go | prometheus.NewCounterVec | package-level var + init() registration | WIRED | Lines 141-147: featureDefaultsApplied defined. Lines 149-151: init() calls prometheus.MustRegister(featureDefaultsApplied). |
-| go/internal/feast/onlineserving/serving.go | zerolog/log | log.Debug() calls in default application branches | WIRED | Import on line 23. log.Debug() called at lines 839, 863, 1002, 1019, 1059, 1075 (6 application points). All calls include .Str("feature_view",...), .Str("feature_name",...), .Str("mode",...), .Msg(...). |
+| go/internal/feast/onlineserving/serving.go | zerolog log.Debug() | 6 structured debug log calls at default application points | WIRED | Lines 825-829 (FLEXIBLE regular), 848-852 (STRICT regular), 986-990 (FLEXIBLE range entity-not-found), 1002-1006 (STRICT range entity-not-found), 1041-1045 (FLEXIBLE range per-value), 1056-1060 (STRICT range per-value). All calls follow pattern: log.Debug().Str("feature_view",...).Str("feature_name",...).Str("mode",...).Msg(...). |
+
+### Regression Check: Original Phase 05 Functionality
+
+| Original Truth | Status | Evidence |
+|----------------|--------|----------|
+| STRICT mode replaces NULLs with defaults when available | VERIFIED | Lines 834-842, 995-1006, 1051-1060 contain STRICT mode defaulting logic. Tests pass. |
+| STRICT mode fails request if NULL found with no default | VERIFIED | Lines 839-841 return GrpcInvalidArgumentErrorf with message format including "(use_defaults=STRICT)". Error handling intact. |
+| STRICT mode keeps non-NULL values unchanged | VERIFIED | Line 834 condition checks only NOT_FOUND/NULL_VALUE statuses. PRESENT values bypass. |
+| STRICT mode excludes OUTSIDE_MAX_AGE from defaulting | VERIFIED | Line 834 condition explicitly checks "status == serving.FieldStatus_NOT_FOUND || status == serving.FieldStatus_NULL_VALUE", excluding OUTSIDE_MAX_AGE. |
+| STRICT mode works for range queries (Sorted FVs) | VERIFIED | Lines 993-1006 (entity-not-found) and 1049-1060 (per-value) implement STRICT for range queries. TestApplyRangeDefaults includes 30 STRICT references. |
+
+**Regression Score:** 5/5 original truths verified (no regressions)
 
 ### Anti-Patterns Found
 
 | File | Line | Pattern | Severity | Impact |
 |------|------|---------|----------|--------|
-| serving.go | 173 | TODO comment | INFO | Pre-existing TODO unrelated to Phase 05. Does not block phase goal. |
+| serving.go | 159 | TODO comment | INFO | Pre-existing TODO unrelated to Phase 05 or gap closure. Does not block phase goal. |
 
 No blockers or warnings found.
 
-### Human Verification Required
-
-#### 1. Prometheus Metrics Endpoint
-
-**Test:** Deploy Feature Server and access the /metrics endpoint (or equivalent metrics exposure path). Search for "feature_defaults_applied_total".
-
-**Expected:** Metric should be present with help text "Total number of times default values were applied to features" and no initial values. After making GetOnlineFeatures requests with defaults applied, counter should increment with correct feature_view and feature_name labels.
-
-**Why human:** Requires running Feature Server and making actual gRPC requests. Cannot verify metric HTTP endpoint exposure programmatically from source code alone.
-
-#### 2. Debug Logging in Production
-
-**Test:** Deploy Feature Server with zerolog debug level enabled. Make GetOnlineFeatures request with use_defaults=STRICT where defaults are applied. Check server logs.
-
-**Expected:** Should see JSON log lines with level="debug", feature_view="...", feature_name="...", mode="STRICT", message="Applied default value to feature". Logs should not appear for non-defaulted values.
-
-**Why human:** Requires running server and inspecting actual log output. Unit tests verify log.Debug() is called but not the full zerolog pipeline.
-
-#### 3. STRICT Mode Error Flow
-
-**Test:** Deploy Feature Server. Make GetOnlineFeatures request with use_defaults=STRICT for a feature that has NULL values and no default defined in the feature view schema.
-
-**Expected:** Request should fail with gRPC InvalidArgument status and error message "feature 'X' in feature view 'Y' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)".
-
-**Why human:** Requires end-to-end integration with Feature Server gRPC handler, registry, and online store. Unit tests verify the logic but not the full request/response flow.
-
----
-
-## Verification Details
-
 ### Commits Verified
 
-All commits referenced in SUMMARYs exist and are reachable:
+All commits referenced in 05-03-SUMMARY exist and are reachable:
 
-- `9a79a93ac` - test(05-01): add failing STRICT mode tests for defaulting
-- `102f884ef` - feat(05-01): implement STRICT mode validation and defaulting  
-- `38f02d1ec` - feat(05-02): add observability to default value application
-- `499437714` - test(05-02): add test for feature defaults metric registration
+- `eefff2906` - refactor(05-03): remove Prometheus metric from serving.go
+  - Removed prometheus import, featureDefaultsApplied counter, init(), and 6 metric increment calls
+  - Preserved all debug logging
+  - Net change: -22 lines in serving.go
+  
+- `d7bd99aa8` - test(05-03): remove Prometheus metric test from serving_test.go
+  - Removed prometheus import and TestDefaultsMetricRegistered function
+  - Net change: -12 lines in serving_test.go
 
 ### Test Results
 
 All tests pass with no failures:
 
 ```
-=== RUN   TestApplyDefaults
-  STRICT + NOT_FOUND + has_default: PASS (useArrow=true, useArrow=false)
-  STRICT + NULL_VALUE + has_default: PASS (useArrow=true, useArrow=false)
-  STRICT + NOT_FOUND + no_default: PASS (useArrow=true, useArrow=false)
-  STRICT + NULL_VALUE + no_default: PASS (useArrow=true, useArrow=false)
-  STRICT + PRESENT value: PASS (useArrow=true, useArrow=false)
-  STRICT + OUTSIDE_MAX_AGE: PASS (useArrow=true, useArrow=false)
---- PASS: TestApplyDefaults (0.00s)
-
-=== RUN   TestDefaultsMetricRegistered
---- PASS: TestDefaultsMetricRegistered (0.00s)
-
-PASS
-ok  	github.com/feast-dev/feast/go/internal/feast/onlineserving	0.580s
+$ go test ./go/internal/feast/onlineserving/... -count=1 -timeout 120s
+ok      github.com/feast-dev/feast/go/internal/feast/onlineserving    0.599s
 ```
 
-Debug logs visible in test output confirming logging is wired:
-```
-{"level":"debug","feature_view":"testView","feature_name":"f1","mode":"STRICT","time":"2026-03-02T00:52:36-08:00","message":"Applied default value to feature"}
-```
+Test coverage maintained:
+- TestApplyDefaults: 12 STRICT mode test cases (6 scenarios x 2 Arrow modes)
+- TestApplyRangeDefaults: 8 STRICT mode test cases
+- 30 total STRICT mode references in test file
 
 ### Code Quality
 
-- `go vet ./internal/feast/onlineserving/...` - PASS (no warnings)
+- `go vet ./go/internal/feast/onlineserving/...` - PASS (no warnings)
 - `go build ./...` - PASS (project compiles cleanly)
-- No stub implementations found (no empty returns, placeholder comments in modified code)
-- No Info/Warn level logging for default applications (only Debug level as required)
+- No stub implementations found
+- No unused imports
 
-### Design Verification
+### Gap Closure Verification Details
 
-**Two-pass STRICT validation:** Code inspection confirms STRICT mode in TransposeFeatureRowsIntoColumns uses fail-fast approach (lines 847-869). On first NULL/NOT_FOUND without default, immediately returns error. Does not collect all errors before failing.
+**What was removed:**
+1. Prometheus import: `"github.com/prometheus/client_golang/prometheus"` (serving.go line 22, serving_test.go line 25)
+2. featureDefaultsApplied CounterVec variable declaration (9 lines)
+3. init() function with MustRegister call (3 lines)
+4. Six featureDefaultsApplied.WithLabelValues().Inc() calls (6 lines)
+5. TestDefaultsMetricRegistered function (11 lines)
+6. Total removed: 31 lines
 
-**Entity-not-found handling in range queries:** Lines 1010-1030 in processFeatureRowData handle the featureData.Values == nil case for both FLEXIBLE and STRICT modes. STRICT returns error if no default exists.
+**What was preserved:**
+1. All 6 log.Debug() blocks with full structured logging context
+2. All STRICT mode validation logic
+3. All STRICT mode defaulting logic
+4. All STRICT mode error handling
+5. All test cases for STRICT mode behavior
+6. All original Phase 05 functionality
 
-**Consistent OUTSIDE_MAX_AGE exclusion:** Both FLEXIBLE (line 832) and STRICT (line 849) mode checks explicitly test for `status == NOT_FOUND || status == NULL_VALUE`, excluding OUTSIDE_MAX_AGE. Matches research decisions D010 and D016.
-
-**Low-cardinality metrics:** Prometheus counter uses only ["feature_view", "feature_name"] labels. No entity keys, timestamps, or request IDs that would cause cardinality explosion.
-
-**Observability placement:** All 6 log.Debug() and featureDefaultsApplied.Inc() calls occur AFTER default is applied (after value assignment and status = PRESENT), not during validation pass. Metrics count actual usage, not validation checks.
+**Verification method:**
+- grep -c "prometheus" serving.go: 0 (expected 0) ✓
+- grep -c "featureDefaultsApplied" serving.go: 0 (expected 0) ✓
+- grep -c "log.Debug()" serving.go: 6 (expected 6) ✓
+- grep -c "prometheus" serving_test.go: 0 (expected 0) ✓
+- grep -c "TestDefaultsMetricRegistered" serving_test.go: 0 (expected 0) ✓
+- grep -c "USE_DEFAULTS_STRICT" serving.go: 3 (expected 3) ✓
+- grep -c "STRICT" serving_test.go: 30 (expected 30) ✓
 
 ---
 
-_Verified: 2026-03-02T08:52:36Z_
+## Gap Closure Analysis
+
+### Gap from UAT
+
+**Original Gap (from 05-UAT.md):**
+- Truth: "Feature Server exposes feature_defaults_applied_total metric accessible to operators"
+- Status: failed
+- Reason: User reported "No need to expose any metric?"
+- Severity: major
+
+**Root Cause:** Requirements clarification - user does not want Prometheus metrics exposed for default value application. Debug logging is sufficient for observability.
+
+**Resolution:** Plan 05-03 executed to remove all Prometheus metric instrumentation while preserving debug logging.
+
+### Gap Closure Validation
+
+| Gap Item | Planned Action | Actual Result | Status |
+|----------|----------------|---------------|--------|
+| Remove prometheus import | Remove from serving.go and serving_test.go | Zero occurrences in both files | CLOSED |
+| Remove featureDefaultsApplied variable | Remove declaration and init() | Zero occurrences in both files | CLOSED |
+| Remove metric increments | Remove 6 .Inc() calls | Zero occurrences in both files | CLOSED |
+| Remove metric test | Remove TestDefaultsMetricRegistered | Zero occurrences in serving_test.go | CLOSED |
+| Keep debug logging | Preserve all 6 log.Debug() calls | Exactly 6 calls present with full context | CLOSED |
+| No regressions | All tests pass | go test passes in 0.599s | CLOSED |
+
+**Gap Closure Score:** 6/6 gap items resolved
+
+---
+
+## Previous Verification Context
+
+### Original Phase 05 Goal
+
+Feature Server supports STRICT mode with failure on missing defaults.
+
+### Original Verification (2026-03-02T08:52:36Z)
+
+- Status: passed
+- Score: 11/11 truths verified
+- Included: STRICT mode logic, debug logging, AND Prometheus metrics
+- Human verification items: Metrics endpoint, debug logging in production, STRICT mode error flow
+
+### UAT Feedback (2026-03-02T01:00:00Z)
+
+User feedback during UAT: "No need to expose any metric?"
+
+This triggered gap closure to remove Prometheus metrics while keeping debug logging.
+
+### Gap Closure Plan (05-03-PLAN.md)
+
+- Type: execute (autonomous)
+- Tasks: Remove Prometheus code from serving.go and serving_test.go
+- Critical constraint: Do NOT touch any log.Debug() calls
+- Success criteria: Zero prometheus references, 6 log.Debug() calls intact, all tests pass
+
+---
+
+## Overall Assessment
+
+**Gap Closure Status:** COMPLETE
+
+All gap closure must-haves verified. Prometheus metrics removed, debug logging preserved, no regressions.
+
+**Original Phase 05 Status:** MAINTAINED
+
+All original STRICT mode functionality remains intact and tested. Gap closure was purely observability instrumentation change.
+
+**User Requirement:** SATISFIED
+
+User requested no metrics, only debug logging. Current implementation provides exactly that.
+
+---
+
+_Verified: 2026-03-02T17:21:00Z_
 _Verifier: Claude (gsd-verifier)_
+_Verification Type: Gap Closure (Re-verification)_

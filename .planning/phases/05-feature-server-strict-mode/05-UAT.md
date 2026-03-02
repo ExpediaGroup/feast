@@ -1,9 +1,9 @@
 ---
-status: diagnosed
+status: closed
 phase: 05-feature-server-strict-mode
 source: [05-01-SUMMARY.md, 05-02-SUMMARY.md]
 started: 2026-03-02T00:50:00Z
-updated: 2026-03-02T01:00:00Z
+updated: 2026-03-02T09:25:00Z
 ---
 
 ## Current Test
@@ -50,6 +50,14 @@ issues: 1
 pending: 0
 skipped: 0
 
+## Gap Closure
+
+**Plan executed:** 05-03-PLAN.md
+**Status:** CLOSED
+**Verification:** All 4 must-haves passed
+
+Removed all Prometheus metric instrumentation per user feedback. Observability now 100% via debug logging.
+
 ## Gaps
 
 - truth: "Feature Server exposes feature_defaults_applied_total metric accessible to operators"
@@ -57,15 +65,17 @@ skipped: 0
   reason: "User reported: No need to expose any metric?"
   severity: major
   test: 6
-  root_cause: "User confusion or testing error - the Prometheus metric IS properly exposed. gRPC mode exposes metrics on separate HTTP port 8080 (not the gRPC port). HTTP/hybrid modes expose metrics on same port as API. Implementation is complete and correct."
+  root_cause: "Requirements clarification - user does not want Prometheus metrics exposed. Need to remove featureDefaultsApplied counter registration and all metric increments from serving.go. Keep debug logging only."
   artifacts:
     - path: "go/internal/feast/onlineserving/serving.go"
-      issue: "No issue - metric correctly registered and incremented"
-    - path: "go/internal/feast/server/server_commons.go"
-      issue: "No issue - /metrics endpoint correctly wired for HTTP/hybrid servers"
-    - path: "go/main.go"
-      issue: "No issue - /metrics endpoint correctly wired for gRPC server (port 8080)"
+      issue: "Remove Prometheus import, featureDefaultsApplied var, init() registration, and all .Inc() calls"
+    - path: "go/internal/feast/onlineserving/serving_test.go"
+      issue: "Remove TestDefaultsMetricRegistered test and Prometheus import"
   missing:
-    - "Clarification: gRPC mode check http://localhost:8080/metrics (separate port)"
-    - "Clarification: HTTP/hybrid mode check http://localhost:8080/metrics (same port as API)"
+    - "Remove prometheus/client_golang import from serving.go"
+    - "Remove featureDefaultsApplied CounterVec variable declaration"
+    - "Remove init() function with MustRegister call"
+    - "Remove 6 featureDefaultsApplied.WithLabelValues().Inc() calls"
+    - "Remove TestDefaultsMetricRegistered test function"
+    - "Keep all debug logging intact (user wants logging, not metrics)"
   debug_session: "/Users/vbhagwat/feast/.planning/debug/prometheus-metric-not-exposed.md"
