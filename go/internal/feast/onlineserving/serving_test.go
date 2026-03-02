@@ -1894,6 +1894,9 @@ func TestApplyRangeDefaults(t *testing.T) {
 		statuses        []serving.FieldStatus
 		expectedValues  []interface{}
 		expectedStatuses []serving.FieldStatus
+		expectError     bool
+		errorContains   string
+		entityNotFound  bool  // if true, simulate entity-not-found with nil Values
 	}{
 		{
 			name:             "OFF mode with NOT_FOUND value",
@@ -1985,6 +1988,85 @@ func TestApplyRangeDefaults(t *testing.T) {
 			expectedValues:   []interface{}{nil},
 			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
 		},
+		// STRICT mode test cases
+		{
+			name:             "STRICT mode with NOT_FOUND and default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "STRICT mode with NULL_VALUE and default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:          "STRICT mode with NOT_FOUND and no default",
+			useDefaults:   serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:    false,
+			defaultValue:  nil,
+			values:        []interface{}{nil},
+			statuses:      []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectError:   true,
+			errorContains: "no default defined",
+		},
+		{
+			name:          "STRICT mode with NULL_VALUE and no default",
+			useDefaults:   serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:    false,
+			defaultValue:  nil,
+			values:        []interface{}{nil},
+			statuses:      []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectError:   true,
+			errorContains: "no default defined",
+		},
+		{
+			name:             "STRICT mode with PRESENT value",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{99.9},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_PRESENT},
+			expectedValues:   []interface{}{99.9},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "STRICT mode with OUTSIDE_MAX_AGE",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{99.9},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_OUTSIDE_MAX_AGE},
+			expectedValues:   []interface{}{99.9},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_OUTSIDE_MAX_AGE},
+		},
+		{
+			name:             "STRICT mode entity-not-found with default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			entityNotFound:   true,
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:           "STRICT mode entity-not-found with no default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:     false,
+			defaultValue:   nil,
+			entityNotFound: true,
+			expectError:    true,
+			errorContains:  "no default defined",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -2025,20 +2107,45 @@ func TestApplyRangeDefaults(t *testing.T) {
 
 				nowTime := time.Now()
 
-				featureData := [][]onlinestore.RangeFeatureData{
-					{
+				var featureData [][]onlinestore.RangeFeatureData
+				if tc.entityNotFound {
+					// Simulate entity-not-found by setting Values to nil
+					featureData = [][]onlinestore.RangeFeatureData{
 						{
-							FeatureView:     "testView",
-							FeatureName:     "f1",
-							Values:          tc.values,
-							Statuses:        tc.statuses,
-							EventTimestamps: []timestamppb.Timestamp{{Seconds: nowTime.Unix()}},
+							{
+								FeatureView:     "testView",
+								FeatureName:     "f1",
+								Values:          nil,
+								Statuses:        nil,
+								EventTimestamps: nil,
+							},
 						},
-					},
+					}
+				} else {
+					featureData = [][]onlinestore.RangeFeatureData{
+						{
+							{
+								FeatureView:     "testView",
+								FeatureName:     "f1",
+								Values:          tc.values,
+								Statuses:        tc.statuses,
+								EventTimestamps: []timestamppb.Timestamp{{Seconds: nowTime.Unix()}},
+							},
+						},
+					}
 				}
 
 				// Call TransposeRangeFeatureRowsIntoColumns with useDefaults parameter
 				vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, useArrow, tc.useDefaults)
+
+				// Handle error expectations
+				if tc.expectError {
+					assert.Error(t, err)
+					if tc.errorContains != "" {
+						assert.Contains(t, err.Error(), tc.errorContains)
+					}
+					return
+				}
 
 				assert.NoError(t, err)
 				assert.Len(t, vectors, 1)
@@ -2583,6 +2690,8 @@ func TestApplyDefaults(t *testing.T) {
 		initialStatus    serving.FieldStatus
 		expectValue      *types.Value
 		expectStatus     serving.FieldStatus
+		expectError      bool
+		errorContains    string
 	}{
 		{
 			name:           "OFF + NOT_FOUND + has default",
@@ -2663,6 +2772,60 @@ func TestApplyDefaults(t *testing.T) {
 			featureDataNil: true,
 			expectValue:    nil,
 			expectStatus:   serving.FieldStatus_NOT_FOUND,
+		},
+		// STRICT mode test cases
+		{
+			name:           "STRICT + NOT_FOUND + has default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:     true,
+			defaultValue:   &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureDataNil: true,
+			expectValue:    &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			expectStatus:   serving.FieldStatus_PRESENT,
+		},
+		{
+			name:         "STRICT + NULL_VALUE + has default",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:   true,
+			defaultValue: &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue: &types.Value{Val: &types.Value_NullVal{}},
+			expectValue:  &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			expectStatus: serving.FieldStatus_PRESENT,
+		},
+		{
+			name:           "STRICT + NOT_FOUND + no default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:     false,
+			featureDataNil: true,
+			expectError:    true,
+			errorContains:  "no default defined",
+		},
+		{
+			name:          "STRICT + NULL_VALUE + no default",
+			useDefaults:   serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:    false,
+			featureValue:  &types.Value{Val: &types.Value_NullVal{}},
+			expectError:   true,
+			errorContains: "no default defined",
+		},
+		{
+			name:         "STRICT + PRESENT value",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:   true,
+			defaultValue: &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue: &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 99.9}},
+			expectValue:  &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 99.9}},
+			expectStatus: serving.FieldStatus_PRESENT,
+		},
+		{
+			name:             "STRICT + OUTSIDE_MAX_AGE",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 1.0}},
+			expiredTimestamp: true,
+			expectValue:      &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 1.0}},
+			expectStatus:     serving.FieldStatus_OUTSIDE_MAX_AGE,
 		},
 	}
 
@@ -2752,6 +2915,15 @@ func TestApplyDefaults(t *testing.T) {
 
 					// Call TransposeFeatureRowsIntoColumns with useDefaults parameter
 					vectors, err := TransposeFeatureRowsIntoColumns(featureData, groupRef, featureViews, arrowAllocator, numRows, useArrow, tc.useDefaults)
+
+					// Handle error expectations
+					if tc.expectError {
+						assert.Error(t, err)
+						if tc.errorContains != "" {
+							assert.Contains(t, err.Error(), tc.errorContains)
+						}
+						return
+					}
 
 					assert.NoError(t, err)
 					assert.Len(t, vectors, 1)
