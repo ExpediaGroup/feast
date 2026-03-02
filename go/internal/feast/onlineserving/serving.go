@@ -19,7 +19,6 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/feast-dev/feast/go/types"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -135,19 +134,6 @@ type GroupedFeaturesBatch struct {
 	EntityKeys []*prototypes.EntityKey
 	// Start Index of the Batch
 	StartIndex int
-}
-
-// Prometheus metric for tracking default value applications
-var featureDefaultsApplied = prometheus.NewCounterVec(
-	prometheus.CounterOpts{
-		Name: "feature_defaults_applied_total",
-		Help: "Total number of times default values were applied to features",
-	},
-	[]string{"feature_view", "feature_name"},
-)
-
-func init() {
-	prometheus.MustRegister(featureDefaultsApplied)
 }
 
 /*
@@ -841,7 +827,6 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 							Str("feature_name", featureName).
 							Str("mode", "FLEXIBLE").
 							Msg("Applied default value to feature")
-						featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 					}
 				}
 			} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
@@ -865,7 +850,6 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 						Str("feature_name", featureName).
 						Str("mode", "STRICT").
 						Msg("Applied default value to feature")
-					featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 				}
 			}
 
@@ -1004,7 +988,6 @@ func processFeatureRowData(
 					Str("feature_name", featureName).
 					Str("mode", "FLEXIBLE").
 					Msg("Applied default value to feature (entity not found)")
-				featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 				return rangeValues, rangeStatuses, rangeTimestamps, nil
 			}
 		} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
@@ -1021,7 +1004,6 @@ func processFeatureRowData(
 					Str("feature_name", featureName).
 					Str("mode", "STRICT").
 					Msg("Applied default value to feature (entity not found)")
-				featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 				return rangeValues, rangeStatuses, rangeTimestamps, nil
 			}
 			// No default - return error
@@ -1061,8 +1043,7 @@ func processFeatureRowData(
 								Str("feature_name", featureName).
 								Str("mode", "FLEXIBLE").
 								Msg("Applied default value to feature")
-							featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
-							continue
+								continue
 						}
 					}
 				} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
@@ -1077,8 +1058,7 @@ func processFeatureRowData(
 								Str("feature_name", featureName).
 								Str("mode", "STRICT").
 								Msg("Applied default value to feature")
-							featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
-							continue
+								continue
 						}
 						// No default - return error
 						return nil, nil, nil, errors.GrpcInvalidArgumentErrorf(
