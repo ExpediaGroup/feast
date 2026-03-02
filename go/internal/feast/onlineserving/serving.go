@@ -19,6 +19,7 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/feast-dev/feast/go/types"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -134,6 +135,19 @@ type GroupedFeaturesBatch struct {
 	EntityKeys []*prototypes.EntityKey
 	// Start Index of the Batch
 	StartIndex int
+}
+
+// Prometheus metric for tracking default value applications
+var featureDefaultsApplied = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "feature_defaults_applied_total",
+		Help: "Total number of times default values were applied to features",
+	},
+	[]string{"feature_view", "feature_name"},
+)
+
+func init() {
+	prometheus.MustRegister(featureDefaultsApplied)
 }
 
 /*
@@ -821,6 +835,13 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 						// Create new Value to avoid mutating shared default
 						value = &prototypes.Value{Val: defaultVal.Val}
 						status = serving.FieldStatus_PRESENT
+						featureViewName := groupRef.FeatureViewNames[featureIndex]
+						log.Debug().
+							Str("feature_view", featureViewName).
+							Str("feature_name", featureName).
+							Str("mode", "FLEXIBLE").
+							Msg("Applied default value to feature")
+						featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 					}
 				}
 			} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
@@ -838,6 +859,13 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 					defaultVal := featureDefaults[featureName]
 					value = &prototypes.Value{Val: defaultVal.Val}
 					status = serving.FieldStatus_PRESENT
+					featureViewName := groupRef.FeatureViewNames[featureIndex]
+					log.Debug().
+						Str("feature_view", featureViewName).
+						Str("feature_name", featureName).
+						Str("mode", "STRICT").
+						Msg("Applied default value to feature")
+					featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 				}
 			}
 
@@ -971,6 +999,12 @@ func processFeatureRowData(
 				rangeStatuses[0] = serving.FieldStatus_PRESENT
 				rangeTimestamps := make([]*timestamppb.Timestamp, 1)
 				rangeTimestamps[0] = &timestamppb.Timestamp{}
+				log.Debug().
+					Str("feature_view", featureViewName).
+					Str("feature_name", featureName).
+					Str("mode", "FLEXIBLE").
+					Msg("Applied default value to feature (entity not found)")
+				featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 				return rangeValues, rangeStatuses, rangeTimestamps, nil
 			}
 		} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
@@ -982,6 +1016,12 @@ func processFeatureRowData(
 				rangeStatuses[0] = serving.FieldStatus_PRESENT
 				rangeTimestamps := make([]*timestamppb.Timestamp, 1)
 				rangeTimestamps[0] = &timestamppb.Timestamp{}
+				log.Debug().
+					Str("feature_view", featureViewName).
+					Str("feature_name", featureName).
+					Str("mode", "STRICT").
+					Msg("Applied default value to feature (entity not found)")
+				featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 				return rangeValues, rangeStatuses, rangeTimestamps, nil
 			}
 			// No default - return error
@@ -1016,6 +1056,12 @@ func processFeatureRowData(
 							rangeValues[i] = &prototypes.Value{Val: defaultVal.Val}
 							rangeStatuses[i] = serving.FieldStatus_PRESENT
 							rangeTimestamps[i] = eventTimestamp
+							log.Debug().
+								Str("feature_view", featureViewName).
+								Str("feature_name", featureName).
+								Str("mode", "FLEXIBLE").
+								Msg("Applied default value to feature")
+							featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 							continue
 						}
 					}
@@ -1026,6 +1072,12 @@ func processFeatureRowData(
 							rangeValues[i] = &prototypes.Value{Val: defaultVal.Val}
 							rangeStatuses[i] = serving.FieldStatus_PRESENT
 							rangeTimestamps[i] = eventTimestamp
+							log.Debug().
+								Str("feature_view", featureViewName).
+								Str("feature_name", featureName).
+								Str("mode", "STRICT").
+								Msg("Applied default value to feature")
+							featureDefaultsApplied.WithLabelValues(featureViewName, featureName).Inc()
 							continue
 						}
 						// No default - return error
