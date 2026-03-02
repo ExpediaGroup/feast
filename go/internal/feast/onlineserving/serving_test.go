@@ -22,6 +22,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/test"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -2982,4 +2983,15 @@ func TestFieldDefaultValueLoadedFromProto(t *testing.T) {
 	fv2 := model.NewFeatureViewFromProto(fvProto2)
 	require.Len(t, fv2.Base.Features, 1)
 	assert.Nil(t, fv2.Base.Features[0].DefaultValue, "Feature without proto default must have nil DefaultValue")
+}
+
+func TestDefaultsMetricRegistered(t *testing.T) {
+	// Verify the metric exists and can be described
+	ch := make(chan *prometheus.Desc, 10)
+	featureDefaultsApplied.Describe(ch)
+	close(ch)
+
+	desc := <-ch
+	assert.NotNil(t, desc)
+	assert.Contains(t, desc.String(), "feature_defaults_applied_total")
 }
