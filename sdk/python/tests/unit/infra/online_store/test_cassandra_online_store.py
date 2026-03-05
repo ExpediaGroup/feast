@@ -1,6 +1,6 @@
+import pickle
 import textwrap
 
-import pickle
 import pytest
 
 from feast import FeatureView
@@ -257,20 +257,31 @@ def test_get_cql_type():
     assert store._get_cql_type(Array(Bool)) == "LIST<BOOLEAN>"
 
 
-def test_on_failure_wraps_exception():
-    class DummyException(Exception):
-        pass
+def test_on_failure_wraps_timeout_for_pickle_safety():
+    """
+    The on_failure callback wraps Timeout subclasses (which can't be pickled)
+    in a plain Exception, but passes other exceptions through unchanged.
+    """
+    from cassandra import InvalidRequest, Timeout, WriteTimeout, WriteType
 
     def on_failure(exc):
         # This matches the fix in cassandra_online_store.py
-        return Exception(f"Error writing batch to Cassandra: {type(exc).__name__}: {exc}")
+        if isinstance(exc, Timeout):
+            return Exception(
+                f"Error writing batch to Cassandra: {type(exc).__name__}: {exc}"
+            )
+        return exc
 
-    # Simulate a driver exception
-    exc = DummyException("driver error")
-    wrapped = on_failure(exc)
+    # Timeout subclass gets wrapped and survives pickle
+    wt = WriteTimeout("Operation timed out", write_type=WriteType.SIMPLE)
+    wrapped = on_failure(wt)
     assert type(wrapped) is Exception
-    assert "DummyException" in str(wrapped)
-    assert "driver error" in str(wrapped)
-    # Should survive pickle round-trip
+    assert "WriteTimeout" in str(wrapped)
     restored = pickle.loads(pickle.dumps(wrapped))
     assert str(restored) == str(wrapped)
+
+    # Non-Timeout exception passes through unchanged
+    ir = InvalidRequest("bad query")
+    result = on_failure(ir)
+    assert isinstance(result, InvalidRequest)
+    assert result is ir
