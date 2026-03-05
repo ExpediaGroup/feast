@@ -382,7 +382,6 @@ class TestCassandraOnlineStore:
         restored = pickle.loads(pickle.dumps(raised))
         assert str(restored) == str(raised)
 
-
     def test_cassandra_online_write_batch_ttl(
         self,
         cassandra_session,
