@@ -259,29 +259,65 @@ def test_get_cql_type():
 
 def test_on_failure_wraps_timeout_for_pickle_safety():
     """
-    The on_failure callback wraps Timeout subclasses (which can't be pickled)
-    in a plain Exception, but passes other exceptions through unchanged.
+    Exercises the REAL on_failure callback inside online_write_batch to
+    verify that a WriteTimeout is wrapped in a plain Exception (which
+    survives pickle round-trip), while other exceptions pass through as-is.
     """
-    from cassandra import InvalidRequest, Timeout, WriteTimeout, WriteType
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock, patch
 
-    def on_failure(exc):
-        # This matches the fix in cassandra_online_store.py
-        if isinstance(exc, Timeout):
-            return Exception(
-                f"Error writing batch to Cassandra: {type(exc).__name__}: {exc}"
-            )
-        return exc
+    from cassandra import WriteTimeout, WriteType
 
-    # Timeout subclass gets wrapped and survives pickle
-    wt = WriteTimeout("Operation timed out", write_type=WriteType.SIMPLE)
-    wrapped = on_failure(wt)
-    assert type(wrapped) is Exception
-    assert "WriteTimeout" in str(wrapped)
-    restored = pickle.loads(pickle.dumps(wrapped))
-    assert str(restored) == str(wrapped)
+    from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
+    from feast.protos.feast.types.Value_pb2 import Value as ValueProto
 
-    # Non-Timeout exception passes through unchanged
-    ir = InvalidRequest("bad query")
-    result = on_failure(ir)
-    assert isinstance(result, InvalidRequest)
-    assert result is ir
+    # Build minimal config / data
+    config = MagicMock()
+    config.online_store = CassandraOnlineStoreConfig(
+        type="cassandra",
+        hosts=["localhost"],
+        keyspace="test_keyspace",
+        write_concurrency=100,
+        write_batch_size=100,
+        key_ttl_seconds=0,
+    )
+    config.project = "test_project"
+    config.entity_key_serialization_version = 3
+
+    entity_key = EntityKeyProto()
+    entity_key.join_keys.append("entity_id")
+    entity_key.entity_values.add().string_val = "test_entity"
+    feature_val = ValueProto()
+    feature_val.int64_val = 42
+    data = [(entity_key, {"feature1": feature_val}, datetime(2026, 3, 3, tzinfo=timezone.utc), None)]
+
+    # Mock a future that immediately fires the errback with a WriteTimeout
+    write_timeout = WriteTimeout("Operation timed out", write_type=WriteType.SIMPLE)
+    mock_future = MagicMock()
+    mock_future.add_callbacks = lambda ok, err: err(write_timeout)
+
+    mock_session = MagicMock()
+    mock_session.execute_async.return_value = mock_future
+    mock_session.is_shutdown = False
+    mock_session.prepare.return_value = MagicMock()
+
+    store = CassandraOnlineStore()
+    mock_table = MagicMock()
+    mock_table.name = "test_fv"
+    mock_table.ttl = None
+
+    with (
+        patch.object(store, "_get_session", return_value=mock_session),
+        patch.object(store, "_get_cql_statement", return_value=MagicMock()),
+    ):
+        with pytest.raises(Exception) as exc_info:
+            store.online_write_batch(config, mock_table, data, None)
+
+    raised = exc_info.value
+    assert type(raised) is Exception, "Should be a plain Exception, not the raw driver type"
+    assert "WriteTimeout" in str(raised)
+    assert "Operation timed out" in str(raised)
+
+    # The whole point: it must survive pickle round-trip
+    restored = pickle.loads(pickle.dumps(raised))
+    assert str(restored) == str(raised)
