@@ -406,7 +406,18 @@ class CassandraOnlineStore(OnlineStore):
 
         def on_failure(exc, concurrent_queue):
             nonlocal ex
-            ex = exc
+            # Wrap driver exceptions in a plain Exception to ensure they
+            # survive pickle round-trip across multiprocessing boundaries.
+            # The cassandra-driver's WriteTimeout (and other Timeout
+            # subclasses) fail to unpickle because __init__ re-translates
+            # write_type via WriteType.value_to_name, but pickle only
+            # preserves the formatted message string — so write_type
+            # defaults to None on reconstruction, causing KeyError.
+            # This matters when Spark sends exceptions from executor
+            # worker processes back to the driver via multiprocessing.Pool.
+            ex = Exception(
+                f"Error writing batch to Cassandra: {type(exc).__name__}: {exc}"
+            )
             concurrent_queue.get_nowait()
             logger.exception(f"Error writing a batch: {exc}")
 

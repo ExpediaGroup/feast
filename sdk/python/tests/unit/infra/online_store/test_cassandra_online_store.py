@@ -1,5 +1,6 @@
 import textwrap
 
+import pickle
 import pytest
 
 from feast import FeatureView
@@ -254,3 +255,22 @@ def test_get_cql_type():
     assert store._get_cql_type(Array(Float32)) == "LIST<FLOAT>"
     assert store._get_cql_type(Array(Float64)) == "LIST<DOUBLE>"
     assert store._get_cql_type(Array(Bool)) == "LIST<BOOLEAN>"
+
+
+def test_on_failure_wraps_exception():
+    class DummyException(Exception):
+        pass
+
+    def on_failure(exc):
+        # This matches the fix in cassandra_online_store.py
+        return Exception(f"Error writing batch to Cassandra: {type(exc).__name__}: {exc}")
+
+    # Simulate a driver exception
+    exc = DummyException("driver error")
+    wrapped = on_failure(exc)
+    assert type(wrapped) is Exception
+    assert "DummyException" in str(wrapped)
+    assert "driver error" in str(wrapped)
+    # Should survive pickle round-trip
+    restored = pickle.loads(pickle.dumps(wrapped))
+    assert str(restored) == str(wrapped)
