@@ -138,6 +138,16 @@ class SortedFeatureViewNotFoundException(FeastObjectNotFoundException):
             super().__init__(f"Sorted feature view {name} does not exist")
 
 
+class StreamFeatureViewNotFoundException(FeastObjectNotFoundException):
+    def __init__(self, name, project=None):
+        if project:
+            super().__init__(
+                f"Stream feature view {name} does not exist in project {project}"
+            )
+        else:
+            super().__init__(f"Stream feature view {name} does not exist")
+
+
 class OnDemandFeatureViewNotFoundException(FeastObjectNotFoundException):
     def __init__(self, name, project=None):
         if project:

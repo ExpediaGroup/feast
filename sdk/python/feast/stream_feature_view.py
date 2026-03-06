@@ -201,6 +201,21 @@ class StreamFeatureView(FeatureView):
 
         return True
 
+    def is_update_compatible_with(
+        self, updated: "StreamFeatureView"
+    ) -> Tuple[bool, List[str]]:
+        """
+        Checks if updating this StreamFeatureView to 'updated' is compatible.
+        Returns (True, []) if compatible; (False, [reasons...]) otherwise.
+        """
+        reasons: List[str] = []
+
+        base_ok, base_reasons = super().is_update_compatible_with(updated)
+        if not base_ok:
+            reasons.extend(base_reasons)
+
+        return len(reasons) == 0, reasons
+
     def __hash__(self) -> int:
         return super().__hash__()
 

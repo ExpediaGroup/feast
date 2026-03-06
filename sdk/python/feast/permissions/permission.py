@@ -2,7 +2,7 @@ import logging
 import re
 from abc import ABC
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from google.protobuf.json_format import MessageToJson
 
@@ -134,6 +134,15 @@ class Permission(ABC):
     @property
     def required_tags(self) -> Dict[str, str]:
         return self._required_tags
+
+    def is_update_compatible_with(
+        self, updated: "Permission"
+    ) -> Tuple[bool, List[str]]:
+        """
+        Checks if updating this Permission to 'updated' is compatible.
+        Returns (True, []) if compatible; (False, [reasons...]) otherwise.
+        """
+        return True, []
 
     def match_resource(self, resource: "FeastObject") -> bool:
         """

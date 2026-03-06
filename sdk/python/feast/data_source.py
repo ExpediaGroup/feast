@@ -261,6 +261,24 @@ class DataSource(ABC):
         self.created_timestamp = now
         self.last_updated_timestamp = now
 
+    def is_update_compatible_with(
+        self, updated: "DataSource"
+    ) -> Tuple[bool, List[str]]:
+        """
+        Checks if updating this DataSource to 'updated' is compatible.
+        Returns (True, []) if compatible; (False, [reasons...]) otherwise.
+        """
+        reasons: List[str] = []
+
+        if self.timestamp_field and updated.timestamp_field:
+            if self.timestamp_field != updated.timestamp_field:
+                reasons.append(
+                    f"timestamp_field cannot change for DataSource '{self.name}' "
+                    f"('{self.timestamp_field}' to '{updated.timestamp_field}')"
+                )
+
+        return len(reasons) == 0, reasons
+
     def __hash__(self):
         return hash((self.name, self.timestamp_field))
 

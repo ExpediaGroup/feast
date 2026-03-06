@@ -11,9 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import logging
 import warnings
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from google.protobuf.json_format import MessageToJson
 from typeguard import typechecked
@@ -22,6 +23,8 @@ from feast.protos.feast.core.Entity_pb2 import Entity as EntityProto
 from feast.protos.feast.core.Entity_pb2 import EntityMeta as EntityMetaProto
 from feast.protos.feast.core.Entity_pb2 import EntitySpecV2 as EntitySpecProto
 from feast.value_type import ValueType
+
+logger = logging.getLogger(__name__)
 
 
 @typechecked
@@ -145,6 +148,31 @@ class Entity:
 
     def __lt__(self, other):
         return self.name < other.name
+
+    def is_update_compatible_with(self, updated: "Entity") -> Tuple[bool, List[str]]:
+        """
+        Checks if updating this Entity to 'updated' is compatible.
+        Returns (True, []) if compatible; (False, [reasons...]) otherwise.
+        """
+        reasons: List[str] = []
+
+        if self.join_key != updated.join_key:
+            reasons.append(
+                f"join_key cannot change for Entity '{self.name}' "
+                f"('{self.join_key}' to '{updated.join_key}')"
+            )
+
+        if (
+            self.value_type != ValueType.UNKNOWN
+            and updated.value_type != ValueType.UNKNOWN
+            and self.value_type != updated.value_type
+        ):
+            reasons.append(
+                f"value_type cannot change for Entity '{self.name}' "
+                f"({self.value_type} to {updated.value_type})"
+            )
+
+        return len(reasons) == 0, reasons
 
     def is_valid(self):
         """

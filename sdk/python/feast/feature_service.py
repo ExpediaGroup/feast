@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from google.protobuf.json_format import MessageToJson
 from typeguard import typechecked
@@ -248,6 +248,15 @@ class FeatureService:
         )
 
         return FeatureServiceProto(spec=spec, meta=meta)
+
+    def is_update_compatible_with(
+        self, updated: "FeatureService"
+    ) -> Tuple[bool, List[str]]:
+        """
+        Checks if updating this FeatureService to 'updated' is compatible.
+        Returns (True, []) if compatible; (False, [reasons...]) otherwise.
+        """
+        return True, []
 
     def validate(self):
         pass

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from datetime import datetime, timezone
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 from google.protobuf.json_format import MessageToJson
 from typeguard import typechecked
@@ -101,6 +101,15 @@ class Project:
 
     def __lt__(self, other):
         return self.name < other.name
+
+    def is_update_compatible_with(
+        self, updated: "Project"
+    ) -> Tuple[bool, List[str]]:
+        """
+        Checks if updating this Project to 'updated' is compatible.
+        Returns (True, []) if compatible; (False, [reasons...]) otherwise.
+        """
+        return True, []
 
     def is_valid(self):
         """

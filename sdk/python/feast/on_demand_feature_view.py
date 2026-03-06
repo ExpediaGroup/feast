@@ -1,8 +1,9 @@
 import copy
 import functools
+import logging
 import warnings
 from types import FunctionType
-from typing import Any, List, Optional, Union, cast
+from typing import Any, List, Optional, Tuple, Union, cast
 
 import dill
 import pyarrow
@@ -270,6 +271,39 @@ class OnDemandFeatureView(BaseFeatureView):
     @property
     def schema(self) -> List[Field]:
         return list(set(self.entity_columns + self.features))
+
+    def is_update_compatible_with(
+        self, updated: "OnDemandFeatureView"
+    ) -> Tuple[bool, List[str]]:
+        """
+        Checks if updating this OnDemandFeatureView to 'updated' is compatible.
+        Returns (True, []) if compatible; (False, [reasons...]) otherwise.
+        """
+        reasons: List[str] = []
+        logger = logging.getLogger(__name__)
+
+        old_fields = {f.name: f.dtype for f in self.features}
+        new_fields = {f.name: f.dtype for f in updated.features}
+
+        removed = old_fields.keys() - new_fields.keys()
+        for fname in sorted(removed):
+            logger.info(
+                "Feature '%s' removed from OnDemandFeatureView '%s'.",
+                fname,
+                self.name,
+            )
+
+        for fname, old_dtype in old_fields.items():
+            if fname in new_fields and new_fields[fname] != old_dtype:
+                logger.warning(
+                    "Feature '%s' type changed (%s to %s) in OnDemandFeatureView '%s'.",
+                    fname,
+                    old_dtype,
+                    new_fields[fname],
+                    self.name,
+                )
+
+        return len(reasons) == 0, reasons
 
     def ensure_valid(self):
         """

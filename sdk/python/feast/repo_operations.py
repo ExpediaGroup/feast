@@ -22,8 +22,15 @@ from feast.data_source import DataSource, KafkaSource, KinesisSource
 from feast.diff.registry_diff import extract_objects_for_keep_delete_update_add
 from feast.entity import Entity
 from feast.errors import (
+    DataSourceObjectNotFoundException,
+    EntityNotFoundException,
+    FeatureServiceNotFoundException,
     FeatureViewNotFoundException,
+    OnDemandFeatureViewNotFoundException,
+    PermissionObjectNotFoundException,
+    ProjectObjectNotFoundException,
     SortedFeatureViewNotFoundException,
+    StreamFeatureViewNotFoundException,
 )
 from feast.feast_object import FeastObject
 from feast.feature_service import FeatureService
@@ -378,13 +385,35 @@ def validate_objects_for_apply(
             try:
                 if isinstance(obj, SortedFeatureView):
                     current = registry.get_sorted_feature_view(obj.name, project_name)
+                elif isinstance(obj, StreamFeatureView):
+                    current = registry.get_stream_feature_view(obj.name, project_name)
                 elif isinstance(obj, FeatureView):
                     current = registry.get_feature_view(obj.name, project_name)  # type: ignore[assignment]
+                elif isinstance(obj, OnDemandFeatureView):
+                    current = registry.get_on_demand_feature_view(obj.name, project_name)
+                elif isinstance(obj, Entity):
+                    current = registry.get_entity(obj.name, project_name)
+                elif isinstance(obj, FeatureService):
+                    current = registry.get_feature_service(obj.name, project_name)
+                elif isinstance(obj, DataSource):
+                    current = registry.get_data_source(obj.name, project_name)
+                elif isinstance(obj, Permission):
+                    current = registry.get_permission(obj.name, project_name)
+                elif isinstance(obj, Project):
+                    current = registry.get_project(obj.name)
                 else:
                     current = None
-            # TODO: Add more exception types (FeatureServiceNotFoundException, etc.) as more compatibility checks are
-            #  added for more object types.
-            except (SortedFeatureViewNotFoundException, FeatureViewNotFoundException):
+            except (
+                SortedFeatureViewNotFoundException,
+                StreamFeatureViewNotFoundException,
+                FeatureViewNotFoundException,
+                OnDemandFeatureViewNotFoundException,
+                EntityNotFoundException,
+                FeatureServiceNotFoundException,
+                DataSourceObjectNotFoundException,
+                PermissionObjectNotFoundException,
+                ProjectObjectNotFoundException,
+            ):
                 logger.warning(
                     "'%s' not found in registry; treating as new object.",
                     obj.name,
