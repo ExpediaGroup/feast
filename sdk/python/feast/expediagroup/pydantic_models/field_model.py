@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, Union
 
 from google.protobuf.json_format import MessageToDict, ParseDict
-from pydantic import BaseModel, ConfigDict, Field as PydanticField, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 from typing_extensions import Self
 
 from feast.field import Field

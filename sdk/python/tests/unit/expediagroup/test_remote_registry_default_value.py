@@ -7,14 +7,13 @@ which is the core serialization path used by Remote Registry (feast serve_regist
 Copyright 2026 Expedia Group
 """
 
-import pytest
 
-from feast.field import Field
-from feast.feature_view import FeatureView
-from feast.sorted_feature_view import SortedFeatureView
 from feast.data_source import RequestSource
+from feast.feature_view import FeatureView
+from feast.field import Field
 from feast.protos.feast.types.Value_pb2 import Value
-from feast.types import Int64, String, Float64, Bool
+from feast.sorted_feature_view import SortedFeatureView
+from feast.types import Bool, Float64, Int64, String
 
 
 def test_feature_view_proto_roundtrip_with_defaults():
@@ -178,7 +177,9 @@ def test_sorted_feature_view_proto_roundtrip_with_defaults():
     sfv_proto = sfv.to_proto()
     proto_bytes = sfv_proto.SerializeToString()
 
-    from feast.protos.feast.core.SortedFeatureView_pb2 import SortedFeatureView as SortedFeatureViewProto
+    from feast.protos.feast.core.SortedFeatureView_pb2 import (
+        SortedFeatureView as SortedFeatureViewProto,
+    )
     sfv_proto_received = SortedFeatureViewProto()
     sfv_proto_received.ParseFromString(proto_bytes)
 

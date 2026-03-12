@@ -9,12 +9,11 @@ Tests cover:
 - Full roundtrip (Field -> FieldModel -> JSON -> FieldModel -> Field)
 """
 
-import pytest
 
 from feast.expediagroup.pydantic_models.field_model import FieldModel
 from feast.field import Field
 from feast.protos.feast.types.Value_pb2 import Value
-from feast.types import Bool, Bytes, Float64, Int64, String
+from feast.types import Bool, Float64, Int64, String
 
 
 def test_field_model_serialize_int64_default():
