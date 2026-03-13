@@ -24,12 +24,13 @@ class FieldModel(BaseModel):
     default_value: Optional[ValueProto.Value] = None
 
     model_config = ConfigDict(
-        arbitrary_types_allowed=True,
-        json_schema_serialization_defaults_required=False
+        arbitrary_types_allowed=True, json_schema_serialization_defaults_required=False
     )
 
     @field_serializer("default_value")
-    def serialize_default_value(self, value: Optional[ValueProto.Value]) -> Optional[Dict[str, Any]]:
+    def serialize_default_value(
+        self, value: Optional[ValueProto.Value]
+    ) -> Optional[Dict[str, Any]]:
         """
         Serialize proto Value to JSON-compatible dict using MessageToDict.
         Returns camelCase keys (int64Val, stringVal, etc.) per proto JSON format.

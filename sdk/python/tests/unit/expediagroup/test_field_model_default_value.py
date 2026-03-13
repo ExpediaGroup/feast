@@ -9,7 +9,6 @@ Tests cover:
 - Full roundtrip (Field -> FieldModel -> JSON -> FieldModel -> Field)
 """
 
-
 from feast.expediagroup.pydantic_models.field_model import FieldModel
 from feast.field import Field
 from feast.protos.feast.types.Value_pb2 import Value
@@ -66,7 +65,7 @@ def test_field_model_deserialize_from_dict():
     data = {
         "name": "country",
         "dtype": 2,  # String type enum value
-        "default_value": {"stringVal": "CA"}
+        "default_value": {"stringVal": "CA"},
     }
     fm = FieldModel.model_validate(data)
 
@@ -81,7 +80,7 @@ def test_field_model_deserialize_from_proto():
     data = {
         "name": "count",
         "dtype": 4,  # Int64 type enum value
-        "default_value": proto_value
+        "default_value": proto_value,
     }
     fm = FieldModel.model_validate(data)
 
@@ -95,7 +94,9 @@ def test_field_model_deserialize_from_proto():
 def test_field_model_roundtrip_json():
     """Serialize to dict, deserialize back, verify proto values match."""
     # Create original with double value
-    fm1 = FieldModel(name="score", dtype=Float64, default_value=Value(double_val=3.14159))
+    fm1 = FieldModel(
+        name="score", dtype=Float64, default_value=Value(double_val=3.14159)
+    )
 
     # Serialize to dict
     d = fm1.model_dump()
@@ -115,7 +116,7 @@ def test_field_model_to_field_preserves_default():
         name="status",
         dtype=String,
         description="Status field",
-        default_value=proto_value
+        default_value=proto_value,
     )
 
     field = fm.to_field()
@@ -133,10 +134,7 @@ def test_field_model_from_field_preserves_default():
     """FieldModel.from_field(Field(...)) captures default_value."""
     proto_value = Value(bool_val=False)
     field = Field(
-        name="enabled",
-        dtype=Bool,
-        description="Enable flag",
-        default_value=proto_value
+        name="enabled", dtype=Bool, description="Enable flag", default_value=proto_value
     )
 
     fm = FieldModel.from_field(field)
@@ -157,7 +155,7 @@ def test_field_model_full_roundtrip():
         dtype=Float64,
         description="Item price",
         tags={"unit": "USD"},
-        default_value=Value(double_val=9.99)
+        default_value=Value(double_val=9.99),
     )
 
     # Convert to FieldModel

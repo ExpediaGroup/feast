@@ -7,7 +7,6 @@ which is the core serialization path used by Remote Registry (feast serve_regist
 Copyright 2026 Expedia Group
 """
 
-
 from feast.data_source import RequestSource
 from feast.feature_view import FeatureView
 from feast.field import Field
@@ -57,6 +56,7 @@ def test_feature_view_proto_roundtrip_with_defaults():
 
     # Deserialize from proto (simulates client receiving from Remote Registry)
     from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+
     fv_proto_received = FeatureViewProto()
     fv_proto_received.ParseFromString(proto_bytes)
 
@@ -96,6 +96,7 @@ def test_feature_view_proto_roundtrip_without_defaults():
     proto_bytes = fv_proto.SerializeToString()
 
     from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+
     fv_proto_received = FeatureViewProto()
     fv_proto_received.ParseFromString(proto_bytes)
 
@@ -133,6 +134,7 @@ def test_feature_view_proto_roundtrip_mixed_defaults():
     proto_bytes = fv_proto.SerializeToString()
 
     from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+
     fv_proto_received = FeatureViewProto()
     fv_proto_received.ParseFromString(proto_bytes)
 
@@ -170,7 +172,9 @@ def test_sorted_feature_view_proto_roundtrip_with_defaults():
         name="test_sorted_fv",
         source=source,
         schema=fields,
-        sort_keys=[SortKey(name="score", value_type=ValueType.DOUBLE)],  # Sort by score field
+        sort_keys=[
+            SortKey(name="score", value_type=ValueType.DOUBLE)
+        ],  # Sort by score field
     )
 
     # Round-trip through proto
@@ -180,6 +184,7 @@ def test_sorted_feature_view_proto_roundtrip_with_defaults():
     from feast.protos.feast.core.SortedFeatureView_pb2 import (
         SortedFeatureView as SortedFeatureViewProto,
     )
+
     sfv_proto_received = SortedFeatureViewProto()
     sfv_proto_received.ParseFromString(proto_bytes)
 
@@ -226,6 +231,7 @@ def test_feature_view_proto_bytes_identity():
 
     # Deserialize back to proto (NOT to FeatureView yet)
     from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+
     fv_proto_from_wire = FeatureViewProto()
     fv_proto_from_wire.ParseFromString(proto_bytes)
 
