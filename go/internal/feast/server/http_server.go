@@ -321,19 +321,19 @@ type getOnlineFeaturesRequest struct {
 	UseDefaults      *string                  `json:"use_defaults"`
 }
 
-func parseUseDefaultsMode(mode *string) serving.UseDefaultsMode {
+func parseUseDefaultsMode(mode *string) (serving.UseDefaultsMode, error) {
 	if mode == nil {
-		return serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED
+		return serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED, nil
 	}
 	switch strings.ToUpper(*mode) {
 	case "OFF":
-		return serving.UseDefaultsMode_USE_DEFAULTS_OFF
+		return serving.UseDefaultsMode_USE_DEFAULTS_OFF, nil
 	case "FLEXIBLE":
-		return serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE
+		return serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE, nil
 	case "STRICT":
-		return serving.UseDefaultsMode_USE_DEFAULTS_STRICT
+		return serving.UseDefaultsMode_USE_DEFAULTS_STRICT, nil
 	default:
-		return serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED
+		return serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED, fmt.Errorf("invalid use_defaults mode: %s (valid values: OFF, FLEXIBLE, STRICT)", *mode)
 	}
 }
 
@@ -421,6 +421,14 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		requestContextProto[key] = value.ToProto()
 	}
 
+
+	useDefaultsMode, err := parseUseDefaultsMode(request.UseDefaults)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Invalid use_defaults mode")
+		writeJSONError(w, err, http.StatusBadRequest)
+		return
+	}
+
 	featureVectors, err = s.fs.GetOnlineFeatures(
 		ctx,
 		request.Features,
@@ -428,7 +436,8 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		entitiesProto,
 		requestContextProto,
 		request.FullFeatureNames,
-		parseUseDefaultsMode(request.UseDefaults))
+		useDefaultsMode)
+
 
 	defer func() {
 		if featureVectors != nil {
@@ -624,6 +633,14 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+
+	useDefaultsMode, err := parseUseDefaultsMode(request.UseDefaults)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Invalid use_defaults mode")
+		writeJSONError(w, err, http.StatusBadRequest)
+		return
+	}
+
 	rangeFeatureVectors, err := s.fs.GetOnlineFeaturesRange(
 		ctx,
 		request.Features,
@@ -634,7 +651,8 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		request.Limit,
 		requestContextProto,
 		request.FullFeatureNames,
-		parseUseDefaultsMode(request.UseDefaults))
+		useDefaultsMode)
+
 
 	defer func() {
 		if rangeFeatureVectors != nil {

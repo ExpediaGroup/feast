@@ -138,6 +138,15 @@ class Field(BaseModel):
             # or self.vector_search_metric != other.vector_search_metric
         ):
             return False
+
+        # Compare default_value - handle None and proto Value comparison
+        if self.default_value is None and other.default_value is None:
+            pass  # Both None, equal
+        elif self.default_value is None or other.default_value is None:
+            return False  # One is None, other is not
+        elif self.default_value.SerializeToString() != other.default_value.SerializeToString():
+            return False  # Both are Values but different
+
         return True
 
     def __hash__(self):
