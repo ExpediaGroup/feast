@@ -144,7 +144,10 @@ class Field(BaseModel):
             pass  # Both None, equal
         elif self.default_value is None or other.default_value is None:
             return False  # One is None, other is not
-        elif self.default_value.SerializeToString() != other.default_value.SerializeToString():
+        elif (
+            self.default_value.SerializeToString()
+            != other.default_value.SerializeToString()
+        ):
             return False  # Both are Values but different
 
         return True
