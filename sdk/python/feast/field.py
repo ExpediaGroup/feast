@@ -53,7 +53,7 @@ class Field(BaseModel):
     @field_validator("default_value")
     @classmethod
     def validate_default_value_type(
-        cls, v: Optional[ValueProto.Value], info: Any
+        cls, v: Optional[ValueProto.Value], values: Any
     ) -> Optional[ValueProto.Value]:
         """
         Validate that default_value type matches the field's dtype.
@@ -61,13 +61,13 @@ class Field(BaseModel):
         if v is None:
             return v
 
-            # Get dtype from the model data
-        dtype = info.data.get("dtype")
+        # Get dtype from the model data
+        dtype = values.data.get("dtype")
         if dtype is None:
             # dtype will be validated by its own validator, skip for now
             return v
 
-            # Validate type compatibility
+        # Validate type compatibility
         value_type = dtype.to_value_type()
         val_case = v.WhichOneof("val")
 
@@ -75,7 +75,7 @@ class Field(BaseModel):
             # Empty Value proto
             return v
 
-            # Map proto value types to ValueType enums
+        # Map proto value types to ValueType enums
         type_mapping: Dict[str, ValueType] = {
             "int32_val": ValueType.INT32,
             "int64_val": ValueType.INT64,
@@ -165,6 +165,7 @@ class Field(BaseModel):
             f"    vector_index={self.vector_index!r}\n"
             f"    vector_length={self.vector_length!r}\n"
             f"    vector_search_metric={self.vector_search_metric!r}\n"
+            f"    default_value={self.default_value!r}\n"
             f")"
         )
 
