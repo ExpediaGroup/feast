@@ -424,41 +424,52 @@ func TestProcessFeatureVectors_NullValueReturnsNull(t *testing.T) {
 
 func TestParseUseDefaultsMode(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    *string
-		expected serving.UseDefaultsMode
+		name        string
+		input       *string
+		expected    serving.UseDefaultsMode
+		expectError bool
 	}{
 		{
-			name:     "nil defaults to UNSPECIFIED",
-			input:    nil,
-			expected: serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+			name:        "nil defaults to UNSPECIFIED",
+			input:       nil,
+			expected:    serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+			expectError: false,
 		},
 		{
-			name:     "OFF uppercase",
-			input:    stringPtr("OFF"),
-			expected: serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			name:        "OFF uppercase",
+			input:       stringPtr("OFF"),
+			expected:    serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			expectError: false,
 		},
 		{
-			name:     "flexible lowercase",
-			input:    stringPtr("flexible"),
-			expected: serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			name:        "flexible lowercase",
+			input:       stringPtr("flexible"),
+			expected:    serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			expectError: false,
 		},
 		{
-			name:     "STRICT mixed case",
-			input:    stringPtr("Strict"),
-			expected: serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			name:        "STRICT mixed case",
+			input:       stringPtr("Strict"),
+			expected:    serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			expectError: false,
 		},
 		{
-			name:     "invalid string defaults to UNSPECIFIED",
-			input:    stringPtr("INVALID"),
-			expected: serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+			name:        "invalid string returns error",
+			input:       stringPtr("INVALID"),
+			expected:    serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+			expectError: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := parseUseDefaultsMode(tt.input)
-			assert.NoError(t, err)
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid use_defaults mode")
+			} else {
+				assert.NoError(t, err)
+			}
 			assert.Equal(t, tt.expected, result)
 		})
 	}
