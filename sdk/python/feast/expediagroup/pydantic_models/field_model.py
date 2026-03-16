@@ -27,7 +27,7 @@ class FieldModel(BaseModel):
         arbitrary_types_allowed=True, json_schema_serialization_defaults_required=False
     )
 
-    @field_serializer("default_value")
+    @field_serializer("default_value", when_used="always")
     def serialize_default_value(
         self, value: Optional[ValueProto.Value]
     ) -> Optional[Dict[str, Any]]:
