@@ -92,17 +92,17 @@ def test_field_model_deserialize_from_proto():
 
 
 def test_field_model_roundtrip_json():
-    """Serialize to dict, deserialize back, verify proto values match."""
+    """Serialize to JSON string, deserialize back, verify proto values match."""
     # Create original with double value
     fm1 = FieldModel(
         name="score", dtype=Float64, default_value=Value(double_val=3.14159)
     )
 
-    # Serialize to dict
-    d = fm1.model_dump()
+    # Serialize to JSON string
+    json_str = fm1.model_dump_json()
 
-    # Deserialize from dict
-    fm2 = FieldModel.model_validate(d)
+    # Deserialize from JSON string
+    fm2 = FieldModel.model_validate_json(json_str)
 
     # Verify proto values match
     assert fm2.default_value is not None
@@ -148,7 +148,7 @@ def test_field_model_from_field_preserves_default():
 
 
 def test_field_model_full_roundtrip():
-    """Field -> FieldModel -> model_dump() -> model_validate() -> to_field() -> compare."""
+    """Field -> FieldModel -> JSON string -> FieldModel -> to_field() -> compare."""
     # Start with a Field
     original_field = Field(
         name="price",
@@ -161,11 +161,11 @@ def test_field_model_full_roundtrip():
     # Convert to FieldModel
     fm1 = FieldModel.from_field(original_field)
 
-    # Serialize to JSON dict
-    json_dict = fm1.model_dump()
+    # Serialize to JSON string
+    json_str = fm1.model_dump_json()
 
-    # Deserialize from JSON dict
-    fm2 = FieldModel.model_validate(json_dict)
+    # Deserialize from JSON string
+    fm2 = FieldModel.model_validate_json(json_str)
 
     # Convert back to Field
     result_field = fm2.to_field()
