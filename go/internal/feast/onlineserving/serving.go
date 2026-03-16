@@ -813,9 +813,9 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 				}
 			}
 
-			// Apply defaults for NOT_FOUND, NULL_VALUE, and OUTSIDE_MAX_AGE statuses
+			// Apply defaults for NOT_FOUND and NULL_VALUE statuses
 			if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE {
-				if status == serving.FieldStatus_NOT_FOUND || status == serving.FieldStatus_NULL_VALUE || status == serving.FieldStatus_OUTSIDE_MAX_AGE {
+				if status == serving.FieldStatus_NOT_FOUND || status == serving.FieldStatus_NULL_VALUE {
 					featureName := groupRef.FeatureNames[featureIndex]
 					if defaultVal, ok := featureDefaults[featureName]; ok {
 						// Create new Value to avoid mutating shared default
@@ -830,14 +830,14 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 					}
 				}
 			} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
-				// STRICT mode: first validate all NULL/NOT_FOUND/OUTSIDE_MAX_AGE have defaults, then apply
-				if status == serving.FieldStatus_NOT_FOUND || status == serving.FieldStatus_NULL_VALUE || status == serving.FieldStatus_OUTSIDE_MAX_AGE {
+				// STRICT mode: first validate all NULL/NOT_FOUND have defaults, then apply
+				if status == serving.FieldStatus_NOT_FOUND || status == serving.FieldStatus_NULL_VALUE {
 					featureName := groupRef.FeatureNames[featureIndex]
 					if _, ok := featureDefaults[featureName]; !ok {
 						// No default defined - return error
 						featureViewName := groupRef.FeatureViewNames[featureIndex]
 						return nil, errors.GrpcInvalidArgumentErrorf(
-							"feature '%s' in feature view '%s' has NULL/NOT_FOUND/OUTSIDE_MAX_AGE value but no default defined (use_defaults=STRICT)",
+							"feature '%s' in feature view '%s' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)",
 							featureName, featureViewName)
 					}
 					// Default exists, apply it
