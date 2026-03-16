@@ -28,8 +28,10 @@ class FieldModel(BaseModel):
         arbitrary_types_allowed=True, json_schema_serialization_defaults_required=False
     )
 
-    @model_serializer(mode='wrap')
-    def _serialize_model(self, serializer: SerializerFunctionWrapHandler) -> Dict[str, Any]:
+    @model_serializer(mode="wrap")
+    def _serialize_model(
+        self, serializer: SerializerFunctionWrapHandler
+    ) -> Dict[str, Any]:
         """
         Model serializer that wraps default serialization to handle proto Value objects.
         Converts default_value from proto Value to JSON-compatible dict using MessageToDict.
@@ -40,7 +42,9 @@ class FieldModel(BaseModel):
         # Convert proto Value to dict if present
         # Access the original proto Value from self, not from serialized data
         if isinstance(data, dict) and self.default_value is not None:
-            data['default_value'] = MessageToDict(self.default_value, preserving_proto_field_name=False)
+            data["default_value"] = MessageToDict(
+                self.default_value, preserving_proto_field_name=False
+            )
 
         return data
 
