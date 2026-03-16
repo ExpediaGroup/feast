@@ -18,7 +18,6 @@ import httpx
 import pytest
 from httpx import HTTPStatusError
 
-from feast.entity import Entity
 from feast.errors import (
     FeatureViewNotFoundException,
     SortedFeatureViewNotFoundException,
@@ -209,15 +208,9 @@ class TestGetAnyFeatureView:
             patch.object(
                 http_registry, "get_feature_view", return_value=mock_fv
             ) as mock_get_fv,
-            patch.object(
-                http_registry, "get_sorted_feature_view"
-            ) as mock_get_sfv,
-            patch.object(
-                http_registry, "get_on_demand_feature_view"
-            ) as mock_get_odfv,
-            patch.object(
-                http_registry, "get_stream_feature_view"
-            ) as mock_get_stream,
+            patch.object(http_registry, "get_sorted_feature_view") as mock_get_sfv,
+            patch.object(http_registry, "get_on_demand_feature_view") as mock_get_odfv,
+            patch.object(http_registry, "get_stream_feature_view") as mock_get_stream,
         ):
             result = http_registry.get_any_feature_view(
                 "my_fv", "test_project", allow_cache=False

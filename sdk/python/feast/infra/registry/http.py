@@ -879,7 +879,12 @@ class HttpRegistry(BaseRegistry):
             pass
         try:
             return self.get_stream_feature_view(name, project)
-        except (NotImplementedError, FeatureViewNotFoundException, HTTPStatusError, httpx.HTTPError):
+        except (
+            NotImplementedError,
+            FeatureViewNotFoundException,
+            HTTPStatusError,
+            httpx.HTTPError,
+        ):
             pass
         raise FeatureViewNotFoundException(name, project)
 
