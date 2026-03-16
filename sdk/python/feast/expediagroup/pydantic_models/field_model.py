@@ -1,7 +1,8 @@
-from typing import Any, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
 from google.protobuf.json_format import MessageToDict, ParseDict
-from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_serializer
+from pydantic.functional_serializers import SerializerFunctionWrapHandler
 from typing_extensions import Self
 
 from feast.field import Field
@@ -27,18 +28,22 @@ class FieldModel(BaseModel):
         arbitrary_types_allowed=True, json_schema_serialization_defaults_required=False
     )
 
-    @field_serializer("default_value", when_used="always")
-    def serialize_default_value(
-        self, value: Optional[ValueProto.Value]
-    ) -> Optional[Dict[str, Any]]:
+    @model_serializer(mode='wrap')
+    def _serialize_model(self, serializer: SerializerFunctionWrapHandler) -> Dict[str, Any]:
         """
-        Serialize proto Value to JSON-compatible dict using MessageToDict.
-        Returns camelCase keys (int64Val, stringVal, etc.) per proto JSON format.
-        Returns None for fields without defaults (will be excluded from JSON responses).
+        Model serializer that wraps default serialization to handle proto Value objects.
+        Converts default_value from proto Value to JSON-compatible dict using MessageToDict.
         """
-        if value is None:
-            return None
-        return MessageToDict(value, preserving_proto_field_name=False)
+        # Get the default serialized output
+        data = serializer(self)
+
+        # Convert proto Value to dict if present
+        if isinstance(data, dict) and 'default_value' in data:
+            default_val = data['default_value']
+            if default_val is not None and isinstance(default_val, ValueProto.Value):
+                data['default_value'] = MessageToDict(default_val, preserving_proto_field_name=False)
+
+        return data
 
     @field_validator("default_value", mode="before")
     @classmethod
