@@ -38,10 +38,9 @@ class FieldModel(BaseModel):
         data = serializer(self)
 
         # Convert proto Value to dict if present
-        if isinstance(data, dict) and 'default_value' in data:
-            default_val = data['default_value']
-            if default_val is not None and isinstance(default_val, ValueProto.Value):
-                data['default_value'] = MessageToDict(default_val, preserving_proto_field_name=False)
+        # Access the original proto Value from self, not from serialized data
+        if isinstance(data, dict) and self.default_value is not None:
+            data['default_value'] = MessageToDict(self.default_value, preserving_proto_field_name=False)
 
         return data
 
