@@ -1,13 +1,19 @@
-from typing import Any, Dict, Optional, Union
+from typing import Annotated, Any, Dict, Optional, Union
 
 from google.protobuf.json_format import MessageToDict, ParseDict
-from pydantic import BaseModel, ConfigDict, field_validator, model_serializer
-from pydantic.functional_serializers import SerializerFunctionWrapHandler
+from pydantic import BaseModel, ConfigDict, PlainSerializer, field_validator
 from typing_extensions import Self
 
 from feast.field import Field
 from feast.protos.feast.types import Value_pb2 as ValueProto
 from feast.types import Array, PrimitiveFeastType
+
+
+def serialize_proto_value(v: Optional[ValueProto.Value]) -> Optional[Dict[str, Any]]:
+    """Serialize proto Value to JSON-compatible dict."""
+    if v is None:
+        return None
+    return MessageToDict(v, preserving_proto_field_name=False)
 
 
 class FieldModel(BaseModel):
@@ -22,31 +28,14 @@ class FieldModel(BaseModel):
     vector_index: bool = False
     vector_length: int = 0
     vector_search_metric: Optional[str] = None
-    default_value: Optional[ValueProto.Value] = None
+    default_value: Annotated[
+        Optional[ValueProto.Value],
+        PlainSerializer(serialize_proto_value, return_type=Optional[Dict[str, Any]]),
+    ] = None
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True, json_schema_serialization_defaults_required=False
     )
-
-    @model_serializer(mode="wrap")
-    def _serialize_model(
-        self, serializer: SerializerFunctionWrapHandler
-    ) -> Dict[str, Any]:
-        """
-        Model serializer that wraps default serialization to handle proto Value objects.
-        Converts default_value from proto Value to JSON-compatible dict using MessageToDict.
-        """
-        # Get the default serialized output
-        data = serializer(self)
-
-        # Convert proto Value to dict if present
-        # Access the original proto Value from self, not from serialized data
-        if isinstance(data, dict) and self.default_value is not None:
-            data["default_value"] = MessageToDict(
-                self.default_value, preserving_proto_field_name=False
-            )
-
-        return data
 
     @field_validator("default_value", mode="before")
     @classmethod
