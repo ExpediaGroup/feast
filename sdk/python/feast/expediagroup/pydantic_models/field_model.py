@@ -1,7 +1,7 @@
 from typing import Any, Dict, Optional, Union
 
 from google.protobuf.json_format import MessageToDict, ParseDict
-from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from typing_extensions import Self
 
 from feast.field import Field
@@ -28,18 +28,14 @@ class FieldModel(BaseModel):
         json_schema_serialization_defaults_required=False,
     )
 
-    @field_serializer("default_value", return_type=Optional[Dict[str, Any]])
-    def _serialize_default_value(
-        self, value: Optional[ValueProto.Value], _info
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Serialize proto Value to JSON-compatible dict using MessageToDict.
-        Returns camelCase keys (int64Val, stringVal, etc.) per proto JSON format.
-        Returns None for fields without defaults.
-        """
-        if value is None:
-            return None
-        return MessageToDict(value, preserving_proto_field_name=False)
+    def model_dump(self, **kwargs) -> Dict[str, Any]:
+        """Override model_dump to handle proto Value serialization."""
+        data = super().model_dump(**kwargs)
+        if self.default_value is not None:
+            data["default_value"] = MessageToDict(
+                self.default_value, preserving_proto_field_name=False
+            )
+        return data
 
     @field_validator("default_value", mode="before")
     @classmethod
