@@ -1788,7 +1788,7 @@ func testTransposeFeatureRowsIntoColumns(t *testing.T, useArrow bool) *FeatureVe
 		},
 	}
 
-	vectors, err := TransposeFeatureRowsIntoColumns(featureData, groupRef, featureViews, arrowAllocator, numRows, useArrow)
+	vectors, err := TransposeFeatureRowsIntoColumns(featureData, groupRef, featureViews, arrowAllocator, numRows, useArrow, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 
 	assert.NoError(t, err)
 	assert.Len(t, vectors, 1)
@@ -1863,7 +1863,7 @@ func testTransposeRangeFeatureRowsIntoColumns(t *testing.T, useArrow bool) *Rang
 		},
 	}
 
-	vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, useArrow)
+	vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, useArrow, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 
 	assert.NoError(t, err)
 	assert.Len(t, vectors, 1)
@@ -1879,6 +1879,320 @@ func testTransposeRangeFeatureRowsIntoColumns(t *testing.T, useArrow bool) *Rang
 	assert.Equal(t, serving.FieldStatus_PRESENT, vector.RangeStatuses[1][0])
 	assert.NotNil(t, vector.RangeValues)
 	return vector
+}
+
+func TestApplyRangeDefaults(t *testing.T) {
+	arrowAllocator := memory.NewGoAllocator()
+
+	// Test cases for range value defaulting
+	testCases := []struct {
+		name            string
+		useDefaults     serving.UseDefaultsMode
+		hasDefault      bool
+		defaultValue    *types.Value
+		values          []interface{}
+		statuses        []serving.FieldStatus
+		expectedValues  []interface{}
+		expectedStatuses []serving.FieldStatus
+		expectError     bool
+		errorContains   string
+		entityNotFound  bool  // if true, simulate entity-not-found with nil Values
+	}{
+		{
+			name:             "OFF mode with NOT_FOUND value",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+		},
+		{
+			name:             "OFF mode with NULL_VALUE value",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+		},
+		{
+			name:             "FLEXIBLE mode with NOT_FOUND and default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "FLEXIBLE mode with NULL_VALUE and default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "FLEXIBLE mode with NOT_FOUND and no default",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       false,
+			defaultValue:     nil,
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+		},
+		{
+			name:             "FLEXIBLE mode with NULL_VALUE and no default",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       false,
+			defaultValue:     nil,
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+		},
+		{
+			name:             "FLEXIBLE mode with PRESENT value",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{99.9},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_PRESENT},
+			expectedValues:   []interface{}{99.9},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "FLEXIBLE mode with OUTSIDE_MAX_AGE",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{99.9},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_OUTSIDE_MAX_AGE},
+			expectedValues:   []interface{}{99.9},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_OUTSIDE_MAX_AGE},
+		},
+		{
+			name:             "UNSPECIFIED mode behaves like OFF",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{nil},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+		},
+		// STRICT mode test cases
+		{
+			name:             "STRICT mode with NOT_FOUND and default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "STRICT mode with NULL_VALUE and default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{nil},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:          "STRICT mode with NOT_FOUND and no default",
+			useDefaults:   serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:    false,
+			defaultValue:  nil,
+			values:        []interface{}{nil},
+			statuses:      []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+			expectError:   true,
+			errorContains: "no default defined",
+		},
+		{
+			name:          "STRICT mode with NULL_VALUE and no default",
+			useDefaults:   serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:    false,
+			defaultValue:  nil,
+			values:        []interface{}{nil},
+			statuses:      []serving.FieldStatus{serving.FieldStatus_NULL_VALUE},
+			expectError:   true,
+			errorContains: "no default defined",
+		},
+		{
+			name:             "STRICT mode with PRESENT value",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{99.9},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_PRESENT},
+			expectedValues:   []interface{}{99.9},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:             "STRICT mode with OUTSIDE_MAX_AGE",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			values:           []interface{}{99.9},
+			statuses:         []serving.FieldStatus{serving.FieldStatus_OUTSIDE_MAX_AGE},
+			expectedValues:   []interface{}{99.9},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_OUTSIDE_MAX_AGE},
+		},
+		{
+			name:             "STRICT mode entity-not-found with default exists",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 42.0}},
+			entityNotFound:   true,
+			expectedValues:   []interface{}{42.0},
+			expectedStatuses: []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			name:           "STRICT mode entity-not-found with no default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:     false,
+			defaultValue:   nil,
+			entityNotFound: true,
+			expectError:    true,
+			errorContains:  "no default defined",
+		},
+	}
+
+	for _, tc := range testCases {
+		for _, useArrow := range []bool{true, false} {
+			testName := tc.name
+			if useArrow {
+				testName += " (Arrow)"
+			} else {
+				testName += " (Proto)"
+			}
+
+			t.Run(testName, func(t *testing.T) {
+				numRows := 1
+
+				// Create sorted feature view with or without default
+				sortKey1 := test.CreateSortKeyProto("timestamp", core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
+				entity1 := test.CreateEntityProto("driver", types.ValueType_INT64, "driver")
+
+				var feature *core.FeatureSpecV2
+				if tc.hasDefault {
+					feature = test.CreateFeatureWithDefault("f1", types.ValueType_DOUBLE, tc.defaultValue)
+				} else {
+					feature = test.CreateFeature("f1", types.ValueType_DOUBLE)
+				}
+
+				sfv := test.CreateSortedFeatureViewModel("testView", []*core.Entity{entity1}, []*core.SortKey{sortKey1}, feature)
+
+				sortedViews := []*SortedFeatureViewAndRefs{
+					{View: sfv, FeatureRefs: []string{"f1"}},
+				}
+
+				groupRef := &model.GroupedRangeFeatureRefs{
+					FeatureNames:        []string{"f1"},
+					FeatureViewNames:    []string{"testView"},
+					AliasedFeatureNames: []string{"testView__f1"},
+					Indices:             [][]int{{0}},
+				}
+
+				nowTime := time.Now()
+
+				var featureData [][]onlinestore.RangeFeatureData
+				if tc.entityNotFound {
+					// Simulate entity-not-found by setting Values to nil
+					featureData = [][]onlinestore.RangeFeatureData{
+						{
+							{
+								FeatureView:     "testView",
+								FeatureName:     "f1",
+								Values:          nil,
+								Statuses:        nil,
+								EventTimestamps: nil,
+							},
+						},
+					}
+				} else {
+					featureData = [][]onlinestore.RangeFeatureData{
+						{
+							{
+								FeatureView:     "testView",
+								FeatureName:     "f1",
+								Values:          tc.values,
+								Statuses:        tc.statuses,
+								EventTimestamps: []timestamppb.Timestamp{{Seconds: nowTime.Unix()}},
+							},
+						},
+					}
+				}
+
+				// Call TransposeRangeFeatureRowsIntoColumns with useDefaults parameter
+				vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, useArrow, tc.useDefaults)
+
+				// Handle error expectations
+				if tc.expectError {
+					assert.Error(t, err)
+					if tc.errorContains != "" {
+						assert.Contains(t, err.Error(), tc.errorContains)
+					}
+					return
+				}
+
+				assert.NoError(t, err)
+				assert.Len(t, vectors, 1)
+
+				vector := vectors[0]
+				assert.Equal(t, "testView__f1", vector.Name)
+
+				// Verify status
+				assert.Len(t, vector.RangeStatuses, numRows)
+				assert.Len(t, vector.RangeStatuses[0], 1)
+				assert.Equal(t, tc.expectedStatuses[0], vector.RangeStatuses[0][0])
+
+				// Verify value
+				protoValues, err := vector.GetProtoValues()
+				assert.NoError(t, err)
+				assert.Len(t, protoValues, numRows)
+
+				// For range values, we always get a RepeatedValue (not nil)
+				// unless there are no values at all (entity not found case)
+				assert.NotNil(t, protoValues[0])
+				assert.Len(t, protoValues[0].Val, 1)
+
+				if tc.expectedValues[0] == nil {
+					// For NOT_FOUND/NULL_VALUE without default, value inside RepeatedValue is nil or empty
+					// Arrow and Proto may handle this differently - Arrow may return empty Value, Proto returns nil
+					if protoValues[0].Val[0] != nil {
+						// Arrow case: empty Value with nil Val
+						assert.Nil(t, protoValues[0].Val[0].Val)
+					}
+					// Proto case: nil Value (already checked by if statement)
+				} else {
+					// For values with defaults or present values
+					assert.NotNil(t, protoValues[0].Val[0])
+					expectedDouble := tc.expectedValues[0].(float64)
+					actualDouble := protoValues[0].Val[0].GetDoubleVal()
+					assert.Equal(t, expectedDouble, actualDouble)
+				}
+
+				// Clean up Arrow arrays if using Arrow
+				if useArrow && vector.RangeValues != nil {
+					if arr, ok := vector.RangeValues.(arrow.Array); ok {
+						arr.Release()
+					}
+				}
+			})
+		}
+	}
 }
 
 func TestValidateFeatureRefs(t *testing.T) {
@@ -2176,7 +2490,7 @@ func BenchmarkTransposeFeatureRowsIntoColumnsWithArrowConversion(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
+		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
 		}
@@ -2188,7 +2502,7 @@ func BenchmarkTransposeFeatureRowsIntoColumnsWithoutArrowConversion(b *testing.B
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, false)
+		_, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, false, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
 		}
@@ -2200,7 +2514,7 @@ func BenchmarkFullLoopArrowConversion(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		vectors, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true)
+		vectors, err := TransposeFeatureRowsIntoColumns(featureData2D, groupRef, requestedFeatureViews, arrowAllocator, numRows, true, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 		if err != nil {
 			b.Fatalf("Error during TransposeFeatureRowsIntoColumns: %v", err)
 		}
@@ -2362,4 +2676,310 @@ func TestBatchGroupedFeatureRef_VariableBatchSizes(t *testing.T) {
 			assert.True(t, proto.Equal(batches[0].EntityKeys[i], groupRef.EntityKeys[i]))
 		}
 	})
+}
+
+func TestApplyDefaults(t *testing.T) {
+	testCases := []struct {
+		name             string
+		useDefaults      serving.UseDefaultsMode
+		hasDefault       bool
+		defaultValue     *types.Value
+		featureDataNil   bool         // if true, simulate NOT_FOUND via nil row
+		featureValue     *types.Value // if nil and featureDataNil=false, use NullVal
+		expiredTimestamp bool         // if true, use old timestamp to trigger OUTSIDE_MAX_AGE
+		initialStatus    serving.FieldStatus
+		expectValue      *types.Value
+		expectStatus     serving.FieldStatus
+		expectError      bool
+		errorContains    string
+	}{
+		{
+			name:           "OFF + NOT_FOUND + has default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			hasDefault:     true,
+			defaultValue:   &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureDataNil: true,
+			expectValue:    nil,
+			expectStatus:   serving.FieldStatus_NOT_FOUND,
+		},
+		{
+			name:          "OFF + NULL_VALUE + has default",
+			useDefaults:   serving.UseDefaultsMode_USE_DEFAULTS_OFF,
+			hasDefault:    true,
+			defaultValue:  &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue:  &types.Value{Val: &types.Value_NullVal{}},
+			expectValue:   nil,
+			expectStatus:  serving.FieldStatus_NOT_FOUND,
+		},
+		{
+			name:           "FLEXIBLE + NOT_FOUND + has default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:     true,
+			defaultValue:   &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureDataNil: true,
+			expectValue:    &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			expectStatus:   serving.FieldStatus_PRESENT,
+		},
+		{
+			name:         "FLEXIBLE + NULL_VALUE + has default",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:   true,
+			defaultValue: &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue: &types.Value{Val: &types.Value_NullVal{}},
+			expectValue:  &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			expectStatus: serving.FieldStatus_PRESENT,
+		},
+		{
+			name:           "FLEXIBLE + NOT_FOUND + no default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:     false,
+			featureDataNil: true,
+			expectValue:    nil,
+			expectStatus:   serving.FieldStatus_NOT_FOUND,
+		},
+		{
+			name:         "FLEXIBLE + NULL_VALUE + no default",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:   false,
+			featureValue: &types.Value{Val: &types.Value_NullVal{}},
+			expectValue:  nil,
+			expectStatus: serving.FieldStatus_NOT_FOUND,
+		},
+		{
+			name:         "FLEXIBLE + PRESENT value",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:   true,
+			defaultValue: &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue: &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 99.9}},
+			expectValue:  &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 99.9}},
+			expectStatus: serving.FieldStatus_PRESENT,
+		},
+		{
+			name:             "FLEXIBLE + OUTSIDE_MAX_AGE",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 1.0}},
+			expiredTimestamp: true,
+			expectValue:      &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 1.0}},
+			expectStatus:     serving.FieldStatus_OUTSIDE_MAX_AGE,
+		},
+		{
+			name:           "UNSPECIFIED + NOT_FOUND + has default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED,
+			hasDefault:     true,
+			defaultValue:   &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureDataNil: true,
+			expectValue:    nil,
+			expectStatus:   serving.FieldStatus_NOT_FOUND,
+		},
+		// STRICT mode test cases
+		{
+			name:           "STRICT + NOT_FOUND + has default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:     true,
+			defaultValue:   &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureDataNil: true,
+			expectValue:    &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			expectStatus:   serving.FieldStatus_PRESENT,
+		},
+		{
+			name:         "STRICT + NULL_VALUE + has default",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:   true,
+			defaultValue: &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue: &types.Value{Val: &types.Value_NullVal{}},
+			expectValue:  &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			expectStatus: serving.FieldStatus_PRESENT,
+		},
+		{
+			name:           "STRICT + NOT_FOUND + no default",
+			useDefaults:    serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:     false,
+			featureDataNil: true,
+			expectError:    true,
+			errorContains:  "no default defined",
+		},
+		{
+			name:          "STRICT + NULL_VALUE + no default",
+			useDefaults:   serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:    false,
+			featureValue:  &types.Value{Val: &types.Value_NullVal{}},
+			expectError:   true,
+			errorContains: "no default defined",
+		},
+		{
+			name:         "STRICT + PRESENT value",
+			useDefaults:  serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:   true,
+			defaultValue: &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue: &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 99.9}},
+			expectValue:  &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 99.9}},
+			expectStatus: serving.FieldStatus_PRESENT,
+		},
+		{
+			name:             "STRICT + OUTSIDE_MAX_AGE",
+			useDefaults:      serving.UseDefaultsMode_USE_DEFAULTS_STRICT,
+			hasDefault:       true,
+			defaultValue:     &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}},
+			featureValue:     &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 1.0}},
+			expiredTimestamp: true,
+			expectValue:      &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 1.0}},
+			expectStatus:     serving.FieldStatus_OUTSIDE_MAX_AGE,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Test with both Arrow and non-Arrow
+			for _, useArrow := range []bool{true, false} {
+				testName := fmt.Sprintf("useArrow=%v", useArrow)
+				t.Run(testName, func(t *testing.T) {
+					arrowAllocator := memory.NewGoAllocator()
+					numRows := 1
+
+					// Create entity
+					entity1 := test.CreateEntityProto("driver", types.ValueType_INT64, "driver")
+
+					// Create feature with or without default
+					var feature *core.FeatureSpecV2
+					if tc.hasDefault {
+						feature = test.CreateFeatureWithDefault("f1", types.ValueType_INT64, tc.defaultValue)
+					} else {
+						feature = test.CreateFeature("f1", types.ValueType_INT64)
+					}
+
+					fv := test.CreateFeatureViewModel("testView", []*core.Entity{entity1}, feature)
+					// Set a TTL for OUTSIDE_MAX_AGE test
+					fv.Ttl = &durationpb.Duration{Seconds: 3600} // 1 hour TTL
+
+					featureViews := []*FeatureViewAndRefs{
+						{View: fv, FeatureRefs: []string{"f1"}},
+					}
+
+					entityKeys := []*types.EntityKey{
+						{
+							JoinKeys:     []string{"driver"},
+							EntityValues: []*types.Value{{Val: &types.Value_Int64Val{Int64Val: 1}}},
+						},
+					}
+
+					groupRef := &GroupedFeaturesPerEntitySet{
+						FeatureNames:        []string{"f1"},
+						FeatureViewNames:    []string{"testView"},
+						AliasedFeatureNames: []string{"testView__f1"},
+						EntityKeys:          entityKeys,
+						Indices:             [][]int{{0}},
+					}
+
+					nowTime := time.Now()
+					// Use old timestamp for OUTSIDE_MAX_AGE test (2 hours old, TTL is 1 hour)
+					timestampToUse := nowTime
+					if tc.expiredTimestamp {
+						timestampToUse = nowTime.Add(-2 * time.Hour)
+					}
+					var featureData [][]onlinestore.FeatureData
+
+					if tc.featureDataNil {
+						// Simulate NOT_FOUND by nil row
+						featureData = [][]onlinestore.FeatureData{nil}
+					} else if tc.featureValue == nil || tc.featureValue.Val == nil {
+						// Create feature data with NULL value
+						featureData = [][]onlinestore.FeatureData{
+							{
+								{
+									Reference: serving.FeatureReferenceV2{
+										FeatureViewName: "testView",
+										FeatureName:     "f1",
+									},
+									Timestamp: timestamppb.Timestamp{Seconds: timestampToUse.Unix()},
+									Value:     types.Value{Val: &types.Value_NullVal{}},
+								},
+							},
+						}
+					} else {
+						// Create feature data with the specified value
+						featureData = [][]onlinestore.FeatureData{
+							{
+								{
+									Reference: serving.FeatureReferenceV2{
+										FeatureViewName: "testView",
+										FeatureName:     "f1",
+									},
+									Timestamp: timestamppb.Timestamp{Seconds: timestampToUse.Unix()},
+									Value:     types.Value{Val: tc.featureValue.Val},
+								},
+							},
+						}
+					}
+
+					// Call TransposeFeatureRowsIntoColumns with useDefaults parameter
+					vectors, err := TransposeFeatureRowsIntoColumns(featureData, groupRef, featureViews, arrowAllocator, numRows, useArrow, tc.useDefaults)
+
+					// Handle error expectations
+					if tc.expectError {
+						assert.Error(t, err)
+						if tc.errorContains != "" {
+							assert.Contains(t, err.Error(), tc.errorContains)
+						}
+						return
+					}
+
+					assert.NoError(t, err)
+					assert.Len(t, vectors, 1)
+					vector := vectors[0]
+
+					// Get proto values for comparison
+					protoValues, err := vector.GetProtoValues()
+					assert.NoError(t, err)
+
+					if useArrow {
+						vector.Values.(arrow.Array).Release()
+					}
+
+					// Check status
+					assert.Equal(t, tc.expectStatus, vector.Statuses[0], "Status mismatch")
+
+					// Check value
+					if tc.expectValue == nil {
+						// Arrow conversion creates empty Value objects for nil, non-Arrow returns nil
+						if useArrow {
+							assert.NotNil(t, protoValues[0], "Arrow should create non-nil Value")
+							assert.Nil(t, protoValues[0].Val, "Arrow Value.Val should be nil")
+						} else {
+							assert.Nil(t, protoValues[0], "Non-Arrow should return nil value")
+						}
+					} else {
+						assert.NotNil(t, protoValues[0], "Expected non-nil value")
+						assert.True(t, proto.Equal(tc.expectValue, protoValues[0]), "Value mismatch")
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestFieldDefaultValueLoadedFromProto(t *testing.T) {
+	// Create a FeatureSpecV2 proto with a default value
+	defaultVal := &types.Value{Val: &types.Value_Int64Val{Int64Val: 42}}
+	featureProto := test.CreateFeatureWithDefault("feature_with_default", types.ValueType_INT64, defaultVal)
+
+	// Create a FeatureView from proto (this is how Feature Server loads metadata)
+	entity := test.CreateEntityProto("driver", types.ValueType_INT64, "driver")
+	fvProto := test.CreateFeatureViewProto("test_fv", []*core.Entity{entity}, featureProto)
+	fv := model.NewFeatureViewFromProto(fvProto)
+
+	// Verify the default value is loaded into the in-memory model
+	require.Len(t, fv.Base.Features, 1)
+	field := fv.Base.Features[0]
+	assert.Equal(t, "feature_with_default", field.Name)
+	require.NotNil(t, field.DefaultValue, "DefaultValue must be loaded from proto")
+	assert.Equal(t, int64(42), field.DefaultValue.GetInt64Val())
+
+	// Also verify a feature WITHOUT default has nil DefaultValue
+	featureNoDefault := test.CreateFeature("feature_no_default", types.ValueType_INT64)
+	fvProto2 := test.CreateFeatureViewProto("test_fv2", []*core.Entity{entity}, featureNoDefault)
+	fv2 := model.NewFeatureViewFromProto(fvProto2)
+	require.Len(t, fv2.Base.Features, 1)
+	assert.Nil(t, fv2.Base.Features[0].DefaultValue, "Feature without proto default must have nil DefaultValue")
 }

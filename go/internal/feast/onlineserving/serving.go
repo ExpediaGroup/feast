@@ -751,12 +751,23 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 	requestedFeatureViews []*FeatureViewAndRefs,
 	arrowAllocator memory.Allocator,
 	numRows int,
-	useArrow bool) ([]*FeatureVector, error) {
+	useArrow bool,
+	useDefaults serving.UseDefaultsMode) ([]*FeatureVector, error) {
 
 	numFeatures := len(groupRef.AliasedFeatureNames)
 	fvs := make(map[string]*model.FeatureView)
 	for _, viewAndRefs := range requestedFeatureViews {
 		fvs[viewAndRefs.View.Base.Name] = viewAndRefs.View
+	}
+
+	// Build feature name -> default value lookup for defaulting
+	featureDefaults := make(map[string]*prototypes.Value)
+	for _, viewAndRefs := range requestedFeatureViews {
+		for _, field := range viewAndRefs.View.Base.Features {
+			if field.DefaultValue != nil {
+				featureDefaults[field.Name] = field.DefaultValue
+			}
+		}
 	}
 
 	var featureData *onlinestore.FeatureData
@@ -801,6 +812,47 @@ func TransposeFeatureRowsIntoColumns(featureData2D [][]onlinestore.FeatureData,
 					status = serving.FieldStatus_PRESENT
 				}
 			}
+
+			// Apply defaults for NOT_FOUND and NULL_VALUE statuses
+			if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE {
+				if status == serving.FieldStatus_NOT_FOUND || status == serving.FieldStatus_NULL_VALUE {
+					featureName := groupRef.FeatureNames[featureIndex]
+					if defaultVal, ok := featureDefaults[featureName]; ok {
+						// Create new Value to avoid mutating shared default
+						value = &prototypes.Value{Val: defaultVal.Val}
+						status = serving.FieldStatus_PRESENT
+						featureViewName := groupRef.FeatureViewNames[featureIndex]
+						log.Debug().
+							Str("feature_view", featureViewName).
+							Str("feature_name", featureName).
+							Str("mode", "FLEXIBLE").
+							Msg("Applied default value to feature")
+					}
+				}
+			} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
+				// STRICT mode: first validate all NULL/NOT_FOUND have defaults, then apply
+				if status == serving.FieldStatus_NOT_FOUND || status == serving.FieldStatus_NULL_VALUE {
+					featureName := groupRef.FeatureNames[featureIndex]
+					if _, ok := featureDefaults[featureName]; !ok {
+						// No default defined - return error
+						featureViewName := groupRef.FeatureViewNames[featureIndex]
+						return nil, errors.GrpcInvalidArgumentErrorf(
+							"feature '%s' in feature view '%s' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)",
+							featureName, featureViewName)
+					}
+					// Default exists, apply it
+					defaultVal := featureDefaults[featureName]
+					value = &prototypes.Value{Val: defaultVal.Val}
+					status = serving.FieldStatus_PRESENT
+					featureViewName := groupRef.FeatureViewNames[featureIndex]
+					log.Debug().
+						Str("feature_view", featureViewName).
+						Str("feature_name", featureName).
+						Str("mode", "STRICT").
+						Msg("Applied default value to feature")
+				}
+			}
+
 			for _, rowIndex := range outputIndexes {
 				protoValues[rowIndex] = value
 				currentVector.Statuses[rowIndex] = status
@@ -828,12 +880,23 @@ func TransposeRangeFeatureRowsIntoColumns(
 	sortedViews []*SortedFeatureViewAndRefs,
 	arrowAllocator memory.Allocator,
 	numRows int,
-	useArrow bool) ([]*RangeFeatureVector, error) {
+	useArrow bool,
+	useDefaults serving.UseDefaultsMode) ([]*RangeFeatureVector, error) {
 
 	numFeatures := len(groupRef.AliasedFeatureNames)
 	sfvs := make(map[string]*model.SortedFeatureView)
 	for _, viewAndRefs := range sortedViews {
 		sfvs[viewAndRefs.View.Base.Name] = viewAndRefs.View
+	}
+
+	// Build feature name -> default value lookup for range defaulting
+	featureDefaults := make(map[string]*prototypes.Value)
+	for _, viewAndRefs := range sortedViews {
+		for _, field := range viewAndRefs.View.Base.Features {
+			if field.DefaultValue != nil {
+				featureDefaults[field.Name] = field.DefaultValue
+			}
+		}
 	}
 
 	vectors := make([]*RangeFeatureVector, numFeatures)
@@ -849,7 +912,7 @@ func TransposeRangeFeatureRowsIntoColumns(
 
 		for rowEntityIndex, outputIndexes := range groupRef.Indices {
 			rangeValues, rangeStatuses, rangeTimestamps, err := processFeatureRowData(
-				featureData2D, rowEntityIndex, featureIndex, sfvs)
+				featureData2D, rowEntityIndex, featureIndex, sfvs, useDefaults, featureDefaults, groupRef.FeatureNames[featureIndex])
 			if err != nil {
 				return nil, err
 			}
@@ -891,7 +954,10 @@ func processFeatureRowData(
 	featureData2D [][]onlinestore.RangeFeatureData,
 	rowEntityIndex int,
 	featureIndex int,
-	sfvs map[string]*model.SortedFeatureView) ([]*prototypes.Value, []serving.FieldStatus, []*timestamppb.Timestamp, error) {
+	sfvs map[string]*model.SortedFeatureView,
+	useDefaults serving.UseDefaultsMode,
+	featureDefaults map[string]*prototypes.Value,
+	featureName string) ([]*prototypes.Value, []serving.FieldStatus, []*timestamppb.Timestamp, error) {
 
 	if featureData2D[rowEntityIndex] == nil || len(featureData2D[rowEntityIndex]) <= featureIndex {
 		return make([]*prototypes.Value, 0),
@@ -908,6 +974,43 @@ func processFeatureRowData(
 	}
 
 	if featureData.Values == nil {
+		// Apply defaults for entity-not-found case
+		if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE {
+			if defaultVal, ok := featureDefaults[featureName]; ok {
+				rangeValues := make([]*prototypes.Value, 1)
+				rangeValues[0] = &prototypes.Value{Val: defaultVal.Val}
+				rangeStatuses := make([]serving.FieldStatus, 1)
+				rangeStatuses[0] = serving.FieldStatus_PRESENT
+				rangeTimestamps := make([]*timestamppb.Timestamp, 1)
+				rangeTimestamps[0] = &timestamppb.Timestamp{}
+				log.Debug().
+					Str("feature_view", featureViewName).
+					Str("feature_name", featureName).
+					Str("mode", "FLEXIBLE").
+					Msg("Applied default value to feature (entity not found)")
+				return rangeValues, rangeStatuses, rangeTimestamps, nil
+			}
+		} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
+			// STRICT mode: entity-not-found requires default
+			if defaultVal, ok := featureDefaults[featureName]; ok {
+				rangeValues := make([]*prototypes.Value, 1)
+				rangeValues[0] = &prototypes.Value{Val: defaultVal.Val}
+				rangeStatuses := make([]serving.FieldStatus, 1)
+				rangeStatuses[0] = serving.FieldStatus_PRESENT
+				rangeTimestamps := make([]*timestamppb.Timestamp, 1)
+				rangeTimestamps[0] = &timestamppb.Timestamp{}
+				log.Debug().
+					Str("feature_view", featureViewName).
+					Str("feature_name", featureName).
+					Str("mode", "STRICT").
+					Msg("Applied default value to feature (entity not found)")
+				return rangeValues, rangeStatuses, rangeTimestamps, nil
+			}
+			// No default - return error
+			return nil, nil, nil, errors.GrpcInvalidArgumentErrorf(
+				"feature '%s' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)",
+				featureName)
+		}
 		rangeStatuses := make([]serving.FieldStatus, 1)
 		rangeStatuses[0] = serving.FieldStatus_NOT_FOUND
 		rangeTimestamps := make([]*timestamppb.Timestamp, 1)
@@ -928,6 +1031,41 @@ func processFeatureRowData(
 			fieldStatus := featureData.Statuses[i]
 
 			if val == nil {
+				// Apply defaults for nil values (NOT_FOUND or NULL_VALUE)
+				if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE {
+					if (fieldStatus == serving.FieldStatus_NOT_FOUND || fieldStatus == serving.FieldStatus_NULL_VALUE) {
+						if defaultVal, ok := featureDefaults[featureName]; ok {
+							rangeValues[i] = &prototypes.Value{Val: defaultVal.Val}
+							rangeStatuses[i] = serving.FieldStatus_PRESENT
+							rangeTimestamps[i] = eventTimestamp
+							log.Debug().
+								Str("feature_view", featureViewName).
+								Str("feature_name", featureName).
+								Str("mode", "FLEXIBLE").
+								Msg("Applied default value to feature")
+								continue
+						}
+					}
+				} else if useDefaults == serving.UseDefaultsMode_USE_DEFAULTS_STRICT {
+					// STRICT mode: NULL/NOT_FOUND requires default
+					if (fieldStatus == serving.FieldStatus_NOT_FOUND || fieldStatus == serving.FieldStatus_NULL_VALUE) {
+						if defaultVal, ok := featureDefaults[featureName]; ok {
+							rangeValues[i] = &prototypes.Value{Val: defaultVal.Val}
+							rangeStatuses[i] = serving.FieldStatus_PRESENT
+							rangeTimestamps[i] = eventTimestamp
+							log.Debug().
+								Str("feature_view", featureViewName).
+								Str("feature_name", featureName).
+								Str("mode", "STRICT").
+								Msg("Applied default value to feature")
+								continue
+						}
+						// No default - return error
+						return nil, nil, nil, errors.GrpcInvalidArgumentErrorf(
+							"feature '%s' has NULL/NOT_FOUND value but no default defined (use_defaults=STRICT)",
+							featureName)
+					}
+				}
 				rangeValues[i] = nil
 				rangeStatuses[i] = featureData.Statuses[i]
 				rangeTimestamps[i] = eventTimestamp

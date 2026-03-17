@@ -34,6 +34,33 @@ else:
 
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
+class _UseDefaultsMode:
+    ValueType = typing.NewType("ValueType", builtins.int)
+    V: typing_extensions.TypeAlias = ValueType
+
+class _UseDefaultsModeEnumTypeWrapper(google.protobuf.internal.enum_type_wrapper._EnumTypeWrapper[_UseDefaultsMode.ValueType], builtins.type):  # noqa: F821
+    DESCRIPTOR: google.protobuf.descriptor.EnumDescriptor
+    USE_DEFAULTS_UNSPECIFIED: _UseDefaultsMode.ValueType  # 0
+    """Field not set - use server default behavior (currently OFF)"""
+    USE_DEFAULTS_OFF: _UseDefaultsMode.ValueType  # 1
+    """Explicitly disable default replacement"""
+    USE_DEFAULTS_FLEXIBLE: _UseDefaultsMode.ValueType  # 2
+    """Ignore if default missing"""
+    USE_DEFAULTS_STRICT: _UseDefaultsMode.ValueType  # 3
+    """Fail if default is missing"""
+
+class UseDefaultsMode(_UseDefaultsMode, metaclass=_UseDefaultsModeEnumTypeWrapper): ...
+
+USE_DEFAULTS_UNSPECIFIED: UseDefaultsMode.ValueType  # 0
+"""Field not set - use server default behavior (currently OFF)"""
+USE_DEFAULTS_OFF: UseDefaultsMode.ValueType  # 1
+"""Explicitly disable default replacement"""
+USE_DEFAULTS_FLEXIBLE: UseDefaultsMode.ValueType  # 2
+"""Ignore if default missing"""
+USE_DEFAULTS_STRICT: UseDefaultsMode.ValueType  # 3
+"""Fail if default is missing"""
+global___UseDefaultsMode = UseDefaultsMode
+
 class _FieldStatus:
     ValueType = typing.NewType("ValueType", builtins.int)
     V: typing_extensions.TypeAlias = ValueType
@@ -289,6 +316,7 @@ class GetOnlineFeaturesRequest(google.protobuf.message.Message):
     FULL_FEATURE_NAMES_FIELD_NUMBER: builtins.int
     REQUEST_CONTEXT_FIELD_NUMBER: builtins.int
     INCLUDE_METADATA_FIELD_NUMBER: builtins.int
+    USE_DEFAULTS_FIELD_NUMBER: builtins.int
     feature_service: builtins.str
     @property
     def features(self) -> global___FeatureList: ...
@@ -306,6 +334,8 @@ class GetOnlineFeaturesRequest(google.protobuf.message.Message):
         """
     include_metadata: builtins.bool
     """Whether to include the timestamp/status metadata in the response"""
+    use_defaults: global___UseDefaultsMode.ValueType
+    """Mode for handling features with default values when feature value is missing"""
     def __init__(
         self,
         *,
@@ -315,9 +345,10 @@ class GetOnlineFeaturesRequest(google.protobuf.message.Message):
         full_feature_names: builtins.bool = ...,
         request_context: collections.abc.Mapping[builtins.str, feast.types.Value_pb2.RepeatedValue] | None = ...,
         include_metadata: builtins.bool = ...,
+        use_defaults: global___UseDefaultsMode.ValueType = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["feature_service", b"feature_service", "features", b"features", "kind", b"kind"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["entities", b"entities", "feature_service", b"feature_service", "features", b"features", "full_feature_names", b"full_feature_names", "include_metadata", b"include_metadata", "kind", b"kind", "request_context", b"request_context"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["entities", b"entities", "feature_service", b"feature_service", "features", b"features", "full_feature_names", b"full_feature_names", "include_metadata", b"include_metadata", "kind", b"kind", "request_context", b"request_context", "use_defaults", b"use_defaults"]) -> None: ...
     def WhichOneof(self, oneof_group: typing_extensions.Literal["kind", b"kind"]) -> typing_extensions.Literal["feature_service", "features"] | None: ...
 
 global___GetOnlineFeaturesRequest = GetOnlineFeaturesRequest
@@ -499,6 +530,7 @@ class GetOnlineFeaturesRangeRequest(google.protobuf.message.Message):
     LIMIT_FIELD_NUMBER: builtins.int
     REQUEST_CONTEXT_FIELD_NUMBER: builtins.int
     INCLUDE_METADATA_FIELD_NUMBER: builtins.int
+    USE_DEFAULTS_FIELD_NUMBER: builtins.int
     feature_service: builtins.str
     @property
     def features(self) -> global___FeatureList: ...
@@ -520,6 +552,8 @@ class GetOnlineFeaturesRangeRequest(google.protobuf.message.Message):
         """
     include_metadata: builtins.bool
     """Whether to include the timestamp and status metadata in the response"""
+    use_defaults: global___UseDefaultsMode.ValueType
+    """Mode for handling features with default values when feature value is missing"""
     def __init__(
         self,
         *,
@@ -532,9 +566,10 @@ class GetOnlineFeaturesRangeRequest(google.protobuf.message.Message):
         limit: builtins.int = ...,
         request_context: collections.abc.Mapping[builtins.str, feast.types.Value_pb2.RepeatedValue] | None = ...,
         include_metadata: builtins.bool = ...,
+        use_defaults: global___UseDefaultsMode.ValueType = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["feature_service", b"feature_service", "features", b"features", "kind", b"kind"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["entities", b"entities", "feature_service", b"feature_service", "features", b"features", "full_feature_names", b"full_feature_names", "include_metadata", b"include_metadata", "kind", b"kind", "limit", b"limit", "request_context", b"request_context", "reverse_sort_order", b"reverse_sort_order", "sort_key_filters", b"sort_key_filters"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["entities", b"entities", "feature_service", b"feature_service", "features", b"features", "full_feature_names", b"full_feature_names", "include_metadata", b"include_metadata", "kind", b"kind", "limit", b"limit", "request_context", b"request_context", "reverse_sort_order", b"reverse_sort_order", "sort_key_filters", b"sort_key_filters", "use_defaults", b"use_defaults"]) -> None: ...
     def WhichOneof(self, oneof_group: typing_extensions.Literal["kind", b"kind"]) -> typing_extensions.Literal["feature_service", "features"] | None: ...
 
 global___GetOnlineFeaturesRangeRequest = GetOnlineFeaturesRangeRequest

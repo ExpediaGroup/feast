@@ -6,13 +6,15 @@ import (
 )
 
 type Field struct {
-	Name  string
-	Dtype types.ValueType_Enum
+	Name         string
+	Dtype        types.ValueType_Enum
+	DefaultValue *types.Value
 }
 
 func NewFieldFromProto(proto *core.FeatureSpecV2) *Field {
 	return &Field{
-		Name:  proto.Name,
-		Dtype: proto.ValueType,
+		Name:         proto.Name,
+		Dtype:        proto.ValueType,
+		DefaultValue: proto.DefaultValue,
 	}
 }

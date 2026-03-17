@@ -245,7 +245,7 @@ func testRedisSimpleFeatures(t *testing.T, fs *FeatureStore) {
 	ctx := context.Background()
 	mr := fs.onlineStore.(*MockRedis)
 	mr.On("OnlineRead", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(results, nil)
-	response, err := fs.GetOnlineFeatures(ctx, featureNames, nil, entities, map[string]*types.RepeatedValue{}, true)
+	response, err := fs.GetOnlineFeatures(ctx, featureNames, nil, entities, map[string]*types.RepeatedValue{}, true, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 	require.NoError(t, err)
 	assert.Len(t, response, 4) // 3 Features + 1 entity = 4 columns (feature vectors) in response
 }
@@ -267,7 +267,7 @@ func testRedisODFVNoTransformationService(t *testing.T, fs *FeatureStore) {
 	ctx := context.Background()
 	mr := fs.onlineStore.(*MockRedis)
 	mr.On("OnlineRead", ctx, mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
-	response, err := fs.GetOnlineFeatures(ctx, featureNames, nil, entities, requestData, true)
+	response, err := fs.GetOnlineFeatures(ctx, featureNames, nil, entities, requestData, true, serving.UseDefaultsMode_USE_DEFAULTS_OFF)
 	assert.Nil(t, response)
 	assert.ErrorAs(t, err, &FeastTransformationServiceNotConfigured{})
 
@@ -482,6 +482,7 @@ func TestGetOnlineFeaturesRange(t *testing.T) {
 		0,
 		nil,
 		true,
+		serving.UseDefaultsMode_USE_DEFAULTS_OFF,
 	)
 
 	assert.NoError(t, err)
@@ -538,7 +539,8 @@ func testGetOnlineFeaturesRange(
 	reverseSortOrder bool,
 	limit int32,
 	requestData map[string]*types.RepeatedValue,
-	fullFeatureNames bool) ([]*onlineserving.RangeFeatureVector, error) {
+	fullFeatureNames bool,
+	useDefaults serving.UseDefaultsMode) ([]*onlineserving.RangeFeatureVector, error) {
 
 	sortedFeatureViews := make([]*onlineserving.SortedFeatureViewAndRefs, 0)
 	for _, view := range sortedViews {
@@ -608,6 +610,7 @@ func testGetOnlineFeaturesRange(
 			arrowAllocator,
 			numRows,
 			false,
+			useDefaults,
 		)
 		if err != nil {
 			return nil, err

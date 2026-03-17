@@ -79,7 +79,8 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		featuresOrService.FeatureService,
 		request.GetEntities(),
 		request.GetRequestContext(),
-		request.GetFullFeatureNames())
+		request.GetFullFeatureNames(),
+		request.GetUseDefaults())
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
@@ -161,6 +162,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		request.GetLimit(),
 		request.GetRequestContext(),
 		request.GetFullFeatureNames(),
+		request.GetUseDefaults(),
 	)
 
 	if err != nil {

@@ -318,6 +318,23 @@ type getOnlineFeaturesRequest struct {
 	Entities         map[string]repeatedValue `json:"entities"`
 	FullFeatureNames bool                     `json:"full_feature_names"`
 	RequestContext   map[string]repeatedValue `json:"request_context"`
+	UseDefaults      *string                  `json:"use_defaults"`
+}
+
+func parseUseDefaultsMode(mode *string) (serving.UseDefaultsMode, error) {
+	if mode == nil {
+		return serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED, nil
+	}
+	switch strings.ToUpper(*mode) {
+	case "OFF":
+		return serving.UseDefaultsMode_USE_DEFAULTS_OFF, nil
+	case "FLEXIBLE":
+		return serving.UseDefaultsMode_USE_DEFAULTS_FLEXIBLE, nil
+	case "STRICT":
+		return serving.UseDefaultsMode_USE_DEFAULTS_STRICT, nil
+	default:
+		return serving.UseDefaultsMode_USE_DEFAULTS_UNSPECIFIED, fmt.Errorf("invalid use_defaults mode: %s (valid values: OFF, FLEXIBLE, STRICT)", *mode)
+	}
 }
 
 func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingService) *HttpServer {
@@ -404,13 +421,23 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		requestContextProto[key] = value.ToProto()
 	}
 
+
+	useDefaultsMode, err := parseUseDefaultsMode(request.UseDefaults)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Invalid use_defaults mode")
+		writeJSONError(w, err, http.StatusBadRequest)
+		return
+	}
+
 	featureVectors, err = s.fs.GetOnlineFeatures(
 		ctx,
 		request.Features,
 		featureService,
 		entitiesProto,
 		requestContextProto,
-		request.FullFeatureNames)
+		request.FullFeatureNames,
+		useDefaultsMode)
+
 
 	defer func() {
 		if featureVectors != nil {
@@ -520,6 +547,7 @@ type getOnlineFeaturesRangeRequest struct {
 	Limit            int32                    `json:"limit"`
 	FullFeatureNames bool                     `json:"full_feature_names"`
 	RequestContext   map[string]repeatedValue `json:"request_context"`
+	UseDefaults      *string                  `json:"use_defaults"`
 }
 
 type sortKeyFilter struct {
@@ -605,6 +633,14 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+
+	useDefaultsMode, err := parseUseDefaultsMode(request.UseDefaults)
+	if err != nil {
+		logSpanContext.Error().Err(err).Msg("Invalid use_defaults mode")
+		writeJSONError(w, err, http.StatusBadRequest)
+		return
+	}
+
 	rangeFeatureVectors, err := s.fs.GetOnlineFeaturesRange(
 		ctx,
 		request.Features,
@@ -614,7 +650,9 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		request.ReverseSortOrder,
 		request.Limit,
 		requestContextProto,
-		request.FullFeatureNames)
+		request.FullFeatureNames,
+		useDefaultsMode)
+
 
 	defer func() {
 		if rangeFeatureVectors != nil {

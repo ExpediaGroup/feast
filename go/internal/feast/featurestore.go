@@ -193,7 +193,8 @@ func (fs *FeatureStore) GetOnlineFeatures(
 	featureService *model.FeatureService,
 	joinKeyToEntityValues map[string]*prototypes.RepeatedValue,
 	requestData map[string]*prototypes.RepeatedValue,
-	fullFeatureNames bool) ([]*onlineserving.FeatureVector, error) {
+	fullFeatureNames bool,
+	useDefaults serving.UseDefaultsMode) ([]*onlineserving.FeatureVector, error) {
 	var err error
 	var requestedFeatureViews []*onlineserving.FeatureViewAndRefs
 	var requestedOnDemandFeatureViews []*model.OnDemandFeatureView
@@ -294,6 +295,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						arrowMemory,
 						numRows,
 						transformationRequired,
+						useDefaults,
 					)
 					if err != nil {
 						return err
@@ -336,6 +338,7 @@ func (fs *FeatureStore) GetOnlineFeatures(
 						arrowMemory,
 						numRows,
 						transformationRequired,
+						useDefaults,
 					)
 					if err != nil {
 						return err
@@ -395,7 +398,8 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 	reverseSortOrder bool,
 	limit int32,
 	requestData map[string]*prototypes.RepeatedValue,
-	fullFeatureNames bool) ([]*onlineserving.RangeFeatureVector, error) {
+	fullFeatureNames bool,
+	useDefaults serving.UseDefaultsMode) ([]*onlineserving.RangeFeatureVector, error) {
 
 	if requestData == nil {
 		requestData = make(map[string]*prototypes.RepeatedValue)
@@ -509,6 +513,7 @@ func (fs *FeatureStore) GetOnlineFeaturesRange(
 			arrowMemory,
 			numRows,
 			false,
+			useDefaults,
 		)
 		if err != nil {
 			return nil, err
