@@ -1,19 +1,12 @@
-from typing import Annotated, Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from google.protobuf.json_format import MessageToDict, ParseDict
-from pydantic import BaseModel, ConfigDict, PlainSerializer, field_validator
+from pydantic import BaseModel, ConfigDict, field_serializer, field_validator
 from typing_extensions import Self
 
 from feast.field import Field
 from feast.protos.feast.types import Value_pb2 as ValueProto
 from feast.types import Array, PrimitiveFeastType
-
-
-def serialize_proto_value(v: Optional[ValueProto.Value]) -> Optional[Dict[str, Any]]:
-    """Serialize proto Value to JSON-compatible dict."""
-    if v is None:
-        return None
-    return MessageToDict(v, preserving_proto_field_name=False)
 
 
 class FieldModel(BaseModel):
@@ -28,14 +21,25 @@ class FieldModel(BaseModel):
     vector_index: bool = False
     vector_length: int = 0
     vector_search_metric: Optional[str] = None
-    default_value: Annotated[
-        Optional[ValueProto.Value],
-        PlainSerializer(serialize_proto_value, return_type=Optional[Dict[str, Any]]),
-    ] = None
+    default_value: Optional[ValueProto.Value] = None
 
     model_config = ConfigDict(
-        arbitrary_types_allowed=True, json_schema_serialization_defaults_required=False
+        arbitrary_types_allowed=True,
+        json_schema_serialization_defaults_required=False,
     )
+
+    @field_serializer("default_value", return_type=Optional[Dict[str, Any]])
+    def _serialize_default_value(
+        self, value: Optional[ValueProto.Value], _info
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Serialize proto Value to JSON-compatible dict using MessageToDict.
+        Returns camelCase keys (int64Val, stringVal, etc.) per proto JSON format.
+        Returns None for fields without defaults.
+        """
+        if value is None:
+            return None
+        return MessageToDict(value, preserving_proto_field_name=False)
 
     @field_validator("default_value", mode="before")
     @classmethod
