@@ -74,8 +74,6 @@ def _write_with_retry(
         Exception: The last exception if all retries are exhausted or if a
                    non-transient error occurs
     """
-    last_exception: Optional[Exception] = None
-
     for attempt in range(max_retries + 1):
         try:
             write_fn()
@@ -85,8 +83,6 @@ def _write_with_retry(
                 )
             return  # Success
         except Exception as e:
-            last_exception = e
-
             if not _is_transient_error(e):
                 # Permanent error - don't retry, bubble up immediately
                 logger.error(
