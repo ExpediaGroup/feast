@@ -37,7 +37,6 @@ TRANSIENT_ERROR_PATTERNS = [
     "nohostsavailable",
     "connection refused",
     "connection reset",
-    "timeout",
     "overloaded",
 ]
 
@@ -397,15 +396,16 @@ class SparkKafkaProcessor(StreamProcessor):
             .start()
         )
 
-        query.awaitTermination(timeout=self.query_timeout)
+        terminated = query.awaitTermination(timeout=self.query_timeout)
 
-        # Check if the query terminated with an error and propagate it
-        # This ensures exceptions from batch_write() bubble up to the caller
-        query_exception = query.exception()
-        if query_exception is not None:
-            logger.error(
-                f"Streaming query terminated with exception: {query_exception}"
-            )
-            raise query_exception
+        if terminated:
+            # Query terminated before timeout - check if it was an error
+            # This ensures exceptions from batch_write() bubble up to the caller
+            query_exception = query.exception()
+            if query_exception is not None:
+                logger.error(
+                    f"Streaming query terminated with exception: {query_exception}"
+                )
+                raise query_exception
 
         return query
