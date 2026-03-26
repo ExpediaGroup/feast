@@ -1,10 +1,11 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from feast.infra.contrib.spark_kafka_processor import (
+    TRANSIENT_ERROR_PATTERNS,
     _is_transient_error,
     _write_with_retry,
-    TRANSIENT_ERROR_PATTERNS,
 )
 
 
@@ -265,7 +266,9 @@ class TestTransientErrorPatterns:
     def test_all_patterns_are_lowercase(self):
         """All patterns should be lowercase for case-insensitive matching."""
         for pattern in TRANSIENT_ERROR_PATTERNS:
-            assert pattern == pattern.lower(), f"Pattern '{pattern}' is not lowercase"
+            assert (
+                pattern == pattern.lower()
+            ), f"Pattern '{pattern}' is not lowercase"
 
     def test_expected_patterns_present(self):
         """Verify expected Cassandra/ScyllaDB patterns are present."""
@@ -277,7 +280,9 @@ class TestTransientErrorPatterns:
             "nohostsavailable",
         ]
         for pattern in expected_patterns:
-            assert pattern in TRANSIENT_ERROR_PATTERNS, f"Expected pattern '{pattern}' not found"
+            assert (
+                pattern in TRANSIENT_ERROR_PATTERNS
+            ), f"Expected pattern '{pattern}' not found"
 
     def test_generic_timeout_not_present(self):
         """Generic 'timeout' pattern should not be present (too broad)."""
