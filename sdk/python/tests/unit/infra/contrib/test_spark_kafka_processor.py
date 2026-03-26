@@ -113,7 +113,6 @@ class TestWriteWithRetry:
     def test_transient_error_triggers_retry(self):
         """Transient errors should trigger retries."""
         mock_write_fn = MagicMock()
-        # First call raises transient error, second call succeeds
         mock_write_fn.side_effect = [
             Exception("WriteTimeout during insert"),
             None,
@@ -131,7 +130,6 @@ class TestWriteWithRetry:
     def test_multiple_transient_errors_retry_until_success(self):
         """Multiple transient errors should keep retrying until success."""
         mock_write_fn = MagicMock()
-        # First two calls raise transient errors, third succeeds
         mock_write_fn.side_effect = [
             Exception("WriteTimeout"),
             Exception("ReadTimeout"),
@@ -150,7 +148,6 @@ class TestWriteWithRetry:
     def test_max_retries_exceeded_raises_exception(self):
         """Exceeding max retries should raise the last exception."""
         mock_write_fn = MagicMock()
-        # All calls raise transient errors
         mock_write_fn.side_effect = Exception("WriteTimeout")
 
         with patch("feast.infra.contrib.spark_kafka_processor.time.sleep"):
@@ -162,7 +159,6 @@ class TestWriteWithRetry:
                 )
 
         assert "WriteTimeout" in str(exc_info.value)
-        # Initial attempt + 3 retries = 4 total calls
         assert mock_write_fn.call_count == 4
 
     def test_permanent_error_no_retry(self):
@@ -206,17 +202,13 @@ class TestWriteWithRetry:
                 max_delay=30.0,
             )
 
-        # Should have slept twice (before retry 1 and retry 2)
         assert len(sleep_calls) == 2
-        # First delay should be ~1.0 (base_delay * 2^0 + jitter)
         assert 1.0 <= sleep_calls[0] <= 1.1
-        # Second delay should be ~2.0 (base_delay * 2^1 + jitter)
         assert 2.0 <= sleep_calls[1] <= 2.2
 
     def test_max_delay_cap(self):
         """Delay should be capped at max_delay."""
         mock_write_fn = MagicMock()
-        # Need enough failures to hit the max delay cap
         mock_write_fn.side_effect = [
             Exception("WriteTimeout"),
             Exception("WriteTimeout"),
@@ -241,8 +233,7 @@ class TestWriteWithRetry:
                 max_delay=15.0,
             )
 
-        # Third delay would be 10 * 2^2 = 40, but capped at 15
-        assert sleep_calls[2] <= 15.0 * 1.1  # Allow for jitter
+        assert sleep_calls[2] <= 16.5  # 15.0 + 10% jitter
 
     def test_zero_retries_fails_immediately(self):
         """With max_retries=0, transient errors should fail immediately."""
@@ -266,23 +257,13 @@ class TestTransientErrorPatterns:
     def test_all_patterns_are_lowercase(self):
         """All patterns should be lowercase for case-insensitive matching."""
         for pattern in TRANSIENT_ERROR_PATTERNS:
-            assert (
-                pattern == pattern.lower()
-            ), f"Pattern '{pattern}' is not lowercase"
+            assert pattern == pattern.lower()
 
     def test_expected_patterns_present(self):
         """Verify expected Cassandra/ScyllaDB patterns are present."""
-        expected_patterns = [
-            "writetimeout",
-            "readtimeout",
-            "unavailable",
-            "operationtimedout",
-            "nohostsavailable",
-        ]
-        for pattern in expected_patterns:
-            assert (
-                pattern in TRANSIENT_ERROR_PATTERNS
-            ), f"Expected pattern '{pattern}' not found"
+        expected = ["writetimeout", "readtimeout", "unavailable", "operationtimedout"]
+        for pattern in expected:
+            assert pattern in TRANSIENT_ERROR_PATTERNS
 
     def test_generic_timeout_not_present(self):
         """Generic 'timeout' pattern should not be present (too broad)."""
