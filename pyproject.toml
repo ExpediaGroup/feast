@@ -246,7 +246,7 @@ requires = [
   "pybindgen==0.22.0",
   # https://amitylearning.vercel.app/?question=git-1742419854670&update=1742342400027
   "setuptools>=60,<81",
-  "setuptools_scm>=6.2",
+  "setuptools_scm>=6.2,<10",
   "sphinx!=4.0.0",
   "wheel",
 ]

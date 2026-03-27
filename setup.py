@@ -411,6 +411,6 @@ setup(
     use_scm_version=use_scm_version,
     setup_requires=[
         "pybindgen==0.22.0",
-        "setuptools_scm>=6.2",
+        "setuptools_scm>=6.2,<10",
     ],
 )
