@@ -26,6 +26,8 @@ from feast.utils import (
     to_naive_utc,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
     """
@@ -518,6 +520,10 @@ def _encode_feature_value(value: ValueProto, is_vector: bool = False) -> Dict[st
         vector_val = get_list_val_str(value)
         if vector_val:
             result["vector_value"] = json.loads(vector_val)
+        else:
+            logger.warning(
+                "Feature is marked as vector but value does not contain a valid vector."
+            )
     if value.HasField("string_val"):
         result["value_text"] = value.string_val
     elif value.HasField("bytes_val"):
