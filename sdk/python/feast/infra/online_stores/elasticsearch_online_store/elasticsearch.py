@@ -93,6 +93,8 @@ class ElasticSearchOnlineStore(OnlineStore):
         ],
         progress: Optional[Callable[[int], Any]],
     ) -> None:
+        vector_field = _get_feature_view_vector_field_metadata(table)
+        vector_field_name = vector_field.name if vector_field else None
         insert_values = []
         grouped_docs: dict[str, dict[str, Any]] = defaultdict(
             lambda: {
@@ -115,7 +117,9 @@ class ElasticSearchOnlineStore(OnlineStore):
             doc_key = f"{encoded_entity_key}_{timestamp}"
 
             for feature_name, value in values.items():
-                doc = _encode_feature_value(value)
+                doc = _encode_feature_value(
+                    value, is_vector=(feature_name == vector_field_name)
+                )
                 grouped_docs[doc_key]["features"][feature_name] = doc
                 grouped_docs[doc_key]["timestamp"] = timestamp
                 grouped_docs[doc_key]["created_ts"] = created_ts
@@ -299,8 +303,11 @@ class ElasticSearchOnlineStore(OnlineStore):
                 Optional[ValueProto],
             ]
         ] = []
+        vector_field = _get_feature_view_vector_field_metadata(table)
         vector_field_path = (
-            config.online_store.vector_field_path or "embedding.vector_value"
+            f"{vector_field.name}.vector_value"
+            if vector_field
+            else config.online_store.vector_field_path or "embedding.vector_value"
         )
         query = {
             "script_score": {
@@ -384,10 +391,21 @@ class ElasticSearchOnlineStore(OnlineStore):
         body["_source"] = source_fields
 
         if embedding:
-            similarity = (distance_metric or config.online_store.similarity).lower()
+            vector_field = _get_feature_view_vector_field_metadata(table)
             vector_field_path = (
-                config.online_store.vector_field_path or "embedding.vector_value"
+                f"{vector_field.name}.vector_value"
+                if vector_field
+                else config.online_store.vector_field_path or "embedding.vector_value"
             )
+            similarity = (
+                distance_metric
+                or (
+                    vector_field.vector_search_metric
+                    if vector_field and vector_field.vector_search_metric
+                    else None
+                )
+                or config.online_store.similarity
+            ).lower()
             if similarity == "cosine":
                 script = f"cosineSimilarity(params.query_vector, '{vector_field_path}') + 1.0"
             elif similarity == "dot_product":
@@ -489,16 +507,19 @@ def _to_value_proto(value: Any) -> ValueProto:
     return val_proto
 
 
-def _encode_feature_value(value: ValueProto) -> Dict[str, Any]:
+def _encode_feature_value(
+    value: ValueProto, is_vector: bool = False
+) -> Dict[str, Any]:
     """
     Encode a ValueProto into a dictionary for Elasticsearch storage.
     """
     encoded_value = base64.b64encode(value.SerializeToString()).decode("utf-8")
     result = {"feature_value": encoded_value}
-    vector_val = get_list_val_str(value)
 
-    if vector_val:
-        result["vector_value"] = json.loads(vector_val)
+    if is_vector:
+        vector_val = get_list_val_str(value)
+        if vector_val:
+            result["vector_value"] = json.loads(vector_val)
     if value.HasField("string_val"):
         result["value_text"] = value.string_val
     elif value.HasField("bytes_val"):
