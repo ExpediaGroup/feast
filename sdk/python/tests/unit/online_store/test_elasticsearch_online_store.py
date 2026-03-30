@@ -2,14 +2,15 @@ import base64
 
 import pytest
 
+from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+    _encode_feature_value,
+)
 from feast.protos.feast.types.Value_pb2 import (
     FloatList,
     Int64List,
-    Value as ValueProto,
 )
-
-from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
-    _encode_feature_value,
+from feast.protos.feast.types.Value_pb2 import (
+    Value as ValueProto,
 )
 
 

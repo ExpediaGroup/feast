@@ -507,9 +507,7 @@ def _to_value_proto(value: Any) -> ValueProto:
     return val_proto
 
 
-def _encode_feature_value(
-    value: ValueProto, is_vector: bool = False
-) -> Dict[str, Any]:
+def _encode_feature_value(value: ValueProto, is_vector: bool = False) -> Dict[str, Any]:
     """
     Encode a ValueProto into a dictionary for Elasticsearch storage.
     """
