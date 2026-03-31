@@ -211,8 +211,9 @@ class ElasticSearchOnlineStore(OnlineStore):
             config: Feast repo configuration object.
             table: FeatureView table for which the index needs to be created.
         """
-        vector_field_length = getattr(
-            _get_feature_view_vector_field_metadata(table), "vector_length", 512
+        vector_field_length = (
+            getattr(_get_feature_view_vector_field_metadata(table), "vector_length", 0)
+            or 512
         )
 
         index_mapping = {

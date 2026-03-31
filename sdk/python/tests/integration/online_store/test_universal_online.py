@@ -1167,7 +1167,12 @@ def test_retrieve_online_documents_v2(environment, fake_document_data):
         name="item_embeddings",
         entities=[item],
         schema=[
-            Field(name="embedding", dtype=Array(Float32), vector_index=True),
+            Field(
+                name="embedding",
+                dtype=Array(Float32),
+                vector_index=True,
+                vector_length=2,
+            ),
             Field(name="text_field", dtype=String),
             Field(name="category", dtype=String),
             Field(name="item_id", dtype=Int64),
