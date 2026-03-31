@@ -27,28 +27,40 @@ from typing import (
     Literal,
     Optional,
     Sequence,
+    Set,
     Tuple,
     Union,
 )
 
+import numpy as np
 from google.protobuf.timestamp_pb2 import Timestamp
 from pydantic import StrictStr
-from valkey.exceptions import ValkeyError
+from valkey.exceptions import ResponseError, ValkeyError
 
 from feast import Entity, FeatureView, RepoConfig, utils
+from feast.field import Field
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.helpers import _mmh3, _redis_key, _redis_key_prefix
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
-from feast.protos.feast.types.Value_pb2 import Value as ValueProto
+from feast.protos.feast.types.Value_pb2 import (
+    DoubleList,
+    FloatList,
+)
+from feast.protos.feast.types.Value_pb2 import (
+    Value as ValueProto,
+)
 from feast.repo_config import FeastConfigBaseModel
 from feast.sorted_feature_view import SortedFeatureView
+from feast.types import Array, Float32, Float64
 from feast.value_type import ValueType
 
 try:
     from valkey import Valkey
     from valkey import asyncio as valkey_asyncio
     from valkey.cluster import ClusterNode, ValkeyCluster
+    from valkey.commands.search.field import VectorField
+    from valkey.commands.search.indexDefinition import IndexDefinition, IndexType
     from valkey.sentinel import Sentinel
 except ImportError as e:
     from feast.errors import FeastExtrasDependencyImportError
@@ -56,6 +68,90 @@ except ImportError as e:
     raise FeastExtrasDependencyImportError("eg-valkey", str(e))
 
 logger = logging.getLogger(__name__)
+
+
+def _get_vector_index_name(project: str, feature_view_name: str) -> str:
+    """Generate Valkey Search index name for vector fields."""
+    return f"{project}_{feature_view_name}_vidx"
+
+
+def _get_valkey_vector_type(feast_dtype) -> str:
+    """
+    Map Feast dtype to Valkey vector TYPE parameter.
+
+    Args:
+        feast_dtype: Feast data type (e.g., Array(Float32))
+
+    Returns:
+        Valkey vector type string: "FLOAT32" or "FLOAT64"
+    """
+    if feast_dtype == Array(Float32):
+        return "FLOAT32"
+    elif feast_dtype == Array(Float64):
+        return "FLOAT64"
+    else:
+        # Default to FLOAT32 for other numeric arrays
+        logger.warning(f"Unsupported vector dtype {feast_dtype}, defaulting to FLOAT32")
+        return "FLOAT32"
+
+
+def _serialize_vector_to_bytes(val: ValueProto, field: Field) -> bytes:
+    """
+    Serialize a vector ValueProto to raw bytes for Valkey storage.
+
+    Vector fields must be stored as raw bytes (not protobuf serialized) to be
+    compatible with Valkey Search FT.SEARCH queries.
+
+    Args:
+        val: The ValueProto containing the vector data
+        field: The Field metadata for dtype and dimension information
+
+    Returns:
+        Raw bytes in the format expected by Valkey vector search
+
+    Raises:
+        ValueError: If vector type is unsupported or dimension mismatches
+    """
+    if val.HasField("float_list_val"):
+        # Float32 array
+        vector = np.array(val.float_list_val.val, dtype=np.float32)
+    elif val.HasField("double_list_val"):
+        # Float64 array
+        vector = np.array(val.double_list_val.val, dtype=np.float64)
+    else:
+        raise ValueError(
+            f"Unsupported vector type for field {field.name}. "
+            f"Expected float_list_val or double_list_val."
+        )
+
+    # Validate dimension matches expected
+    if field.vector_length > 0 and len(vector) != field.vector_length:
+        raise ValueError(
+            f"Vector dimension mismatch for field {field.name}: "
+            f"expected {field.vector_length}, got {len(vector)}"
+        )
+
+    return vector.tobytes()
+
+
+def _deserialize_vector_from_bytes(raw_bytes: bytes, field: Field) -> ValueProto:
+    """
+    Deserialize raw vector bytes back to ValueProto.
+
+    Args:
+        raw_bytes: Raw bytes from Valkey
+        field: Field metadata for dtype information
+
+    Returns:
+        ValueProto with float_list_val or double_list_val
+    """
+    if field.dtype == Array(Float64):
+        vector = np.frombuffer(raw_bytes, dtype=np.float64)
+        return ValueProto(double_list_val=DoubleList(val=vector.tolist()))
+    else:
+        # Default to Float32
+        vector = np.frombuffer(raw_bytes, dtype=np.float32)
+        return ValueProto(float_list_val=FloatList(val=vector.tolist()))
 
 
 class EGValkeyType(str, Enum):
@@ -99,6 +195,19 @@ class EGValkeyOnlineStoreConfig(FeastConfigBaseModel):
 
     max_pipeline_commands: Optional[int] = 500
     """(Optional) The maximum number of Valkey commands to queue in a pipeline before sending them to Valkey in a single batch."""
+
+    # Vector search configuration
+    vector_index_algorithm: Literal["FLAT", "HNSW"] = "HNSW"
+    """Algorithm for vector indexing. FLAT for exact search (<100K vectors), HNSW for approximate search (large datasets)."""
+
+    vector_index_hnsw_m: Optional[int] = 16
+    """HNSW: Max number of outgoing edges per node."""
+
+    vector_index_hnsw_ef_construction: Optional[int] = 200
+    """HNSW: Size of dynamic candidate list during index construction."""
+
+    vector_index_hnsw_ef_runtime: Optional[int] = 10
+    """HNSW: Size of dynamic candidate list during search."""
 
 
 class EGValkeyOnlineStore(OnlineStore):
@@ -289,6 +398,94 @@ class EGValkeyOnlineStore(OnlineStore):
                 self._client_async = valkey_asyncio.Valkey(**kwargs)
         return self._client_async
 
+    def _create_vector_index_if_not_exists(
+        self,
+        client: Union[Valkey, ValkeyCluster],
+        config: RepoConfig,
+        table: FeatureView,
+        vector_fields: Dict[str, Field],
+    ) -> None:
+        """
+        Create Valkey Search index for vector fields if not already exists.
+
+        Uses FT.CREATE with VECTOR field type and appropriate algorithm parameters.
+
+        Args:
+            client: Valkey client
+            config: Feast repo configuration
+            table: Feature view with vector fields
+            vector_fields: Dictionary of vector field name to Field object
+        """
+        online_store_config = config.online_store
+        assert isinstance(online_store_config, EGValkeyOnlineStoreConfig)
+
+        index_name = _get_vector_index_name(config.project, table.name)
+
+        # Check if index exists
+        try:
+            client.ft(index_name).info()
+            logger.debug(f"Vector index {index_name} already exists")
+            return
+        except ResponseError:
+            pass  # Index doesn't exist, create it
+
+        # Build schema for vector fields
+        schema_fields = []
+
+        for field_name, field in vector_fields.items():
+            # Validate required properties
+            if field.vector_length <= 0:
+                raise ValueError(
+                    f"Field {field_name} has vector_index=True but vector_length is not set. "
+                    f"vector_length must be > 0 for vector indexing."
+                )
+
+            # Determine vector type from Feast dtype
+            vector_type = _get_valkey_vector_type(field.dtype)
+
+            # Build algorithm attributes
+            attributes = {
+                "TYPE": vector_type,  # "FLOAT32" or "FLOAT64"
+                "DIM": field.vector_length,
+                "DISTANCE_METRIC": field.vector_search_metric or "COSINE",
+            }
+
+            # Add algorithm-specific parameters
+            algorithm = online_store_config.vector_index_algorithm
+            if algorithm == "HNSW":
+                attributes["M"] = online_store_config.vector_index_hnsw_m
+                attributes["EF_CONSTRUCTION"] = (
+                    online_store_config.vector_index_hnsw_ef_construction
+                )
+                attributes["EF_RUNTIME"] = (
+                    online_store_config.vector_index_hnsw_ef_runtime
+                )
+
+            schema_fields.append(VectorField(field_name, algorithm, attributes))
+
+        # Define index on HASH keys with specific prefix
+        key_prefix = _redis_key_prefix(table.join_keys)
+        definition = IndexDefinition(
+            prefix=[key_prefix],
+            index_type=IndexType.HASH,
+        )
+
+        # Create the index
+        try:
+            client.ft(index_name).create_index(
+                fields=schema_fields,
+                definition=definition,
+            )
+            logger.info(
+                f"Created vector index {index_name} with {len(vector_fields)} vector field(s): {list(vector_fields.keys())}"
+            )
+        except ValkeyError as e:
+            logger.error(
+                f"Failed to create vector index {index_name}: {e}. "
+                f"Ensure Valkey Search module is loaded."
+            )
+            raise
+
     def online_write_batch(
         self,
         config: RepoConfig,
@@ -307,6 +504,7 @@ class EGValkeyOnlineStore(OnlineStore):
         feature_view = table.name
         ts_key = f"_ts:{feature_view}"
         keys = []
+
         # Track all ZSET keys touched in this batch for TTL cleanup & trimming
         zsets_to_cleanup: set[Tuple[bytes, bytes]] = (
             set()
@@ -448,6 +646,16 @@ class EGValkeyOnlineStore(OnlineStore):
                             )
                             raise
             else:
+                # Identify vector fields (only for regular FeatureViews, not SortedFeatureView)
+                vector_fields = {f.name: f for f in table.features if f.vector_index}
+                vector_field_names = set(vector_fields.keys())
+
+                # Create vector index if needed (only on first write with vector fields)
+                if vector_fields:
+                    self._create_vector_index_if_not_exists(
+                        client, config, table, vector_fields
+                    )
+
                 # check if a previous record under the key bin exists
                 # TODO: investigate if check and set is a better approach rather than pulling all entity ts and then setting
                 # it may be significantly slower but avoids potential (rare) race conditions
@@ -484,8 +692,16 @@ class EGValkeyOnlineStore(OnlineStore):
                     entity_hset[ts_key] = ts.SerializeToString()
 
                     for feature_name, val in values.items():
-                        f_key = _mmh3(f"{feature_view}:{feature_name}")
-                        entity_hset[f_key] = val.SerializeToString()
+                        if feature_name in vector_field_names:
+                            # Vector field: store with ORIGINAL name and RAW bytes
+                            vector_bytes = _serialize_vector_to_bytes(
+                                val, vector_fields[feature_name]
+                            )
+                            entity_hset[feature_name] = vector_bytes
+                        else:
+                            # Non-vector field: store with mmh3 hash and protobuf serialization
+                            f_key = _mmh3(f"{feature_view}:{feature_name}")
+                            entity_hset[f_key] = val.SerializeToString()
 
                     pipe.hset(valkey_key_bin, mapping=entity_hset)
 
@@ -580,28 +796,54 @@ class EGValkeyOnlineStore(OnlineStore):
         self,
         feature_view: FeatureView,
         requested_features: Optional[List[str]] = None,
-    ) -> Tuple[List[str], List[str]]:
+    ) -> Tuple[List[str], List[str], Set[str]]:
+        """
+        Generate HSET keys for feature retrieval.
+
+        Returns:
+            Tuple of (feature_names, hset_keys, vector_field_names)
+        """
         if not requested_features:
             requested_features = [f.name for f in feature_view.features]
 
-        hset_keys = [_mmh3(f"{feature_view.name}:{k}") for k in requested_features]
+        # Identify vector fields
+        vector_field_names = {f.name for f in feature_view.features if f.vector_index}
+
+        hset_keys = []
+        for feature_name in requested_features:
+            if feature_name in vector_field_names:
+                # Vector field: use original name
+                hset_keys.append(feature_name)
+            else:
+                # Non-vector: use mmh3 hash
+                hset_keys.append(_mmh3(f"{feature_view.name}:{feature_name}"))
 
         ts_key = f"_ts:{feature_view.name}"
         hset_keys.append(ts_key)
-        requested_features.append(ts_key)
+        requested_features = list(requested_features) + [ts_key]
 
-        return requested_features, hset_keys
+        return requested_features, hset_keys, vector_field_names
 
     def _convert_valkey_values_to_protobuf(
         self,
         valkey_values: List[List[ByteString]],
-        feature_view: str,
+        feature_view: FeatureView,
         requested_features: List[str],
+        vector_field_names: Set[str],
     ):
+        """
+        Convert Valkey values back to protobuf, handling vector fields.
+
+        Args:
+            valkey_values: Raw values from Valkey
+            feature_view: Feature view object (not just name)
+            requested_features: List of feature names
+            vector_field_names: Set of field names that are vectors
+        """
         result: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
         for values in valkey_values:
             features = self._get_features_for_entity(
-                values, feature_view, requested_features
+                values, feature_view, requested_features, vector_field_names
             )
             result.append(features)
         return result
@@ -619,8 +861,8 @@ class EGValkeyOnlineStore(OnlineStore):
         client = self._get_client(online_store_config)
         feature_view = table
 
-        requested_features, hset_keys = self._generate_hset_keys_for_features(
-            feature_view, requested_features
+        requested_features, hset_keys, vector_field_names = (
+            self._generate_hset_keys_for_features(feature_view, requested_features)
         )
         keys = self._generate_valkey_keys_for_entities(config, entity_keys)
 
@@ -631,7 +873,7 @@ class EGValkeyOnlineStore(OnlineStore):
             valkey_values = pipe.execute()
 
         return self._convert_valkey_values_to_protobuf(
-            valkey_values, feature_view.name, requested_features
+            valkey_values, feature_view, requested_features, vector_field_names
         )
 
     async def online_read_async(
@@ -647,8 +889,8 @@ class EGValkeyOnlineStore(OnlineStore):
         client = await self._get_client_async(online_store_config)
         feature_view = table
 
-        requested_features, hset_keys = self._generate_hset_keys_for_features(
-            feature_view, requested_features
+        requested_features, hset_keys, vector_field_names = (
+            self._generate_hset_keys_for_features(feature_view, requested_features)
         )
         keys = self._generate_valkey_keys_for_entities(config, entity_keys)
 
@@ -658,27 +900,47 @@ class EGValkeyOnlineStore(OnlineStore):
             valkey_values = await pipe.execute()
 
         return self._convert_valkey_values_to_protobuf(
-            valkey_values, feature_view.name, requested_features
+            valkey_values, feature_view, requested_features, vector_field_names
         )
 
     def _get_features_for_entity(
         self,
         values: List[ByteString],
-        feature_view: str,
+        feature_view: FeatureView,
         requested_features: List[str],
+        vector_field_names: Set[str],
     ) -> Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]:
+        """
+        Parse features for a single entity, handling vector deserialization.
+
+        Args:
+            values: Raw bytes from Valkey
+            feature_view: Feature view object
+            requested_features: List of feature names (includes _ts key)
+            vector_field_names: Set of field names that are vectors
+        """
         res_val = dict(zip(requested_features, values))
 
         res_ts = Timestamp()
-        ts_val = res_val.pop(f"_ts:{feature_view}")
+        ts_val = res_val.pop(f"_ts:{feature_view.name}")
         if ts_val:
             res_ts.ParseFromString(bytes(ts_val))
 
         res = {}
         for feature_name, val_bin in res_val.items():
-            val = ValueProto()
-            if val_bin:
+            if not val_bin:
+                res[feature_name] = ValueProto()
+                continue
+
+            if feature_name in vector_field_names:
+                # Vector field: deserialize from raw bytes
+                field = next(f for f in feature_view.features if f.name == feature_name)
+                val = _deserialize_vector_from_bytes(bytes(val_bin), field)
+            else:
+                # Regular field: parse protobuf
+                val = ValueProto()
                 val.ParseFromString(bytes(val_bin))
+
             res[feature_name] = val
 
         if not res:
