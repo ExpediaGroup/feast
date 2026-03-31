@@ -127,21 +127,23 @@ class ElasticSearchOnlineStore(OnlineStore):
                 grouped_docs[doc_key]["created_ts"] = created_ts
                 grouped_docs[doc_key]["entity_key"] = encoded_entity_key
 
-                insert_values = [
-                    {
-                        "entity_key": document["entity_key"],
-                        "timestamp": document["timestamp"],
-                        "created_ts": document["created_ts"],
-                        **(document["features"] or {}),
-                    }
-                    for document in grouped_docs.values()
-                ]
+        insert_values = [
+            {
+                "entity_key": document["entity_key"],
+                "timestamp": document["timestamp"],
+                "created_ts": document["created_ts"],
+                **(document["features"] or {}),
+            }
+            for document in grouped_docs.values()
+        ]
 
         batch_size = config.online_store.write_batch_size
         for i in range(0, len(insert_values), batch_size):
             batch = insert_values[i : i + batch_size]
             actions = self._bulk_batch_actions(table, batch)
             helpers.bulk(self._get_client(config), actions, refresh="wait_for")
+            if progress:
+                progress(len(batch))
 
     def online_read(
         self,
@@ -165,6 +167,7 @@ class ElasticSearchOnlineStore(OnlineStore):
             includes.append("*")
 
         body = {
+            "size": len(encoded_entity_keys),
             "_source": {"includes": includes, "excludes": ["*.vector_value"]},
             "query": {
                 "bool": {"filter": [{"terms": {"entity_key": encoded_entity_keys}}]}
@@ -173,10 +176,14 @@ class ElasticSearchOnlineStore(OnlineStore):
 
         response = self._get_client(config).search(index=table.name, body=body)
 
-        results = []
+        # Build a lookup dict keyed by entity_key to preserve input order
+        entity_key_to_result: Dict[
+            str, Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]
+        ] = {}
 
         for hit in response["hits"]["hits"]:
             source = hit["_source"]
+            entity_key_val = source.get("entity_key")
             timestamp = source.get("timestamp")
             timestamp = datetime.fromisoformat(timestamp)
 
@@ -199,7 +206,15 @@ class ElasticSearchOnlineStore(OnlineStore):
                         f"Failed to parse feature '{feature_name}' from hit: {e}"
                     )
 
-            results.append((timestamp, features if features else None))
+            entity_key_to_result[entity_key_val] = (
+                timestamp,
+                features if features else None,
+            )
+
+        # Return results in the same order as input entity_keys
+        results: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
+        for encoded_key in encoded_entity_keys:
+            results.append(entity_key_to_result.get(encoded_key, (None, None)))
 
         return results
 
@@ -261,9 +276,11 @@ class ElasticSearchOnlineStore(OnlineStore):
     ):
         # implement the update method
         for table in tables_to_delete:
-            self._get_client(config).delete_by_query(index=table.name)
+            if self._get_client(config).indices.exists(index=table.name):
+                self._get_client(config).delete_by_query(index=table.name)
         for table in tables_to_keep:
-            self.create_index(config, table)
+            if not self._get_client(config).indices.exists(index=table.name):
+                self.create_index(config, table)
 
     def teardown(
         self,
@@ -274,7 +291,8 @@ class ElasticSearchOnlineStore(OnlineStore):
         project = config.project
         try:
             for table in tables:
-                self._get_client(config).indices.delete(index=table.name)
+                if self._get_client(config).indices.exists(index=table.name):
+                    self._get_client(config).indices.delete(index=table.name)
         except Exception as e:
             logging.exception(f"Error deleting index in project {project}: {e}")
             raise
@@ -376,11 +394,11 @@ class ElasticSearchOnlineStore(OnlineStore):
                 Optional[Dict[str, ValueProto]],
             ]
         ] = []
-        if not config.online_store.vector_enabled:
-            raise ValueError("Vector search is not enabled in the online store config")
-
         if embedding is None and query_string is None:
             raise ValueError("Either embedding or query_string must be provided")
+
+        if embedding is not None and not config.online_store.vector_enabled:
+            raise ValueError("Vector search is not enabled in the online store config")
 
         es_index = table.name
         body: Dict[str, Any] = {
@@ -489,14 +507,14 @@ def _to_value_proto(value: Any) -> ValueProto:
     val_proto = ValueProto()
     if isinstance(value, ValueProto):
         return value
-    if isinstance(value, float):
+    if isinstance(value, bool):
+        val_proto.bool_val = value
+    elif isinstance(value, float):
         val_proto.float_val = value
     elif isinstance(value, str):
         val_proto.string_val = value
     elif isinstance(value, int):
         val_proto.int64_val = value
-    elif isinstance(value, bool):
-        val_proto.bool_val = value
     elif isinstance(value, list) and all(isinstance(v, float) for v in value):
         val_proto.float_list_val.val.extend(value)
     elif isinstance(value, dict) and "feature_value" in value:
