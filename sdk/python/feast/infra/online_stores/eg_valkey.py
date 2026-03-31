@@ -216,10 +216,15 @@ class EGValkeyOnlineStore(OnlineStore):
         for Valkey Standalone:
             valkey_master:6379,db=0,ssl=true,password=...
         """
+        # Strip scheme prefix (e.g. valkey://, valkeys://) if present
+        if "://" in connection_string:
+            connection_string = connection_string.split("://", 1)[1]
         startup_nodes = [
-            dict(zip(["host", "port"], c.split(":")))
+            {"host": parts[0], "port": int(parts[1])}
             for c in connection_string.split(",")
             if "=" not in c
+            for parts in [c.split(":")]
+            if len(parts) == 2
         ]
         params = {}
         for c in connection_string.split(","):
