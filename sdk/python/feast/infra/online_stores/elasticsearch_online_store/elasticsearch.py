@@ -178,7 +178,7 @@ class ElasticSearchOnlineStore(OnlineStore):
         for hit in response["hits"]["hits"]:
             source = hit["_source"]
             timestamp = source.get("timestamp")
-            timestamp = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
+            timestamp = datetime.fromisoformat(timestamp)
 
             features: Dict[str, ValueProto] = {}
 
@@ -211,8 +211,9 @@ class ElasticSearchOnlineStore(OnlineStore):
             config: Feast repo configuration object.
             table: FeatureView table for which the index needs to be created.
         """
-        vector_field_length = getattr(
-            _get_feature_view_vector_field_metadata(table), "vector_length", 512
+        vector_field_length = (
+            getattr(_get_feature_view_vector_field_metadata(table), "vector_length", 0)
+            or 512
         )
 
         index_mapping = {
@@ -331,7 +332,7 @@ class ElasticSearchOnlineStore(OnlineStore):
             distance = row["_score"]
 
             timestamp_str = source.get("timestamp")
-            timestamp = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%S.%f")
+            timestamp = datetime.fromisoformat(timestamp_str)
 
             for feature_name in requested_features:
                 feature_data = source.get(feature_name, {})
@@ -461,7 +462,7 @@ class ElasticSearchOnlineStore(OnlineStore):
                 entity_key_serialization_version=config.entity_key_serialization_version,
             )
             timestamp = row["_source"]["timestamp"]
-            timestamp = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f")
+            timestamp = datetime.fromisoformat(timestamp)
 
             # Create feature dict with all requested features
             feature_dict = {"distance": _to_value_proto(float(row["_score"]))}
