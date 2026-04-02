@@ -1439,6 +1439,14 @@ class TestSerializeEmbeddingForSearch:
         arr = np.frombuffer(result, dtype=np.float64)
         np.testing.assert_array_almost_equal(arr, embedding, decimal=10)
 
+    def test_raises_error_on_dimension_mismatch(self, float32_vector_field):
+        """Test that ValueError is raised when embedding dimension doesn't match field."""
+        store = EGValkeyOnlineStore()
+        # Field expects 4 dimensions, but we provide 3
+        embedding = [0.1, 0.2, 0.3]
+        with pytest.raises(ValueError, match="dimension .* does not match"):
+            store._serialize_embedding_for_search(embedding, float32_vector_field)
+
 
 class TestRetrieveOnlineDocumentsV2Validation:
     """Tests for retrieve_online_documents_v2 input validation."""
@@ -1541,3 +1549,42 @@ class TestRetrieveOnlineDocumentsV2Validation:
                 embedding=[0.1, 0.2, 0.3, 0.4],
                 top_k=10,
             )
+
+    def test_raises_error_when_dimension_mismatch(
+        self, repo_config, feature_view_with_vector
+    ):
+        """Test that ValueError is raised when embedding dimension doesn't match field."""
+        store = EGValkeyOnlineStore()
+        # feature_view_with_vector has vector_length=4, so 3-dim embedding should fail
+        with pytest.raises(ValueError, match="Embedding dimension .* does not match"):
+            store.retrieve_online_documents_v2(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["embedding"],
+                embedding=[0.1, 0.2, 0.3],  # Wrong dimension (3 instead of 4)
+                top_k=10,
+            )
+
+    def test_raises_error_when_index_does_not_exist(
+        self, repo_config, feature_view_with_vector
+    ):
+        """Test that ValueError is raised when vector index doesn't exist."""
+        from unittest.mock import MagicMock, patch
+
+        from valkey.exceptions import ResponseError
+
+        store = EGValkeyOnlineStore()
+
+        # Mock the client to simulate "no such index" error
+        mock_client = MagicMock()
+        mock_client.ft.return_value.search.side_effect = ResponseError("no such index")
+
+        with patch.object(store, "_get_client", return_value=mock_client):
+            with pytest.raises(ValueError, match="does not exist.*materialize"):
+                store.retrieve_online_documents_v2(
+                    config=repo_config,
+                    table=feature_view_with_vector,
+                    requested_features=["embedding"],
+                    embedding=[0.1, 0.2, 0.3, 0.4],
+                    top_k=10,
+                )

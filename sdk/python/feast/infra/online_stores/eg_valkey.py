@@ -1103,6 +1103,13 @@ class EGValkeyOnlineStore(OnlineStore):
         vector_field: Field,
     ) -> bytes:
         """Serialize query embedding to bytes matching the field's dtype."""
+        # Validate embedding dimension matches field configuration
+        if len(embedding) != vector_field.vector_length:
+            raise ValueError(
+                f"Embedding dimension {len(embedding)} does not match "
+                f"vector field '{vector_field.name}' dimension {vector_field.vector_length}"
+            )
+
         if vector_field.dtype == Array(Float64):
             return np.array(embedding, dtype=np.float64).tobytes()
         else:
@@ -1134,7 +1141,7 @@ class EGValkeyOnlineStore(OnlineStore):
 
         query = (
             Query(query_str)
-            .return_fields("__distance__", "__entity_key__")
+            .return_fields("__distance__")
             .sort_by("__distance__")
             .paging(0, top_k)
             .dialect(2)
@@ -1147,8 +1154,10 @@ class EGValkeyOnlineStore(OnlineStore):
             )
         except ResponseError as e:
             if "no such index" in str(e).lower():
-                logger.warning(f"Vector index {index_name} does not exist")
-                return []
+                raise ValueError(
+                    f"Vector index '{index_name}' does not exist. "
+                    "Ensure data has been materialized with 'feast materialize'."
+                )
             raise
 
         # Parse results: extract doc keys and distances
