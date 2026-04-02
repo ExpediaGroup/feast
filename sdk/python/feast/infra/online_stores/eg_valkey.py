@@ -461,7 +461,7 @@ class EGValkeyOnlineStore(OnlineStore):
 
         # Build schema for vector fields
         # Include TagField for project to enable filtering by project during search
-        schema_fields = [TagField("__project__")]
+        schema_fields: List[Union[TagField, VectorField]] = [TagField("__project__")]
 
         for field_name, field in vector_fields.items():
             # Validate required properties
@@ -727,7 +727,7 @@ class EGValkeyOnlineStore(OnlineStore):
                     entity_hset = dict()
                     entity_hset[ts_key] = ts.SerializeToString()
                     # Store project and entity key for vector search
-                    entity_hset["__project__"] = project
+                    entity_hset["__project__"] = project.encode()
                     entity_hset["__entity_key__"] = serialize_entity_key(
                         entity_key,
                         entity_key_serialization_version=config.entity_key_serialization_version,
@@ -1220,7 +1220,7 @@ class EGValkeyOnlineStore(OnlineStore):
         # Pipeline HMGET for all results (single round-trip to Valkey)
         with client.pipeline(transaction=False) as pipe:
             for doc_key in doc_keys:
-                pipe.hmget(doc_key, hset_keys)
+                pipe.hmget(doc_key.decode() if isinstance(doc_key, bytes) else doc_key, hset_keys)
             fetched_values = pipe.execute()
 
         # Pre-fetch serialization version once
