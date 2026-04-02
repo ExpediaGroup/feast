@@ -27,7 +27,6 @@ from typing import (
     Literal,
     Optional,
     Sequence,
-    Set,
     Tuple,
     Union,
 )
@@ -274,6 +273,27 @@ class EGValkeyOnlineStore(OnlineStore):
 
         logger.debug(f"Deleted {deleted_count} rows for feature view {table.name}")
 
+        # Drop vector index if it exists
+        self._drop_vector_index_if_exists(client, config.project, table.name)
+
+    def _drop_vector_index_if_exists(
+        self,
+        client: Union[Valkey, ValkeyCluster],
+        project: str,
+        feature_view_name: str,
+    ) -> None:
+        """Drop Valkey Search vector index if it exists."""
+        index_name = _get_vector_index_name(project, feature_view_name)
+        try:
+            client.ft(index_name).dropindex(delete_documents=False)
+            logger.info(f"Dropped vector index {index_name}")
+        except ResponseError as e:
+            # Index doesn't exist - this is fine
+            if "unknown index" in str(e).lower():
+                logger.debug(f"Vector index {index_name} does not exist, skipping drop")
+            else:
+                raise
+
     def update(
         self,
         config: RepoConfig,
@@ -311,8 +331,14 @@ class EGValkeyOnlineStore(OnlineStore):
         """
         We delete the keys in valkey for tables/views being removed.
         """
-        join_keys_to_delete = set(tuple(table.join_keys) for table in tables)
+        client = self._get_client(config.online_store)
 
+        # Drop vector indexes for each table
+        for table in tables:
+            self._drop_vector_index_if_exists(client, config.project, table.name)
+
+        # Delete entity values
+        join_keys_to_delete = set(tuple(table.join_keys) for table in tables)
         for join_keys in join_keys_to_delete:
             self.delete_entity_values(config, list(join_keys))
 
@@ -464,6 +490,7 @@ class EGValkeyOnlineStore(OnlineStore):
             schema_fields.append(VectorField(field_name, algorithm, attributes))
 
         # Define index on HASH keys with specific prefix
+        # TODO: Add __project__ TagField and filter in FT.SEARCH to scope results per project
         key_prefix = _redis_key_prefix(table.join_keys)
         definition = IndexDefinition(
             prefix=[key_prefix],
@@ -479,7 +506,12 @@ class EGValkeyOnlineStore(OnlineStore):
             logger.info(
                 f"Created vector index {index_name} with {len(vector_fields)} vector field(s): {list(vector_fields.keys())}"
             )
-        except ValkeyError as e:
+        except ResponseError as e:
+            if "already exists" in str(e).lower():
+                logger.debug(
+                    f"Vector index {index_name} already exists"
+                )
+                return
             logger.error(
                 f"Failed to create vector index {index_name}: {e}. "
                 f"Ensure Valkey Search module is loaded."
@@ -648,7 +680,6 @@ class EGValkeyOnlineStore(OnlineStore):
             else:
                 # Identify vector fields (only for regular FeatureViews, not SortedFeatureView)
                 vector_fields = {f.name: f for f in table.features if f.vector_index}
-                vector_field_names = set(vector_fields.keys())
 
                 # Create vector index if needed (only on first write with vector fields)
                 if vector_fields:
@@ -692,7 +723,7 @@ class EGValkeyOnlineStore(OnlineStore):
                     entity_hset[ts_key] = ts.SerializeToString()
 
                     for feature_name, val in values.items():
-                        if feature_name in vector_field_names:
+                        if feature_name in vector_fields:
                             # Vector field: store with ORIGINAL name and RAW bytes
                             vector_bytes = _serialize_vector_to_bytes(
                                 val, vector_fields[feature_name]
@@ -796,22 +827,21 @@ class EGValkeyOnlineStore(OnlineStore):
         self,
         feature_view: FeatureView,
         requested_features: Optional[List[str]] = None,
-    ) -> Tuple[List[str], List[str], Set[str]]:
+    ) -> Tuple[List[str], List[str], Dict[str, Field]]:
         """
         Generate HSET keys for feature retrieval.
 
         Returns:
-            Tuple of (feature_names, hset_keys, vector_field_names)
+            Tuple of (feature_names, hset_keys, vector_fields dict)
         """
         if not requested_features:
             requested_features = [f.name for f in feature_view.features]
 
-        # Identify vector fields
-        vector_field_names = {f.name for f in feature_view.features if f.vector_index}
+        vector_fields = {f.name: f for f in feature_view.features if f.vector_index}
 
         hset_keys = []
         for feature_name in requested_features:
-            if feature_name in vector_field_names:
+            if feature_name in vector_fields:
                 # Vector field: use original name
                 hset_keys.append(feature_name)
             else:
@@ -822,14 +852,14 @@ class EGValkeyOnlineStore(OnlineStore):
         hset_keys.append(ts_key)
         requested_features = list(requested_features) + [ts_key]
 
-        return requested_features, hset_keys, vector_field_names
+        return requested_features, hset_keys, vector_fields
 
     def _convert_valkey_values_to_protobuf(
         self,
         valkey_values: List[List[ByteString]],
         feature_view: FeatureView,
         requested_features: List[str],
-        vector_field_names: Set[str],
+        vector_fields: Dict[str, Field],
     ):
         """
         Convert Valkey values back to protobuf, handling vector fields.
@@ -838,12 +868,12 @@ class EGValkeyOnlineStore(OnlineStore):
             valkey_values: Raw values from Valkey
             feature_view: Feature view object (not just name)
             requested_features: List of feature names
-            vector_field_names: Set of field names that are vectors
+            vector_fields: Dict of field name to Field for vector fields
         """
         result: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
         for values in valkey_values:
             features = self._get_features_for_entity(
-                values, feature_view, requested_features, vector_field_names
+                values, feature_view, requested_features, vector_fields
             )
             result.append(features)
         return result
@@ -861,7 +891,7 @@ class EGValkeyOnlineStore(OnlineStore):
         client = self._get_client(online_store_config)
         feature_view = table
 
-        requested_features, hset_keys, vector_field_names = (
+        requested_features, hset_keys, vector_fields = (
             self._generate_hset_keys_for_features(feature_view, requested_features)
         )
         keys = self._generate_valkey_keys_for_entities(config, entity_keys)
@@ -873,7 +903,7 @@ class EGValkeyOnlineStore(OnlineStore):
             valkey_values = pipe.execute()
 
         return self._convert_valkey_values_to_protobuf(
-            valkey_values, feature_view, requested_features, vector_field_names
+            valkey_values, feature_view, requested_features, vector_fields
         )
 
     async def online_read_async(
@@ -889,7 +919,7 @@ class EGValkeyOnlineStore(OnlineStore):
         client = await self._get_client_async(online_store_config)
         feature_view = table
 
-        requested_features, hset_keys, vector_field_names = (
+        requested_features, hset_keys, vector_fields = (
             self._generate_hset_keys_for_features(feature_view, requested_features)
         )
         keys = self._generate_valkey_keys_for_entities(config, entity_keys)
@@ -900,7 +930,7 @@ class EGValkeyOnlineStore(OnlineStore):
             valkey_values = await pipe.execute()
 
         return self._convert_valkey_values_to_protobuf(
-            valkey_values, feature_view, requested_features, vector_field_names
+            valkey_values, feature_view, requested_features, vector_fields
         )
 
     def _get_features_for_entity(
@@ -908,7 +938,7 @@ class EGValkeyOnlineStore(OnlineStore):
         values: List[ByteString],
         feature_view: FeatureView,
         requested_features: List[str],
-        vector_field_names: Set[str],
+        vector_fields: Dict[str, Field],
     ) -> Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]:
         """
         Parse features for a single entity, handling vector deserialization.
@@ -917,7 +947,7 @@ class EGValkeyOnlineStore(OnlineStore):
             values: Raw bytes from Valkey
             feature_view: Feature view object
             requested_features: List of feature names (includes _ts key)
-            vector_field_names: Set of field names that are vectors
+            vector_fields: Dict of field name to Field for vector fields (O(1) lookup)
         """
         res_val = dict(zip(requested_features, values))
 
@@ -932,9 +962,9 @@ class EGValkeyOnlineStore(OnlineStore):
                 res[feature_name] = ValueProto()
                 continue
 
-            if feature_name in vector_field_names:
+            if feature_name in vector_fields:
                 # Vector field: deserialize from raw bytes
-                field = next(f for f in feature_view.features if f.name == feature_name)
+                field = vector_fields[feature_name]
                 val = _deserialize_vector_from_bytes(bytes(val_bin), field)
             else:
                 # Regular field: parse protobuf
