@@ -734,7 +734,7 @@ class TestGenerateHsetKeysForFeatures:
         """Test that vector fields use original name as hset key."""
         store = EGValkeyOnlineStore()
 
-        requested_features, hset_keys, vector_field_names = (
+        requested_features, hset_keys, vector_fields = (
             store._generate_hset_keys_for_features(
                 feature_view_with_vector, requested_features=["embedding"]
             )
@@ -742,13 +742,13 @@ class TestGenerateHsetKeysForFeatures:
 
         # Vector field should use original name
         assert "embedding" in hset_keys
-        assert "embedding" in vector_field_names
+        assert "embedding" in vector_fields
 
     def test_non_vector_field_uses_mmh3_hash(self, feature_view_with_vector):
         """Test that non-vector fields use mmh3 hash as hset key."""
         store = EGValkeyOnlineStore()
 
-        requested_features, hset_keys, vector_field_names = (
+        requested_features, hset_keys, vector_fields = (
             store._generate_hset_keys_for_features(
                 feature_view_with_vector, requested_features=["scalar_feature"]
             )
@@ -757,13 +757,13 @@ class TestGenerateHsetKeysForFeatures:
         # Non-vector field should use mmh3 hash
         expected_hash = _mmh3(f"{feature_view_with_vector.name}:scalar_feature")
         assert expected_hash in hset_keys
-        assert "scalar_feature" not in vector_field_names
+        assert "scalar_feature" not in vector_fields
 
     def test_timestamp_key_appended(self, feature_view_with_vector):
         """Test that timestamp key is always appended to hset keys."""
         store = EGValkeyOnlineStore()
 
-        requested_features, hset_keys, vector_field_names = (
+        requested_features, hset_keys, vector_fields = (
             store._generate_hset_keys_for_features(
                 feature_view_with_vector, requested_features=["embedding"]
             )
@@ -777,7 +777,7 @@ class TestGenerateHsetKeysForFeatures:
         """Test that mixed vector and non-vector fields get correct keys."""
         store = EGValkeyOnlineStore()
 
-        requested_features, hset_keys, vector_field_names = (
+        requested_features, hset_keys, vector_fields = (
             store._generate_hset_keys_for_features(
                 feature_view_with_vector,
                 requested_features=["embedding", "scalar_feature", "string_feature"],
@@ -793,14 +793,14 @@ class TestGenerateHsetKeysForFeatures:
         assert scalar_hash in hset_keys
         assert string_hash in hset_keys
 
-        # Only embedding should be in vector_field_names
-        assert vector_field_names == {"embedding"}
+        # Only embedding should be in vector_fields (now a dict)
+        assert set(vector_fields.keys()) == {"embedding"}
 
     def test_no_requested_features_uses_all(self, feature_view_with_vector):
         """Test that None requested_features returns all feature view features."""
         store = EGValkeyOnlineStore()
 
-        requested_features, hset_keys, vector_field_names = (
+        requested_features, hset_keys, vector_fields = (
             store._generate_hset_keys_for_features(
                 feature_view_with_vector, requested_features=None
             )
@@ -811,18 +811,18 @@ class TestGenerateHsetKeysForFeatures:
         assert len(requested_features) == 4  # 3 features + timestamp key
 
     def test_feature_view_without_vectors(self, feature_view_no_vector):
-        """Test feature view with no vector fields returns empty vector_field_names."""
+        """Test feature view with no vector fields returns empty vector_fields dict."""
         store = EGValkeyOnlineStore()
 
-        requested_features, hset_keys, vector_field_names = (
+        requested_features, hset_keys, vector_fields = (
             store._generate_hset_keys_for_features(
                 feature_view_no_vector,
                 requested_features=["scalar_feature", "string_feature"],
             )
         )
 
-        # No vector fields
-        assert vector_field_names == set()
+        # No vector fields (empty dict)
+        assert vector_fields == {}
 
         # All fields should use mmh3 hash
         for key in hset_keys:
