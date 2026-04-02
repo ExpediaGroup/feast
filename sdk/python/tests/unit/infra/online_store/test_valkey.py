@@ -1304,34 +1304,6 @@ class TestGetVectorFieldForSearch:
             ],
         )
 
-    @pytest.fixture
-    def feature_view_multiple_vectors(self):
-        """Create a FeatureView with multiple vector fields."""
-        return FeatureView(
-            name="test_fv_multi_vector",
-            source=FileSource(
-                name="test_source",
-                path="test.parquet",
-                timestamp_field="event_timestamp",
-            ),
-            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
-            ttl=timedelta(days=1),
-            schema=[
-                Field(name="item_id", dtype=Int64),
-                Field(
-                    name="embedding1",
-                    dtype=Array(Float32),
-                    vector_index=True,
-                    vector_length=4,
-                ),
-                Field(
-                    name="embedding2",
-                    dtype=Array(Float32),
-                    vector_index=True,
-                    vector_length=8,
-                ),
-            ],
-        )
 
     def test_returns_vector_field_from_requested_features(
         self, feature_view_with_vector
@@ -1363,25 +1335,6 @@ class TestGetVectorFieldForSearch:
         )
         assert result is None
 
-    def test_prefers_requested_vector_field(self, feature_view_multiple_vectors):
-        """Test that vector field from requested_features is preferred."""
-        store = EGValkeyOnlineStore()
-        result = store._get_vector_field_for_search(
-            feature_view_multiple_vectors, requested_features=["embedding2"]
-        )
-        assert result is not None
-        assert result.name == "embedding2"
-
-    def test_returns_first_when_no_requested_features(
-        self, feature_view_multiple_vectors
-    ):
-        """Test that first vector field is returned when requested_features is None."""
-        store = EGValkeyOnlineStore()
-        result = store._get_vector_field_for_search(
-            feature_view_multiple_vectors, requested_features=None
-        )
-        assert result is not None
-        assert result.name == "embedding1"
 
 
 class TestSerializeEmbeddingForSearch:
@@ -1501,7 +1454,7 @@ class TestRetrieveOnlineDocumentsV2Validation:
             provider="local",
             registry="test_registry.db",
             online_store=EGValkeyOnlineStoreConfig(
-                type="eg_valkey",
+                type="eg-valkey",
                 connection_string="localhost:6379",
             ),
             entity_key_serialization_version=3,

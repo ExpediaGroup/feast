@@ -1220,7 +1220,10 @@ class EGValkeyOnlineStore(OnlineStore):
         # Pipeline HMGET for all results (single round-trip to Valkey)
         with client.pipeline(transaction=False) as pipe:
             for doc_key in doc_keys:
-                pipe.hmget(doc_key.decode() if isinstance(doc_key, bytes) else doc_key, hset_keys)
+                key_str = (
+                    doc_key.decode() if isinstance(doc_key, bytes) else doc_key
+                )
+                pipe.hmget(key_str, hset_keys)
             fetched_values = pipe.execute()
 
         # Pre-fetch serialization version once
