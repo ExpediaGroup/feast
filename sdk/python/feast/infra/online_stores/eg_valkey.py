@@ -508,9 +508,7 @@ class EGValkeyOnlineStore(OnlineStore):
             )
         except ResponseError as e:
             if "already exists" in str(e).lower():
-                logger.debug(
-                    f"Vector index {index_name} already exists"
-                )
+                logger.debug(f"Vector index {index_name} already exists")
                 return
             logger.error(
                 f"Failed to create vector index {index_name}: {e}. "
