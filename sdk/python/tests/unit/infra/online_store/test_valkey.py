@@ -1304,14 +1304,14 @@ class TestGetVectorFieldForSearch:
             ],
         )
 
-
     def test_returns_vector_field_from_requested_features(
         self, feature_view_with_vector
     ):
         """Test that vector field is returned when in requested_features."""
         store = EGValkeyOnlineStore()
         result = store._get_vector_field_for_search(
-            feature_view_with_vector, requested_features=["embedding", "scalar_feature"]
+            feature_view_with_vector,
+            requested_features=["embedding", "scalar_feature"],
         )
         assert result is not None
         assert result.name == "embedding"
@@ -1334,7 +1334,6 @@ class TestGetVectorFieldForSearch:
             feature_view_no_vector, requested_features=["scalar_feature"]
         )
         assert result is None
-
 
 
 class TestSerializeEmbeddingForSearch:
