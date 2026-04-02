@@ -1256,3 +1256,288 @@ def test_valkey_online_read_with_requested_features_mixed(
 
     # Verify string value
     assert features["item_name"].string_val == "item_2"
+
+
+class TestGetVectorFieldForSearch:
+    """Tests for _get_vector_field_for_search helper method."""
+
+    @pytest.fixture
+    def feature_view_with_vector(self):
+        """Create a FeatureView with vector field for testing."""
+        return FeatureView(
+            name="test_fv",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(name="scalar_feature", dtype=Float32),
+                Field(
+                    name="embedding",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                    vector_search_metric="COSINE",
+                ),
+            ],
+        )
+
+    @pytest.fixture
+    def feature_view_no_vector(self):
+        """Create a FeatureView without vector fields."""
+        return FeatureView(
+            name="test_fv_no_vector",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(name="scalar_feature", dtype=Float32),
+            ],
+        )
+
+    @pytest.fixture
+    def feature_view_multiple_vectors(self):
+        """Create a FeatureView with multiple vector fields."""
+        return FeatureView(
+            name="test_fv_multi_vector",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(
+                    name="embedding1",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                ),
+                Field(
+                    name="embedding2",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=8,
+                ),
+            ],
+        )
+
+    def test_returns_vector_field_from_requested_features(
+        self, feature_view_with_vector
+    ):
+        """Test that vector field is returned when in requested_features."""
+        store = EGValkeyOnlineStore()
+        result = store._get_vector_field_for_search(
+            feature_view_with_vector, requested_features=["embedding", "scalar_feature"]
+        )
+        assert result is not None
+        assert result.name == "embedding"
+
+    def test_returns_first_vector_field_when_not_in_requested(
+        self, feature_view_with_vector
+    ):
+        """Test that first vector field is returned when not in requested_features."""
+        store = EGValkeyOnlineStore()
+        result = store._get_vector_field_for_search(
+            feature_view_with_vector, requested_features=["scalar_feature"]
+        )
+        assert result is not None
+        assert result.name == "embedding"
+
+    def test_returns_none_for_no_vector_fields(self, feature_view_no_vector):
+        """Test that None is returned when no vector fields exist."""
+        store = EGValkeyOnlineStore()
+        result = store._get_vector_field_for_search(
+            feature_view_no_vector, requested_features=["scalar_feature"]
+        )
+        assert result is None
+
+    def test_prefers_requested_vector_field(self, feature_view_multiple_vectors):
+        """Test that vector field from requested_features is preferred."""
+        store = EGValkeyOnlineStore()
+        result = store._get_vector_field_for_search(
+            feature_view_multiple_vectors, requested_features=["embedding2"]
+        )
+        assert result is not None
+        assert result.name == "embedding2"
+
+    def test_returns_first_when_no_requested_features(
+        self, feature_view_multiple_vectors
+    ):
+        """Test that first vector field is returned when requested_features is None."""
+        store = EGValkeyOnlineStore()
+        result = store._get_vector_field_for_search(
+            feature_view_multiple_vectors, requested_features=None
+        )
+        assert result is not None
+        assert result.name == "embedding1"
+
+
+class TestSerializeEmbeddingForSearch:
+    """Tests for _serialize_embedding_for_search helper method."""
+
+    @pytest.fixture
+    def float32_vector_field(self):
+        """Create a Float32 vector field."""
+        return Field(
+            name="embedding",
+            dtype=Array(Float32),
+            vector_index=True,
+            vector_length=4,
+        )
+
+    @pytest.fixture
+    def float64_vector_field(self):
+        """Create a Float64 vector field."""
+        return Field(
+            name="embedding",
+            dtype=Array(Float64),
+            vector_index=True,
+            vector_length=4,
+        )
+
+    def test_serializes_to_float32_bytes(self, float32_vector_field):
+        """Test that embedding is serialized to float32 bytes."""
+        store = EGValkeyOnlineStore()
+        embedding = [0.1, 0.2, 0.3, 0.4]
+        result = store._serialize_embedding_for_search(embedding, float32_vector_field)
+
+        # Verify it's bytes
+        assert isinstance(result, bytes)
+
+        # Verify length (4 floats * 4 bytes each = 16 bytes)
+        assert len(result) == 16
+
+        # Verify values can be deserialized back
+        arr = np.frombuffer(result, dtype=np.float32)
+        np.testing.assert_array_almost_equal(arr, embedding, decimal=5)
+
+    def test_serializes_to_float64_bytes(self, float64_vector_field):
+        """Test that embedding is serialized to float64 bytes for Float64 fields."""
+        store = EGValkeyOnlineStore()
+        embedding = [0.1, 0.2, 0.3, 0.4]
+        result = store._serialize_embedding_for_search(embedding, float64_vector_field)
+
+        # Verify it's bytes
+        assert isinstance(result, bytes)
+
+        # Verify length (4 doubles * 8 bytes each = 32 bytes)
+        assert len(result) == 32
+
+        # Verify values can be deserialized back
+        arr = np.frombuffer(result, dtype=np.float64)
+        np.testing.assert_array_almost_equal(arr, embedding, decimal=10)
+
+
+class TestRetrieveOnlineDocumentsV2Validation:
+    """Tests for retrieve_online_documents_v2 input validation."""
+
+    @pytest.fixture
+    def feature_view_with_vector(self):
+        """Create a FeatureView with vector field for testing."""
+        return FeatureView(
+            name="test_fv",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(
+                    name="embedding",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                    vector_search_metric="COSINE",
+                ),
+            ],
+        )
+
+    @pytest.fixture
+    def feature_view_no_vector(self):
+        """Create a FeatureView without vector fields."""
+        return FeatureView(
+            name="test_fv_no_vector",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(name="scalar_feature", dtype=Float32),
+            ],
+        )
+
+    @pytest.fixture
+    def repo_config(self):
+        """Create a minimal RepoConfig for testing."""
+        return RepoConfig(
+            project="test_project",
+            provider="local",
+            registry="test_registry.db",
+            online_store=EGValkeyOnlineStoreConfig(
+                type="eg_valkey",
+                connection_string="localhost:6379",
+            ),
+            entity_key_serialization_version=3,
+        )
+
+    def test_raises_error_when_embedding_is_none(
+        self, repo_config, feature_view_with_vector
+    ):
+        """Test that ValueError is raised when embedding is None."""
+        store = EGValkeyOnlineStore()
+        with pytest.raises(ValueError, match="embedding must be provided"):
+            store.retrieve_online_documents_v2(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["embedding"],
+                embedding=None,
+                top_k=10,
+            )
+
+    def test_raises_error_when_query_string_provided(
+        self, repo_config, feature_view_with_vector
+    ):
+        """Test that NotImplementedError is raised when query_string is provided."""
+        store = EGValkeyOnlineStore()
+        with pytest.raises(NotImplementedError, match="Keyword search"):
+            store.retrieve_online_documents_v2(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["embedding"],
+                embedding=[0.1, 0.2, 0.3, 0.4],
+                top_k=10,
+                query_string="test query",
+            )
+
+    def test_raises_error_when_no_vector_field(
+        self, repo_config, feature_view_no_vector
+    ):
+        """Test that ValueError is raised when FeatureView has no vector fields."""
+        store = EGValkeyOnlineStore()
+        with pytest.raises(ValueError, match="No vector field found"):
+            store.retrieve_online_documents_v2(
+                config=repo_config,
+                table=feature_view_no_vector,
+                requested_features=["scalar_feature"],
+                embedding=[0.1, 0.2, 0.3, 0.4],
+                top_k=10,
+            )
