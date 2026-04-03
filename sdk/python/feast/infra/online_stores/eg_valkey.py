@@ -42,16 +42,13 @@ from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.helpers import _mmh3, _redis_key, _redis_key_prefix
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
-from feast.protos.feast.types.Value_pb2 import (
-    DoubleList,
-    FloatList,
-)
+from feast.protos.feast.types.Value_pb2 import FloatList
 from feast.protos.feast.types.Value_pb2 import (
     Value as ValueProto,
 )
 from feast.repo_config import FeastConfigBaseModel
 from feast.sorted_feature_view import SortedFeatureView
-from feast.types import Array, Float32, Float64
+from feast.types import Array, Float64
 from feast.value_type import ValueType
 
 try:
