@@ -1054,7 +1054,7 @@ class EGValkeyOnlineStore(OnlineStore):
         embedding_bytes = self._serialize_embedding_for_search(embedding, vector_field)
 
         # Build and execute FT.SEARCH query
-        index_name = _get_vector_index_name(project, table.name)
+        index_name = _get_vector_index_name(project, table.name, vector_field.name)
         search_results = self._execute_vector_search(
             client=client,
             index_name=index_name,
