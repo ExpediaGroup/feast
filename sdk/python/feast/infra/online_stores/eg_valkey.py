@@ -69,54 +69,57 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 
-def _get_vector_index_name(project: str, feature_view_name: str) -> str:
-    """Generate Valkey Search index name for vector fields."""
-    return f"{project}_{feature_view_name}_vidx"
+def _get_vector_index_name(
+    project: str, feature_view_name: str, feature_name: str
+) -> str:
+    """Generate Valkey Search index name for a vector field."""
+    return f"{project}_{feature_view_name}_{feature_name}_vidx"
 
 
 def _get_valkey_vector_type(feast_dtype) -> str:
     """
     Map Feast dtype to Valkey vector TYPE parameter.
 
+    Valkey Search only supports FLOAT32 vectors. Float64 arrays will be
+    converted to float32 during serialization.
+
     Args:
         feast_dtype: Feast data type (e.g., Array(Float32))
 
     Returns:
-        Valkey vector type string: "FLOAT32" or "FLOAT64"
+        Valkey vector type string: always "FLOAT32"
     """
-    if feast_dtype == Array(Float32):
-        return "FLOAT32"
-    elif feast_dtype == Array(Float64):
-        return "FLOAT64"
-    else:
-        # Default to FLOAT32 for other numeric arrays
-        logger.warning(f"Unsupported vector dtype {feast_dtype}, defaulting to FLOAT32")
-        return "FLOAT32"
+    if feast_dtype == Array(Float64):
+        logger.warning(
+            "Valkey Search only supports FLOAT32 vectors. "
+            "Float64 data will be converted to float32 (possible precision loss)."
+        )
+    return "FLOAT32"
 
 
 def _serialize_vector_to_bytes(val: ValueProto, field: Field) -> bytes:
     """
-    Serialize a vector ValueProto to raw bytes for Valkey storage.
+    Serialize a vector ValueProto to raw float32 bytes for Valkey storage.
 
     Vector fields must be stored as raw bytes (not protobuf serialized) to be
-    compatible with Valkey Search FT.SEARCH queries.
+    compatible with Valkey Search FT.SEARCH queries. Valkey only supports
+    FLOAT32, so float64 data is converted to float32.
 
     Args:
         val: The ValueProto containing the vector data
         field: The Field metadata for dtype and dimension information
 
     Returns:
-        Raw bytes in the format expected by Valkey vector search
+        Raw float32 bytes in the format expected by Valkey vector search
 
     Raises:
         ValueError: If vector type is unsupported or dimension mismatches
     """
     if val.HasField("float_list_val"):
-        # Float32 array
         vector = np.array(val.float_list_val.val, dtype=np.float32)
     elif val.HasField("double_list_val"):
-        # Float64 array
-        vector = np.array(val.double_list_val.val, dtype=np.float64)
+        # Convert float64 to float32 (Valkey only supports float32)
+        vector = np.array(val.double_list_val.val, dtype=np.float32)
     else:
         raise ValueError(
             f"Unsupported vector type for field {field.name}. "
@@ -137,20 +140,18 @@ def _deserialize_vector_from_bytes(raw_bytes: bytes, field: Field) -> ValueProto
     """
     Deserialize raw vector bytes back to ValueProto.
 
+    Valkey stores all vectors as float32, so we always deserialize as float32
+    regardless of the original field dtype.
+
     Args:
-        raw_bytes: Raw bytes from Valkey
-        field: Field metadata for dtype information
+        raw_bytes: Raw float32 bytes from Valkey
+        field: Field metadata (unused, kept for API consistency)
 
     Returns:
-        ValueProto with float_list_val or double_list_val
+        ValueProto with float_list_val (always float32)
     """
-    if field.dtype == Array(Float64):
-        vector = np.frombuffer(raw_bytes, dtype=np.float64)
-        return ValueProto(double_list_val=DoubleList(val=vector.tolist()))
-    else:
-        # Default to Float32
-        vector = np.frombuffer(raw_bytes, dtype=np.float32)
-        return ValueProto(float_list_val=FloatList(val=vector.tolist()))
+    vector = np.frombuffer(raw_bytes, dtype=np.float32)
+    return ValueProto(float_list_val=FloatList(val=vector.tolist()))
 
 
 class EGValkeyType(str, Enum):
@@ -252,7 +253,12 @@ class EGValkeyOnlineStore(OnlineStore):
         deleted_count = 0
         prefix = _redis_key_prefix(table.join_keys)
 
-        valkey_hash_keys = [_mmh3(f"{table.name}:{f.name}") for f in table.features]
+        # Build list of hash keys to delete
+        # Vector fields use original name, non-vector fields use mmh3 hash
+        valkey_hash_keys = [
+            f.name.encode("utf8") if f.vector_index else _mmh3(f"{table.name}:{f.name}")
+            for f in table.features
+        ]
         valkey_hash_keys.append(bytes(f"_ts:{table.name}", "utf8"))
 
         with client.pipeline(transaction=False) as pipe:
@@ -274,16 +280,22 @@ class EGValkeyOnlineStore(OnlineStore):
         logger.debug(f"Deleted {deleted_count} rows for feature view {table.name}")
 
         # Drop vector index if it exists
-        self._drop_vector_index_if_exists(client, config.project, table.name)
+        self._drop_vector_index_if_exists(client, config.project, table)
 
     def _drop_vector_index_if_exists(
         self,
         client: Union[Valkey, ValkeyCluster],
         project: str,
-        feature_view_name: str,
+        table: FeatureView,
     ) -> None:
-        """Drop Valkey Search vector index if it exists."""
-        index_name = _get_vector_index_name(project, feature_view_name)
+        """Drop Valkey Search vector index for a feature view if it exists."""
+        vector_fields = [f for f in table.features if f.vector_index]
+        if not vector_fields:
+            return
+
+        # Index is named after the first vector field
+        first_field_name = vector_fields[0].name
+        index_name = _get_vector_index_name(project, table.name, first_field_name)
         try:
             client.ft(index_name).dropindex(delete_documents=False)
             logger.info(f"Dropped vector index {index_name}")
@@ -335,7 +347,7 @@ class EGValkeyOnlineStore(OnlineStore):
 
         # Drop vector indexes for each table
         for table in tables:
-            self._drop_vector_index_if_exists(client, config.project, table.name)
+            self._drop_vector_index_if_exists(client, config.project, table)
 
         # Delete entity values
         join_keys_to_delete = set(tuple(table.join_keys) for table in tables)
@@ -435,6 +447,7 @@ class EGValkeyOnlineStore(OnlineStore):
         Create Valkey Search index for vector fields if not already exists.
 
         Uses FT.CREATE with VECTOR field type and appropriate algorithm parameters.
+        Creates a single index containing all vector fields.
 
         Args:
             client: Valkey client
@@ -445,7 +458,11 @@ class EGValkeyOnlineStore(OnlineStore):
         online_store_config = config.online_store
         assert isinstance(online_store_config, EGValkeyOnlineStoreConfig)
 
-        index_name = _get_vector_index_name(config.project, table.name)
+        # Use first vector field name in index name (Feast currently allows only one)
+        first_field_name = next(iter(vector_fields.keys()))
+        index_name = _get_vector_index_name(
+            config.project, table.name, first_field_name
+        )
 
         # Check if index exists
         try:
@@ -457,7 +474,6 @@ class EGValkeyOnlineStore(OnlineStore):
 
         # Build schema for vector fields
         schema_fields = []
-
         for field_name, field in vector_fields.items():
             # Validate required properties
             if field.vector_length <= 0:
@@ -490,7 +506,6 @@ class EGValkeyOnlineStore(OnlineStore):
             schema_fields.append(VectorField(field_name, algorithm, attributes))
 
         # Define index on HASH keys with specific prefix
-        # TODO: Add __project__ TagField and filter in FT.SEARCH to scope results per project
         key_prefix = _redis_key_prefix(table.join_keys)
         definition = IndexDefinition(
             prefix=[key_prefix],
@@ -504,7 +519,7 @@ class EGValkeyOnlineStore(OnlineStore):
                 definition=definition,
             )
             logger.info(
-                f"Created vector index {index_name} with {len(vector_fields)} vector field(s): {list(vector_fields.keys())}"
+                f"Created vector index {index_name} with field(s): {list(vector_fields.keys())}"
             )
         except ResponseError as e:
             if "already exists" in str(e).lower():

@@ -477,15 +477,15 @@ class TestVectorIndexName:
     def test_get_vector_index_name(self):
         """Test index name generation follows expected format."""
         assert (
-            _get_vector_index_name("my_project", "item_embeddings")
-            == "my_project_item_embeddings_vidx"
+            _get_vector_index_name("my_project", "item_embeddings", "embedding")
+            == "my_project_item_embeddings_embedding_vidx"
         )
 
     def test_get_vector_index_name_with_special_chars(self):
         """Test index name with underscores in names."""
         assert (
-            _get_vector_index_name("prod_project", "user_item_embeddings")
-            == "prod_project_user_item_embeddings_vidx"
+            _get_vector_index_name("prod_project", "user_item_embeddings", "vec_field")
+            == "prod_project_user_item_embeddings_vec_field_vidx"
         )
 
 
@@ -496,12 +496,12 @@ class TestGetValkeyVectorType:
         """Test Float32 array maps to FLOAT32."""
         assert _get_valkey_vector_type(Array(Float32)) == "FLOAT32"
 
-    def test_get_valkey_vector_type_float64(self):
-        """Test Float64 array maps to FLOAT64."""
-        assert _get_valkey_vector_type(Array(Float64)) == "FLOAT64"
+    def test_get_valkey_vector_type_float64_converts_to_float32(self):
+        """Test Float64 array also maps to FLOAT32 (Valkey only supports float32)."""
+        assert _get_valkey_vector_type(Array(Float64)) == "FLOAT32"
 
     def test_get_valkey_vector_type_unsupported_defaults_to_float32(self):
-        """Test unsupported types default to FLOAT32 with warning."""
+        """Test unsupported types default to FLOAT32."""
         # Int32 array is not a valid vector type, should default to FLOAT32
         assert _get_valkey_vector_type(Array(Int32)) == "FLOAT32"
 
@@ -524,8 +524,8 @@ class TestSerializeVectorToBytes:
         expected = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32).tobytes()
         assert result == expected
 
-    def test_serialize_vector_float64(self):
-        """Test Float64 vector serialization to raw bytes."""
+    def test_serialize_vector_float64_converts_to_float32(self):
+        """Test Float64 vector is converted to float32 bytes (Valkey limitation)."""
         val = ValueProto(double_list_val=DoubleList(val=[0.1, 0.2, 0.3, 0.4]))
         field = Field(
             name="embedding",
@@ -536,7 +536,8 @@ class TestSerializeVectorToBytes:
 
         result = _serialize_vector_to_bytes(val, field)
 
-        expected = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float64).tobytes()
+        # Should be float32 bytes, not float64
+        expected = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32).tobytes()
         assert result == expected
 
     def test_serialize_vector_dimension_mismatch(self):
@@ -601,10 +602,11 @@ class TestDeserializeVectorFromBytes:
             result.float_list_val.val, original, decimal=5
         )
 
-    def test_deserialize_vector_float64(self):
-        """Test Float64 vector deserialization from raw bytes."""
-        original = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float64)
+    def test_deserialize_always_returns_float32(self):
+        """Test deserialization always returns float32 (Valkey only supports float32)."""
+        original = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
         raw_bytes = original.tobytes()
+        # Even with Float64 field dtype, result should be float32
         field = Field(
             name="embedding",
             dtype=Array(Float64),
@@ -614,9 +616,10 @@ class TestDeserializeVectorFromBytes:
 
         result = _deserialize_vector_from_bytes(raw_bytes, field)
 
-        assert result.HasField("double_list_val")
+        # Should always return float_list_val regardless of field dtype
+        assert result.HasField("float_list_val")
         np.testing.assert_array_almost_equal(
-            result.double_list_val.val, original, decimal=10
+            result.float_list_val.val, original, decimal=5
         )
 
     def test_roundtrip_float32(self):
@@ -637,8 +640,8 @@ class TestDeserializeVectorFromBytes:
             result.float_list_val.val, original_values, decimal=5
         )
 
-    def test_roundtrip_float64(self):
-        """Test serialize then deserialize preserves Float64 vector values."""
+    def test_roundtrip_float64_converts_to_float32(self):
+        """Test Float64 input is converted to float32 during roundtrip."""
         original_values = [0.123456789, 0.987654321, 0.111111111, 0.999999999]
         val = ValueProto(double_list_val=DoubleList(val=original_values))
         field = Field(
@@ -651,8 +654,10 @@ class TestDeserializeVectorFromBytes:
         raw_bytes = _serialize_vector_to_bytes(val, field)
         result = _deserialize_vector_from_bytes(raw_bytes, field)
 
+        # Result is float32, so we get float_list_val with reduced precision
+        assert result.HasField("float_list_val")
         np.testing.assert_array_almost_equal(
-            result.double_list_val.val, original_values, decimal=10
+            result.float_list_val.val, original_values, decimal=5
         )
 
 
