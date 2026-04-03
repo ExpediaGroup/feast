@@ -288,23 +288,23 @@ class EGValkeyOnlineStore(OnlineStore):
         project: str,
         table: FeatureView,
     ) -> None:
-        """Drop Valkey Search vector index for a feature view if it exists."""
+        """Drop Valkey Search vector indexes for all vector fields in a feature view."""
         vector_fields = [f for f in table.features if f.vector_index]
-        if not vector_fields:
-            return
 
-        # Index is named after the first vector field
-        first_field_name = vector_fields[0].name
-        index_name = _get_vector_index_name(project, table.name, first_field_name)
-        try:
-            client.ft(index_name).dropindex(delete_documents=False)
-            logger.info(f"Dropped vector index {index_name}")
-        except ResponseError as e:
-            # Index doesn't exist - this is fine
-            if "unknown index" in str(e).lower():
-                logger.debug(f"Vector index {index_name} does not exist, skipping drop")
-            else:
-                raise
+        # Drop index for each vector field
+        for field in vector_fields:
+            index_name = _get_vector_index_name(project, table.name, field.name)
+            try:
+                client.ft(index_name).dropindex(delete_documents=False)
+                logger.info(f"Dropped vector index {index_name}")
+            except ResponseError as e:
+                # Index doesn't exist - this is fine
+                if "unknown index" in str(e).lower():
+                    logger.debug(
+                        f"Vector index {index_name} does not exist, skipping drop"
+                    )
+                else:
+                    raise
 
     def update(
         self,
@@ -444,10 +444,10 @@ class EGValkeyOnlineStore(OnlineStore):
         vector_fields: Dict[str, Field],
     ) -> None:
         """
-        Create Valkey Search index for vector fields if not already exists.
+        Create Valkey Search index for each vector field if not already exists.
 
         Uses FT.CREATE with VECTOR field type and appropriate algorithm parameters.
-        Creates a single index containing all vector fields.
+        Creates one index per vector field for future multi-vector support.
 
         Args:
             client: Valkey client
@@ -458,23 +458,25 @@ class EGValkeyOnlineStore(OnlineStore):
         online_store_config = config.online_store
         assert isinstance(online_store_config, EGValkeyOnlineStoreConfig)
 
-        # Use first vector field name in index name (Feast currently allows only one)
-        first_field_name = next(iter(vector_fields.keys()))
-        index_name = _get_vector_index_name(
-            config.project, table.name, first_field_name
+        # Define index on HASH keys with specific prefix (shared across all indexes)
+        key_prefix = _redis_key_prefix(table.join_keys)
+        definition = IndexDefinition(
+            prefix=[key_prefix],
+            index_type=IndexType.HASH,
         )
 
-        # Check if index exists
-        try:
-            client.ft(index_name).info()
-            logger.debug(f"Vector index {index_name} already exists")
-            return
-        except ResponseError:
-            pass  # Index doesn't exist, create it
-
-        # Build schema for vector fields
-        schema_fields = []
+        # Create one index per vector field
         for field_name, field in vector_fields.items():
+            index_name = _get_vector_index_name(config.project, table.name, field_name)
+
+            # Check if index exists
+            try:
+                client.ft(index_name).info()
+                logger.debug(f"Vector index {index_name} already exists")
+                continue
+            except ResponseError:
+                pass  # Index doesn't exist, create it
+
             # Validate required properties
             if field.vector_length <= 0:
                 raise ValueError(
@@ -487,7 +489,7 @@ class EGValkeyOnlineStore(OnlineStore):
 
             # Build algorithm attributes
             attributes = {
-                "TYPE": vector_type,  # "FLOAT32" or "FLOAT64"
+                "TYPE": vector_type,  # Always FLOAT32 (Valkey limitation)
                 "DIM": field.vector_length,
                 "DISTANCE_METRIC": field.vector_search_metric or "COSINE",
             }
@@ -503,33 +505,22 @@ class EGValkeyOnlineStore(OnlineStore):
                     online_store_config.vector_index_hnsw_ef_runtime
                 )
 
-            schema_fields.append(VectorField(field_name, algorithm, attributes))
-
-        # Define index on HASH keys with specific prefix
-        key_prefix = _redis_key_prefix(table.join_keys)
-        definition = IndexDefinition(
-            prefix=[key_prefix],
-            index_type=IndexType.HASH,
-        )
-
-        # Create the index
-        try:
-            client.ft(index_name).create_index(
-                fields=schema_fields,
-                definition=definition,
-            )
-            logger.info(
-                f"Created vector index {index_name} with field(s): {list(vector_fields.keys())}"
-            )
-        except ResponseError as e:
-            if "already exists" in str(e).lower():
-                logger.debug(f"Vector index {index_name} already exists")
-                return
-            logger.error(
-                f"Failed to create vector index {index_name}: {e}. "
-                f"Ensure Valkey Search module is loaded."
-            )
-            raise
+            # Create the index with single vector field
+            try:
+                client.ft(index_name).create_index(
+                    fields=[VectorField(field_name, algorithm, attributes)],
+                    definition=definition,
+                )
+                logger.info(f"Created vector index {index_name} for field {field_name}")
+            except ResponseError as e:
+                if "already exists" in str(e).lower():
+                    logger.debug(f"Vector index {index_name} already exists")
+                    continue
+                logger.error(
+                    f"Failed to create vector index {index_name}: {e}. "
+                    f"Ensure Valkey Search module is loaded."
+                )
+                raise
 
     def online_write_batch(
         self,
