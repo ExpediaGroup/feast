@@ -627,9 +627,19 @@ class CassandraOnlineStore(OnlineStore):
             logger.warning(
                 f"Waiting for futures. Pending are {concurrent_queue.qsize()}"
             )
+            # Drain timeout: the original loop had no timeout, so a
+            # future that never completes (e.g. silent connection drop)
+            # would cause the Spark task to hang forever, blocking the
+            # entire streaming micro-batch.
+            drain_deadline = time.monotonic() + 300  # 5 minute safety valve
             while not concurrent_queue.empty():
                 if ex:
                     raise ex
+                if time.monotonic() > drain_deadline:
+                    raise Exception(
+                        "Timed out waiting for Cassandra futures to drain. "
+                        f"Pending: {concurrent_queue.qsize()}"
+                    )
                 time.sleep(0.001)
             if ex:
                 raise ex
