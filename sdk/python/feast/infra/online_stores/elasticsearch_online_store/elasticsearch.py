@@ -26,6 +26,8 @@ from feast.utils import (
     to_naive_utc,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
     """
@@ -93,6 +95,8 @@ class ElasticSearchOnlineStore(OnlineStore):
         ],
         progress: Optional[Callable[[int], Any]],
     ) -> None:
+        vector_field = _get_feature_view_vector_field_metadata(table)
+        vector_field_name = vector_field.name if vector_field else None
         insert_values = []
         grouped_docs: dict[str, dict[str, Any]] = defaultdict(
             lambda: {
@@ -115,27 +119,31 @@ class ElasticSearchOnlineStore(OnlineStore):
             doc_key = f"{encoded_entity_key}_{timestamp}"
 
             for feature_name, value in values.items():
-                doc = _encode_feature_value(value)
+                doc = _encode_feature_value(
+                    value, is_vector=(feature_name == vector_field_name)
+                )
                 grouped_docs[doc_key]["features"][feature_name] = doc
                 grouped_docs[doc_key]["timestamp"] = timestamp
                 grouped_docs[doc_key]["created_ts"] = created_ts
                 grouped_docs[doc_key]["entity_key"] = encoded_entity_key
 
-                insert_values = [
-                    {
-                        "entity_key": document["entity_key"],
-                        "timestamp": document["timestamp"],
-                        "created_ts": document["created_ts"],
-                        **(document["features"] or {}),
-                    }
-                    for document in grouped_docs.values()
-                ]
+        insert_values = [
+            {
+                "entity_key": document["entity_key"],
+                "timestamp": document["timestamp"],
+                "created_ts": document["created_ts"],
+                **(document["features"] or {}),
+            }
+            for document in grouped_docs.values()
+        ]
 
         batch_size = config.online_store.write_batch_size
         for i in range(0, len(insert_values), batch_size):
             batch = insert_values[i : i + batch_size]
             actions = self._bulk_batch_actions(table, batch)
             helpers.bulk(self._get_client(config), actions, refresh="wait_for")
+            if progress:
+                progress(len(batch))
 
     def online_read(
         self,
@@ -159,6 +167,7 @@ class ElasticSearchOnlineStore(OnlineStore):
             includes.append("*")
 
         body = {
+            "size": len(encoded_entity_keys),
             "_source": {"includes": includes, "excludes": ["*.vector_value"]},
             "query": {
                 "bool": {"filter": [{"terms": {"entity_key": encoded_entity_keys}}]}
@@ -167,12 +176,16 @@ class ElasticSearchOnlineStore(OnlineStore):
 
         response = self._get_client(config).search(index=table.name, body=body)
 
-        results = []
+        # Build a lookup dict keyed by entity_key to preserve input order
+        entity_key_to_result: Dict[
+            str, Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]
+        ] = {}
 
         for hit in response["hits"]["hits"]:
             source = hit["_source"]
+            entity_key_val = source.get("entity_key")
             timestamp = source.get("timestamp")
-            timestamp = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S")
+            timestamp = datetime.fromisoformat(timestamp)
 
             features: Dict[str, ValueProto] = {}
 
@@ -193,7 +206,15 @@ class ElasticSearchOnlineStore(OnlineStore):
                         f"Failed to parse feature '{feature_name}' from hit: {e}"
                     )
 
-            results.append((timestamp, features if features else None))
+            entity_key_to_result[entity_key_val] = (
+                timestamp,
+                features if features else None,
+            )
+
+        # Return results in the same order as input entity_keys
+        results: List[Tuple[Optional[datetime], Optional[Dict[str, ValueProto]]]] = []
+        for encoded_key in encoded_entity_keys:
+            results.append(entity_key_to_result.get(encoded_key, (None, None)))
 
         return results
 
@@ -205,8 +226,9 @@ class ElasticSearchOnlineStore(OnlineStore):
             config: Feast repo configuration object.
             table: FeatureView table for which the index needs to be created.
         """
-        vector_field_length = getattr(
-            _get_feature_view_vector_field_metadata(table), "vector_length", 512
+        vector_field_length = (
+            getattr(_get_feature_view_vector_field_metadata(table), "vector_length", 0)
+            or 512
         )
 
         index_mapping = {
@@ -254,9 +276,11 @@ class ElasticSearchOnlineStore(OnlineStore):
     ):
         # implement the update method
         for table in tables_to_delete:
-            self._get_client(config).delete_by_query(index=table.name)
+            if self._get_client(config).indices.exists(index=table.name):
+                self._get_client(config).delete_by_query(index=table.name)
         for table in tables_to_keep:
-            self.create_index(config, table)
+            if not self._get_client(config).indices.exists(index=table.name):
+                self.create_index(config, table)
 
     def teardown(
         self,
@@ -267,7 +291,8 @@ class ElasticSearchOnlineStore(OnlineStore):
         project = config.project
         try:
             for table in tables:
-                self._get_client(config).indices.delete(index=table.name)
+                if self._get_client(config).indices.exists(index=table.name):
+                    self._get_client(config).indices.delete(index=table.name)
         except Exception as e:
             logging.exception(f"Error deleting index in project {project}: {e}")
             raise
@@ -299,8 +324,11 @@ class ElasticSearchOnlineStore(OnlineStore):
                 Optional[ValueProto],
             ]
         ] = []
+        vector_field = _get_feature_view_vector_field_metadata(table)
         vector_field_path = (
-            config.online_store.vector_field_path or "embedding.vector_value"
+            f"{vector_field.name}.vector_value"
+            if vector_field
+            else config.online_store.vector_field_path or "embedding.vector_value"
         )
         query = {
             "script_score": {
@@ -322,7 +350,7 @@ class ElasticSearchOnlineStore(OnlineStore):
             distance = row["_score"]
 
             timestamp_str = source.get("timestamp")
-            timestamp = datetime.strptime(timestamp_str, "%Y-%m-%dT%H:%M:%S.%f")
+            timestamp = datetime.fromisoformat(timestamp_str)
 
             for feature_name in requested_features:
                 feature_data = source.get(feature_name, {})
@@ -366,11 +394,11 @@ class ElasticSearchOnlineStore(OnlineStore):
                 Optional[Dict[str, ValueProto]],
             ]
         ] = []
-        if not config.online_store.vector_enabled:
-            raise ValueError("Vector search is not enabled in the online store config")
-
         if embedding is None and query_string is None:
             raise ValueError("Either embedding or query_string must be provided")
+
+        if embedding is not None and not config.online_store.vector_enabled:
+            raise ValueError("Vector search is not enabled in the online store config")
 
         es_index = table.name
         body: Dict[str, Any] = {
@@ -384,10 +412,21 @@ class ElasticSearchOnlineStore(OnlineStore):
         body["_source"] = source_fields
 
         if embedding:
-            similarity = (distance_metric or config.online_store.similarity).lower()
+            vector_field = _get_feature_view_vector_field_metadata(table)
             vector_field_path = (
-                config.online_store.vector_field_path or "embedding.vector_value"
+                f"{vector_field.name}.vector_value"
+                if vector_field
+                else config.online_store.vector_field_path or "embedding.vector_value"
             )
+            similarity = (
+                distance_metric
+                or (
+                    vector_field.vector_search_metric
+                    if vector_field and vector_field.vector_search_metric
+                    else None
+                )
+                or config.online_store.similarity
+            ).lower()
             if similarity == "cosine":
                 script = f"cosineSimilarity(params.query_vector, '{vector_field_path}') + 1.0"
             elif similarity == "dot_product":
@@ -441,7 +480,7 @@ class ElasticSearchOnlineStore(OnlineStore):
                 entity_key_serialization_version=config.entity_key_serialization_version,
             )
             timestamp = row["_source"]["timestamp"]
-            timestamp = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%f")
+            timestamp = datetime.fromisoformat(timestamp)
 
             # Create feature dict with all requested features
             feature_dict = {"distance": _to_value_proto(float(row["_score"]))}
@@ -468,14 +507,14 @@ def _to_value_proto(value: Any) -> ValueProto:
     val_proto = ValueProto()
     if isinstance(value, ValueProto):
         return value
-    if isinstance(value, float):
+    if isinstance(value, bool):
+        val_proto.bool_val = value
+    elif isinstance(value, float):
         val_proto.float_val = value
     elif isinstance(value, str):
         val_proto.string_val = value
     elif isinstance(value, int):
         val_proto.int64_val = value
-    elif isinstance(value, bool):
-        val_proto.bool_val = value
     elif isinstance(value, list) and all(isinstance(v, float) for v in value):
         val_proto.float_list_val.val.extend(value)
     elif isinstance(value, dict) and "feature_value" in value:
@@ -489,16 +528,21 @@ def _to_value_proto(value: Any) -> ValueProto:
     return val_proto
 
 
-def _encode_feature_value(value: ValueProto) -> Dict[str, Any]:
+def _encode_feature_value(value: ValueProto, is_vector: bool = False) -> Dict[str, Any]:
     """
     Encode a ValueProto into a dictionary for Elasticsearch storage.
     """
     encoded_value = base64.b64encode(value.SerializeToString()).decode("utf-8")
     result = {"feature_value": encoded_value}
-    vector_val = get_list_val_str(value)
 
-    if vector_val:
-        result["vector_value"] = json.loads(vector_val)
+    if is_vector:
+        vector_val = get_list_val_str(value)
+        if vector_val:
+            result["vector_value"] = json.loads(vector_val)
+        else:
+            logger.warning(
+                "Feature is marked as vector but value does not contain a valid vector."
+            )
     if value.HasField("string_val"):
         result["value_text"] = value.string_val
     elif value.HasField("bytes_val"):

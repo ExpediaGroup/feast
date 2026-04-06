@@ -58,7 +58,7 @@ try:
     from valkey import Valkey
     from valkey import asyncio as valkey_asyncio
     from valkey.cluster import ClusterNode, ValkeyCluster
-    from valkey.commands.search.field import TagField, VectorField
+    from valkey.commands.search.field import VectorField
     from valkey.commands.search.indexDefinition import IndexDefinition, IndexType
     from valkey.commands.search.query import Query
     from valkey.sentinel import Sentinel
