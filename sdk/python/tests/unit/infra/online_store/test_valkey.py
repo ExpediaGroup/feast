@@ -1702,8 +1702,9 @@ class TestExecuteVectorSearch:
         query = call_args[0][0]
 
         # COSINE should sort ascending (lower distance = more similar)
-        assert query._sortby == "__distance__"
-        assert query._sortby_asc is True
+        # Query._sortby is a SortbyField object with .field and .asc properties
+        assert query._sortby.field == "__distance__"
+        assert query._sortby.asc is True
 
     def test_sort_ascending_for_l2_metric(self, store):
         """Test that L2 metric uses ascending sort (lower = better)."""
@@ -1728,7 +1729,7 @@ class TestExecuteVectorSearch:
         query = call_args[0][0]
 
         # L2 should sort ascending (lower distance = more similar)
-        assert query._sortby_asc is True
+        assert query._sortby.asc is True
 
     def test_sort_descending_for_ip_metric(self, store):
         """Test that IP (Inner Product) metric uses descending sort (higher = better)."""
@@ -1753,7 +1754,7 @@ class TestExecuteVectorSearch:
         query = call_args[0][0]
 
         # IP should sort descending (higher score = more similar)
-        assert query._sortby_asc is False
+        assert query._sortby.asc is False
 
     def test_default_distance_is_infinity_not_zero(self, store):
         """Test that missing __distance__ defaults to infinity, not 0.0."""
