@@ -734,8 +734,7 @@ class EGValkeyOnlineStore(OnlineStore):
                     entity_hset = dict()
                     entity_hset[ts_key] = ts.SerializeToString()
                     # Store project and entity key for vector search
-                    # Store as string (not bytes) - valkey-py handles encoding
-                    entity_hset["__project__"] = project
+                    entity_hset["__project__"] = project.encode()
                     entity_hset["__entity_key__"] = serialize_entity_key(
                         entity_key,
                         entity_key_serialization_version=config.entity_key_serialization_version,
