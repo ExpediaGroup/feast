@@ -935,7 +935,6 @@ class TestVectorIndexCreation:
         """Test that index schema includes TagField for __project__ filtering."""
         from unittest.mock import MagicMock
 
-        from valkey.commands.search.field import TagField, VectorField
         from valkey.exceptions import ResponseError
 
         fv = FeatureView(
@@ -981,7 +980,9 @@ class TestVectorIndexCreation:
         # Verify we have both VectorField and TagField
         field_types = [type(f).__name__ for f in fields]
         assert "VectorField" in field_types, "Index should include VectorField"
-        assert "TagField" in field_types, "Index should include TagField for __project__"
+        assert "TagField" in field_types, (
+            "Index should include TagField for __project__"
+        )
 
         # Verify TagField is for __project__
         tag_fields = [f for f in fields if type(f).__name__ == "TagField"]
@@ -1677,7 +1678,7 @@ class TestExecuteVectorSearch:
         query = call_args[0][0]
 
         # Double quote should be escaped
-        assert r'\"' in query.query_string()
+        assert r"\"" in query.query_string()
 
     def test_sort_ascending_for_cosine_metric(self, store):
         """Test that COSINE metric uses ascending sort (lower = better)."""
