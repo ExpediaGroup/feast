@@ -58,7 +58,7 @@ try:
     from valkey import Valkey
     from valkey import asyncio as valkey_asyncio
     from valkey.cluster import ClusterNode, ValkeyCluster
-    from valkey.commands.search.field import VectorField
+    from valkey.commands.search.field import TagField, VectorField
     from valkey.commands.search.indexDefinition import IndexDefinition, IndexType
     from valkey.commands.search.query import Query
     from valkey.sentinel import Sentinel
@@ -506,10 +506,14 @@ class EGValkeyOnlineStore(OnlineStore):
                     online_store_config.vector_index_hnsw_ef_runtime
                 )
 
-            # Create the index with single vector field
+            # Create the index with vector field and project tag for filtering
+            # __project__ TAG field enables filtering by project in hybrid queries
             try:
                 client.ft(index_name).create_index(
-                    fields=[VectorField(field_name, algorithm, attributes)],
+                    fields=[
+                        VectorField(field_name, algorithm, attributes),
+                        TagField("__project__"),
+                    ],
                     definition=definition,
                 )
                 logger.info(f"Created vector index {index_name} for field {field_name}")
@@ -730,7 +734,8 @@ class EGValkeyOnlineStore(OnlineStore):
                     entity_hset = dict()
                     entity_hset[ts_key] = ts.SerializeToString()
                     # Store project and entity key for vector search
-                    entity_hset["__project__"] = project.encode()
+                    # Store as string (not bytes) - valkey-py handles encoding
+                    entity_hset["__project__"] = project
                     entity_hset["__entity_key__"] = serialize_entity_key(
                         entity_key,
                         entity_key_serialization_version=config.entity_key_serialization_version,
@@ -1075,7 +1080,6 @@ class EGValkeyOnlineStore(OnlineStore):
             table=table,
             requested_features=requested_features,
             search_results=search_results,
-            vector_field=vector_field,
         )
 
     def _get_vector_field_for_search(
@@ -1135,17 +1139,26 @@ class EGValkeyOnlineStore(OnlineStore):
         Returns:
             List of (doc_key, distance) tuples
         """
-        # Build KNN query with project filter
-        # Format: "(@__project__:{project})=>[KNN {top_k} @{field} $vec AS distance]"
+        # Escape double quotes in project name for DIALECT 2 quoted tag syntax
+        # This handles special characters like hyphens which would otherwise
+        # be interpreted as operators (e.g., "my-project" -> "my NOT project")
+        escaped_project = project.replace('"', '\\"')
+
+        # Build KNN query with project filter using quoted tag syntax (DIALECT 2)
         query_str = (
-            f"(@__project__:{{{project}}})=>"
-            f"[KNN {top_k} @{vector_field_name} $vec AS __distance__]"
+            f'(@__project__:{{"{escaped_project}"}})'
+            f"=>[KNN {top_k} @{vector_field_name} $vec AS __distance__]"
         )
+
+        # Determine sort order based on metric:
+        # - COSINE, L2: lower distance = more similar → ascending
+        # - IP (Inner Product): higher score = more similar → descending
+        sort_ascending = metric.upper() != "IP"
 
         query = (
             Query(query_str)
             .return_fields("__distance__")
-            .sort_by("__distance__")
+            .sort_by("__distance__", asc=sort_ascending)
             .paging(0, top_k)
             .dialect(2)
         )
@@ -1167,7 +1180,9 @@ class EGValkeyOnlineStore(OnlineStore):
         search_results = []
         for doc in results.docs:
             doc_key = doc.id.encode() if isinstance(doc.id, str) else doc.id
-            distance = float(getattr(doc, "__distance__", 0.0))
+            # Default to inf (worst distance) if __distance__ is missing
+            # 0.0 would incorrectly indicate a perfect match
+            distance = float(getattr(doc, "__distance__", float("inf")))
             search_results.append((doc_key, distance))
 
         return search_results
@@ -1179,7 +1194,6 @@ class EGValkeyOnlineStore(OnlineStore):
         table: FeatureView,
         requested_features: List[str],
         search_results: List[Tuple[bytes, float]],
-        vector_field: Field,
     ) -> List[
         Tuple[
             Optional[datetime],

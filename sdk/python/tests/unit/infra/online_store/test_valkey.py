@@ -926,6 +926,69 @@ class TestVectorFieldValidation:
             )
 
 
+class TestVectorIndexCreation:
+    """Tests for vector index creation with correct schema."""
+
+    def test_index_includes_project_tag_field(
+        self, valkey_online_store, repo_config_without_docker_connection_string
+    ):
+        """Test that index schema includes TagField for __project__ filtering."""
+        from unittest.mock import MagicMock
+
+        from valkey.commands.search.field import TagField, VectorField
+        from valkey.exceptions import ResponseError
+
+        fv = FeatureView(
+            name="test_with_project_tag",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id")],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(
+                    name="embedding",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                ),
+            ],
+        )
+
+        vector_fields = {f.name: f for f in fv.features if f.vector_index}
+
+        mock_client = MagicMock()
+        # Simulate index doesn't exist
+        mock_client.ft.return_value.info.side_effect = ResponseError("Unknown index")
+
+        valkey_online_store._create_vector_index_if_not_exists(
+            mock_client,
+            repo_config_without_docker_connection_string,
+            fv,
+            vector_fields,
+        )
+
+        # Verify create_index was called
+        mock_client.ft.return_value.create_index.assert_called_once()
+
+        # Get the fields argument
+        call_kwargs = mock_client.ft.return_value.create_index.call_args
+        fields = call_kwargs.kwargs.get("fields") or call_kwargs.args[0]
+
+        # Verify we have both VectorField and TagField
+        field_types = [type(f).__name__ for f in fields]
+        assert "VectorField" in field_types, "Index should include VectorField"
+        assert "TagField" in field_types, "Index should include TagField for __project__"
+
+        # Verify TagField is for __project__
+        tag_fields = [f for f in fields if type(f).__name__ == "TagField"]
+        assert len(tag_fields) == 1
+        assert tag_fields[0].name == "__project__"
+
+
 # ============================================================================
 # Vector Support Integration Tests (Docker Required)
 # ============================================================================
@@ -1043,6 +1106,14 @@ def test_valkey_online_write_batch_with_vector_field(
     embedding_bytes = stored_data[b"embedding"]
     vector = np.frombuffer(embedding_bytes, dtype=np.float32)
     np.testing.assert_array_almost_equal(vector, [0.1, 0.2, 0.3, 0.4], decimal=5)
+
+    # Verify __project__ is stored for vector search filtering
+    assert b"__project__" in stored_data
+    # Should be stored as string (valkey-py encodes to bytes, but value should match project)
+    assert stored_data[b"__project__"] == repo_config.project.encode()
+
+    # Verify __entity_key__ is stored for entity key retrieval
+    assert b"__entity_key__" in stored_data
 
 
 @pytest.mark.docker
@@ -1545,3 +1616,171 @@ class TestRetrieveOnlineDocumentsV2Validation:
                     embedding=[0.1, 0.2, 0.3, 0.4],
                     top_k=10,
                 )
+
+
+class TestExecuteVectorSearch:
+    """Tests for _execute_vector_search helper method."""
+
+    @pytest.fixture
+    def store(self):
+        return EGValkeyOnlineStore()
+
+    def test_project_name_with_hyphen_is_escaped(self, store):
+        """Test that project names with hyphens are properly escaped in queries."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="my-project",  # Hyphen in project name
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="COSINE",
+        )
+
+        # Verify the query was called
+        mock_client.ft.return_value.search.assert_called_once()
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # The query string should have quoted project name for DIALECT 2
+        # This prevents hyphen from being interpreted as negation
+        assert '"my-project"' in query.query_string()
+
+    def test_project_name_with_double_quote_is_escaped(self, store):
+        """Test that double quotes in project names are escaped."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project='my"project',  # Double quote in project name
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="COSINE",
+        )
+
+        mock_client.ft.return_value.search.assert_called_once()
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # Double quote should be escaped
+        assert r'\"' in query.query_string()
+
+    def test_sort_ascending_for_cosine_metric(self, store):
+        """Test that COSINE metric uses ascending sort (lower = better)."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="test_project",
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="COSINE",
+        )
+
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # COSINE should sort ascending (lower distance = more similar)
+        assert query._sortby == "__distance__"
+        assert query._sortby_asc is True
+
+    def test_sort_ascending_for_l2_metric(self, store):
+        """Test that L2 metric uses ascending sort (lower = better)."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="test_project",
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="L2",
+        )
+
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # L2 should sort ascending (lower distance = more similar)
+        assert query._sortby_asc is True
+
+    def test_sort_descending_for_ip_metric(self, store):
+        """Test that IP (Inner Product) metric uses descending sort (higher = better)."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="test_project",
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="IP",
+        )
+
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # IP should sort descending (higher score = more similar)
+        assert query._sortby_asc is False
+
+    def test_default_distance_is_infinity_not_zero(self, store):
+        """Test that missing __distance__ defaults to infinity, not 0.0."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_doc = MagicMock()
+        mock_doc.id = "test_key"
+        # Simulate missing __distance__ attribute
+        del mock_doc.__distance__
+
+        mock_result = MagicMock()
+        mock_result.docs = [mock_doc]
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        results = store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="test_project",
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="COSINE",
+        )
+
+        # Distance should default to infinity, not 0.0
+        # 0.0 would incorrectly indicate a perfect match
+        assert len(results) == 1
+        doc_key, distance = results[0]
+        assert distance == float("inf")
