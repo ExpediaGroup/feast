@@ -926,6 +926,70 @@ class TestVectorFieldValidation:
             )
 
 
+class TestVectorIndexCreation:
+    """Tests for vector index creation with correct schema."""
+
+    def test_index_includes_project_tag_field(
+        self, valkey_online_store, repo_config_without_docker_connection_string
+    ):
+        """Test that index schema includes TagField for __project__ filtering."""
+        from unittest.mock import MagicMock
+
+        from valkey.exceptions import ResponseError
+
+        fv = FeatureView(
+            name="test_with_project_tag",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id")],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(
+                    name="embedding",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                ),
+            ],
+        )
+
+        vector_fields = {f.name: f for f in fv.features if f.vector_index}
+
+        mock_client = MagicMock()
+        # Simulate index doesn't exist
+        mock_client.ft.return_value.info.side_effect = ResponseError("Unknown index")
+
+        valkey_online_store._create_vector_index_if_not_exists(
+            mock_client,
+            repo_config_without_docker_connection_string,
+            fv,
+            vector_fields,
+        )
+
+        # Verify create_index was called
+        mock_client.ft.return_value.create_index.assert_called_once()
+
+        # Get the fields argument
+        call_kwargs = mock_client.ft.return_value.create_index.call_args
+        fields = call_kwargs.kwargs.get("fields") or call_kwargs.args[0]
+
+        # Verify we have both VectorField and TagField
+        field_types = [type(f).__name__ for f in fields]
+        assert "VectorField" in field_types, "Index should include VectorField"
+        assert "TagField" in field_types, (
+            "Index should include TagField for __project__"
+        )
+
+        # Verify TagField is for __project__
+        tag_fields = [f for f in fields if type(f).__name__ == "TagField"]
+        assert len(tag_fields) == 1
+        assert tag_fields[0].name == "__project__"
+
+
 # ============================================================================
 # Vector Support Integration Tests (Docker Required)
 # ============================================================================
@@ -1043,6 +1107,14 @@ def test_valkey_online_write_batch_with_vector_field(
     embedding_bytes = stored_data[b"embedding"]
     vector = np.frombuffer(embedding_bytes, dtype=np.float32)
     np.testing.assert_array_almost_equal(vector, [0.1, 0.2, 0.3, 0.4], decimal=5)
+
+    # Verify __project__ is stored for vector search filtering
+    assert b"__project__" in stored_data
+    # Should be stored as string (valkey-py encodes to bytes, but value should match project)
+    assert stored_data[b"__project__"] == repo_config.project.encode()
+
+    # Verify __entity_key__ is stored for entity key retrieval
+    assert b"__entity_key__" in stored_data
 
 
 @pytest.mark.docker
@@ -1261,3 +1333,456 @@ def test_valkey_online_read_with_requested_features_mixed(
 
     # Verify string value
     assert features["item_name"].string_val == "item_2"
+
+
+class TestGetVectorFieldForSearch:
+    """Tests for _get_vector_field_for_search helper method."""
+
+    @pytest.fixture
+    def feature_view_with_vector(self):
+        """Create a FeatureView with vector field for testing."""
+        return FeatureView(
+            name="test_fv",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(name="scalar_feature", dtype=Float32),
+                Field(
+                    name="embedding",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                    vector_search_metric="COSINE",
+                ),
+            ],
+        )
+
+    @pytest.fixture
+    def feature_view_no_vector(self):
+        """Create a FeatureView without vector fields."""
+        return FeatureView(
+            name="test_fv_no_vector",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(name="scalar_feature", dtype=Float32),
+            ],
+        )
+
+    def test_returns_vector_field_from_requested_features(
+        self, feature_view_with_vector
+    ):
+        """Test that vector field is returned when in requested_features."""
+        store = EGValkeyOnlineStore()
+        result = store._get_vector_field_for_search(
+            feature_view_with_vector,
+            requested_features=["embedding", "scalar_feature"],
+        )
+        assert result is not None
+        assert result.name == "embedding"
+
+    def test_returns_first_vector_field_when_not_in_requested(
+        self, feature_view_with_vector
+    ):
+        """Test that first vector field is returned when not in requested_features."""
+        store = EGValkeyOnlineStore()
+        result = store._get_vector_field_for_search(
+            feature_view_with_vector, requested_features=["scalar_feature"]
+        )
+        assert result is not None
+        assert result.name == "embedding"
+
+    def test_returns_none_for_no_vector_fields(self, feature_view_no_vector):
+        """Test that None is returned when no vector fields exist."""
+        store = EGValkeyOnlineStore()
+        result = store._get_vector_field_for_search(
+            feature_view_no_vector, requested_features=["scalar_feature"]
+        )
+        assert result is None
+
+
+class TestSerializeEmbeddingForSearch:
+    """Tests for _serialize_embedding_for_search helper method."""
+
+    @pytest.fixture
+    def float32_vector_field(self):
+        """Create a Float32 vector field."""
+        return Field(
+            name="embedding",
+            dtype=Array(Float32),
+            vector_index=True,
+            vector_length=4,
+        )
+
+    @pytest.fixture
+    def float64_vector_field(self):
+        """Create a Float64 vector field."""
+        return Field(
+            name="embedding",
+            dtype=Array(Float64),
+            vector_index=True,
+            vector_length=4,
+        )
+
+    def test_serializes_to_float32_bytes(self, float32_vector_field):
+        """Test that embedding is serialized to float32 bytes."""
+        store = EGValkeyOnlineStore()
+        embedding = [0.1, 0.2, 0.3, 0.4]
+        result = store._serialize_embedding_for_search(embedding, float32_vector_field)
+
+        # Verify it's bytes
+        assert isinstance(result, bytes)
+
+        # Verify length (4 floats * 4 bytes each = 16 bytes)
+        assert len(result) == 16
+
+        # Verify values can be deserialized back
+        arr = np.frombuffer(result, dtype=np.float32)
+        np.testing.assert_array_almost_equal(arr, embedding, decimal=5)
+
+    def test_serializes_to_float64_bytes(self, float64_vector_field):
+        """Test that embedding is serialized to float64 bytes for Float64 fields."""
+        store = EGValkeyOnlineStore()
+        embedding = [0.1, 0.2, 0.3, 0.4]
+        result = store._serialize_embedding_for_search(embedding, float64_vector_field)
+
+        # Verify it's bytes
+        assert isinstance(result, bytes)
+
+        # Verify length (4 doubles * 8 bytes each = 32 bytes)
+        assert len(result) == 32
+
+        # Verify values can be deserialized back
+        arr = np.frombuffer(result, dtype=np.float64)
+        np.testing.assert_array_almost_equal(arr, embedding, decimal=10)
+
+    def test_raises_error_on_dimension_mismatch(self, float32_vector_field):
+        """Test that ValueError is raised when embedding dimension doesn't match field."""
+        store = EGValkeyOnlineStore()
+        # Field expects 4 dimensions, but we provide 3
+        embedding = [0.1, 0.2, 0.3]
+        with pytest.raises(ValueError, match="dimension .* does not match"):
+            store._serialize_embedding_for_search(embedding, float32_vector_field)
+
+
+class TestRetrieveOnlineDocumentsV2Validation:
+    """Tests for retrieve_online_documents_v2 input validation."""
+
+    @pytest.fixture
+    def feature_view_with_vector(self):
+        """Create a FeatureView with vector field for testing."""
+        return FeatureView(
+            name="test_fv",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(
+                    name="embedding",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                    vector_search_metric="COSINE",
+                ),
+            ],
+        )
+
+    @pytest.fixture
+    def feature_view_no_vector(self):
+        """Create a FeatureView without vector fields."""
+        return FeatureView(
+            name="test_fv_no_vector",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(name="scalar_feature", dtype=Float32),
+            ],
+        )
+
+    @pytest.fixture
+    def repo_config(self):
+        """Create a minimal RepoConfig for testing."""
+        return RepoConfig(
+            project="test_project",
+            provider="local",
+            registry="test_registry.db",
+            online_store=EGValkeyOnlineStoreConfig(
+                type="eg-valkey",
+                connection_string="localhost:6379",
+            ),
+            entity_key_serialization_version=3,
+        )
+
+    def test_raises_error_when_embedding_is_none(
+        self, repo_config, feature_view_with_vector
+    ):
+        """Test that ValueError is raised when embedding is None."""
+        store = EGValkeyOnlineStore()
+        with pytest.raises(ValueError, match="embedding must be provided"):
+            store.retrieve_online_documents_v2(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["embedding"],
+                embedding=None,
+                top_k=10,
+            )
+
+    def test_raises_error_when_query_string_provided(
+        self, repo_config, feature_view_with_vector
+    ):
+        """Test that NotImplementedError is raised when query_string is provided."""
+        store = EGValkeyOnlineStore()
+        with pytest.raises(NotImplementedError, match="Keyword search"):
+            store.retrieve_online_documents_v2(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["embedding"],
+                embedding=[0.1, 0.2, 0.3, 0.4],
+                top_k=10,
+                query_string="test query",
+            )
+
+    def test_raises_error_when_no_vector_field(
+        self, repo_config, feature_view_no_vector
+    ):
+        """Test that ValueError is raised when FeatureView has no vector fields."""
+        store = EGValkeyOnlineStore()
+        with pytest.raises(ValueError, match="No vector field found"):
+            store.retrieve_online_documents_v2(
+                config=repo_config,
+                table=feature_view_no_vector,
+                requested_features=["scalar_feature"],
+                embedding=[0.1, 0.2, 0.3, 0.4],
+                top_k=10,
+            )
+
+    def test_raises_error_when_dimension_mismatch(
+        self, repo_config, feature_view_with_vector
+    ):
+        """Test that ValueError is raised when embedding dimension doesn't match field."""
+        store = EGValkeyOnlineStore()
+        # feature_view_with_vector has vector_length=4, so 3-dim embedding should fail
+        with pytest.raises(ValueError, match="Embedding dimension .* does not match"):
+            store.retrieve_online_documents_v2(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["embedding"],
+                embedding=[0.1, 0.2, 0.3],  # Wrong dimension (3 instead of 4)
+                top_k=10,
+            )
+
+    def test_raises_error_when_index_does_not_exist(
+        self, repo_config, feature_view_with_vector
+    ):
+        """Test that ValueError is raised when vector index doesn't exist."""
+        from unittest.mock import MagicMock, patch
+
+        from valkey.exceptions import ResponseError
+
+        store = EGValkeyOnlineStore()
+
+        # Mock the client to simulate "no such index" error
+        mock_client = MagicMock()
+        mock_client.ft.return_value.search.side_effect = ResponseError("no such index")
+
+        with patch.object(store, "_get_client", return_value=mock_client):
+            with pytest.raises(ValueError, match="does not exist.*materialize"):
+                store.retrieve_online_documents_v2(
+                    config=repo_config,
+                    table=feature_view_with_vector,
+                    requested_features=["embedding"],
+                    embedding=[0.1, 0.2, 0.3, 0.4],
+                    top_k=10,
+                )
+
+
+class TestExecuteVectorSearch:
+    """Tests for _execute_vector_search helper method."""
+
+    @pytest.fixture
+    def store(self):
+        return EGValkeyOnlineStore()
+
+    def test_project_name_with_hyphen_is_escaped(self, store):
+        """Test that project names with hyphens are properly escaped in queries."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="my-project",  # Hyphen in project name
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="COSINE",
+        )
+
+        # Verify the query was called
+        mock_client.ft.return_value.search.assert_called_once()
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # The query string should have quoted project name for DIALECT 2
+        # This prevents hyphen from being interpreted as negation
+        assert '"my-project"' in query.query_string()
+
+    def test_project_name_with_double_quote_is_escaped(self, store):
+        """Test that double quotes in project names are escaped."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project='my"project',  # Double quote in project name
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="COSINE",
+        )
+
+        mock_client.ft.return_value.search.assert_called_once()
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # Double quote should be escaped
+        assert r"\"" in query.query_string()
+
+    def test_sort_ascending_for_cosine_metric(self, store):
+        """Test that COSINE metric uses ascending sort (lower = better)."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="test_project",
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="COSINE",
+        )
+
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # COSINE should sort ascending (lower distance = more similar)
+        # Query._sortby is a SortbyField object with .args = [field, "ASC"/"DESC"]
+        assert query._sortby.args[0] == "__distance__"
+        assert query._sortby.args[1] == "ASC"
+
+    def test_sort_ascending_for_l2_metric(self, store):
+        """Test that L2 metric uses ascending sort (lower = better)."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="test_project",
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="L2",
+        )
+
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # L2 should sort ascending (lower distance = more similar)
+        assert query._sortby.args[1] == "ASC"
+
+    def test_sort_descending_for_ip_metric(self, store):
+        """Test that IP (Inner Product) metric uses descending sort (higher = better)."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_result = MagicMock()
+        mock_result.docs = []
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="test_project",
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="IP",
+        )
+
+        call_args = mock_client.ft.return_value.search.call_args
+        query = call_args[0][0]
+
+        # IP should sort descending (higher score = more similar)
+        assert query._sortby.args[1] == "DESC"
+
+    def test_default_distance_is_infinity_not_zero(self, store):
+        """Test that missing __distance__ defaults to infinity, not 0.0."""
+        from unittest.mock import MagicMock
+
+        mock_client = MagicMock()
+        mock_doc = MagicMock()
+        mock_doc.id = "test_key"
+        # Simulate missing __distance__ attribute
+        del mock_doc.__distance__
+
+        mock_result = MagicMock()
+        mock_result.docs = [mock_doc]
+        mock_client.ft.return_value.search.return_value = mock_result
+
+        results = store._execute_vector_search(
+            client=mock_client,
+            index_name="test_index",
+            project="test_project",
+            vector_field_name="embedding",
+            embedding_bytes=b"\x00" * 16,
+            top_k=10,
+            metric="COSINE",
+        )
+
+        # Distance should default to infinity, not 0.0
+        # 0.0 would incorrectly indicate a perfect match
+        assert len(results) == 1
+        doc_key, distance = results[0]
+        assert distance == float("inf")
