@@ -194,13 +194,14 @@ class TestElasticSearchOnlineStoreConfig:
 class TestCreateIndexWithQuantization:
     def test_index_mapping_with_int8_quantization(self):
         """Test index mapping includes quantization settings."""
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import MagicMock
+
         from feast import FeatureView, Field, RepoConfig
-        from feast.types import Array, Float32
         from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
             ElasticSearchOnlineStore,
             ElasticSearchOnlineStoreConfig,
         )
+        from feast.types import Array, Float32
 
         config = RepoConfig(
             project="test",
@@ -253,12 +254,13 @@ class TestCreateIndexWithQuantization:
     def test_int4_requires_even_dimensions(self):
         """Test int4 quantization validates even dimensions."""
         from unittest.mock import MagicMock
+
         from feast import FeatureView, Field, RepoConfig
-        from feast.types import Array, Float32
         from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
             ElasticSearchOnlineStore,
             ElasticSearchOnlineStoreConfig,
         )
+        from feast.types import Array, Float32
 
         config = RepoConfig(
             project="test",
@@ -291,12 +293,13 @@ class TestCreateIndexWithQuantization:
     def test_bbq_requires_min_dimensions(self):
         """Test bbq quantization validates minimum dimensions."""
         from unittest.mock import MagicMock
+
         from feast import FeatureView, Field, RepoConfig
-        from feast.types import Array, Float32
         from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
             ElasticSearchOnlineStore,
             ElasticSearchOnlineStoreConfig,
         )
+        from feast.types import Array, Float32
 
         config = RepoConfig(
             project="test",
