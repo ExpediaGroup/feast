@@ -3,11 +3,13 @@ from __future__ import absolute_import
 import base64
 import json
 import logging
+import math
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from elasticsearch import Elasticsearch, helpers
+from pydantic import model_validator
 
 from feast import Entity, FeatureView, RepoConfig
 from feast.infra.key_encoding_utils import (
@@ -47,6 +49,115 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
 
     # The number of rows to write in a single batch
     write_batch_size: Optional[int] = 40
+
+    # Quantization / index_options configuration
+    vector_index_type: Optional[str] = None
+    # One of: "hnsw", "int8_hnsw", "int4_hnsw", "bbq_hnsw", "bbq_disk",
+    #         "flat", "int8_flat", "int4_flat", "bbq_flat"
+    # None = use ES default (hnsw for <8.x, int8_hnsw for 9.0+)
+
+    # HNSW tuning parameters (only apply to HNSW index types)
+    hnsw_m: Optional[int] = None  # Neighbor connections (ES default: 16, range: 2-100)
+    hnsw_ef_construction: Optional[int] = (
+        None  # Build-time candidates (ES default: 100, min: 1)
+    )
+
+    # Rescore configuration for quantized indices only (int4/int8/bbq)
+    rescore_oversample: Optional[float] = None  # Range: >1.0 and <10.0, or 0 to disable
+
+    # Query method toggle
+    use_native_knn: bool = False  # False = script_score (backward compatible)
+    # True = native knn query (faster, approximate)
+
+    # KNN query tuning
+    knn_num_candidates_multiplier: Optional[float] = (
+        None  # Default: 2.0; num_candidates = top_k * multiplier (must be >= 1.0)
+    )
+
+    @model_validator(mode="after")
+    def validate_quantization_config(self):
+        """Validate quantization configuration constraints."""
+        # Validate vector_index_type is a known value
+        valid_index_types = {
+            "hnsw",
+            "int8_hnsw",
+            "int4_hnsw",
+            "bbq_hnsw",
+            "bbq_disk",
+            "flat",
+            "int8_flat",
+            "int4_flat",
+            "bbq_flat",
+        }
+        if (
+            self.vector_index_type is not None
+            and self.vector_index_type not in valid_index_types
+        ):
+            raise ValueError(
+                f"vector_index_type must be one of {valid_index_types}, got {self.vector_index_type}"
+            )
+
+        # Validate rescore_oversample range (exclusive: >1.0 and <10.0, or 0)
+        if self.rescore_oversample is not None:
+            if self.rescore_oversample != 0 and not (
+                1.0 < self.rescore_oversample < 10.0
+            ):
+                raise ValueError(
+                    f"rescore_oversample must be 0 or in range (1.0, 10.0) exclusive, got {self.rescore_oversample}"
+                )
+
+        # Validate rescore_oversample only applies to quantized indices
+        quantized_types = {
+            "int8_hnsw",
+            "int4_hnsw",
+            "bbq_hnsw",
+            "bbq_disk",
+            "int8_flat",
+            "int4_flat",
+            "bbq_flat",
+        }
+        if self.rescore_oversample is not None and self.rescore_oversample != 0:
+            if (
+                self.vector_index_type is not None
+                and self.vector_index_type not in quantized_types
+            ):
+                raise ValueError(
+                    f"rescore_oversample can only be used with quantized index types {quantized_types}, "
+                    f"got vector_index_type='{self.vector_index_type}'"
+                )
+
+        # Validate HNSW parameters only apply to HNSW index types
+        hnsw_types = {"hnsw", "int8_hnsw", "int4_hnsw", "bbq_hnsw"}
+        if (self.hnsw_m is not None or self.hnsw_ef_construction is not None) and (
+            self.vector_index_type is not None
+            and self.vector_index_type not in hnsw_types
+        ):
+            raise ValueError(
+                f"hnsw_m and hnsw_ef_construction only apply to HNSW index types {hnsw_types}, "
+                f"got vector_index_type='{self.vector_index_type}'"
+            )
+
+        # Validate HNSW parameter ranges
+        if self.hnsw_m is not None:
+            if not (2 <= self.hnsw_m <= 100):
+                raise ValueError(
+                    f"hnsw_m should be in range [2, 100], got {self.hnsw_m}"
+                )
+
+        if self.hnsw_ef_construction is not None:
+            if self.hnsw_ef_construction < 1:
+                raise ValueError(
+                    f"hnsw_ef_construction must be >= 1, got {self.hnsw_ef_construction}"
+                )
+
+        # Validate knn_num_candidates_multiplier range (must be >= 1.0)
+        if self.knn_num_candidates_multiplier is not None:
+            if self.knn_num_candidates_multiplier < 1.0:
+                raise ValueError(
+                    f"knn_num_candidates_multiplier must be >= 1.0, got {self.knn_num_candidates_multiplier}"
+                )
+
+        return self
 
 
 class ElasticSearchOnlineStore(OnlineStore):
@@ -231,6 +342,49 @@ class ElasticSearchOnlineStore(OnlineStore):
             or 512
         )
 
+        # Validate vector_field_length is positive
+        if vector_field_length <= 0:
+            raise ValueError(
+                f"vector_field_length must be > 0, got {vector_field_length} for table '{table.name}'"
+            )
+
+        # Validate dimension-based quantization constraints
+        if config.online_store.vector_index_type:
+            index_type = config.online_store.vector_index_type
+            # int4 quantization requires even number of dimensions
+            if "int4" in index_type and vector_field_length % 2 != 0:
+                raise ValueError(
+                    f"int4 quantization ('{index_type}') requires even number of dimensions, "
+                    f"got {vector_field_length} for table '{table.name}'"
+                )
+            # bbq quantization requires >=64 dimensions
+            if "bbq" in index_type and vector_field_length < 64:
+                raise ValueError(
+                    f"bbq quantization ('{index_type}') requires >= 64 dimensions, "
+                    f"got {vector_field_length} for table '{table.name}'"
+                )
+
+        # Build vector_value mapping with quantization settings
+        vector_mapping = {
+            "type": "dense_vector",
+            "dims": vector_field_length,
+            "index": True,
+            "similarity": config.online_store.similarity,
+        }
+
+        # Add quantization index_options if configured
+        if config.online_store.vector_index_type:
+            index_options: Dict[str, Any] = {"type": config.online_store.vector_index_type}
+            if config.online_store.hnsw_m is not None:
+                index_options["m"] = config.online_store.hnsw_m
+            if config.online_store.hnsw_ef_construction is not None:
+                index_options["ef_construction"] = (
+                    config.online_store.hnsw_ef_construction
+                )
+            vector_mapping["index_options"] = index_options
+
+        # Note: rescore_oversample is a query-time parameter, not an index mapping parameter
+
         index_mapping = {
             "dynamic_templates": [
                 {
@@ -242,12 +396,7 @@ class ElasticSearchOnlineStore(OnlineStore):
                             "properties": {
                                 "feature_value": {"type": "binary"},
                                 "value_text": {"type": "text"},
-                                "vector_value": {
-                                    "type": "dense_vector",
-                                    "dims": vector_field_length,
-                                    "index": True,
-                                    "similarity": config.online_store.similarity,
-                                },
+                                "vector_value": vector_mapping,
                             },
                         },
                     }
@@ -260,10 +409,9 @@ class ElasticSearchOnlineStore(OnlineStore):
             },
         }
 
-        self._get_client(config).indices.create(
-            index=table.name,
-            mappings=index_mapping,
-        )
+        client = self._get_client(config)
+        if not client.indices.exists(index=table.name):
+            client.indices.create(index=table.name, mappings=index_mapping)
 
     def update(
         self,
@@ -274,12 +422,23 @@ class ElasticSearchOnlineStore(OnlineStore):
         entities_to_keep: Sequence[Entity],
         partial: bool,
     ):
-        # implement the update method
+        client = self._get_client(config)
+
+        # Cache existing indices to reduce API calls
+        all_table_names = [t.name for t in tables_to_delete] + [t.name for t in tables_to_keep]
+        existing_indices: Set[str] = set()
+        for table_name in all_table_names:
+            if client.indices.exists(index=table_name):
+                existing_indices.add(table_name)
+
+        # Delete data from indices that should be removed
         for table in tables_to_delete:
-            if self._get_client(config).indices.exists(index=table.name):
-                self._get_client(config).delete_by_query(index=table.name)
+            if table.name in existing_indices:
+                client.delete_by_query(index=table.name, body={"query": {"match_all": {}}})
+
+        # Create indices for tables that should be kept
         for table in tables_to_keep:
-            if not self._get_client(config).indices.exists(index=table.name):
+            if table.name not in existing_indices:
                 self.create_index(config, table)
 
     def teardown(
@@ -289,10 +448,17 @@ class ElasticSearchOnlineStore(OnlineStore):
         entities: Sequence[Entity],
     ):
         project = config.project
+        client = self._get_client(config)
         try:
+            # Cache existing indices to reduce API calls
+            existing_indices: Set[str] = set()
             for table in tables:
-                if self._get_client(config).indices.exists(index=table.name):
-                    self._get_client(config).indices.delete(index=table.name)
+                if client.indices.exists(index=table.name):
+                    existing_indices.add(table.name)
+
+            # Delete all existing indices
+            for table_name in existing_indices:
+                client.indices.delete(index=table_name)
         except Exception as e:
             logging.exception(f"Error deleting index in project {project}: {e}")
             raise
@@ -330,18 +496,46 @@ class ElasticSearchOnlineStore(OnlineStore):
             if vector_field
             else config.online_store.vector_field_path or "embedding.vector_value"
         )
-        query = {
-            "script_score": {
-                "query": {
-                    "bool": {"filter": [{"exists": {"field": vector_field_path}}]}
-                },
-                "script": {
-                    "source": f"cosineSimilarity(params.query_vector, '{vector_field_path}') + 1.0",
-                    "params": {"query_vector": embedding},
-                },
+
+        # Build query based on use_native_knn config
+        body: Dict[str, Any] = {"size": top_k, "_source": True}
+
+        if config.online_store.use_native_knn:
+            # Native knn query (fast, approximate)
+            # Uses the similarity metric configured in the index mapping
+            multiplier = config.online_store.knn_num_candidates_multiplier or 2.0
+            num_candidates: int = max(top_k, math.ceil(top_k * multiplier))
+
+            knn_query: Dict[str, Any] = {
+                "field": vector_field_path,
+                "query_vector": embedding,
+                "k": top_k,
+                "num_candidates": num_candidates,
             }
-        }
-        body = {"size": top_k, "_source": True, "query": query}
+
+            # Add rescore configuration if specified (quantized indices only)
+            if (
+                config.online_store.rescore_oversample is not None
+                and config.online_store.rescore_oversample > 0
+            ):
+                knn_query["rescore"] = {
+                    "oversample": config.online_store.rescore_oversample
+                }
+
+            body["knn"] = knn_query
+        else:
+            # Legacy script_score query (slow, exact, backward compatible)
+            body["query"] = {
+                "script_score": {
+                    "query": {
+                        "bool": {"filter": [{"exists": {"field": vector_field_path}}]}
+                    },
+                    "script": {
+                        "source": f"cosineSimilarity(params.query_vector, '{vector_field_path}') + 1.0",
+                        "params": {"query_vector": embedding},
+                    },
+                }
+            }
         response = self._get_client(config).search(index=table.name, body=body)
         rows = response["hits"]["hits"][0:top_k]
         for row in rows:
@@ -354,8 +548,8 @@ class ElasticSearchOnlineStore(OnlineStore):
 
             for feature_name in requested_features:
                 feature_data = source.get(feature_name, {})
-                feature_value = feature_data.get("feature_value")
-                vector_value = feature_data.get("vector_value")
+                feature_value = feature_data.get("feature_value") if isinstance(feature_data, dict) else None
+                vector_value = feature_data.get("vector_value") if isinstance(feature_data, dict) else None
                 result.append(
                     _build_retrieve_online_document_record(
                         base64.b64decode(entity_key),
@@ -427,45 +621,104 @@ class ElasticSearchOnlineStore(OnlineStore):
                 )
                 or config.online_store.similarity
             ).lower()
-            if similarity == "cosine":
-                script = f"cosineSimilarity(params.query_vector, '{vector_field_path}') + 1.0"
-            elif similarity == "dot_product":
-                script = f"dotProduct(params.query_vector, '{vector_field_path}')"
-            elif similarity in ("l2", "l2_norm", "euclidean"):
-                script = f"1 / (1 + l2norm(params.query_vector, '{vector_field_path}'))"
-            else:
-                raise ValueError(
-                    f"Unsupported similarity/distance_metric: {similarity}"
-                )
 
-        # Hybrid search
-        if embedding and query_string:
-            body["query"] = {
-                "script_score": {
-                    "query": {
-                        "bool": {
-                            "must": [
-                                {"query_string": {"query": f'"{query_string}"'}},
-                                {"exists": {"field": vector_field_path}},
-                            ]
-                        }
-                    },
-                    "script": {
-                        "source": script,
-                        "params": {"query_vector": embedding},
-                    },
+            # Determine query method: native knn or script_score
+            use_native_knn = config.online_store.use_native_knn
+
+            if use_native_knn:
+                # Native knn query (fast, approximate)
+                # Uses the similarity metric configured in the index mapping
+                # Validate that the requested similarity is supported
+                if similarity not in (
+                    "cosine",
+                    "dot_product",
+                    "l2",
+                    "l2_norm",
+                    "euclidean",
+                ):
+                    raise ValueError(
+                        f"Unsupported similarity for native knn: {similarity}"
+                    )
+
+                # Calculate num_candidates for approximate nearest neighbor search
+                multiplier = config.online_store.knn_num_candidates_multiplier or 2.0
+                num_candidates: int = max(top_k, math.ceil(top_k * multiplier))
+
+                knn_clause: Dict[str, Any] = {
+                    "field": vector_field_path,
+                    "query_vector": embedding,
+                    "k": top_k,
+                    "num_candidates": num_candidates,
                 }
-            }
+
+                # Add rescore configuration if specified (quantized indices only)
+                if (
+                    config.online_store.rescore_oversample is not None
+                    and config.online_store.rescore_oversample > 0
+                ):
+                    knn_clause["rescore"] = {
+                        "oversample": config.online_store.rescore_oversample
+                    }
+            else:
+                # Legacy script_score query (slow, exact, backward compatible)
+                if similarity == "cosine":
+                    script = f"cosineSimilarity(params.query_vector, '{vector_field_path}') + 1.0"
+                elif similarity == "dot_product":
+                    script = f"dotProduct(params.query_vector, '{vector_field_path}')"
+                elif similarity in ("l2", "l2_norm", "euclidean"):
+                    script = (
+                        f"1 / (1 + l2norm(params.query_vector, '{vector_field_path}'))"
+                    )
+                else:
+                    raise ValueError(
+                        f"Unsupported similarity/distance_metric: {similarity}"
+                    )
+
+        # Build query based on search type and query method
+        # Hybrid search (embedding + keyword)
+        if embedding and query_string:
+            if use_native_knn:
+                # Native knn with query filter
+                body["knn"] = knn_clause
+                body["query"] = {"query_string": {"query": f'"{query_string}"'}}
+            else:
+                # Legacy script_score with keyword filter
+                body["query"] = {
+                    "script_score": {
+                        "query": {
+                            "bool": {
+                                "must": [
+                                    {"query_string": {"query": f'"{query_string}"'}},
+                                    {"exists": {"field": vector_field_path}},
+                                ]
+                            }
+                        },
+                        "script": {
+                            "source": script,
+                            "params": {"query_vector": embedding},
+                        },
+                    }
+                }
         # Vector search only
         elif embedding:
-            body["query"] = {
-                "script_score": {
-                    "query": {
-                        "bool": {"filter": [{"exists": {"field": vector_field_path}}]}
-                    },
-                    "script": {"source": script, "params": {"query_vector": embedding}},
+            if use_native_knn:
+                # Native knn query
+                body["knn"] = knn_clause
+            else:
+                # Legacy script_score
+                body["query"] = {
+                    "script_score": {
+                        "query": {
+                            "bool": {
+                                "filter": [{"exists": {"field": vector_field_path}}]
+                            }
+                        },
+                        "script": {
+                            "source": script,
+                            "params": {"query_vector": embedding},
+                        },
+                    }
                 }
-            }
         # Keyword search only
         elif query_string:
             body["query"] = {"query_string": {"query": f'"{query_string}"'}}
@@ -507,24 +760,36 @@ def _to_value_proto(value: Any) -> ValueProto:
     val_proto = ValueProto()
     if isinstance(value, ValueProto):
         return value
+    # Check bool before int/float since bool is a subclass of int in Python
     if isinstance(value, bool):
         val_proto.bool_val = value
     elif isinstance(value, float):
         val_proto.float_val = value
-    elif isinstance(value, str):
-        val_proto.string_val = value
     elif isinstance(value, int):
         val_proto.int64_val = value
-    elif isinstance(value, list) and all(isinstance(v, float) for v in value):
-        val_proto.float_list_val.val.extend(value)
-    elif isinstance(value, dict) and "feature_value" in value:
-        try:
-            raw_bytes = base64.b64decode(value["feature_value"])
-            val_proto.ParseFromString(raw_bytes)
-        except Exception as e:
-            raise ValueError(f"Failed to decode feature_value from dict: {e}")
+    elif isinstance(value, str):
+        val_proto.string_val = value
+    elif isinstance(value, list):
+        if not value:
+            # Empty list - create empty float list
+            pass
+        elif all(isinstance(v, float) for v in value):
+            val_proto.float_list_val.val.extend(value)
+        elif all(isinstance(v, int) for v in value):
+            val_proto.int64_list_val.val.extend(value)
+        else:
+            raise ValueError(f"List contains mixed or unsupported types: {value}")
+    elif isinstance(value, dict):
+        if "feature_value" in value:
+            try:
+                raw_bytes = base64.b64decode(value["feature_value"])
+                val_proto.ParseFromString(raw_bytes)
+            except Exception as e:
+                raise ValueError(f"Failed to decode feature_value from dict: {e}")
+        else:
+            raise ValueError(f"Dict missing 'feature_value' key: {value}")
     else:
-        raise ValueError(f"Unsupported type for ValueProto: {type(value)}")
+        raise ValueError(f"Unsupported type for ValueProto: {type(value).__name__} (value: {value})")
     return val_proto
 
 

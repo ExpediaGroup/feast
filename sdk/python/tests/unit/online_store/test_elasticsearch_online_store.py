@@ -66,3 +66,262 @@ class TestEncodeFeatureValue:
         result = _encode_feature_value(value)
 
         assert "vector_value" not in result
+
+
+class TestElasticSearchOnlineStoreConfig:
+    def test_defaults(self):
+        """Test default config values."""
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        config = ElasticSearchOnlineStoreConfig()
+        assert config.vector_index_type is None
+        assert config.hnsw_m is None
+        assert config.hnsw_ef_construction is None
+        assert config.rescore_oversample is None
+        assert config.use_native_knn is False
+        assert config.knn_num_candidates_multiplier is None
+
+    def test_valid_index_type(self):
+        """Test valid vector_index_type values."""
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        for index_type in ["int8_hnsw", "int4_hnsw", "bbq_hnsw", "bbq_disk", "hnsw"]:
+            config = ElasticSearchOnlineStoreConfig(vector_index_type=index_type)
+            assert config.vector_index_type == index_type
+
+    def test_invalid_index_type(self):
+        """Test invalid vector_index_type raises ValueError."""
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        with pytest.raises(ValueError, match="vector_index_type must be one of"):
+            ElasticSearchOnlineStoreConfig(vector_index_type="invalid_type")
+
+    def test_rescore_range_validation(self):
+        """Test rescore_oversample range validation."""
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        # Valid values
+        ElasticSearchOnlineStoreConfig(
+            vector_index_type="int8_hnsw", rescore_oversample=2.0
+        )
+        ElasticSearchOnlineStoreConfig(
+            vector_index_type="int8_hnsw", rescore_oversample=0
+        )
+
+        # Invalid: exactly 1.0
+        with pytest.raises(ValueError, match="must be 0 or in range"):
+            ElasticSearchOnlineStoreConfig(
+                vector_index_type="int8_hnsw", rescore_oversample=1.0
+            )
+
+        # Invalid: exactly 10.0
+        with pytest.raises(ValueError, match="must be 0 or in range"):
+            ElasticSearchOnlineStoreConfig(
+                vector_index_type="int8_hnsw", rescore_oversample=10.0
+            )
+
+    def test_rescore_requires_quantized_type(self):
+        """Test rescore_oversample only works with quantized types."""
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        # Valid: quantized type
+        ElasticSearchOnlineStoreConfig(
+            vector_index_type="int8_hnsw", rescore_oversample=2.0
+        )
+
+        # Invalid: non-quantized type
+        with pytest.raises(ValueError, match="can only be used with quantized"):
+            ElasticSearchOnlineStoreConfig(
+                vector_index_type="hnsw", rescore_oversample=2.0
+            )
+
+    def test_hnsw_params_require_hnsw_type(self):
+        """Test HNSW params only work with HNSW types."""
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        # Valid: HNSW type
+        ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=32)
+
+        # Invalid: flat type
+        with pytest.raises(ValueError, match="only apply to HNSW index types"):
+            ElasticSearchOnlineStoreConfig(vector_index_type="int8_flat", hnsw_m=32)
+
+    def test_hnsw_m_range(self):
+        """Test hnsw_m range validation."""
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        # Valid
+        ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=2)
+        ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=100)
+
+        # Invalid: too low
+        with pytest.raises(ValueError, match="should be in range"):
+            ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=1)
+
+        # Invalid: too high
+        with pytest.raises(ValueError, match="should be in range"):
+            ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=101)
+
+    def test_knn_multiplier_validation(self):
+        """Test knn_num_candidates_multiplier validation."""
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        # Valid
+        ElasticSearchOnlineStoreConfig(knn_num_candidates_multiplier=1.0)
+        ElasticSearchOnlineStoreConfig(knn_num_candidates_multiplier=10.0)
+
+        # Invalid: too low
+        with pytest.raises(ValueError, match="must be >= 1.0"):
+            ElasticSearchOnlineStoreConfig(knn_num_candidates_multiplier=0.5)
+
+
+class TestCreateIndexWithQuantization:
+    def test_index_mapping_with_int8_quantization(self):
+        """Test index mapping includes quantization settings."""
+        from unittest.mock import MagicMock, patch
+        from feast import FeatureView, Field, RepoConfig
+        from feast.types import Array, Float32
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStore,
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        config = RepoConfig(
+            project="test",
+            registry="registry.db",
+            provider="local",
+            online_store=ElasticSearchOnlineStoreConfig(
+                vector_enabled=True,
+                similarity="cosine",
+                vector_index_type="int8_hnsw",
+                hnsw_m=32,
+                hnsw_ef_construction=200,
+            ),
+        )
+
+        fv = MagicMock(spec=FeatureView)
+        fv.name = "test_fv"
+        fv.schema = [
+            Field(
+                name="vector",
+                dtype=Array(Float32),
+                vector_index=True,
+                vector_length=128,
+                vector_search_metric="cosine",
+            )
+        ]
+
+        store = ElasticSearchOnlineStore()
+        mock_client = MagicMock()
+        mock_client.indices.exists.return_value = False
+        store._client = mock_client
+
+        store.create_index(config, fv)
+
+        # Verify create was called
+        assert mock_client.indices.create.called
+        call_args = mock_client.indices.create.call_args
+        mapping = call_args.kwargs["mappings"]
+
+        # Check quantization settings in dynamic template
+        template = mapping["dynamic_templates"][0]["feature_objects"]["mapping"]
+        vector_props = template["properties"]["vector_value"]
+
+        assert vector_props["type"] == "dense_vector"
+        assert vector_props["dims"] == 128
+        assert "index_options" in vector_props
+        assert vector_props["index_options"]["type"] == "int8_hnsw"
+        assert vector_props["index_options"]["m"] == 32
+        assert vector_props["index_options"]["ef_construction"] == 200
+
+    def test_int4_requires_even_dimensions(self):
+        """Test int4 quantization validates even dimensions."""
+        from unittest.mock import MagicMock
+        from feast import FeatureView, Field, RepoConfig
+        from feast.types import Array, Float32
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStore,
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        config = RepoConfig(
+            project="test",
+            registry="registry.db",
+            provider="local",
+            online_store=ElasticSearchOnlineStoreConfig(
+                vector_enabled=True, vector_index_type="int4_hnsw"
+            ),
+        )
+
+        fv = MagicMock(spec=FeatureView)
+        fv.name = "test_fv"
+        fv.schema = [
+            Field(
+                name="vector",
+                dtype=Array(Float32),
+                vector_index=True,
+                vector_length=127,  # Odd number
+            )
+        ]
+
+        store = ElasticSearchOnlineStore()
+        mock_client = MagicMock()
+        mock_client.indices.exists.return_value = False
+        store._client = mock_client
+
+        with pytest.raises(ValueError, match="requires even number of dimensions"):
+            store.create_index(config, fv)
+
+    def test_bbq_requires_min_dimensions(self):
+        """Test bbq quantization validates minimum dimensions."""
+        from unittest.mock import MagicMock
+        from feast import FeatureView, Field, RepoConfig
+        from feast.types import Array, Float32
+        from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
+            ElasticSearchOnlineStore,
+            ElasticSearchOnlineStoreConfig,
+        )
+
+        config = RepoConfig(
+            project="test",
+            registry="registry.db",
+            provider="local",
+            online_store=ElasticSearchOnlineStoreConfig(
+                vector_enabled=True, vector_index_type="bbq_hnsw"
+            ),
+        )
+
+        fv = MagicMock(spec=FeatureView)
+        fv.name = "test_fv"
+        fv.schema = [
+            Field(
+                name="vector",
+                dtype=Array(Float32),
+                vector_index=True,
+                vector_length=32,  # Less than 64
+            )
+        ]
+
+        store = ElasticSearchOnlineStore()
+        mock_client = MagicMock()
+        mock_client.indices.exists.return_value = False
+        store._client = mock_client
+
+        with pytest.raises(ValueError, match="requires >= 64 dimensions"):
+            store.create_index(config, fv)
