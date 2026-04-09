@@ -1627,7 +1627,7 @@ class TestExecuteVectorSearch:
         return EGValkeyOnlineStore()
 
     def test_project_name_with_hyphen_is_escaped(self, store):
-        """Test that project names with hyphens are properly escaped in queries."""
+        """Test that project names with hyphens are backslash-escaped in queries."""
         from unittest.mock import MagicMock
 
         mock_client = MagicMock()
@@ -1645,17 +1645,15 @@ class TestExecuteVectorSearch:
             metric="COSINE",
         )
 
-        # Verify the query was called
         mock_client.ft.return_value.search.assert_called_once()
         call_args = mock_client.ft.return_value.search.call_args
         query = call_args[0][0]
 
-        # The query string should have quoted project name for DIALECT 2
-        # This prevents hyphen from being interpreted as negation
-        assert '"my-project"' in query.query_string()
+        # Hyphen should be backslash-escaped to prevent interpretation as negation
+        assert r"my\-project" in query.query_string()
 
     def test_project_name_with_double_quote_is_escaped(self, store):
-        """Test that double quotes in project names are escaped."""
+        """Test that double quotes in project names are backslash-escaped."""
         from unittest.mock import MagicMock
 
         mock_client = MagicMock()
@@ -1677,11 +1675,11 @@ class TestExecuteVectorSearch:
         call_args = mock_client.ft.return_value.search.call_args
         query = call_args[0][0]
 
-        # Double quote should be escaped
-        assert r"\"" in query.query_string()
+        # Double quote should be backslash-escaped
+        assert r'\"' in query.query_string()
 
-    def test_sort_ascending_for_cosine_metric(self, store):
-        """Test that COSINE metric uses ascending sort (lower = better)."""
+    def test_no_sortby_in_knn_query(self, store):
+        """Test that KNN queries do not use SORTBY (engine sorts by distance automatically)."""
         from unittest.mock import MagicMock
 
         mock_client = MagicMock()
@@ -1702,60 +1700,8 @@ class TestExecuteVectorSearch:
         call_args = mock_client.ft.return_value.search.call_args
         query = call_args[0][0]
 
-        # COSINE should sort ascending (lower distance = more similar)
-        # Query._sortby is a SortbyField object with .args = [field, "ASC"/"DESC"]
-        assert query._sortby.args[0] == "__distance__"
-        assert query._sortby.args[1] == "ASC"
-
-    def test_sort_ascending_for_l2_metric(self, store):
-        """Test that L2 metric uses ascending sort (lower = better)."""
-        from unittest.mock import MagicMock
-
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.docs = []
-        mock_client.ft.return_value.search.return_value = mock_result
-
-        store._execute_vector_search(
-            client=mock_client,
-            index_name="test_index",
-            project="test_project",
-            vector_field_name="embedding",
-            embedding_bytes=b"\x00" * 16,
-            top_k=10,
-            metric="L2",
-        )
-
-        call_args = mock_client.ft.return_value.search.call_args
-        query = call_args[0][0]
-
-        # L2 should sort ascending (lower distance = more similar)
-        assert query._sortby.args[1] == "ASC"
-
-    def test_sort_descending_for_ip_metric(self, store):
-        """Test that IP (Inner Product) metric uses descending sort (higher = better)."""
-        from unittest.mock import MagicMock
-
-        mock_client = MagicMock()
-        mock_result = MagicMock()
-        mock_result.docs = []
-        mock_client.ft.return_value.search.return_value = mock_result
-
-        store._execute_vector_search(
-            client=mock_client,
-            index_name="test_index",
-            project="test_project",
-            vector_field_name="embedding",
-            embedding_bytes=b"\x00" * 16,
-            top_k=10,
-            metric="IP",
-        )
-
-        call_args = mock_client.ft.return_value.search.call_args
-        query = call_args[0][0]
-
-        # IP should sort descending (higher score = more similar)
-        assert query._sortby.args[1] == "DESC"
+        # KNN results are sorted by the engine; no explicit SORTBY should be set
+        assert query._sortby is None
 
     def test_default_distance_is_infinity_not_zero(self, store):
         """Test that missing __distance__ defaults to infinity, not 0.0."""
