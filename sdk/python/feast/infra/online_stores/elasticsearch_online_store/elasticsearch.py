@@ -550,16 +550,17 @@ class ElasticSearchOnlineStore(OnlineStore):
                 feature_data = source.get(feature_name, {})
                 feature_value = feature_data.get("feature_value") if isinstance(feature_data, dict) else None
                 vector_value = feature_data.get("vector_value") if isinstance(feature_data, dict) else None
-                result.append(
-                    _build_retrieve_online_document_record(
-                        base64.b64decode(entity_key),
-                        base64.b64decode(feature_value),
-                        str(vector_value),
-                        distance,
-                        timestamp,
-                        config.entity_key_serialization_version,
+                if feature_value is not None:
+                    result.append(
+                        _build_retrieve_online_document_record(
+                            base64.b64decode(entity_key),
+                            base64.b64decode(feature_value),
+                            str(vector_value),
+                            distance,
+                            timestamp,
+                            config.entity_key_serialization_version,
+                        )
                     )
-                )
         return result
 
     def retrieve_online_documents_v2(
