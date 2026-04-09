@@ -1676,7 +1676,7 @@ class TestExecuteVectorSearch:
         query = call_args[0][0]
 
         # Double quote should be backslash-escaped
-        assert r'\"' in query.query_string()
+        assert r"\"" in query.query_string()
 
     def test_no_sortby_in_knn_query(self, store):
         """Test that KNN queries do not use SORTBY (engine sorts by distance automatically)."""

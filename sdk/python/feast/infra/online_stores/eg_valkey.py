@@ -1153,10 +1153,7 @@ class EGValkeyOnlineStore(OnlineStore):
         # No explicit SORTBY is needed — Valkey Search does not support SORTBY
         # with KNN queries.
         query = (
-            Query(query_str)
-            .return_fields("__distance__")
-            .paging(0, top_k)
-            .dialect(2)
+            Query(query_str).return_fields("__distance__").paging(0, top_k).dialect(2)
         )
 
         try:
