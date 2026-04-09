@@ -374,7 +374,9 @@ class ElasticSearchOnlineStore(OnlineStore):
 
         # Add quantization index_options if configured
         if config.online_store.vector_index_type:
-            index_options: Dict[str, Any] = {"type": config.online_store.vector_index_type}
+            index_options: Dict[str, Any] = {
+                "type": config.online_store.vector_index_type
+            }
             if config.online_store.hnsw_m is not None:
                 index_options["m"] = config.online_store.hnsw_m
             if config.online_store.hnsw_ef_construction is not None:
@@ -425,7 +427,9 @@ class ElasticSearchOnlineStore(OnlineStore):
         client = self._get_client(config)
 
         # Cache existing indices to reduce API calls
-        all_table_names = [t.name for t in tables_to_delete] + [t.name for t in tables_to_keep]
+        all_table_names = [t.name for t in tables_to_delete] + [
+            t.name for t in tables_to_keep
+        ]
         existing_indices: Set[str] = set()
         for table_name in all_table_names:
             if client.indices.exists(index=table_name):
@@ -434,7 +438,9 @@ class ElasticSearchOnlineStore(OnlineStore):
         # Delete data from indices that should be removed
         for table in tables_to_delete:
             if table.name in existing_indices:
-                client.delete_by_query(index=table.name, body={"query": {"match_all": {}}})
+                client.delete_by_query(
+                    index=table.name, body={"query": {"match_all": {}}}
+                )
 
         # Create indices for tables that should be kept
         for table in tables_to_keep:
@@ -548,8 +554,16 @@ class ElasticSearchOnlineStore(OnlineStore):
 
             for feature_name in requested_features:
                 feature_data = source.get(feature_name, {})
-                feature_value = feature_data.get("feature_value") if isinstance(feature_data, dict) else None
-                vector_value = feature_data.get("vector_value") if isinstance(feature_data, dict) else None
+                feature_value = (
+                    feature_data.get("feature_value")
+                    if isinstance(feature_data, dict)
+                    else None
+                )
+                vector_value = (
+                    feature_data.get("vector_value")
+                    if isinstance(feature_data, dict)
+                    else None
+                )
                 if feature_value is not None:
                     result.append(
                         _build_retrieve_online_document_record(
@@ -790,7 +804,9 @@ def _to_value_proto(value: Any) -> ValueProto:
         else:
             raise ValueError(f"Dict missing 'feature_value' key: {value}")
     else:
-        raise ValueError(f"Unsupported type for ValueProto: {type(value).__name__} (value: {value})")
+        raise ValueError(
+            f"Unsupported type for ValueProto: {type(value).__name__} (value: {value})"
+        )
     return val_proto
 
 
