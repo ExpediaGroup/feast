@@ -89,7 +89,14 @@ class TestElasticSearchOnlineStoreConfig:
             ElasticSearchOnlineStoreConfig,
         )
 
-        for index_type in ["int8_hnsw", "int4_hnsw", "bbq_hnsw", "hnsw", "flat", "bbq_flat"]:
+        for index_type in [
+            "int8_hnsw",
+            "int4_hnsw",
+            "bbq_hnsw",
+            "hnsw",
+            "flat",
+            "bbq_flat",
+        ]:
             config = ElasticSearchOnlineStoreConfig(vector_index_type=index_type)
             assert config.vector_index_type == index_type
 

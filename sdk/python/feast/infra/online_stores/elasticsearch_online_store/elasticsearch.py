@@ -58,7 +58,9 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
 
     # HNSW tuning parameters (only apply to HNSW index types)
     hnsw_m: Optional[int] = None  # Neighbor connections (ES default: 16)
-    hnsw_ef_construction: Optional[int] = None  # Build-time candidates (ES default: 100)
+    hnsw_ef_construction: Optional[int] = (
+        None  # Build-time candidates (ES default: 100)
+    )
 
     # Rescore configuration for quantized indices only (int4/int8/bbq)
     rescore_oversample: Optional[float] = None  # Must be >= 1.0 or 0 to disable
