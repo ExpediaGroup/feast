@@ -52,18 +52,16 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
 
     # Quantization / index_options configuration
     vector_index_type: Optional[str] = None
-    # One of: "hnsw", "int8_hnsw", "int4_hnsw", "bbq_hnsw", "bbq_disk",
+    # One of: "hnsw", "int8_hnsw", "int4_hnsw", "bbq_hnsw",
     #         "flat", "int8_flat", "int4_flat", "bbq_flat"
     # None = use ES default (hnsw for <8.x, int8_hnsw for 9.0+)
 
     # HNSW tuning parameters (only apply to HNSW index types)
-    hnsw_m: Optional[int] = None  # Neighbor connections (ES default: 16, range: 2-100)
-    hnsw_ef_construction: Optional[int] = (
-        None  # Build-time candidates (ES default: 100, min: 1)
-    )
+    hnsw_m: Optional[int] = None  # Neighbor connections (ES default: 16)
+    hnsw_ef_construction: Optional[int] = None  # Build-time candidates (ES default: 100)
 
     # Rescore configuration for quantized indices only (int4/int8/bbq)
-    rescore_oversample: Optional[float] = None  # Range: >1.0 and <10.0, or 0 to disable
+    rescore_oversample: Optional[float] = None  # Must be >= 1.0 or 0 to disable
 
     # Query method toggle
     use_native_knn: bool = False  # False = script_score (backward compatible)
@@ -83,7 +81,6 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
             "int8_hnsw",
             "int4_hnsw",
             "bbq_hnsw",
-            "bbq_disk",
             "flat",
             "int8_flat",
             "int4_flat",
@@ -97,13 +94,11 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
                 f"vector_index_type must be one of {valid_index_types}, got {self.vector_index_type}"
             )
 
-        # Validate rescore_oversample range (exclusive: >1.0 and <10.0, or 0)
+        # Validate rescore_oversample range (must be >= 1.0 or 0 to disable)
         if self.rescore_oversample is not None:
-            if self.rescore_oversample != 0 and not (
-                1.0 < self.rescore_oversample < 10.0
-            ):
+            if self.rescore_oversample != 0 and self.rescore_oversample < 1.0:
                 raise ValueError(
-                    f"rescore_oversample must be 0 or in range (1.0, 10.0) exclusive, got {self.rescore_oversample}"
+                    f"rescore_oversample must be 0 or >= 1.0, got {self.rescore_oversample}"
                 )
 
         # Validate rescore_oversample only applies to quantized indices
@@ -111,7 +106,6 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
             "int8_hnsw",
             "int4_hnsw",
             "bbq_hnsw",
-            "bbq_disk",
             "int8_flat",
             "int4_flat",
             "bbq_flat",
@@ -137,18 +131,14 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
                 f"got vector_index_type='{self.vector_index_type}'"
             )
 
-        # Validate HNSW parameter ranges
-        if self.hnsw_m is not None:
-            if not (2 <= self.hnsw_m <= 100):
-                raise ValueError(
-                    f"hnsw_m should be in range [2, 100], got {self.hnsw_m}"
-                )
+        # Validate HNSW parameter ranges (basic sanity only; ES enforces its own limits)
+        if self.hnsw_m is not None and self.hnsw_m < 1:
+            raise ValueError(f"hnsw_m must be >= 1, got {self.hnsw_m}")
 
-        if self.hnsw_ef_construction is not None:
-            if self.hnsw_ef_construction < 1:
-                raise ValueError(
-                    f"hnsw_ef_construction must be >= 1, got {self.hnsw_ef_construction}"
-                )
+        if self.hnsw_ef_construction is not None and self.hnsw_ef_construction < 1:
+            raise ValueError(
+                f"hnsw_ef_construction must be >= 1, got {self.hnsw_ef_construction}"
+            )
 
         # Validate knn_num_candidates_multiplier range (must be >= 1.0)
         if self.knn_num_candidates_multiplier is not None:
@@ -524,7 +514,7 @@ class ElasticSearchOnlineStore(OnlineStore):
                 config.online_store.rescore_oversample is not None
                 and config.online_store.rescore_oversample > 0
             ):
-                knn_query["rescore"] = {
+                knn_query["rescore_vector"] = {
                     "oversample": config.online_store.rescore_oversample
                 }
 
@@ -671,7 +661,7 @@ class ElasticSearchOnlineStore(OnlineStore):
                     config.online_store.rescore_oversample is not None
                     and config.online_store.rescore_oversample > 0
                 ):
-                    knn_clause["rescore"] = {
+                    knn_clause["rescore_vector"] = {
                         "oversample": config.online_store.rescore_oversample
                     }
             else:

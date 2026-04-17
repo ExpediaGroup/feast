@@ -89,7 +89,7 @@ class TestElasticSearchOnlineStoreConfig:
             ElasticSearchOnlineStoreConfig,
         )
 
-        for index_type in ["int8_hnsw", "int4_hnsw", "bbq_hnsw", "bbq_disk", "hnsw"]:
+        for index_type in ["int8_hnsw", "int4_hnsw", "bbq_hnsw", "hnsw", "flat", "bbq_flat"]:
             config = ElasticSearchOnlineStoreConfig(vector_index_type=index_type)
             assert config.vector_index_type == index_type
 
@@ -115,17 +115,18 @@ class TestElasticSearchOnlineStoreConfig:
         ElasticSearchOnlineStoreConfig(
             vector_index_type="int8_hnsw", rescore_oversample=0
         )
+        ElasticSearchOnlineStoreConfig(
+            vector_index_type="int8_hnsw", rescore_oversample=1.0
+        )
+        # No upper bound: ES source code enforces >= 1.0 only
+        ElasticSearchOnlineStoreConfig(
+            vector_index_type="int8_hnsw", rescore_oversample=50.0
+        )
 
-        # Invalid: exactly 1.0
-        with pytest.raises(ValueError, match="must be 0 or in range"):
+        # Invalid: between 0 and 1.0
+        with pytest.raises(ValueError, match="must be 0 or >= 1.0"):
             ElasticSearchOnlineStoreConfig(
-                vector_index_type="int8_hnsw", rescore_oversample=1.0
-            )
-
-        # Invalid: exactly 10.0
-        with pytest.raises(ValueError, match="must be 0 or in range"):
-            ElasticSearchOnlineStoreConfig(
-                vector_index_type="int8_hnsw", rescore_oversample=10.0
+                vector_index_type="int8_hnsw", rescore_oversample=0.5
             )
 
     def test_rescore_requires_quantized_type(self):
@@ -164,17 +165,14 @@ class TestElasticSearchOnlineStoreConfig:
             ElasticSearchOnlineStoreConfig,
         )
 
-        # Valid
-        ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=2)
+        # Valid: ES enforces its own upper limits, Feast only rejects < 1
+        ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=1)
         ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=100)
+        ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=200)
 
-        # Invalid: too low
-        with pytest.raises(ValueError, match="should be in range"):
-            ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=1)
-
-        # Invalid: too high
-        with pytest.raises(ValueError, match="should be in range"):
-            ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=101)
+        # Invalid: zero or negative
+        with pytest.raises(ValueError, match="must be >= 1"):
+            ElasticSearchOnlineStoreConfig(vector_index_type="int8_hnsw", hnsw_m=0)
 
     def test_knn_multiplier_validation(self):
         """Test knn_num_candidates_multiplier validation."""
