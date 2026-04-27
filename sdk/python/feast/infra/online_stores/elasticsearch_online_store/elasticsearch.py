@@ -63,7 +63,7 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
     )
 
     # Rescore configuration for quantized indices only (int4/int8/bbq)
-    rescore_oversample: Optional[float] = None  # Must be >= 1.0 or 0 to disable
+    rescore_oversample: Optional[float] = None  # Must be >= 1.0; None to disable
 
     # Query method toggle
     use_native_knn: bool = False  # False = script_score (backward compatible)
@@ -96,12 +96,11 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
                 f"vector_index_type must be one of {valid_index_types}, got {self.vector_index_type}"
             )
 
-        # Validate rescore_oversample range (must be >= 1.0 or 0 to disable)
-        if self.rescore_oversample is not None:
-            if self.rescore_oversample != 0 and self.rescore_oversample < 1.0:
-                raise ValueError(
-                    f"rescore_oversample must be 0 or >= 1.0, got {self.rescore_oversample}"
-                )
+        # Validate rescore_oversample range (must be >= 1.0)
+        if self.rescore_oversample is not None and self.rescore_oversample < 1.0:
+            raise ValueError(
+                f"rescore_oversample must be >= 1.0, got {self.rescore_oversample}"
+            )
 
         # Validate rescore_oversample only applies to quantized indices
         quantized_types = {
@@ -112,7 +111,7 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
             "int4_flat",
             "bbq_flat",
         }
-        if self.rescore_oversample is not None and self.rescore_oversample != 0:
+        if self.rescore_oversample is not None:
             if (
                 self.vector_index_type is not None
                 and self.vector_index_type not in quantized_types
@@ -340,44 +339,7 @@ class ElasticSearchOnlineStore(OnlineStore):
                 f"vector_field_length must be > 0, got {vector_field_length} for table '{table.name}'"
             )
 
-        # Validate dimension-based quantization constraints
-        if config.online_store.vector_index_type:
-            index_type = config.online_store.vector_index_type
-            # int4 quantization requires even number of dimensions
-            if "int4" in index_type and vector_field_length % 2 != 0:
-                raise ValueError(
-                    f"int4 quantization ('{index_type}') requires even number of dimensions, "
-                    f"got {vector_field_length} for table '{table.name}'"
-                )
-            # bbq quantization requires >=64 dimensions
-            if "bbq" in index_type and vector_field_length < 64:
-                raise ValueError(
-                    f"bbq quantization ('{index_type}') requires >= 64 dimensions, "
-                    f"got {vector_field_length} for table '{table.name}'"
-                )
-
-        # Build vector_value mapping with quantization settings
-        vector_mapping = {
-            "type": "dense_vector",
-            "dims": vector_field_length,
-            "index": True,
-            "similarity": config.online_store.similarity,
-        }
-
-        # Add quantization index_options if configured
-        if config.online_store.vector_index_type:
-            index_options: Dict[str, Any] = {
-                "type": config.online_store.vector_index_type
-            }
-            if config.online_store.hnsw_m is not None:
-                index_options["m"] = config.online_store.hnsw_m
-            if config.online_store.hnsw_ef_construction is not None:
-                index_options["ef_construction"] = (
-                    config.online_store.hnsw_ef_construction
-                )
-            vector_mapping["index_options"] = index_options
-
-        # Note: rescore_oversample is a query-time parameter, not an index mapping parameter
+        vector_mapping = _build_vector_mapping(config, vector_field_length, table.name)
 
         index_mapping = {
             "dynamic_templates": [
@@ -406,6 +368,10 @@ class ElasticSearchOnlineStore(OnlineStore):
         client = self._get_client(config)
         if not client.indices.exists(index=table.name):
             client.indices.create(index=table.name, mappings=index_mapping)
+        else:
+            logger.info(
+                f"Index '{table.name}' already exists; skipping creation. "
+            )
 
     def update(
         self,
@@ -511,11 +477,7 @@ class ElasticSearchOnlineStore(OnlineStore):
                 "num_candidates": num_candidates,
             }
 
-            # Add rescore configuration if specified (quantized indices only)
-            if (
-                config.online_store.rescore_oversample is not None
-                and config.online_store.rescore_oversample > 0
-            ):
+            if config.online_store.rescore_oversample is not None:
                 knn_query["rescore_vector"] = {
                     "oversample": config.online_store.rescore_oversample
                 }
@@ -546,27 +508,18 @@ class ElasticSearchOnlineStore(OnlineStore):
 
             for feature_name in requested_features:
                 feature_data = source.get(feature_name, {})
-                feature_value = (
-                    feature_data.get("feature_value")
-                    if isinstance(feature_data, dict)
-                    else None
-                )
-                vector_value = (
-                    feature_data.get("vector_value")
-                    if isinstance(feature_data, dict)
-                    else None
-                )
-                if feature_value is not None:
-                    result.append(
-                        _build_retrieve_online_document_record(
-                            base64.b64decode(entity_key),
-                            base64.b64decode(feature_value),
-                            str(vector_value),
-                            distance,
-                            timestamp,
-                            config.entity_key_serialization_version,
-                        )
+                feature_value = feature_data.get("feature_value")
+                vector_value = feature_data.get("vector_value")
+                result.append(
+                    _build_retrieve_online_document_record(
+                        base64.b64decode(entity_key),
+                        base64.b64decode(feature_value),
+                        str(vector_value),
+                        distance,
+                        timestamp,
+                        config.entity_key_serialization_version,
                     )
+                )
         return result
 
     def retrieve_online_documents_v2(
@@ -658,11 +611,7 @@ class ElasticSearchOnlineStore(OnlineStore):
                     "num_candidates": num_candidates,
                 }
 
-                # Add rescore configuration if specified (quantized indices only)
-                if (
-                    config.online_store.rescore_oversample is not None
-                    and config.online_store.rescore_oversample > 0
-                ):
+                if config.online_store.rescore_oversample is not None:
                     knn_clause["rescore_vector"] = {
                         "oversample": config.online_store.rescore_oversample
                     }
@@ -760,6 +709,51 @@ class ElasticSearchOnlineStore(OnlineStore):
         return result
 
 
+def _build_vector_mapping(
+    config: RepoConfig, vector_field_length: int, table_name: str
+) -> Dict[str, Any]:
+    """
+    Build the dense_vector mapping for an Elasticsearch index, including
+    quantization index_options when configured.
+    """
+    # Validate dimension-based quantization constraints
+    if config.online_store.vector_index_type:
+        index_type = config.online_store.vector_index_type
+        if "int4" in index_type and vector_field_length % 2 != 0:
+            raise ValueError(
+                f"int4 quantization ('{index_type}') requires even number of dimensions, "
+                f"got {vector_field_length} for table '{table_name}'. "
+                f"See https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/dense-vector"
+            )
+        if "bbq" in index_type and vector_field_length < 64:
+            raise ValueError(
+                f"bbq quantization ('{index_type}') requires >= 64 dimensions, "
+                f"got {vector_field_length} for table '{table_name}'. "
+                f"See https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/dense-vector"
+            )
+
+    vector_mapping: Dict[str, Any] = {
+        "type": "dense_vector",
+        "dims": vector_field_length,
+        "index": True,
+        "similarity": config.online_store.similarity,
+    }
+
+    if config.online_store.vector_index_type:
+        index_options: Dict[str, Any] = {
+            "type": config.online_store.vector_index_type
+        }
+        if config.online_store.hnsw_m is not None:
+            index_options["m"] = config.online_store.hnsw_m
+        if config.online_store.hnsw_ef_construction is not None:
+            index_options["ef_construction"] = (
+                config.online_store.hnsw_ef_construction
+            )
+        vector_mapping["index_options"] = index_options
+
+    return vector_mapping
+
+
 def _to_value_proto(value: Any) -> ValueProto:
     """
     Convert a value to a ValueProto object.
@@ -778,8 +772,7 @@ def _to_value_proto(value: Any) -> ValueProto:
         val_proto.string_val = value
     elif isinstance(value, list):
         if not value:
-            # Empty list - create empty float list
-            pass
+            val_proto.float_list_val.val.extend(value)
         elif all(isinstance(v, float) for v in value):
             val_proto.float_list_val.val.extend(value)
         elif all(isinstance(v, int) for v in value):

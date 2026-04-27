@@ -4,6 +4,7 @@ import pytest
 
 from feast.infra.online_stores.elasticsearch_online_store.elasticsearch import (
     _encode_feature_value,
+    _to_value_proto,
 )
 from feast.protos.feast.types.Value_pb2 import (
     FloatList,
@@ -120,20 +121,24 @@ class TestElasticSearchOnlineStoreConfig:
             vector_index_type="int8_hnsw", rescore_oversample=2.0
         )
         ElasticSearchOnlineStoreConfig(
-            vector_index_type="int8_hnsw", rescore_oversample=0
-        )
-        ElasticSearchOnlineStoreConfig(
             vector_index_type="int8_hnsw", rescore_oversample=1.0
         )
-        # No upper bound: ES source code enforces >= 1.0 only
         ElasticSearchOnlineStoreConfig(
             vector_index_type="int8_hnsw", rescore_oversample=50.0
         )
+        # None disables rescore
+        ElasticSearchOnlineStoreConfig(
+            vector_index_type="int8_hnsw", rescore_oversample=None
+        )
 
-        # Invalid: between 0 and 1.0
-        with pytest.raises(ValueError, match="must be 0 or >= 1.0"):
+        # Invalid: below 1.0
+        with pytest.raises(ValueError, match="must be >= 1.0"):
             ElasticSearchOnlineStoreConfig(
                 vector_index_type="int8_hnsw", rescore_oversample=0.5
+            )
+        with pytest.raises(ValueError, match="must be >= 1.0"):
+            ElasticSearchOnlineStoreConfig(
+                vector_index_type="int8_hnsw", rescore_oversample=0
             )
 
     def test_rescore_requires_quantized_type(self):
@@ -333,3 +338,48 @@ class TestCreateIndexWithQuantization:
 
         with pytest.raises(ValueError, match="requires >= 64 dimensions"):
             store.create_index(config, fv)
+
+
+class TestToValueProto:
+    def test_bool_not_treated_as_int(self):
+        """bool is a subclass of int in Python; ensure True -> bool_val, not int64_val."""
+        result = _to_value_proto(True)
+        assert result.bool_val is True
+        assert result.int64_val == 0
+
+        result = _to_value_proto(False)
+        assert result.bool_val is False
+
+    def test_int(self):
+        result = _to_value_proto(42)
+        assert result.int64_val == 42
+        assert result.bool_val is False
+
+    def test_float(self):
+        result = _to_value_proto(3.14)
+        assert result.float_val == pytest.approx(3.14)
+
+    def test_string(self):
+        result = _to_value_proto("hello")
+        assert result.string_val == "hello"
+
+    def test_float_list(self):
+        result = _to_value_proto([1.0, 2.0, 3.0])
+        assert list(result.float_list_val.val) == pytest.approx([1.0, 2.0, 3.0])
+
+    def test_int_list(self):
+        result = _to_value_proto([1, 2, 3])
+        assert list(result.int64_list_val.val) == [1, 2, 3]
+
+    def test_mixed_list_raises(self):
+        with pytest.raises(ValueError, match="mixed or unsupported"):
+            _to_value_proto([1, "two", 3.0])
+
+    def test_passthrough_value_proto(self):
+        original = ValueProto(string_val="already a proto")
+        result = _to_value_proto(original)
+        assert result is original
+
+    def test_unsupported_type_raises(self):
+        with pytest.raises(ValueError, match="Unsupported type"):
+            _to_value_proto(object())
