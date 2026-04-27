@@ -116,29 +116,39 @@ class TestElasticSearchOnlineStoreConfig:
             ElasticSearchOnlineStoreConfig,
         )
 
-        # Valid values
+        # Valid values: (1.0, 10.0) exclusive
         ElasticSearchOnlineStoreConfig(
             vector_index_type="int8_hnsw", rescore_oversample=2.0
         )
         ElasticSearchOnlineStoreConfig(
-            vector_index_type="int8_hnsw", rescore_oversample=1.0
+            vector_index_type="int8_hnsw", rescore_oversample=5.5
         )
         ElasticSearchOnlineStoreConfig(
-            vector_index_type="int8_hnsw", rescore_oversample=50.0
+            vector_index_type="int8_hnsw", rescore_oversample=9.9
         )
         # None disables rescore
         ElasticSearchOnlineStoreConfig(
             vector_index_type="int8_hnsw", rescore_oversample=None
         )
 
-        # Invalid: below 1.0
-        with pytest.raises(ValueError, match="must be >= 1.0"):
+        # Invalid: at or below 1.0
+        with pytest.raises(ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"):
+            ElasticSearchOnlineStoreConfig(
+                vector_index_type="int8_hnsw", rescore_oversample=1.0
+            )
+        with pytest.raises(ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"):
             ElasticSearchOnlineStoreConfig(
                 vector_index_type="int8_hnsw", rescore_oversample=0.5
             )
-        with pytest.raises(ValueError, match="must be >= 1.0"):
+
+        # Invalid: at or above 10.0
+        with pytest.raises(ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"):
             ElasticSearchOnlineStoreConfig(
-                vector_index_type="int8_hnsw", rescore_oversample=0
+                vector_index_type="int8_hnsw", rescore_oversample=10.0
+            )
+        with pytest.raises(ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"):
+            ElasticSearchOnlineStoreConfig(
+                vector_index_type="int8_hnsw", rescore_oversample=50.0
             )
 
     def test_rescore_requires_quantized_type(self):
@@ -156,6 +166,12 @@ class TestElasticSearchOnlineStoreConfig:
         with pytest.raises(ValueError, match="can only be used with quantized"):
             ElasticSearchOnlineStoreConfig(
                 vector_index_type="hnsw", rescore_oversample=2.0
+            )
+
+        # Invalid: vector_index_type is None
+        with pytest.raises(ValueError, match="can only be used with quantized"):
+            ElasticSearchOnlineStoreConfig(
+                vector_index_type=None, rescore_oversample=2.0
             )
 
     def test_hnsw_params_require_hnsw_type(self):

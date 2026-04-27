@@ -63,7 +63,7 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
     )
 
     # Rescore configuration for quantized indices only (int4/int8/bbq)
-    rescore_oversample: Optional[float] = None  # Must be >= 1.0; None to disable
+    rescore_oversample: Optional[float] = None  # Must be (1.0, 10.0) exclusive; None to disable
 
     # Query method toggle
     use_native_knn: bool = False  # False = script_score (backward compatible)
@@ -96,29 +96,28 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
                 f"vector_index_type must be one of {valid_index_types}, got {self.vector_index_type}"
             )
 
-        # Validate rescore_oversample range (must be >= 1.0)
-        if self.rescore_oversample is not None and self.rescore_oversample < 1.0:
-            raise ValueError(
-                f"rescore_oversample must be >= 1.0, got {self.rescore_oversample}"
-            )
-
-        # Validate rescore_oversample only applies to quantized indices
-        quantized_types = {
-            "int8_hnsw",
-            "int4_hnsw",
-            "bbq_hnsw",
-            "int8_flat",
-            "int4_flat",
-            "bbq_flat",
-        }
+        # Validate rescore_oversample range and constraints
+        # ES requires: (1.0, 10.0) exclusive, per https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/dense-vector
         if self.rescore_oversample is not None:
-            if (
-                self.vector_index_type is not None
-                and self.vector_index_type not in quantized_types
-            ):
+            if self.rescore_oversample <= 1.0 or self.rescore_oversample >= 10.0:
+                raise ValueError(
+                    f"rescore_oversample must be in the range (1.0, 10.0) exclusive, "
+                    f"got {self.rescore_oversample}"
+                )
+
+            # Validate rescore_oversample only applies to quantized indices
+            quantized_types = {
+                "int8_hnsw",
+                "int4_hnsw",
+                "bbq_hnsw",
+                "int8_flat",
+                "int4_flat",
+                "bbq_flat",
+            }
+            if self.vector_index_type is None or self.vector_index_type not in quantized_types:
                 raise ValueError(
                     f"rescore_oversample can only be used with quantized index types {quantized_types}, "
-                    f"got vector_index_type='{self.vector_index_type}'"
+                    f"got vector_index_type={self.vector_index_type}"
                 )
 
         # Validate HNSW parameters only apply to HNSW index types
