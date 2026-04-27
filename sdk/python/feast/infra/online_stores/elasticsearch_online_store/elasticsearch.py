@@ -63,7 +63,9 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
     )
 
     # Rescore configuration for quantized indices only (int4/int8/bbq)
-    rescore_oversample: Optional[float] = None  # Must be (1.0, 10.0) exclusive; None to disable
+    rescore_oversample: Optional[float] = (
+        None  # Must be (1.0, 10.0) exclusive; None to disable
+    )
 
     # Query method toggle
     use_native_knn: bool = False  # False = script_score (backward compatible)
@@ -114,7 +116,10 @@ class ElasticSearchOnlineStoreConfig(FeastConfigBaseModel, VectorStoreConfig):
                 "int4_flat",
                 "bbq_flat",
             }
-            if self.vector_index_type is None or self.vector_index_type not in quantized_types:
+            if (
+                self.vector_index_type is None
+                or self.vector_index_type not in quantized_types
+            ):
                 raise ValueError(
                     f"rescore_oversample can only be used with quantized index types {quantized_types}, "
                     f"got vector_index_type={self.vector_index_type}"
@@ -368,9 +373,7 @@ class ElasticSearchOnlineStore(OnlineStore):
         if not client.indices.exists(index=table.name):
             client.indices.create(index=table.name, mappings=index_mapping)
         else:
-            logger.info(
-                f"Index '{table.name}' already exists; skipping creation. "
-            )
+            logger.info(f"Index '{table.name}' already exists; skipping creation. ")
 
     def update(
         self,
@@ -739,15 +742,11 @@ def _build_vector_mapping(
     }
 
     if config.online_store.vector_index_type:
-        index_options: Dict[str, Any] = {
-            "type": config.online_store.vector_index_type
-        }
+        index_options: Dict[str, Any] = {"type": config.online_store.vector_index_type}
         if config.online_store.hnsw_m is not None:
             index_options["m"] = config.online_store.hnsw_m
         if config.online_store.hnsw_ef_construction is not None:
-            index_options["ef_construction"] = (
-                config.online_store.hnsw_ef_construction
-            )
+            index_options["ef_construction"] = config.online_store.hnsw_ef_construction
         vector_mapping["index_options"] = index_options
 
     return vector_mapping

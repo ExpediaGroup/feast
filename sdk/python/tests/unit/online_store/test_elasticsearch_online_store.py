@@ -132,21 +132,29 @@ class TestElasticSearchOnlineStoreConfig:
         )
 
         # Invalid: at or below 1.0
-        with pytest.raises(ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"):
+        with pytest.raises(
+            ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"
+        ):
             ElasticSearchOnlineStoreConfig(
                 vector_index_type="int8_hnsw", rescore_oversample=1.0
             )
-        with pytest.raises(ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"):
+        with pytest.raises(
+            ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"
+        ):
             ElasticSearchOnlineStoreConfig(
                 vector_index_type="int8_hnsw", rescore_oversample=0.5
             )
 
         # Invalid: at or above 10.0
-        with pytest.raises(ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"):
+        with pytest.raises(
+            ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"
+        ):
             ElasticSearchOnlineStoreConfig(
                 vector_index_type="int8_hnsw", rescore_oversample=10.0
             )
-        with pytest.raises(ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"):
+        with pytest.raises(
+            ValueError, match="must be in the range \\(1.0, 10.0\\) exclusive"
+        ):
             ElasticSearchOnlineStoreConfig(
                 vector_index_type="int8_hnsw", rescore_oversample=50.0
             )
