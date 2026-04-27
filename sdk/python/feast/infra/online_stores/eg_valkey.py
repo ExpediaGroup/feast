@@ -42,6 +42,7 @@ from feast.infra.key_encoding_utils import (
     deserialize_entity_key,
     serialize_entity_key,
 )
+from feast.infra.online_stores._signal_scores import encode_signal_scores
 from feast.infra.online_stores.helpers import _mmh3, _redis_key, _redis_key_prefix
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
@@ -1080,6 +1081,115 @@ class EGValkeyOnlineStore(OnlineStore):
             requested_features=requested_features,
             search_results=search_results,
         )
+
+    def retrieve_online_documents_v3(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        requested_features: List[str],
+        embeddings: Dict[str, List[float]],
+        top_k: int,
+        query_string: Optional[str] = None,
+        fusion_strategy: str = "AUTO",
+        signal_weights: Optional[Dict[str, float]] = None,
+        rrf_k: int = 60,
+        distance_metric: Optional[str] = None,
+        include_signal_scores: bool = True,
+    ) -> List[
+        Tuple[
+            Optional[datetime],
+            Optional[EntityKeyProto],
+            Optional[Dict[str, ValueProto]],
+        ]
+    ]:
+        """
+        V3 document retrieval on Valkey backend.
+
+        Valkey supports a subset of V3 features:
+        - Single embedding only (multi-embedding raises ValueError)
+        - AUTO and VECTOR_ONLY fusion strategies (others raise ValueError)
+        - query_string is silently dropped with a warning (Valkey cannot
+          use text as a ranking signal)
+
+        Returns the same tuple shape as V2 with final_score and signal_scores
+        added to the feature dict. final_score is the raw Valkey distance
+        (lower = better for COSINE/L2, higher = better for IP). See the V3
+        design doc for cross-backend score semantics.
+
+        Reserved parameters (accepted but currently unused):
+        - ``include_signal_scores``: Reserved for future use.
+        """
+        del include_signal_scores
+        valid_strategies = {"AUTO", "RRF", "WEIGHTED_LINEAR", "VECTOR_ONLY"}
+        effective_strategy = fusion_strategy.upper()
+        if effective_strategy not in valid_strategies:
+            raise ValueError(
+                f"Unknown fusion_strategy '{fusion_strategy}'. "
+                f"Valid options: {sorted(valid_strategies)}"
+            )
+
+        if not embeddings:
+            raise ValueError(
+                "V3 requires at least one embedding. "
+                "Pass embeddings={field_name: vector}."
+            )
+
+        if len(embeddings) > 1:
+            raise ValueError(
+                "Multi-vector fusion requires the Elasticsearch backend. "
+                "Valkey supports single-vector search only. "
+                "Use a single embedding or switch to the Elasticsearch online store."
+            )
+
+        if effective_strategy in ("RRF", "WEIGHTED_LINEAR"):
+            raise ValueError(
+                f"Fusion strategy '{effective_strategy}' is not supported on Valkey. "
+                "Use fusion_strategy='AUTO' or 'VECTOR_ONLY', "
+                "or switch to the Elasticsearch backend for fusion support."
+            )
+
+        if query_string is not None and effective_strategy != "VECTOR_ONLY":
+            logger.warning(
+                "query_string is being dropped — Valkey backend does not support "
+                "text search as a ranking signal. To use text as a ranking signal, "
+                "switch to the Elasticsearch backend."
+            )
+
+        embed_key, embed_vector = next(iter(embeddings.items()))
+
+        v2_results = self.retrieve_online_documents_v2(
+            config=config,
+            table=table,
+            requested_features=requested_features,
+            embedding=embed_vector,
+            top_k=top_k,
+            distance_metric=distance_metric,
+            query_string=None,  # Valkey does not support query_string
+        )
+
+        v3_results: List[
+            Tuple[
+                Optional[datetime],
+                Optional[EntityKeyProto],
+                Optional[Dict[str, ValueProto]],
+            ]
+        ] = []
+        for timestamp, entity_key_proto, feature_dict in v2_results:
+            if feature_dict is None:
+                v3_results.append((timestamp, entity_key_proto, None))
+                continue
+
+            distance_val = feature_dict.pop("distance", None)
+            if distance_val is not None and distance_val.HasField("double_val"):
+                feature_dict["final_score"] = distance_val
+                signal_scores = {f"vec_{embed_key}": distance_val.double_val}
+            else:
+                signal_scores = {}
+
+            feature_dict["signal_scores"] = encode_signal_scores(signal_scores)
+            v3_results.append((timestamp, entity_key_proto, feature_dict))
+
+        return v3_results
 
     def _get_vector_field_for_search(
         self,
