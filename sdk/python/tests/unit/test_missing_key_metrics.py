@@ -34,7 +34,9 @@ class TestLookupMetricsAggregator:
         agg.emit()
 
         assert len(fake.calls) == 1
-        assert fake.calls[0]["metric"] == "feast.feature_server.feature_lookup_not_found"
+        assert (
+            fake.calls[0]["metric"] == "feast.feature_server.feature_lookup_not_found"
+        )
         assert fake.calls[0]["value"] == 3
         assert "feature:user_fv__age" in fake.calls[0]["tags"]
 
@@ -179,8 +181,7 @@ class TestEmitMissingKeyMetricsIntegration:
 
         assert len(fake.calls) == 2
         calls_by_feature = {
-            [t for t in c["tags"] if t.startswith("feature:")][0]: c
-            for c in fake.calls
+            [t for t in c["tags"] if t.startswith("feature:")][0]: c for c in fake.calls
         }
         assert calls_by_feature["feature:fv_a__f1"]["value"] == 1
         assert calls_by_feature["feature:fv_a__f2"]["value"] == 2

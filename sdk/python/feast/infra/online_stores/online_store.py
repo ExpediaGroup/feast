@@ -234,13 +234,9 @@ class OnlineStore(ABC):
 
         if _is_missing_key_metrics_enabled():
             try:
-                _emit_missing_key_metrics(
-                    config, project, online_features_response
-                )
+                _emit_missing_key_metrics(config, project, online_features_response)
             except Exception:
-                logger.debug(
-                    "Failed to emit missing key metrics", exc_info=True
-                )
+                logger.debug("Failed to emit missing key metrics", exc_info=True)
 
         return OnlineResponse(online_features_response)
 
@@ -499,9 +495,7 @@ def _emit_missing_key_metrics(config, project, response_proto):
     from feast.metrics_client import get_metrics_client
 
     online_store_type = (
-        config.online_store.type
-        if hasattr(config.online_store, "type")
-        else "unknown"
+        config.online_store.type if hasattr(config.online_store, "type") else "unknown"
     )
     service = os.getenv("SERVICE_NAME", os.getenv("APPLICATION", "unknown_service"))
     env = os.getenv(
