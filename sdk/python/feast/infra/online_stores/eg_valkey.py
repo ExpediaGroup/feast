@@ -1138,28 +1138,22 @@ class EGValkeyOnlineStore(OnlineStore):
         Returns:
             List of (doc_key, distance) tuples
         """
-        # Escape double quotes in project name for DIALECT 2 quoted tag syntax
-        # This handles special characters like hyphens which would otherwise
-        # be interpreted as operators (e.g., "my-project" -> "my NOT project")
-        escaped_project = project.replace('"', '\\"')
+        # Escape special characters in project name for tag filter.
+        # In Valkey Search tag queries, characters like - . @ need backslash escaping.
+        escaped_project = project
+        for ch in r'\-.@+~<>{}[]^":|!*()':
+            escaped_project = escaped_project.replace(ch, f"\\{ch}")
 
-        # Build KNN query with project filter using quoted tag syntax (DIALECT 2)
         query_str = (
-            f'(@__project__:{{"{escaped_project}"}})'
+            f"(@__project__:{{{escaped_project}}})"
             f"=>[KNN {top_k} @{vector_field_name} $vec AS __distance__]"
         )
 
-        # Determine sort order based on metric:
-        # - COSINE, L2: lower distance = more similar → ascending
-        # - IP (Inner Product): higher score = more similar → descending
-        sort_ascending = metric.upper() != "IP"
-
+        # KNN results are already sorted by distance (ascending) by the engine.
+        # No explicit SORTBY is needed — Valkey Search does not support SORTBY
+        # with KNN queries.
         query = (
-            Query(query_str)
-            .return_fields("__distance__")
-            .sort_by("__distance__", asc=sort_ascending)
-            .paging(0, top_k)
-            .dialect(2)
+            Query(query_str).return_fields("__distance__").paging(0, top_k).dialect(2)
         )
 
         try:
