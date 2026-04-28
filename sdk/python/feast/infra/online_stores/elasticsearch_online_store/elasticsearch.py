@@ -657,6 +657,7 @@ class ElasticSearchOnlineStore(OnlineStore):
         elif execution_mode == "rrf":
             top_retriever = {"rrf": {"retrievers": retrievers, "rank_constant": rrf_k}}
         else:
+            assert signal_weights is not None
             weighted = []
             for signal_name, retriever in retrievers_with_names:
                 weight = signal_weights[signal_name]
