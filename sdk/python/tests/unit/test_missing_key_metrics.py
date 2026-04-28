@@ -1,8 +1,6 @@
 import os
 from unittest.mock import MagicMock
 
-import pytest
-
 from feast._missing_key_metrics import LookupMetricsAggregator
 from feast.metrics_client import (
     NoOpStatsdClient,
@@ -10,12 +8,10 @@ from feast.metrics_client import (
     set_metrics_client,
 )
 from feast.protos.feast.serving.ServingService_pb2 import (
+    FeatureList,
     FieldStatus,
     GetOnlineFeaturesResponse,
     GetOnlineFeaturesResponseMetadata,
-)
-from feast.protos.feast.serving.ServingService_pb2 import (
-    FeatureList,
 )
 
 

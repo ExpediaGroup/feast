@@ -1,6 +1,6 @@
 import logging
 from collections import Counter
-from typing import List, Optional
+from typing import List
 
 from feast.protos.feast.serving.ServingService_pb2 import FieldStatus
 
