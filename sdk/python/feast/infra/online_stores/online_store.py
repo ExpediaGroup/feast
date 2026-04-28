@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import logging
+import os
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
@@ -229,6 +231,17 @@ class OnlineStore(ABC):
         utils._drop_unneeded_columns(
             online_features_response, requested_result_row_names
         )
+
+        if _is_missing_key_metrics_enabled():
+            try:
+                _emit_missing_key_metrics(
+                    config, project, online_features_response
+                )
+            except Exception:
+                logger.debug(
+                    "Failed to emit missing key metrics", exc_info=True
+                )
+
         return OnlineResponse(online_features_response)
 
     async def get_online_features_async(
@@ -472,3 +485,43 @@ class OnlineStore(ABC):
 
     async def close(self) -> None:
         pass
+
+
+logger = logging.getLogger(__name__)
+
+
+def _is_missing_key_metrics_enabled() -> bool:
+    return os.getenv("ENABLE_MISSING_KEY_METRICS", "false").lower() == "true"
+
+
+def _emit_missing_key_metrics(config, project, response_proto):
+    from feast._missing_key_metrics import LookupMetricsAggregator
+    from feast.metrics_client import get_metrics_client
+
+    online_store_type = (
+        config.online_store.type
+        if hasattr(config.online_store, "type")
+        else "unknown"
+    )
+    service = os.getenv("SERVICE_NAME", os.getenv("APPLICATION", "unknown_service"))
+    env = os.getenv(
+        "EXPEDIA_ENVIRONMENT_CATEGORY",
+        os.getenv("EXPEDIA_ENVIRONMENT", "unknown_env"),
+    )
+
+    agg = LookupMetricsAggregator(
+        project=project,
+        online_store_type=online_store_type,
+        service=service,
+        env=env,
+        metrics_client=get_metrics_client(),
+    )
+
+    feature_names = list(response_proto.metadata.feature_names.val)
+    for i, feature_ref in enumerate(feature_names):
+        if i < len(response_proto.results):
+            feature_vector = response_proto.results[i]
+            for status in feature_vector.statuses:
+                agg.record(feature_ref, status)
+
+    agg.emit()

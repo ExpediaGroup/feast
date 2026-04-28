@@ -45,7 +45,7 @@ func GetClient(ctx context.Context, basePath string, logPath string) (serving.Se
 	if err != nil {
 		panic(err)
 	}
-	servingServiceServer := NewGrpcServingServiceServer(fs, loggingService)
+	servingServiceServer := NewGrpcServingServiceServer(fs, loggingService, nil, nil)
 
 	serving.RegisterServingServiceServer(server, servingServiceServer)
 	go func() {
@@ -109,5 +109,5 @@ func GetHttpServer(basePath string, logPath string) *HttpServer {
 	if err != nil {
 		panic(err)
 	}
-	return NewHttpServer(fs, loggingService)
+	return NewHttpServer(fs, loggingService, nil, config)
 }

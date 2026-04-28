@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/feast-dev/feast/go/internal/feast"
+	"github.com/feast-dev/feast/go/internal/feast/metrics"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/feast/server"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
@@ -24,26 +25,23 @@ import (
 )
 
 type ServerStarter interface {
-	StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error
-	StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error
-	StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService) error
-	// TODO: MERGE-CONFLICT resolve different logging setups
-	//StartHttpServer(fs *feast.FeatureStore, host string, port int, writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback, loggingOpts *logging.LoggingOptions) error
-	//StartGrpcServer(fs *feast.FeatureStore, host string, port int, writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback, loggingOpts *logging.LoggingOptions) error
+	StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error
+	StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error
+	StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error
 }
 
 type RealServerStarter struct{}
 
-func (s *RealServerStarter) StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error {
-	return StartHttpServer(fs, host, port, loggingService)
+func (s *RealServerStarter) StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
+	return StartHttpServer(fs, host, port, loggingService, metricsClient, config)
 }
 
-func (s *RealServerStarter) StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error {
-	return StartGrpcServer(fs, host, port, loggingService)
+func (s *RealServerStarter) StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
+	return StartGrpcServer(fs, host, port, loggingService, metricsClient, config)
 }
 
-func (s *RealServerStarter) StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService) error {
-	return StartHybridServer(fs, host, httpPort, grpcPort, loggingService)
+func (s *RealServerStarter) StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
+	return StartHybridServer(fs, host, httpPort, grpcPort, loggingService, metricsClient, config)
 }
 
 func main() {
@@ -107,16 +105,29 @@ func main() {
 		log.Fatal().Stack().Err(err).Msg("Failed to create loggingService")
 	}
 
-	// TODO: writeLoggedFeaturesCallback is defaulted to nil. write_logged_features functionality needs to be
-	// implemented in Golang specific to OfflineStoreSink. Python Feature Server doesn't support this.
+	var metricsClient metrics.StatsdClient
+	if metrics.IsMissingKeyMetricsEnabled() {
+		if statsdHost, ok := os.LookupEnv("DD_AGENT_HOST"); ok {
+			client, clientErr := statsd.New(fmt.Sprintf("%s:8125", statsdHost))
+			if clientErr != nil {
+				log.Error().Err(clientErr).Msg("Failed to create statsd client for missing key metrics")
+			} else {
+				metricsClient = client
+				defer client.Close()
+				log.Info().Msg("Missing key metrics enabled")
+			}
+		} else {
+			log.Warn().Msg("ENABLE_MISSING_KEY_METRICS is true but DD_AGENT_HOST is not set")
+		}
+	}
+
 	switch serverType {
 	case "http":
-		err = serverStarter.StartHttpServer(fs, host, port, loggingService)
+		err = serverStarter.StartHttpServer(fs, host, port, loggingService, metricsClient, repoConfig)
 	case "grpc":
-		err = serverStarter.StartGrpcServer(fs, host, port, loggingService)
+		err = serverStarter.StartGrpcServer(fs, host, port, loggingService, metricsClient, repoConfig)
 	case "hybrid":
-		// hybrid starts both gRPC(on gRPC port) & http(on port)
-		err = serverStarter.StartHybridServer(fs, host, port, grpcPort, loggingService)
+		err = serverStarter.StartHybridServer(fs, host, port, grpcPort, loggingService, metricsClient, repoConfig)
 	default:
 		fmt.Println("Unknown serverStarter type. Please specify 'http', 'grpc', or 'hybrid'.")
 	}
@@ -189,14 +200,14 @@ func constructLoggingService(fs *feast.FeatureStore, writeLoggedFeaturesCallback
 	return loggingService, nil
 }
 
-// StartGrpcServerWithLogging creates a gRPC server with enabled feature logging
-func StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error {
+// StartGrpcServer creates a gRPC server with enabled feature logging
+func StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
 	if datadogTracingEnabled() {
 		tracer.Start(tracer.WithRuntimeMetrics())
 		defer tracer.Stop()
 	}
 
-	ser := server.NewGrpcServingServiceServer(fs, loggingService)
+	ser := server.NewGrpcServingServiceServer(fs, loggingService, metricsClient, config)
 	log.Info().Msgf("Starting a gRPC server on host %s port %d", host, port)
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
@@ -229,11 +240,9 @@ func StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingServi
 	return grpcServer.Serve(lis)
 }
 
-// StartHttpServerWithLogging creates an HTTP server with enabled feature logging
-// Go does not allow direct assignment to package-level functions as a way to
-// mock them for tests
-func StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService) error {
-	ser := server.NewHttpServer(fs, loggingService)
+// StartHttpServer creates an HTTP server with enabled feature logging
+func StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
+	ser := server.NewHttpServer(fs, loggingService, metricsClient, config)
 	log.Info().Msgf("Starting a HTTP server on host %s, port %d", host, port)
 
 	stop := make(chan os.Signal, 1)
@@ -257,15 +266,13 @@ func StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingServi
 }
 
 // StartHybridServer creates a gRPC Server and HTTP server
-// Handlers for these are defined in hybrid_server.go
-// Stops both servers if a stop signal is received.
-func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService) error {
+func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
 	if datadogTracingEnabled() {
 		tracer.Start(tracer.WithRuntimeMetrics())
 		defer tracer.Stop()
 	}
 
-	ser := server.NewGrpcServingServiceServer(fs, loggingService)
+	ser := server.NewGrpcServingServiceServer(fs, loggingService, metricsClient, config)
 	log.Info().Msgf("Starting a gRPC server on host %s port %d", host, grpcPort)
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, grpcPort))
 	if err != nil {
@@ -274,7 +281,7 @@ func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPo
 
 	grpcSer := ser.RegisterServices()
 
-	httpSer := server.NewHttpServer(fs, loggingService)
+	httpSer := server.NewHttpServer(fs, loggingService, metricsClient, config)
 	log.Info().Msgf("Starting a HTTP server on host %s, port %d", host, httpPort)
 
 	stop := make(chan os.Signal, 1)

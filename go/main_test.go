@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/feast-dev/feast/go/internal/feast"
+	"github.com/feast-dev/feast/go/internal/feast/metrics"
+	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -16,13 +18,18 @@ type MockServerStarter struct {
 	mock.Mock
 }
 
-func (m *MockServerStarter) StartHttpServer(fs *feast.FeatureStore, host string, port int, writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback, loggingOpts *logging.LoggingOptions) error {
-	args := m.Called(fs, host, port, writeLoggedFeaturesCallback, loggingOpts)
+func (m *MockServerStarter) StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
+	args := m.Called(fs, host, port, loggingService, metricsClient, config)
 	return args.Error(0)
 }
 
-func (m *MockServerStarter) StartGrpcServer(fs *feast.FeatureStore, host string, port int, writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback, loggingOpts *logging.LoggingOptions) error {
-	args := m.Called(fs, host, port, writeLoggedFeaturesCallback, loggingOpts)
+func (m *MockServerStarter) StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
+	args := m.Called(fs, host, port, loggingService, metricsClient, config)
+	return args.Error(0)
+}
+
+func (m *MockServerStarter) StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPort int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
+	args := m.Called(fs, host, httpPort, grpcPort, loggingService, metricsClient, config)
 	return args.Error(0)
 }
 
@@ -32,13 +39,10 @@ func TestStartHttpServer(t *testing.T) {
 	fs := &feast.FeatureStore{}
 	host := "localhost"
 	port := 8080
-	var writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback
 
-	loggingOpts := &logging.LoggingOptions{}
+	mockServerStarter.On("StartHttpServer", fs, host, port, (*logging.LoggingService)(nil), (metrics.StatsdClient)(nil), (*registry.RepoConfig)(nil)).Return(nil)
 
-	mockServerStarter.On("StartHttpServer", fs, host, port, mock.AnythingOfType("logging.OfflineStoreWriteCallback"), loggingOpts).Return(nil)
-
-	err := mockServerStarter.StartHttpServer(fs, host, port, writeLoggedFeaturesCallback, loggingOpts)
+	err := mockServerStarter.StartHttpServer(fs, host, port, nil, nil, nil)
 	assert.NoError(t, err)
 	mockServerStarter.AssertExpectations(t)
 }
@@ -49,12 +53,10 @@ func TestStartGrpcServer(t *testing.T) {
 	fs := &feast.FeatureStore{}
 	host := "localhost"
 	port := 9090
-	var writeLoggedFeaturesCallback logging.OfflineStoreWriteCallback
-	loggingOpts := &logging.LoggingOptions{}
 
-	mockServerStarter.On("StartGrpcServer", fs, host, port, mock.AnythingOfType("logging.OfflineStoreWriteCallback"), loggingOpts).Return(nil)
+	mockServerStarter.On("StartGrpcServer", fs, host, port, (*logging.LoggingService)(nil), (metrics.StatsdClient)(nil), (*registry.RepoConfig)(nil)).Return(nil)
 
-	err := mockServerStarter.StartGrpcServer(fs, host, port, writeLoggedFeaturesCallback, loggingOpts)
+	err := mockServerStarter.StartGrpcServer(fs, host, port, nil, nil, nil)
 	assert.NoError(t, err)
 	mockServerStarter.AssertExpectations(t)
 }
