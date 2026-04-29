@@ -254,3 +254,14 @@ def test_get_cql_type():
     assert store._get_cql_type(Array(Float32)) == "LIST<FLOAT>"
     assert store._get_cql_type(Array(Float64)) == "LIST<DOUBLE>"
     assert store._get_cql_type(Array(Bool)) == "LIST<BOOLEAN>"
+
+
+def test_canonical_column_name():
+    from feast.infra.online_stores.cassandra_online_store.cassandra_online_store import (
+        _canonical_column_name,
+    )
+
+    assert _canonical_column_name("featureX") == "featurex"
+    assert _canonical_column_name("FEATURE") == "feature"
+    assert _canonical_column_name("already_lower") == "already_lower"
+    assert _canonical_column_name("") == ""

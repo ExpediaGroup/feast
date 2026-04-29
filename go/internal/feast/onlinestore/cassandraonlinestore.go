@@ -89,6 +89,20 @@ func base62Encode(data []byte) string {
 	return toBase62(num)
 }
 
+// canonicalColumnName returns the on-disk form of a Cassandra column for a
+// Feast feature. Cassandra/Scylla case-fold unquoted identifiers to lowercase
+// at storage time, and the Python materializer emits column references
+// unquoted (see _build_sorted_table_cql in cassandra_online_store.py), so the
+// canonical on-disk form is always lowercase. Anywhere this reader references
+// a feature column by name in CQL or looks it up in a result map, it must use
+// this canonical form.
+//
+// This helper is NOT used to transform names that flow back to callers in
+// response payloads — those preserve the original case from the FV definition.
+func canonicalColumnName(featureName string) string {
+	return strings.ToLower(featureName)
+}
+
 func parseStringField(config map[string]any, fieldName string, defaultValue string) (string, error) {
 	rawValue, ok := config[fieldName]
 	if !ok {
@@ -719,10 +733,10 @@ func (c *CassandraOnlineStore) executeBatch(
 
 func (c *CassandraOnlineStore) rangeFilterToCQL(filter *model.SortKeyFilter) (string, []interface{}) {
 	rangeParams := make([]interface{}, 0)
+	sortKeyCol := canonicalColumnName(filter.SortKeyName)
 
-	equality := ""
 	if filter.Equals != nil {
-		equality = fmt.Sprintf(`"%s" = ?`, filter.SortKeyName)
+		equality := fmt.Sprintf(`%s = ?`, sortKeyCol)
 		rangeParams = append(rangeParams, filter.Equals)
 		return equality, rangeParams
 	}
@@ -730,18 +744,18 @@ func (c *CassandraOnlineStore) rangeFilterToCQL(filter *model.SortKeyFilter) (st
 	rangeStart := ""
 	if filter.RangeStart != nil {
 		if filter.StartInclusive {
-			rangeStart = fmt.Sprintf(`"%s" >= ?`, filter.SortKeyName)
+			rangeStart = fmt.Sprintf(`%s >= ?`, sortKeyCol)
 		} else {
-			rangeStart = fmt.Sprintf(`"%s" > ?`, filter.SortKeyName)
+			rangeStart = fmt.Sprintf(`%s > ?`, sortKeyCol)
 		}
 		rangeParams = append(rangeParams, filter.RangeStart)
 	}
 	rangeEnd := ""
 	if filter.RangeEnd != nil {
 		if filter.EndInclusive {
-			rangeEnd = fmt.Sprintf(`"%s" <= ?`, filter.SortKeyName)
+			rangeEnd = fmt.Sprintf(`%s <= ?`, sortKeyCol)
 		} else {
-			rangeEnd = fmt.Sprintf(`"%s" < ?`, filter.SortKeyName)
+			rangeEnd = fmt.Sprintf(`%s < ?`, sortKeyCol)
 		}
 		rangeParams = append(rangeParams, filter.RangeEnd)
 	}
@@ -765,9 +779,13 @@ func (c *CassandraOnlineStore) buildRangeQueryCQL(
 	limit int32,
 	isReverseSortOrder bool,
 ) (string, []interface{}) {
-	quotedFeatures := make([]string, len(featureNames))
+	// Use unquoted, lowercased identifiers to match the on-disk form written
+	// by the Python materializer. Quoting + mixed case would make Cassandra
+	// do a case-sensitive lookup that misses the (always-lowercase) stored
+	// column.
+	columnRefs := make([]string, len(featureNames))
 	for i, name := range featureNames {
-		quotedFeatures[i] = fmt.Sprintf(`"%s"`, name)
+		columnRefs[i] = canonicalColumnName(name)
 	}
 
 	keyPlaceholders := make([]string, numKeys)
@@ -791,7 +809,7 @@ func (c *CassandraOnlineStore) buildRangeQueryCQL(
 			params = append(params, filterParams...)
 			if f.Order != nil {
 				orderBy = append(orderBy,
-					fmt.Sprintf(`"%s" %s`, f.SortKeyName, f.Order.String()))
+					fmt.Sprintf(`%s %s`, canonicalColumnName(f.SortKeyName), f.Order.String()))
 			}
 		}
 
@@ -813,14 +831,14 @@ func (c *CassandraOnlineStore) buildRangeQueryCQL(
 
 	var keyCondition string
 	if numKeys == 1 {
-		keyCondition = `"entity_key" = ?`
+		keyCondition = `entity_key = ?`
 	} else {
-		keyCondition = fmt.Sprintf(`"entity_key" IN (%s)`, strings.Join(keyPlaceholders, ", "))
+		keyCondition = fmt.Sprintf(`entity_key IN (%s)`, strings.Join(keyPlaceholders, ", "))
 	}
 
 	cql := fmt.Sprintf(
-		`SELECT "entity_key", "event_ts", %s FROM %s WHERE %s%s%s%s`,
-		strings.Join(quotedFeatures, ", "),
+		`SELECT entity_key, event_ts, %s FROM %s WHERE %s%s%s%s`,
+		strings.Join(columnRefs, ", "),
 		tableName,
 		keyCondition,
 		whereClause,
@@ -929,12 +947,17 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 
 				for _, featName := range groupedRefs.FeatureNames {
 					idx := prepCtx.featureNamesToIdx[featName]
+					// gocql MapScan returns map keys in the case Cassandra stored them in
+					// (lowercase, since the Python writer emits unquoted DDL). Look up the
+					// value by canonical (lowercase) name. featName itself stays
+					// original-case for use in the response payload below.
+					canonicalFeat := canonicalColumnName(featName)
 					var val interface{}
 					var status serving.FieldStatus
 
 					if _, isSortKey := groupedRefs.SortKeyNames[featName]; isSortKey {
 						var exists bool
-						val, exists = readValues[featName]
+						val, exists = readValues[canonicalFeat]
 						if !exists {
 							status = serving.FieldStatus_NOT_FOUND
 							val = nil
@@ -944,7 +967,7 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 							status = serving.FieldStatus_PRESENT
 						}
 					} else {
-						if valueStr, ok := readValues[featName]; ok {
+						if valueStr, ok := readValues[canonicalFeat]; ok {
 							val, status, err = utils.UnmarshalStoredProto(valueStr.([]byte))
 							if err != nil {
 								errorsChannel <- err
@@ -956,6 +979,8 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 						}
 					}
 
+					// featName (original case) is passed to appendRangeFeature so the
+					// response payload preserves the case the user defined in the FV.
 					appendRangeFeature(&rowData[idx], featName, prepCtx.featureViewName, val, status, eventTs)
 				}
 

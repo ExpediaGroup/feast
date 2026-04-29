@@ -491,6 +491,105 @@ def test_sorted_feature_view_invalid_sort_key_order_int():
         )
 
 
+def test_case_collision_features_raises_at_validation():
+    """Two features whose names differ only in case must be rejected,
+    because they would collide on Cassandra/Scylla storage."""
+    source = FileSource(path="some path")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+
+    with pytest.raises(ValueError, match="differ only in case"):
+        SortedFeatureView(
+            name="bad_view",
+            entities=[entity],
+            sort_keys=[
+                SortKey(
+                    name="sortKey",
+                    value_type=ValueType.INT64,
+                    default_sort_order=SortOrder.ASC,
+                )
+            ],
+            source=source,
+            schema=[
+                Field(name="sortKey", dtype=Int64),
+                Field(name="featureX", dtype=Int64),
+                Field(name="featurex", dtype=Int64),
+            ],
+        )
+
+
+def test_case_collision_features_uppercase_raises():
+    """Features featureX and FEATUREX must also be rejected."""
+    source = FileSource(path="some path")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+
+    with pytest.raises(ValueError, match="differ only in case"):
+        SortedFeatureView(
+            name="bad_view",
+            entities=[entity],
+            sort_keys=[
+                SortKey(
+                    name="sortKey",
+                    value_type=ValueType.INT64,
+                    default_sort_order=SortOrder.ASC,
+                )
+            ],
+            source=source,
+            schema=[
+                Field(name="sortKey", dtype=Int64),
+                Field(name="featureX", dtype=Int64),
+                Field(name="FEATUREX", dtype=Int64),
+            ],
+        )
+
+
+def test_case_distinct_features_pass_validation():
+    """Features that differ in more than just case are allowed."""
+    source = FileSource(path="some path")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+
+    fv = SortedFeatureView(
+        name="good_view",
+        entities=[entity],
+        sort_keys=[
+            SortKey(
+                name="sortKey",
+                value_type=ValueType.INT64,
+                default_sort_order=SortOrder.ASC,
+            )
+        ],
+        source=source,
+        schema=[
+            Field(name="sortKey", dtype=Int64),
+            Field(name="featureX", dtype=Int64),
+            Field(name="featureY", dtype=Int64),
+        ],
+    )
+    fv.ensure_valid()
+
+
+def test_single_feature_passes_case_validation():
+    """A SortedFeatureView with a single feature passes validation."""
+    source = FileSource(path="some path")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+
+    fv = SortedFeatureView(
+        name="single_feat_view",
+        entities=[entity],
+        sort_keys=[
+            SortKey(
+                name="featureX",
+                value_type=ValueType.INT64,
+                default_sort_order=SortOrder.ASC,
+            )
+        ],
+        source=source,
+        schema=[
+            Field(name="featureX", dtype=Int64),
+        ],
+    )
+    fv.ensure_valid()
+
+
 def test_sfv_compatibility_same():
     """
     Two identical SortedFeatureViews should be compatible with no reasons.
