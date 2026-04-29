@@ -1,7 +1,7 @@
 import os
 from unittest.mock import MagicMock
 
-from feast._missing_key_metrics import LookupMetricsAggregator
+from feast._missing_key_metrics import LookupMetricsAggregator, _extract_feature_view
 from feast.metrics_client import (
     NoOpStatsdClient,
     get_metrics_client,
@@ -120,6 +120,7 @@ class TestLookupMetricsAggregator:
         assert "service:ranking-fs" in tags
         assert "env:dw" in tags
         assert "feature:hotel_fv__price" in tags
+        assert "feature_view:hotel_fv" in tags
 
 
 class TestMetricsClientRegistry:
@@ -133,6 +134,27 @@ class TestMetricsClientRegistry:
         set_metrics_client(fake)
         assert get_metrics_client() is fake
         set_metrics_client(NoOpStatsdClient())
+
+
+class TestFeatureViewExtraction:
+    def test_standard_format(self):
+        assert _extract_feature_view("hotel_fv__price") == "hotel_fv"
+        assert _extract_feature_view("user_fv__age") == "user_fv"
+        assert (
+            _extract_feature_view("ranking_signals_fv__score") == "ranking_signals_fv"
+        )
+
+    def test_multiple_underscores_in_feature_name(self):
+        # Only split on first __ occurrence
+        assert _extract_feature_view("hotel_fv__review_score_avg") == "hotel_fv"
+
+    def test_no_double_underscore(self):
+        # Fallback to "unknown" for non-standard format
+        assert _extract_feature_view("age") == "unknown"
+        assert _extract_feature_view("hotel_fv:price") == "unknown"
+
+    def test_empty_string(self):
+        assert _extract_feature_view("") == "unknown"
 
 
 class TestIsMissingKeyMetricsEnabled:

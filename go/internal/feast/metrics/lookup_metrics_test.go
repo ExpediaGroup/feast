@@ -121,6 +121,7 @@ func TestAggregator_Tags(t *testing.T) {
 	assert.Contains(t, tags, "service:ranking-fs")
 	assert.Contains(t, tags, "env:dw")
 	assert.Contains(t, tags, "feature:hotel_fv__price")
+	assert.Contains(t, tags, "feature_view:hotel_fv")
 }
 
 func TestRecordFromFeatureVectors(t *testing.T) {
@@ -193,6 +194,29 @@ func TestGetOnlineStoreType(t *testing.T) {
 	// Test with mock config that has "type" key
 	assert.Equal(t, "unknown_service", GetServiceName())
 	assert.Equal(t, "unknown_env", GetEnvironment())
+}
+
+func TestExtractFeatureView(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{"standard format", "hotel_fv__price", "hotel_fv"},
+		{"with underscore in feature", "hotel_fv__review_score_avg", "hotel_fv"},
+		{"multiple feature views", "user_fv__age", "user_fv"},
+		{"long feature view name", "ranking_signals_fv__score", "ranking_signals_fv"},
+		{"no double underscore", "age", "unknown"},
+		{"colon separator", "hotel_fv:price", "unknown"},
+		{"empty string", "", "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractFeatureView(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
 
 // findTag extracts the value portion of a tag matching the given prefix.

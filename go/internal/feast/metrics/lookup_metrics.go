@@ -1,9 +1,22 @@
 package metrics
 
 import (
+	"strings"
+
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 )
+
+// extractFeatureView extracts the feature view name from a full feature name.
+// Feature names follow the format: feature_view__feature_name
+// Example: "hotel_fv__price" -> "hotel_fv"
+func extractFeatureView(featureName string) string {
+	parts := strings.SplitN(featureName, "__", 2)
+	if len(parts) == 2 {
+		return parts[0]
+	}
+	return "unknown"
+}
 
 type LookupMetricsAggregator struct {
 	notFound      map[string]int64
@@ -85,9 +98,10 @@ func (m *LookupMetricsAggregator) Emit() {
 		if count == 0 {
 			continue
 		}
-		tags := make([]string, len(baseTags)+1)
+		tags := make([]string, len(baseTags)+2)
 		copy(tags, baseTags)
 		tags[len(baseTags)] = "feature:" + featureID
+		tags[len(baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
 		m.client.Count("feast.feature_server.feature_lookup_not_found", count, tags, 1.0)
 	}
 
@@ -95,9 +109,10 @@ func (m *LookupMetricsAggregator) Emit() {
 		if count == 0 {
 			continue
 		}
-		tags := make([]string, len(baseTags)+1)
+		tags := make([]string, len(baseTags)+2)
 		copy(tags, baseTags)
 		tags[len(baseTags)] = "feature:" + featureID
+		tags[len(baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
 		m.client.Count("feast.feature_server.feature_lookup_null_or_expired", count, tags, 1.0)
 	}
 }

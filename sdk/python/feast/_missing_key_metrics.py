@@ -7,6 +7,23 @@ from feast.protos.feast.serving.ServingService_pb2 import FieldStatus
 logger = logging.getLogger(__name__)
 
 
+def _extract_feature_view(feature_name: str) -> str:
+    """Extract feature view name from full feature name.
+
+    Feature names follow the format: feature_view__feature_name
+    Example: "hotel_fv__price" -> "hotel_fv"
+
+    Args:
+        feature_name: Full feature name with feature view prefix
+
+    Returns:
+        Feature view name, or "unknown" if format doesn't match
+    """
+    if "__" in feature_name:
+        return feature_name.split("__", 1)[0]
+    return "unknown"
+
+
 class LookupMetricsAggregator:
     def __init__(
         self,
@@ -46,7 +63,11 @@ class LookupMetricsAggregator:
                 self.metrics_client.increment(
                     "feast.feature_server.feature_lookup_not_found",
                     cnt,
-                    tags=base_tags + [f"feature:{feat}"],
+                    tags=base_tags
+                    + [
+                        f"feature:{feat}",
+                        f"feature_view:{_extract_feature_view(feat)}",
+                    ],
                 )
 
         for feat, cnt in self.null_or_expired.items():
@@ -54,5 +75,9 @@ class LookupMetricsAggregator:
                 self.metrics_client.increment(
                     "feast.feature_server.feature_lookup_null_or_expired",
                     cnt,
-                    tags=base_tags + [f"feature:{feat}"],
+                    tags=base_tags
+                    + [
+                        f"feature:{feat}",
+                        f"feature_view:{_extract_feature_view(feat)}",
+                    ],
                 )
