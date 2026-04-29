@@ -311,7 +311,7 @@ func (s *OnlineFeatureService) StartGrpcServerWithLogging(host string, port int,
 	if err != nil {
 		return err
 	}
-	ser := server.NewGrpcServingServiceServer(s.fs, loggingService)
+	ser := server.NewGrpcServingServiceServer(s.fs, loggingService, nil, nil)
 	log.Printf("Starting a gRPC server on host %s port %d\n", host, port)
 	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
 	if err != nil {
@@ -366,7 +366,7 @@ func (s *OnlineFeatureService) StartHttpServerWithLogging(host string, port int,
 	if err != nil {
 		return err
 	}
-	ser := server.NewHttpServer(s.fs, loggingService)
+	ser := server.NewHttpServer(s.fs, loggingService, nil, nil)
 	log.Printf("Starting a HTTP server on host %s port %d\n", host, port)
 
 	go func() {
