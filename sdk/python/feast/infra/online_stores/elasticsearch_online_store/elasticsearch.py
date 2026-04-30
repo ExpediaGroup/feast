@@ -723,7 +723,7 @@ class ElasticSearchOnlineStore(OnlineStore):
         signal_weights: Optional[Dict[str, float]] = None,
         rrf_k: int = 60,
         distance_metric: Optional[str] = None,
-        include_signal_scores: bool = True,
+        include_signal_scores: bool = False,
     ) -> List[
         Tuple[
             Optional[datetime],
@@ -747,8 +747,10 @@ class ElasticSearchOnlineStore(OnlineStore):
         Reserved parameters (accepted but currently unused):
         - ``distance_metric``: V3-ES always uses the metric configured in the
           index mapping; this param is reserved for future per-query override.
-        - ``include_signal_scores``: Reserved for future use. Currently always
-          populated when available.
+        - ``include_signal_scores``: No-op today. ``signal_scores`` is always
+          populated best-effort (see Reserved output fields). Reserved for a
+          future ES-explain path that will expose per-signal scores after
+          fusion at extra latency cost.
         """
         del distance_metric
         del include_signal_scores

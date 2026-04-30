@@ -2577,14 +2577,14 @@ class FeatureStore:
                 Keys are embedding field names and/or "bm25".
             rrf_k: RRF rank constant (default 60).
             distance_metric: Override distance metric.
-            include_signal_scores: Reserved for future use. When True, will
-                request per-signal score breakdowns for fusion strategies
-                (RRF, WEIGHTED_LINEAR) at additional latency cost. Currently
-                ignored — signal_scores follows the best-effort behavior
-                documented in the V3 design.
+            include_signal_scores: When True, requests per-signal score
+                breakdowns for fusion strategies (RRF, WEIGHTED_LINEAR) at
+                additional latency cost. Currently a no-op — signal_scores
+                always follows the best-effort behavior documented in the V3
+                design, and the parameter is plumbed through so callers can
+                opt in today and automatically pick up the explain-based
+                path when it lands. Default False.
         """
-        del include_signal_scores
-
         if not embeddings:
             raise ValueError(
                 "V3 requires at least one embedding. "
@@ -2675,6 +2675,7 @@ class FeatureStore:
             signal_weights,
             rrf_k,
             distance_metric,
+            include_signal_scores,
         )
 
     def _retrieve_from_online_store(
@@ -2833,6 +2834,7 @@ class FeatureStore:
         signal_weights: Optional[Dict[str, float]],
         rrf_k: int,
         distance_metric: Optional[str],
+        include_signal_scores: bool,
     ) -> OnlineResponse:
         documents = provider.retrieve_online_documents_v3(
             config=self.config,
@@ -2845,6 +2847,7 @@ class FeatureStore:
             signal_weights=signal_weights,
             rrf_k=rrf_k,
             distance_metric=distance_metric,
+            include_signal_scores=include_signal_scores,
         )
 
         entity_key_dict: Dict[str, List[ValueProto]] = {}

@@ -509,7 +509,7 @@ class Provider(ABC):
         signal_weights: Optional[Dict[str, float]] = None,
         rrf_k: int = 60,
         distance_metric: Optional[str] = None,
-        include_signal_scores: bool = True,
+        include_signal_scores: bool = False,
     ) -> List[
         Tuple[
             Optional[datetime],

@@ -1094,7 +1094,7 @@ class EGValkeyOnlineStore(OnlineStore):
         signal_weights: Optional[Dict[str, float]] = None,
         rrf_k: int = 60,
         distance_metric: Optional[str] = None,
-        include_signal_scores: bool = True,
+        include_signal_scores: bool = False,
     ) -> List[
         Tuple[
             Optional[datetime],
@@ -1120,7 +1120,10 @@ class EGValkeyOnlineStore(OnlineStore):
         relevance score where higher = better.
 
         Reserved parameters (accepted but currently unused):
-        - ``include_signal_scores``: Reserved for future use.
+        - ``include_signal_scores``: No-op today. ``signal_scores`` is
+          populated best-effort (single-entry dict for the one vector
+          signal). Reserved so callers can opt in now and automatically
+          pick up a richer breakdown when the explain-based path lands.
         """
         del include_signal_scores
         valid_strategies = {"AUTO", "RRF", "WEIGHTED_LINEAR", "VECTOR_ONLY"}
