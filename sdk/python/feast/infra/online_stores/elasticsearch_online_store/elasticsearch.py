@@ -747,10 +747,12 @@ class ElasticSearchOnlineStore(OnlineStore):
         Reserved parameters (accepted but currently unused):
         - ``distance_metric``: V3-ES always uses the metric configured in the
           index mapping; this param is reserved for future per-query override.
-        - ``include_signal_scores``: No-op today. ``signal_scores`` is always
-          populated best-effort (see Reserved output fields). Reserved for a
-          future ES-explain path that will expose per-signal scores after
-          fusion at extra latency cost.
+        - ``include_signal_scores``: No-op today. ``signal_scores`` follows
+          best-effort behavior — populated for single-signal queries, empty
+          for RRF/WEIGHTED_LINEAR fusion (ES does not expose per-retriever
+          scores after fusion). Reserved for a future ES-explain path that
+          will populate the breakdown for fusion strategies at extra latency
+          cost.
         """
         del distance_metric
         del include_signal_scores
