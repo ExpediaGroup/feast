@@ -1732,3 +1732,424 @@ class TestExecuteVectorSearch:
         assert len(results) == 1
         doc_key, distance = results[0]
         assert distance == float("inf")
+
+
+class TestRetrieveOnlineDocumentsV3Validation:
+    """Tests for retrieve_online_documents_v3 input validation on Valkey."""
+
+    @pytest.fixture
+    def store(self):
+        return EGValkeyOnlineStore()
+
+    @pytest.fixture
+    def feature_view_with_vector(self):
+        return FeatureView(
+            name="test_fv",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(
+                    name="embedding",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                    vector_search_metric="COSINE",
+                ),
+                Field(name="title", dtype=String),
+            ],
+        )
+
+    @pytest.fixture
+    def feature_view_multi_vector(self):
+        return FeatureView(
+            name="test_fv_multi",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(
+                    name="title_vec",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                    vector_search_metric="COSINE",
+                ),
+                Field(
+                    name="body_vec",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                    vector_search_metric="COSINE",
+                ),
+            ],
+        )
+
+    @pytest.fixture
+    def repo_config(self):
+        return RepoConfig(
+            project="test_project",
+            provider="local",
+            registry="test_registry.db",
+            online_store=EGValkeyOnlineStoreConfig(
+                type="eg-valkey",
+                connection_string="localhost:6379",
+            ),
+            entity_key_serialization_version=3,
+        )
+
+    def test_empty_embeddings_raises(
+        self, store, repo_config, feature_view_with_vector
+    ):
+        with pytest.raises(ValueError, match="at least one embedding"):
+            store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["title"],
+                embeddings={},
+                top_k=5,
+            )
+
+    def test_multi_embedding_raises(
+        self, store, repo_config, feature_view_multi_vector
+    ):
+        with pytest.raises(ValueError, match="single-vector search only"):
+            store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view_multi_vector,
+                requested_features=["item_id"],
+                embeddings={
+                    "title_vec": [0.1, 0.2, 0.3, 0.4],
+                    "body_vec": [0.5, 0.6, 0.7, 0.8],
+                },
+                top_k=5,
+            )
+
+    def test_rrf_strategy_raises(self, store, repo_config, feature_view_with_vector):
+        with pytest.raises(ValueError, match="not supported on Valkey"):
+            store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+                fusion_strategy="RRF",
+            )
+
+    def test_weighted_linear_strategy_raises(
+        self, store, repo_config, feature_view_with_vector
+    ):
+        with pytest.raises(ValueError, match="not supported on Valkey"):
+            store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+                fusion_strategy="WEIGHTED_LINEAR",
+                signal_weights={"embedding": 1.0},
+            )
+
+    def test_unknown_fusion_strategy_raises(
+        self, store, repo_config, feature_view_with_vector
+    ):
+        with pytest.raises(ValueError, match="Unknown fusion_strategy"):
+            store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+                fusion_strategy="BOGUS",
+            )
+
+    def test_auto_strategy_accepted(self, store, repo_config, feature_view_with_vector):
+        """AUTO should not raise — it delegates to V2."""
+        from unittest.mock import patch
+
+        mock_results = [
+            (
+                datetime(2024, 1, 1),
+                EntityKeyProto(
+                    join_keys=["item_id"],
+                    entity_values=[ValueProto(int64_val=1)],
+                ),
+                {"distance": ValueProto(double_val=0.5)},
+            )
+        ]
+        with patch.object(
+            store, "retrieve_online_documents_v2", return_value=mock_results
+        ):
+            results = store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+                fusion_strategy="AUTO",
+            )
+        assert len(results) == 1
+
+    def test_vector_only_strategy_accepted(
+        self, store, repo_config, feature_view_with_vector
+    ):
+        from unittest.mock import patch
+
+        mock_results = [
+            (
+                datetime(2024, 1, 1),
+                EntityKeyProto(
+                    join_keys=["item_id"],
+                    entity_values=[ValueProto(int64_val=1)],
+                ),
+                {"distance": ValueProto(double_val=0.3)},
+            )
+        ]
+        with patch.object(
+            store, "retrieve_online_documents_v2", return_value=mock_results
+        ):
+            results = store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+                fusion_strategy="VECTOR_ONLY",
+            )
+        assert len(results) == 1
+
+    def test_query_string_warns_and_dropped(
+        self, store, repo_config, feature_view_with_vector
+    ):
+        """query_string should trigger a logger.warning and be passed as None to V2."""
+        from unittest.mock import patch
+
+        mock_results = [
+            (
+                datetime(2024, 1, 1),
+                EntityKeyProto(
+                    join_keys=["item_id"],
+                    entity_values=[ValueProto(int64_val=1)],
+                ),
+                {"distance": ValueProto(double_val=0.5)},
+            )
+        ]
+        with patch.object(
+            store, "retrieve_online_documents_v2", return_value=mock_results
+        ) as mock_v2:
+            store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+                query_string="test query",
+                fusion_strategy="AUTO",
+            )
+            # Verify query_string=None was passed to V2
+            call_kwargs = mock_v2.call_args[1]
+            assert call_kwargs.get("query_string") is None
+
+    def test_include_signal_scores_accepted(
+        self, store, repo_config, feature_view_with_vector
+    ):
+        from unittest.mock import patch
+
+        mock_results = []
+        with patch.object(
+            store, "retrieve_online_documents_v2", return_value=mock_results
+        ):
+            results = store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view_with_vector,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+                include_signal_scores=False,
+            )
+        assert results == []
+
+
+class TestRetrieveOnlineDocumentsV3ResponseTransform:
+    """Tests for V3 response transformation on Valkey (V2→V3 wrapper)."""
+
+    @pytest.fixture
+    def store(self):
+        return EGValkeyOnlineStore()
+
+    @pytest.fixture
+    def feature_view(self):
+        return FeatureView(
+            name="test_fv",
+            source=FileSource(
+                name="test_source",
+                path="test.parquet",
+                timestamp_field="event_timestamp",
+            ),
+            entities=[Entity(name="item_id", value_type=ValueType.INT64)],
+            ttl=timedelta(days=1),
+            schema=[
+                Field(name="item_id", dtype=Int64),
+                Field(
+                    name="embedding",
+                    dtype=Array(Float32),
+                    vector_index=True,
+                    vector_length=4,
+                    vector_search_metric="COSINE",
+                ),
+                Field(name="title", dtype=String),
+            ],
+        )
+
+    @pytest.fixture
+    def repo_config(self):
+        return RepoConfig(
+            project="test_project",
+            provider="local",
+            registry="test_registry.db",
+            online_store=EGValkeyOnlineStoreConfig(
+                type="eg-valkey",
+                connection_string="localhost:6379",
+            ),
+            entity_key_serialization_version=3,
+        )
+
+    def test_distance_renamed_to_final_score(self, store, repo_config, feature_view):
+        from unittest.mock import patch
+
+        mock_results = [
+            (
+                datetime(2024, 1, 1),
+                EntityKeyProto(
+                    join_keys=["item_id"],
+                    entity_values=[ValueProto(int64_val=1)],
+                ),
+                {
+                    "distance": ValueProto(double_val=0.25),
+                    "title": ValueProto(string_val="hello"),
+                },
+            )
+        ]
+        with patch.object(
+            store, "retrieve_online_documents_v2", return_value=mock_results
+        ):
+            results = store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+            )
+
+        assert len(results) == 1
+        ts, ek, feat_dict = results[0]
+        assert "final_score" in feat_dict
+        assert "distance" not in feat_dict
+        assert feat_dict["final_score"].double_val == pytest.approx(0.25)
+
+    def test_signal_scores_populated(self, store, repo_config, feature_view):
+        from unittest.mock import patch
+
+        from feast.infra.online_stores._signal_scores import decode_signal_scores
+
+        mock_results = [
+            (
+                datetime(2024, 1, 1),
+                EntityKeyProto(
+                    join_keys=["item_id"],
+                    entity_values=[ValueProto(int64_val=1)],
+                ),
+                {"distance": ValueProto(double_val=0.5)},
+            )
+        ]
+        with patch.object(
+            store, "retrieve_online_documents_v2", return_value=mock_results
+        ):
+            results = store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+            )
+
+        feat_dict = results[0][2]
+        assert "signal_scores" in feat_dict
+        scores = decode_signal_scores(feat_dict["signal_scores"])
+        assert "vec_embedding" in scores
+        assert scores["vec_embedding"] == pytest.approx(0.5)
+
+    def test_none_feature_dict_passthrough(self, store, repo_config, feature_view):
+        from unittest.mock import patch
+
+        mock_results = [
+            (datetime(2024, 1, 1), None, None),
+        ]
+        with patch.object(
+            store, "retrieve_online_documents_v2", return_value=mock_results
+        ):
+            results = store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+            )
+
+        assert len(results) == 1
+        assert results[0][2] is None
+
+    def test_missing_distance_no_final_score(self, store, repo_config, feature_view):
+        """If V2 returns no distance, signal_scores should be empty."""
+        from unittest.mock import patch
+
+        from feast.infra.online_stores._signal_scores import decode_signal_scores
+
+        mock_results = [
+            (
+                datetime(2024, 1, 1),
+                EntityKeyProto(
+                    join_keys=["item_id"],
+                    entity_values=[ValueProto(int64_val=1)],
+                ),
+                {"title": ValueProto(string_val="test")},
+            )
+        ]
+        with patch.object(
+            store, "retrieve_online_documents_v2", return_value=mock_results
+        ):
+            results = store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+            )
+
+        feat_dict = results[0][2]
+        scores = decode_signal_scores(feat_dict["signal_scores"])
+        assert scores == {}
+
+    def test_empty_v2_results(self, store, repo_config, feature_view):
+        from unittest.mock import patch
+
+        with patch.object(store, "retrieve_online_documents_v2", return_value=[]):
+            results = store.retrieve_online_documents_v3(
+                config=repo_config,
+                table=feature_view,
+                requested_features=["title"],
+                embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+                top_k=5,
+            )
+
+        assert results == []

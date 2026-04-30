@@ -497,6 +497,29 @@ class Provider(ABC):
         pass
 
     @abstractmethod
+    def retrieve_online_documents_v3(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        requested_features: List[str],
+        embeddings: Dict[str, List[float]],
+        top_k: int,
+        query_string: Optional[str] = None,
+        fusion_strategy: str = "AUTO",
+        signal_weights: Optional[Dict[str, float]] = None,
+        rrf_k: int = 60,
+        distance_metric: Optional[str] = None,
+        include_signal_scores: bool = False,
+    ) -> List[
+        Tuple[
+            Optional[datetime],
+            Optional[EntityKeyProto],
+            Optional[Dict[str, ValueProto]],
+        ]
+    ]:
+        pass
+
+    @abstractmethod
     def validate_data_source(
         self,
         config: RepoConfig,
