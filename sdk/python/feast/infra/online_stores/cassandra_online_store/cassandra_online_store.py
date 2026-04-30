@@ -994,9 +994,7 @@ class CassandraOnlineStore(OnlineStore):
         col_defs = ", ".join(col_defs_parts)
         alter_cql = f"ALTER TABLE {fqtable} ADD ({col_defs})"
         session.execute(alter_cql)
-        logger.info(
-            f"Added columns [{', '.join(new_col_names)}] to table: {fqtable}"
-        )
+        logger.info(f"Added columns [{', '.join(new_col_names)}] to table: {fqtable}")
 
     def _build_sorted_table_cql(
         self, project: str, table: SortedFeatureView, fqtable: str
