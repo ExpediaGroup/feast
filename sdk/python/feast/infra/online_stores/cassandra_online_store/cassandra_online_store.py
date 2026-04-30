@@ -894,6 +894,23 @@ class CassandraOnlineStore(OnlineStore):
         logger.info(f"Deleting table {fqtable}.")
         session.execute(drop_cql)
 
+    @staticmethod
+    def _check_no_case_collisions(table: FeatureView) -> None:
+        """Cassandra/Scylla case-fold unquoted column identifiers. Refuse to
+        create tables where two features would collapse to the same column."""
+        seen: dict[str, str] = {}
+        for f in table.features:
+            canonical = f.name.lower()
+            if canonical in seen:
+                raise CassandraInvalidConfig(
+                    f"FeatureView '{table.name}' has features '{f.name}' and "
+                    f"'{seen[canonical]}' that differ only in case. On "
+                    f"Cassandra/Scylla, unquoted column identifiers are stored "
+                    f"lowercase, so these would collide as column '{canonical}'. "
+                    f"Rename one of them."
+                )
+            seen[canonical] = f.name
+
     def _create_table(
         self,
         config: RepoConfig,
@@ -901,6 +918,7 @@ class CassandraOnlineStore(OnlineStore):
         table: Union[FeatureView, SortedFeatureView],
     ):
         """Handle the CQL (low-level) creation of a table."""
+        self._check_no_case_collisions(table)
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
         table_name_version = config.online_store.table_name_format_version
@@ -950,6 +968,7 @@ class CassandraOnlineStore(OnlineStore):
         return plain_table_name in ks_meta.tables
 
     def _alter_table(self, config: RepoConfig, project: str, table: FeatureView):
+        self._check_no_case_collisions(table)
         session = self._get_session(config)
         fqtable, plain_table_name = self._resolve_table_names(config, project, table)
 

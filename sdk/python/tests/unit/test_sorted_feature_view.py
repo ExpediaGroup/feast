@@ -491,13 +491,15 @@ def test_sorted_feature_view_invalid_sort_key_order_int():
         )
 
 
-def test_case_collision_features_raises_at_validation():
-    """Two features whose names differ only in case must be rejected,
-    because they would collide on Cassandra/Scylla storage."""
+def test_case_collision_features_warns_at_validation(caplog):
+    """Two features whose names differ only in case emit a warning
+    (the hard error lives in the Cassandra plugin, not the FV layer)."""
     source = FileSource(path="some path")
     entity = Entity(name="entity1", join_keys=["entity1_id"])
 
-    with pytest.raises(ValueError, match="differ only in case"):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="feast.sorted_feature_view"):
         SortedFeatureView(
             name="bad_view",
             entities=[entity],
@@ -515,14 +517,17 @@ def test_case_collision_features_raises_at_validation():
                 Field(name="featurex", dtype=Int64),
             ],
         )
+    assert "differ only in case" in caplog.text
 
 
-def test_case_collision_features_uppercase_raises():
-    """Features featureX and FEATUREX must also be rejected."""
+def test_case_collision_features_uppercase_warns(caplog):
+    """Features featureX and FEATUREX also trigger a warning."""
     source = FileSource(path="some path")
     entity = Entity(name="entity1", join_keys=["entity1_id"])
 
-    with pytest.raises(ValueError, match="differ only in case"):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="feast.sorted_feature_view"):
         SortedFeatureView(
             name="bad_view",
             entities=[entity],
@@ -540,6 +545,7 @@ def test_case_collision_features_uppercase_raises():
                 Field(name="FEATUREX", dtype=Int64),
             ],
         )
+    assert "differ only in case" in caplog.text
 
 
 def test_case_distinct_features_pass_validation():

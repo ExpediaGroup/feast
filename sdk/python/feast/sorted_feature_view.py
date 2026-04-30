@@ -122,16 +122,18 @@ class SortedFeatureView(FeatureView):
                 raise ValueError(
                     f"For SortedFeatureView: {self.name}: Duplicate feature name found: '{field.name}'."
                 )
-            # On Cassandra/Scylla, unquoted column identifiers are case-folded
-            # to lowercase. Two features that differ only in case would silently
-            # collapse to the same column, causing data loss.
             canonical = field.name.lower()
             if canonical in canonical_to_original:
-                raise ValueError(
-                    f"For SortedFeatureView '{self.name}': features '{field.name}' and "
-                    f"'{canonical_to_original[canonical]}' differ only in case and would "
-                    f"collide on Cassandra/Scylla online stores (both stored as "
-                    f"'{canonical}'). Rename one of them to use a distinct lowercase form."
+                logger.warning(
+                    "SortedFeatureView '%s': features '%s' and '%s' differ only in case. "
+                    "This works on case-preserving online stores (Valkey, DynamoDB) "
+                    "but will collide on Cassandra/Scylla (both stored as '%s'). "
+                    "If you target multiple online stores or may switch in the future, "
+                    "use distinct lowercase names.",
+                    self.name,
+                    field.name,
+                    canonical_to_original[canonical],
+                    canonical,
                 )
             feature_map[field.name] = field
             canonical_to_original[canonical] = field.name
