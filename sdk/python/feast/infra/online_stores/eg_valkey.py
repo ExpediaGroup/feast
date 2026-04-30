@@ -1112,9 +1112,12 @@ class EGValkeyOnlineStore(OnlineStore):
           use text as a ranking signal)
 
         Returns the same tuple shape as V2 with final_score and signal_scores
-        added to the feature dict. final_score is the raw Valkey distance
-        (lower = better for COSINE/L2, higher = better for IP). See the V3
-        design doc for cross-backend score semantics.
+        added to the feature dict. final_score is the raw Valkey
+        ``__distance__`` from ``FT.SEARCH KNN`` — lower = better for all
+        supported metrics (COSINE returns ``1 - cos``, L2 returns squared
+        distance, IP returns ``1 - inner_product``). Note this ordering is
+        the opposite of Elasticsearch's ``final_score``, which is a
+        relevance score where higher = better.
 
         Reserved parameters (accepted but currently unused):
         - ``include_signal_scores``: Reserved for future use.
