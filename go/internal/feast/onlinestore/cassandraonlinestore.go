@@ -914,6 +914,13 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 	var waitGroup sync.WaitGroup
 	errorsChannel := make(chan error, nBatches)
 
+	canonicalFeats := make([]string, len(groupedRefs.FeatureNames))
+	isSortKey := make([]bool, len(groupedRefs.FeatureNames))
+	for i, name := range groupedRefs.FeatureNames {
+		canonicalFeats[i] = canonicalColumnName(name)
+		_, isSortKey[i] = groupedRefs.SortKeyNames[name]
+	}
+
 	for i := 0; i < nBatches; i++ {
 		start := i * batchSize
 		end := int(math.Min(float64(start+batchSize), float64(len(prepCtx.serializedEntityKeys))))
@@ -945,42 +952,15 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 
 				rowData := results[rowIdx]
 
-				for _, featName := range groupedRefs.FeatureNames {
+				for i, featName := range groupedRefs.FeatureNames {
 					idx := prepCtx.featureNamesToIdx[featName]
-					// gocql MapScan returns map keys in the case Cassandra stored them in
-					// (lowercase, since the Python writer emits unquoted DDL). Look up the
-					// value by canonical (lowercase) name. featName itself stays
-					// original-case for use in the response payload below.
-					canonicalFeat := canonicalColumnName(featName)
-					var val interface{}
-					var status serving.FieldStatus
 
-					if _, isSortKey := groupedRefs.SortKeyNames[featName]; isSortKey {
-						var exists bool
-						val, exists = readValues[canonicalFeat]
-						if !exists {
-							status = serving.FieldStatus_NOT_FOUND
-							val = nil
-						} else if val == nil {
-							status = serving.FieldStatus_NULL_VALUE
-						} else {
-							status = serving.FieldStatus_PRESENT
-						}
-					} else {
-						if valueStr, ok := readValues[canonicalFeat]; ok {
-							val, status, err = utils.UnmarshalStoredProto(valueStr.([]byte))
-							if err != nil {
-								errorsChannel <- err
-								return
-							}
-						} else {
-							val = nil
-							status = serving.FieldStatus_NOT_FOUND
-						}
+					val, status, resolveErr := resolveFeatureValue(readValues, canonicalFeats[i], isSortKey[i])
+					if resolveErr != nil {
+						errorsChannel <- resolveErr
+						return
 					}
 
-					// featName (original case) is passed to appendRangeFeature so the
-					// response payload preserves the case the user defined in the FV.
 					appendRangeFeature(&rowData[idx], featName, prepCtx.featureViewName, val, status, eventTs)
 				}
 
@@ -1032,6 +1012,37 @@ func (c *CassandraOnlineStore) OnlineReadRange(ctx context.Context, groupedRefs 
 	}
 
 	return results, nil
+}
+
+// resolveFeatureValue looks up a single feature's value from a MapScan-populated
+// row. readValues keys are lowercase (Cassandra's on-disk form).
+// canonicalFeat is the pre-computed lowercase form of the feature name.
+// isSortKey indicates whether this feature is a sort key.
+func resolveFeatureValue(
+	readValues map[string]interface{},
+	canonicalFeat string,
+	isSortKey bool,
+) (val interface{}, status serving.FieldStatus, err error) {
+	if isSortKey {
+		v, exists := readValues[canonicalFeat]
+		if !exists {
+			return nil, serving.FieldStatus_NOT_FOUND, nil
+		}
+		if v == nil {
+			return nil, serving.FieldStatus_NULL_VALUE, nil
+		}
+		return v, serving.FieldStatus_PRESENT, nil
+	}
+
+	valueStr, ok := readValues[canonicalFeat]
+	if !ok {
+		return nil, serving.FieldStatus_NOT_FOUND, nil
+	}
+	v, status, err := utils.UnmarshalStoredProto(valueStr.([]byte))
+	if err != nil {
+		return nil, status, err
+	}
+	return v, status, nil
 }
 
 func appendRangeFeature(row *RangeFeatureData, featName, view string, val interface{}, status serving.FieldStatus, ts time.Time) {
