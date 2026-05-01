@@ -122,6 +122,24 @@ CQL_TEMPLATE_MAP = {
 
 V2_TABLE_NAME_FORMAT_MAX_LENGTH = 48
 
+
+def _canonical_column_name(feature_name: str) -> str:
+    """
+    Return the on-disk form of a Cassandra column for a Feast feature.
+
+    Cassandra and Scylla case-fold unquoted identifiers to lowercase at
+    storage time. The plugin emits all column references unquoted, so the
+    canonical on-disk form for any feature column is lowercase. Anywhere
+    this plugin compares or looks up a column name against Cassandra
+    metadata, this helper must be used to match the stored form.
+
+    This helper is NOT used to transform feature names that flow back to
+    callers via API responses — those preserve the original case from the
+    FeatureView definition.
+    """
+    return feature_name.lower()
+
+
 # Logger
 logger = logging.getLogger(__name__)
 
@@ -876,6 +894,23 @@ class CassandraOnlineStore(OnlineStore):
         logger.info(f"Deleting table {fqtable}.")
         session.execute(drop_cql)
 
+    @staticmethod
+    def _check_no_case_collisions(table: FeatureView) -> None:
+        """Cassandra/Scylla case-fold unquoted column identifiers. Refuse to
+        create tables where two features would collapse to the same column."""
+        seen: dict[str, str] = {}
+        for f in table.features:
+            canonical = f.name.lower()
+            if canonical in seen:
+                raise CassandraInvalidConfig(
+                    f"FeatureView '{table.name}' has features '{f.name}' and "
+                    f"'{seen[canonical]}' that differ only in case. On "
+                    f"Cassandra/Scylla, unquoted column identifiers are stored "
+                    f"lowercase, so these would collide as column '{canonical}'. "
+                    f"Rename one of them."
+                )
+            seen[canonical] = f.name
+
     def _create_table(
         self,
         config: RepoConfig,
@@ -883,6 +918,7 @@ class CassandraOnlineStore(OnlineStore):
         table: Union[FeatureView, SortedFeatureView],
     ):
         """Handle the CQL (low-level) creation of a table."""
+        self._check_no_case_collisions(table)
         session: Session = self._get_session(config)
         keyspace: str = self._keyspace
         table_name_version = config.online_store.table_name_format_version
@@ -932,22 +968,52 @@ class CassandraOnlineStore(OnlineStore):
         return plain_table_name in ks_meta.tables
 
     def _alter_table(self, config: RepoConfig, project: str, table: FeatureView):
+        self._check_no_case_collisions(table)
         session = self._get_session(config)
         fqtable, plain_table_name = self._resolve_table_names(config, project, table)
 
         ks_meta = self._cluster.metadata.keyspaces[self._keyspace]
-        existing_cols = set(ks_meta.tables[plain_table_name].columns.keys())
+        # Cassandra/Scylla lowercase unquoted identifiers at storage time. The
+        # plugin emits column references unquoted (see _build_sorted_table_cql
+        # and the INSERT templates), so the canonical on-disk form for any
+        # feature column is lowercase. Both sides of the diff must be normalized.
+        existing_cols = {
+            _canonical_column_name(c)
+            for c in ks_meta.tables[plain_table_name].columns.keys()
+        }
 
-        desired_cols = {f.name for f in table.features}
-        new_cols = desired_cols - existing_cols
-        if new_cols:
-            cql_type = "BLOB"  # Default type for features
-            col_defs = ", ".join(f"{col} {cql_type}" for col in new_cols)
-            alter_cql = f"ALTER TABLE {fqtable} ADD ({col_defs})"
-            session.execute(alter_cql)
-            logger.info(
-                f"Added columns [{', '.join(sorted(new_cols))}] to table: {fqtable}"
+        # Map canonical (lowercased) name -> original Field, so we can pick the
+        # correct CQL type per column and report original-case names in logs.
+        desired = {_canonical_column_name(f.name): f for f in table.features}
+        missing_canonical = set(desired.keys()) - existing_cols
+        if not missing_canonical:
+            return
+
+        # Sort-key columns on a SortedFeatureView need typed CQL columns
+        # (BIGINT, TIMESTAMP, etc.) for clustering order. Non-sort-key features
+        # are stored as BLOB. Mirrors _build_sorted_table_cql.
+        sort_key_names_canonical = (
+            {_canonical_column_name(sk.name) for sk in table.sort_keys}
+            if isinstance(table, SortedFeatureView)
+            else set()
+        )
+
+        col_defs_parts = []
+        new_col_names = []
+        for canonical in sorted(missing_canonical):
+            feature = desired[canonical]
+            cql_type = (
+                self._get_cql_type(feature.dtype)
+                if canonical in sort_key_names_canonical
+                else "BLOB"
             )
+            col_defs_parts.append(f"{feature.name} {cql_type}")
+            new_col_names.append(feature.name)
+
+        col_defs = ", ".join(col_defs_parts)
+        alter_cql = f"ALTER TABLE {fqtable} ADD ({col_defs})"
+        session.execute(alter_cql)
+        logger.info(f"Added columns [{', '.join(new_col_names)}] to table: {fqtable}")
 
     def _build_sorted_table_cql(
         self, project: str, table: SortedFeatureView, fqtable: str

@@ -491,6 +491,111 @@ def test_sorted_feature_view_invalid_sort_key_order_int():
         )
 
 
+def test_case_collision_features_warns_at_validation(caplog):
+    """Two features whose names differ only in case emit a warning
+    (the hard error lives in the Cassandra plugin, not the FV layer)."""
+    source = FileSource(path="some path")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="feast.sorted_feature_view"):
+        SortedFeatureView(
+            name="bad_view",
+            entities=[entity],
+            sort_keys=[
+                SortKey(
+                    name="sortKey",
+                    value_type=ValueType.INT64,
+                    default_sort_order=SortOrder.ASC,
+                )
+            ],
+            source=source,
+            schema=[
+                Field(name="sortKey", dtype=Int64),
+                Field(name="featureX", dtype=Int64),
+                Field(name="featurex", dtype=Int64),
+            ],
+        )
+    assert "differ only in case" in caplog.text
+
+
+def test_case_collision_features_uppercase_warns(caplog):
+    """Features featureX and FEATUREX also trigger a warning."""
+    source = FileSource(path="some path")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="feast.sorted_feature_view"):
+        SortedFeatureView(
+            name="bad_view",
+            entities=[entity],
+            sort_keys=[
+                SortKey(
+                    name="sortKey",
+                    value_type=ValueType.INT64,
+                    default_sort_order=SortOrder.ASC,
+                )
+            ],
+            source=source,
+            schema=[
+                Field(name="sortKey", dtype=Int64),
+                Field(name="featureX", dtype=Int64),
+                Field(name="FEATUREX", dtype=Int64),
+            ],
+        )
+    assert "differ only in case" in caplog.text
+
+
+def test_case_distinct_features_pass_validation():
+    """Features that differ in more than just case are allowed."""
+    source = FileSource(path="some path")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+
+    fv = SortedFeatureView(
+        name="good_view",
+        entities=[entity],
+        sort_keys=[
+            SortKey(
+                name="sortKey",
+                value_type=ValueType.INT64,
+                default_sort_order=SortOrder.ASC,
+            )
+        ],
+        source=source,
+        schema=[
+            Field(name="sortKey", dtype=Int64),
+            Field(name="featureX", dtype=Int64),
+            Field(name="featureY", dtype=Int64),
+        ],
+    )
+    fv.ensure_valid()
+
+
+def test_single_feature_passes_case_validation():
+    """A SortedFeatureView with a single feature passes validation."""
+    source = FileSource(path="some path")
+    entity = Entity(name="entity1", join_keys=["entity1_id"])
+
+    fv = SortedFeatureView(
+        name="single_feat_view",
+        entities=[entity],
+        sort_keys=[
+            SortKey(
+                name="featureX",
+                value_type=ValueType.INT64,
+                default_sort_order=SortOrder.ASC,
+            )
+        ],
+        source=source,
+        schema=[
+            Field(name="featureX", dtype=Int64),
+        ],
+    )
+    fv.ensure_valid()
+
+
 def test_sfv_compatibility_same():
     """
     Two identical SortedFeatureViews should be compatible with no reasons.

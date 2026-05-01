@@ -105,6 +105,7 @@ class SortedFeatureView(FeatureView):
 
         reserved_columns = {"event_ts", "created_ts", "entity_key"}
         feature_map = {}
+        canonical_to_original: dict[str, str] = {}
 
         for field in self.features:
             if field.name in reserved_columns:
@@ -121,7 +122,21 @@ class SortedFeatureView(FeatureView):
                 raise ValueError(
                     f"For SortedFeatureView: {self.name}: Duplicate feature name found: '{field.name}'."
                 )
+            canonical = field.name.lower()
+            if canonical in canonical_to_original:
+                logger.warning(
+                    "SortedFeatureView '%s': features '%s' and '%s' differ only in case. "
+                    "This works on case-preserving online stores (Valkey, DynamoDB) "
+                    "but will collide on Cassandra/Scylla (both stored as '%s'). "
+                    "If you target multiple online stores or may switch in the future, "
+                    "use distinct lowercase names.",
+                    self.name,
+                    field.name,
+                    canonical_to_original[canonical],
+                    canonical,
+                )
             feature_map[field.name] = field
+            canonical_to_original[canonical] = field.name
 
         valid_feature_names = list(feature_map.keys())
 

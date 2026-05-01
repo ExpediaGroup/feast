@@ -9,8 +9,11 @@ import (
 
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/protos/feast/core"
+	"github.com/feast-dev/feast/go/protos/feast/serving"
+	"github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/gocql/gocql"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestExtractCassandraConfig_CorrectDefaults(t *testing.T) {
@@ -255,7 +258,7 @@ func TestCassandraOnlineStore_buildRangeQueryCQL_singleFilter(t *testing.T) {
 
 	cqlStatement, params := store.buildRangeQueryCQL(fqTableName, []string{"feat1", "feat2"}, 1, []*model.SortKeyFilter{&sortFilter1}, 5, false)
 	assert.Equal(t,
-		`SELECT "entity_key", "event_ts", "feat1", "feat2" FROM "scylladb"."dummy_project_dummy_fv" WHERE "entity_key" = ? AND "sort1" >= ? AND "sort1" <= ? PER PARTITION LIMIT ?`,
+		`SELECT entity_key, event_ts, feat1, feat2 FROM "scylladb"."dummy_project_dummy_fv" WHERE entity_key = ? AND sort1 >= ? AND sort1 <= ? PER PARTITION LIMIT ?`,
 		cqlStatement,
 	)
 	assert.ElementsMatch(t, []interface{}{4, 12, int32(5)}, params)
@@ -273,7 +276,7 @@ func TestCassandraOnlineStore_buildRangeQueryCQL_withoutLimit(t *testing.T) {
 
 	cqlStatement, params := store.buildRangeQueryCQL(fqTableName, []string{"feat1", "feat2"}, 1, []*model.SortKeyFilter{&sortFilter1}, 0, false)
 	assert.Equal(t,
-		`SELECT "entity_key", "event_ts", "feat1", "feat2" FROM "scylladb"."dummy_project_dummy_fv" WHERE "entity_key" = ? AND "sort1" <= ?`,
+		`SELECT entity_key, event_ts, feat1, feat2 FROM "scylladb"."dummy_project_dummy_fv" WHERE entity_key = ? AND sort1 <= ?`,
 		cqlStatement,
 	)
 	assert.ElementsMatch(t, []interface{}{12}, params)
@@ -296,7 +299,7 @@ func TestCassandraOnlineStore_buildRangeQueryCQL_multipleFilters(t *testing.T) {
 
 	cqlStatement, params := store.buildRangeQueryCQL(fqTableName, []string{"feat1", "feat2"}, 1, []*model.SortKeyFilter{&sortFilter1, &sortFilter2}, 5, false)
 	assert.Equal(t,
-		`SELECT "entity_key", "event_ts", "feat1", "feat2" FROM "scylladb"."dummy_project_dummy_fv" WHERE "entity_key" = ? AND "sort1" = ? AND "sort2" >= ? PER PARTITION LIMIT ?`,
+		`SELECT entity_key, event_ts, feat1, feat2 FROM "scylladb"."dummy_project_dummy_fv" WHERE entity_key = ? AND sort1 = ? AND sort2 >= ? PER PARTITION LIMIT ?`,
 		cqlStatement,
 	)
 	assert.ElementsMatch(t, []interface{}{4, 10, int32(5)}, params)
@@ -328,7 +331,7 @@ func TestCassandraOnlineStore_buildRangeQueryCQL_multipleFiltersWithMixOfRanges(
 
 	cqlStatement, params := store.buildRangeQueryCQL(fqTableName, []string{"feat1", "feat2"}, 1, []*model.SortKeyFilter{&sortFilter1, &sortFilter2, &sortFilter3}, 5, false)
 	assert.Equal(t,
-		`SELECT "entity_key", "event_ts", "feat1", "feat2" FROM "scylladb"."dummy_project_dummy_fv" WHERE "entity_key" = ? AND "sort1" >= ? AND "sort1" < ? AND "sort2" > ? AND "sort2" <= ? PER PARTITION LIMIT ?`,
+		`SELECT entity_key, event_ts, feat1, feat2 FROM "scylladb"."dummy_project_dummy_fv" WHERE entity_key = ? AND sort1 >= ? AND sort1 < ? AND sort2 > ? AND sort2 <= ? PER PARTITION LIMIT ?`,
 		cqlStatement,
 	)
 	assert.ElementsMatch(t, []interface{}{4, 12, 10, 20, int32(5)}, params)
@@ -340,7 +343,7 @@ func TestCassandraOnlineStore_buildRangeQueryCQL_noFilters(t *testing.T) {
 
 	cqlStatement, params := store.buildRangeQueryCQL(fqTableName, []string{"feat1", "feat2"}, 1, []*model.SortKeyFilter{}, 5, false)
 	assert.Equal(t,
-		`SELECT "entity_key", "event_ts", "feat1", "feat2" FROM "scylladb"."dummy_project_dummy_fv" WHERE "entity_key" = ? PER PARTITION LIMIT ?`,
+		`SELECT entity_key, event_ts, feat1, feat2 FROM "scylladb"."dummy_project_dummy_fv" WHERE entity_key = ? PER PARTITION LIMIT ?`,
 		cqlStatement,
 	)
 	assert.ElementsMatch(t, []interface{}{int32(5)}, params)
@@ -366,7 +369,7 @@ func TestCassandraOnlineStore_buildRangeQueryCQL_reverseSortOrder(t *testing.T) 
 	)
 
 	assert.Equal(t,
-		`SELECT "entity_key", "event_ts", "feat1", "feat2" FROM "scylladb"."dummy_project_dummy_fv" WHERE "entity_key" = ? AND "sort1" >= ? ORDER BY "sort1" DESC PER PARTITION LIMIT ?`,
+		`SELECT entity_key, event_ts, feat1, feat2 FROM "scylladb"."dummy_project_dummy_fv" WHERE entity_key = ? AND sort1 >= ? ORDER BY sort1 DESC PER PARTITION LIMIT ?`,
 		cqlStatement,
 	)
 
@@ -387,7 +390,7 @@ func TestCassandraOnlineStore_buildRangeQueryCQL_batchedKeysWithoutFilters(t *te
 	)
 
 	assert.Equal(t,
-		`SELECT "entity_key", "event_ts", "feat1", "feat2" FROM "scylladb"."dummy_project_dummy_fv" WHERE "entity_key" IN (?, ?) PER PARTITION LIMIT ?`,
+		`SELECT entity_key, event_ts, feat1, feat2 FROM "scylladb"."dummy_project_dummy_fv" WHERE entity_key IN (?, ?) PER PARTITION LIMIT ?`,
 		cqlStatement,
 	)
 
@@ -415,11 +418,124 @@ func TestCassandraOnlineStore_buildRangeQueryCQL_orderNil_skipsOrderBy(t *testin
 	)
 
 	expectedCQL :=
-		`SELECT "entity_key", "event_ts", "feat1" ` +
+		`SELECT entity_key, event_ts, feat1 ` +
 			`FROM "scylladb"."dummy_project_dummy_fv" ` +
-			`WHERE "entity_key" = ? AND "sort1" = ?`
+			`WHERE entity_key = ? AND sort1 = ?`
 
 	assert.Equal(t, expectedCQL, cql)
 	assert.ElementsMatch(t, []interface{}{42}, params)
 	assert.NotContains(t, cql, "ORDER BY", "ORDER BY should be omitted when all SortKeyFilters have Order == nil")
+}
+
+func TestBuildRangeQueryCQL_UsesLowercaseUnquotedIdentifiers(t *testing.T) {
+	store := CassandraOnlineStore{}
+	fqTableName := `"scylladb"."dummy_project_dummy_fv"`
+
+	cql, _ := store.buildRangeQueryCQL(
+		fqTableName,
+		[]string{"featureX", "FeatureY"},
+		2,
+		nil,
+		0,
+		false,
+	)
+	// Feature columns must appear lowercase and unquoted in projection.
+	assert.Contains(t, cql, "featurex")
+	assert.Contains(t, cql, "featurey")
+	assert.NotContains(t, cql, `"featureX"`)
+	assert.NotContains(t, cql, `"FeatureY"`)
+	// entity_key and event_ts also unquoted.
+	assert.Contains(t, cql, "entity_key")
+	assert.NotContains(t, cql, `"entity_key"`)
+}
+
+func TestCanonicalColumnName(t *testing.T) {
+	assert.Equal(t, "featurex", canonicalColumnName("featureX"))
+	assert.Equal(t, "feature", canonicalColumnName("FEATURE"))
+	assert.Equal(t, "already_lower", canonicalColumnName("already_lower"))
+	assert.Equal(t, "", canonicalColumnName(""))
+}
+
+func mustMarshalValueProto(t *testing.T, val *types.Value) []byte {
+	t.Helper()
+	b, err := proto.Marshal(val)
+	if err != nil {
+		t.Fatalf("failed to marshal value proto: %v", err)
+	}
+	return b
+}
+
+func TestResolveFeatureValue_MixedCaseNonSortKey(t *testing.T) {
+	// Regression: gocql MapScan returns row keys in the case Cassandra stored
+	// them (lowercase, since the Python writer emits unquoted DDL). FV feature
+	// names from the registry preserve their original case. The caller must
+	// canonicalize the FV name before passing it here.
+	testVal := &types.Value{Val: &types.Value_Int64Val{Int64Val: 99}}
+	serialized := mustMarshalValueProto(t, testVal)
+
+	readValues := map[string]interface{}{
+		"sumclicksxdestinationgeoid": serialized,
+	}
+
+	val, status, err := resolveFeatureValue(readValues, canonicalColumnName("sumClicksXDestinationGeoId"), false)
+	assert.NoError(t, err)
+	assert.Equal(t, serving.FieldStatus_PRESENT, status)
+	assert.NotNil(t, val)
+	assert.Equal(t, int64(99), val.(*types.Value).GetInt64Val())
+}
+
+func TestResolveFeatureValue_MixedCaseSortKey(t *testing.T) {
+	readValues := map[string]interface{}{
+		"eventoriginationtimestamp": int64(1714500000),
+	}
+
+	val, status, err := resolveFeatureValue(readValues, canonicalColumnName("EventOriginationTimestamp"), true)
+	assert.NoError(t, err)
+	assert.Equal(t, serving.FieldStatus_PRESENT, status)
+	assert.Equal(t, int64(1714500000), val)
+}
+
+func TestResolveFeatureValue_SortKeyNullValue(t *testing.T) {
+	readValues := map[string]interface{}{
+		"sortkey": nil,
+	}
+
+	val, status, err := resolveFeatureValue(readValues, canonicalColumnName("SortKey"), true)
+	assert.NoError(t, err)
+	assert.Equal(t, serving.FieldStatus_NULL_VALUE, status)
+	assert.Nil(t, val)
+}
+
+func TestResolveFeatureValue_FeatureMissingFromRow(t *testing.T) {
+	readValues := map[string]interface{}{
+		"entity_key": "abc",
+	}
+
+	val, status, err := resolveFeatureValue(readValues, canonicalColumnName("MissingFeature"), false)
+	assert.NoError(t, err)
+	assert.Equal(t, serving.FieldStatus_NOT_FOUND, status)
+	assert.Nil(t, val)
+}
+
+func TestResolveFeatureValue_SortKeyMissingFromRow(t *testing.T) {
+	readValues := map[string]interface{}{}
+
+	val, status, err := resolveFeatureValue(readValues, canonicalColumnName("SortKey"), true)
+	assert.NoError(t, err)
+	assert.Equal(t, serving.FieldStatus_NOT_FOUND, status)
+	assert.Nil(t, val)
+}
+
+func TestResolveFeatureValue_AlreadyLowercaseFeature(t *testing.T) {
+	testVal := &types.Value{Val: &types.Value_StringVal{StringVal: "hello"}}
+	serialized := mustMarshalValueProto(t, testVal)
+
+	readValues := map[string]interface{}{
+		"already_lower": serialized,
+	}
+
+	val, status, err := resolveFeatureValue(readValues, canonicalColumnName("already_lower"), false)
+	assert.NoError(t, err)
+	assert.Equal(t, serving.FieldStatus_PRESENT, status)
+	assert.Equal(t, "hello", val.(*types.Value).GetStringVal())
 }
