@@ -2879,9 +2879,8 @@ class FeatureStore:
             )
             return OnlineResponse(online_features_response)
 
-        table_entity_values, idxs, output_len = utils._get_unique_entities_from_values(
-            entity_key_dict,
-        )
+        output_len = len(datevals)
+        idxs = tuple([i] for i in range(output_len))
 
         feature_data = utils._convert_rows_to_protobuf(
             requested_features=features_to_request,
