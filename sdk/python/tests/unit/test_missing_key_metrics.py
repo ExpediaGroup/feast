@@ -34,9 +34,7 @@ class TestLookupMetricsAggregator:
         agg.emit()
 
         assert len(fake.calls) == 1
-        assert (
-            fake.calls[0]["metric"] == "featureserver.feature_lookup_not_found"
-        )
+        assert fake.calls[0]["metric"] == "featureserver.feature_lookup_not_found"
         assert fake.calls[0]["value"] == 3
         assert "feature:user_fv__age" in fake.calls[0]["tags"]
 
@@ -49,10 +47,7 @@ class TestLookupMetricsAggregator:
         agg.emit()
 
         assert len(fake.calls) == 1
-        assert (
-            fake.calls[0]["metric"]
-            == "featureserver.feature_lookup_null_or_expired"
-        )
+        assert fake.calls[0]["metric"] == "featureserver.feature_lookup_null_or_expired"
         assert fake.calls[0]["value"] == 2
 
     def test_mixed_statuses(self):
