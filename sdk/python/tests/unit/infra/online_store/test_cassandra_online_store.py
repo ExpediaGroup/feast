@@ -254,3 +254,43 @@ def test_get_cql_type():
     assert store._get_cql_type(Array(Float32)) == "LIST<FLOAT>"
     assert store._get_cql_type(Array(Float64)) == "LIST<DOUBLE>"
     assert store._get_cql_type(Array(Bool)) == "LIST<BOOLEAN>"
+
+
+def test_canonical_column_name():
+    from feast.infra.online_stores.cassandra_online_store.cassandra_online_store import (
+        _canonical_column_name,
+    )
+
+    assert _canonical_column_name("featureX") == "featurex"
+    assert _canonical_column_name("FEATURE") == "feature"
+    assert _canonical_column_name("already_lower") == "already_lower"
+    assert _canonical_column_name("") == ""
+
+
+def test_check_no_case_collisions_raises(file_source):
+    from feast.infra.online_stores.cassandra_online_store.cassandra_online_store import (
+        CassandraInvalidConfig,
+    )
+
+    fv = FeatureView(
+        name="collision_view",
+        source=file_source,
+        schema=[
+            Field(name="featureX", dtype=Int64),
+            Field(name="featurex", dtype=Int64),
+        ],
+    )
+    with pytest.raises(CassandraInvalidConfig, match="differ only in case"):
+        CassandraOnlineStore._check_no_case_collisions(fv)
+
+
+def test_check_no_case_collisions_passes(file_source):
+    fv = FeatureView(
+        name="good_view",
+        source=file_source,
+        schema=[
+            Field(name="featureX", dtype=Int64),
+            Field(name="featureY", dtype=Int64),
+        ],
+    )
+    CassandraOnlineStore._check_no_case_collisions(fv)
