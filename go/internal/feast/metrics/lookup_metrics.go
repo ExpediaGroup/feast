@@ -129,7 +129,7 @@ func (m *LookupMetricsAggregator) Emit() {
 		copy(tags, baseTags)
 		tags[len(baseTags)] = "feature:" + featureID
 		tags[len(baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
-		m.client.Count("feast.feature_server.feature_lookup_not_found", adjustedCount, tags, 1.0)
+		m.client.Count("featureserver.feature_lookup_not_found", adjustedCount, tags, 1.0)
 	}
 
 	for featureID, count := range m.nullOrExpired {
@@ -141,6 +141,6 @@ func (m *LookupMetricsAggregator) Emit() {
 		copy(tags, baseTags)
 		tags[len(baseTags)] = "feature:" + featureID
 		tags[len(baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
-		m.client.Count("feast.feature_server.feature_lookup_null_or_expired", adjustedCount, tags, 1.0)
+		m.client.Count("featureserver.feature_lookup_null_or_expired", adjustedCount, tags, 1.0)
 	}
 }
