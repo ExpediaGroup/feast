@@ -209,3 +209,78 @@ class TestEmitMissingKeyMetricsIntegration:
         assert calls_by_feature["feature:fv_a__f2"]["value"] == 2
 
         set_metrics_client(NoOpStatsdClient())
+
+
+class TestSamplingFeature:
+    def test_default_no_sampling(self):
+        """Default sample_rate should be 1.0 (no sampling)"""
+        os.environ.pop("FEAST_METRICS_SAMPLE_RATE", None)
+        fake = FakeMetricsClient()
+        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+
+        assert agg.sample_rate == 1.0
+
+    def test_sample_rate_from_env(self):
+        """Should read sample_rate from environment"""
+        os.environ["FEAST_METRICS_SAMPLE_RATE"] = "0.5"
+        fake = FakeMetricsClient()
+        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+
+        assert agg.sample_rate == 0.5
+        os.environ.pop("FEAST_METRICS_SAMPLE_RATE")
+
+    def test_invalid_sample_rate_uses_default(self):
+        """Invalid sample rates should default to 1.0"""
+        test_cases = ["-0.5", "1.5", "abc", ""]
+
+        for invalid_value in test_cases:
+            os.environ["FEAST_METRICS_SAMPLE_RATE"] = invalid_value
+            fake = FakeMetricsClient()
+            agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+            assert agg.sample_rate == 1.0, f"Failed for value: {invalid_value}"
+
+        os.environ.pop("FEAST_METRICS_SAMPLE_RATE")
+
+    def test_sampling_adjusts_counts(self):
+        """When sampling, counts should be multiplied by 1/sample_rate"""
+        os.environ["FEAST_METRICS_SAMPLE_RATE"] = "0.5"
+        fake = FakeMetricsClient()
+
+        # Force emit by seeding random to always emit
+        import random
+
+        random.seed(0)  # This makes random.random() predictable
+
+        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+        agg.record("fv__f1", FieldStatus.NOT_FOUND)
+        agg.record("fv__f1", FieldStatus.NOT_FOUND)  # 2 times
+
+        # Try multiple times to ensure at least one emit happens
+        emitted = False
+        for _ in range(20):
+            fake.calls.clear()
+            agg.emit()
+            if fake.calls:
+                emitted = True
+                # With sample_rate=0.5, count of 2 should become 4 (2 / 0.5)
+                assert fake.calls[0]["value"] == 4
+                break
+
+        assert emitted, "Should have emitted at least once in 20 tries"
+
+        os.environ.pop("FEAST_METRICS_SAMPLE_RATE")
+
+    def test_no_sampling_keeps_original_counts(self):
+        """With sample_rate=1.0, counts should not be adjusted"""
+        os.environ["FEAST_METRICS_SAMPLE_RATE"] = "1.0"
+        fake = FakeMetricsClient()
+        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+
+        agg.record("fv__f1", FieldStatus.NOT_FOUND)
+        agg.record("fv__f1", FieldStatus.NOT_FOUND)
+        agg.emit()
+
+        assert len(fake.calls) == 1
+        assert fake.calls[0]["value"] == 2  # Original count, no adjustment
+
+        os.environ.pop("FEAST_METRICS_SAMPLE_RATE")

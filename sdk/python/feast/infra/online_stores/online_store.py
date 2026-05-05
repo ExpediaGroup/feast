@@ -19,12 +19,14 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from feast import Entity, utils
+from feast._missing_key_metrics import LookupMetricsAggregator
 from feast.batch_feature_view import BatchFeatureView
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
 from feast.infra.infra_object import InfraObject
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.infra.supported_async_methods import SupportedAsyncMethods
+from feast.metrics_client import get_metrics_client
 from feast.online_response import OnlineResponse
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
@@ -491,9 +493,6 @@ def _is_missing_key_metrics_enabled() -> bool:
 
 
 def _emit_missing_key_metrics(config, project, response_proto):
-    from feast._missing_key_metrics import LookupMetricsAggregator
-    from feast.metrics_client import get_metrics_client
-
     online_store_type = (
         config.online_store.type if hasattr(config.online_store, "type") else "unknown"
     )

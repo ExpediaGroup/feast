@@ -107,8 +107,8 @@ func main() {
 
 	var metricsClient metrics.StatsdClient
 	if metrics.IsMissingKeyMetricsEnabled() {
-		if statsdHost, ok := os.LookupEnv("DD_AGENT_HOST"); ok {
-			client, clientErr := statsd.New(fmt.Sprintf("%s:8125", statsdHost))
+		if addr := metrics.GetStatsDAddress(); addr != "" {
+			client, clientErr := statsd.New(addr)
 			if clientErr != nil {
 				log.Error().Err(clientErr).Msg("Failed to create statsd client for missing key metrics")
 			} else {
@@ -144,8 +144,8 @@ func datadogTracingEnabled() bool {
 
 func publishVersionInfoToDatadog(info *version.Info) {
 	if datadogTracingEnabled() {
-		if statsdHost, ok := os.LookupEnv("DD_AGENT_HOST"); ok {
-			var client, err = statsd.New(fmt.Sprintf("%s:8125", statsdHost))
+		if addr := metrics.GetStatsDAddress(); addr != "" {
+			var client, err = statsd.New(addr)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to connect to statsd")
 				return

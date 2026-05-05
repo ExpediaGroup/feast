@@ -228,3 +228,92 @@ func findTag(tags []string, prefix string) string {
 	}
 	return ""
 }
+
+func TestSampling_DefaultNoSampling(t *testing.T) {
+	os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
+	fake := &fakeStatsdClient{}
+	agg := newTestAggregator(fake)
+
+	assert.Equal(t, 1.0, agg.sampleRate, "Default sample rate should be 1.0")
+}
+
+func TestSampling_ReadFromEnv(t *testing.T) {
+	os.Setenv("FEAST_METRICS_SAMPLE_RATE", "0.5")
+	defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
+
+	fake := &fakeStatsdClient{}
+	agg := newTestAggregator(fake)
+
+	assert.Equal(t, 0.5, agg.sampleRate, "Should read sample rate from environment")
+}
+
+func TestSampling_InvalidValues(t *testing.T) {
+	testCases := []struct {
+		value    string
+		expected float64
+	}{
+		{"-0.5", 1.0},  // Negative
+		{"1.5", 1.0},   // > 1.0
+		{"0", 1.0},     // Zero
+		{"abc", 1.0},   // Non-numeric
+		{"", 1.0},      // Empty (unset uses default)
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.value, func(t *testing.T) {
+			if tc.value == "" {
+				os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
+			} else {
+				os.Setenv("FEAST_METRICS_SAMPLE_RATE", tc.value)
+				defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
+			}
+
+			fake := &fakeStatsdClient{}
+			agg := newTestAggregator(fake)
+
+			assert.Equal(t, tc.expected, agg.sampleRate)
+		})
+	}
+}
+
+func TestSampling_AdjustsCountsCorrectly(t *testing.T) {
+	os.Setenv("FEAST_METRICS_SAMPLE_RATE", "0.5")
+	defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
+
+	fake := &fakeStatsdClient{}
+	agg := newTestAggregator(fake)
+
+	// Record 2 missing keys
+	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
+	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
+
+	// Try multiple times to ensure at least one emit happens
+	emitted := false
+	for i := 0; i < 50; i++ {
+		fake.calls = nil
+		agg.Emit()
+		if len(fake.calls) > 0 {
+			emitted = true
+			// With sample_rate=0.5, count of 2 should become 4 (2 / 0.5)
+			assert.Equal(t, int64(4), fake.calls[0].value, "Count should be adjusted by 1/sample_rate")
+			break
+		}
+	}
+
+	assert.True(t, emitted, "Should have emitted at least once in 50 tries")
+}
+
+func TestSampling_NoAdjustmentWhenNotSampling(t *testing.T) {
+	os.Setenv("FEAST_METRICS_SAMPLE_RATE", "1.0")
+	defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
+
+	fake := &fakeStatsdClient{}
+	agg := newTestAggregator(fake)
+
+	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
+	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
+	agg.Emit()
+
+	assert.Len(t, fake.calls, 1)
+	assert.Equal(t, int64(2), fake.calls[0].value, "Count should not be adjusted with sample_rate=1.0")
+}

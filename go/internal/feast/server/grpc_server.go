@@ -90,7 +90,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		return nil, errors.GrpcFromError(err)
 	}
 
-	if s.metricsClient != nil {
+	if s.metricsClient != nil && s.config != nil {
 		agg := metrics.NewLookupMetricsAggregator(
 			s.config.Project,
 			metrics.GetOnlineStoreType(s.config),
@@ -184,7 +184,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		return nil, errors.GrpcFromError(err)
 	}
 
-	if s.metricsClient != nil {
+	if s.metricsClient != nil && s.config != nil {
 		agg := metrics.NewLookupMetricsAggregator(
 			s.config.Project,
 			metrics.GetOnlineStoreType(s.config),

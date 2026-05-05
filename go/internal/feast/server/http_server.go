@@ -428,7 +428,7 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.metricsClient != nil {
+	if s.metricsClient != nil && s.config != nil {
 		agg := metrics.NewLookupMetricsAggregator(
 			s.config.Project,
 			metrics.GetOnlineStoreType(s.config),
@@ -644,7 +644,7 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if s.metricsClient != nil {
+	if s.metricsClient != nil && s.config != nil {
 		agg := metrics.NewLookupMetricsAggregator(
 			s.config.Project,
 			metrics.GetOnlineStoreType(s.config),
