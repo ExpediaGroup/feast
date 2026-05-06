@@ -22,8 +22,6 @@ var REGISTRY_STORE_CLASS_FOR_SCHEME map[string]string = map[string]string{
 	"http":   "HttpRegistryStore",
 	"https":  "HttpRegistryStore",
 	"remote": "GrpcRegistryStore",
-	"grpc":   "GrpcRegistryStore",
-	"grpcs":  "GrpcRegistryStore",
 	"":       "FileRegistryStore",
 }
 
