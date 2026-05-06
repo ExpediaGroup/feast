@@ -43,6 +43,10 @@ type RegistryConfig struct {
 	Path              string `json:"path"`
 	ClientId          string `json:"client_id" default:"Unknown"`
 	CacheTtlSeconds   int64  `json:"cache_ttl_seconds" default:"600"`
+	// Cert is the path to a PEM certificate file used when connecting to a gRPC
+	// registry server over TLS. Mirrors RemoteRegistryConfig.cert in Python.
+	Cert  string `json:"cert"`
+	IsTls bool   `json:"is_tls"`
 }
 
 // NewRepoConfigFromJSON converts a JSON string into a RepoConfig struct and also sets the repo path.
@@ -122,9 +126,23 @@ func (r *RepoConfig) GetRegistryConfig() (*RegistryConfig, error) {
 				if value, ok := v.(string); ok {
 					registryConfig.RegistryStoreType = value
 				}
+			case "registry_type":
+				// Python uses registry_type: "remote" for the gRPC remote registry.
+				// Map it to GrpcRegistryStore so the factory selects the right store.
+				if value, ok := v.(string); ok && value == "remote" {
+					registryConfig.RegistryStoreType = "GrpcRegistryStore"
+				}
 			case "client_id":
 				if value, ok := v.(string); ok {
 					registryConfig.ClientId = value
+				}
+			case "cert":
+				if value, ok := v.(string); ok {
+					registryConfig.Cert = value
+				}
+			case "is_tls":
+				if value, ok := v.(bool); ok {
+					registryConfig.IsTls = value
 				}
 			case "cache_ttl_seconds":
 				// cache_ttl_seconds defaulted to type float64. Ex: "cache_ttl_seconds": 60 in registryConfigMap

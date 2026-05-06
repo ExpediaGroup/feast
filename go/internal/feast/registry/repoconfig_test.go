@@ -385,3 +385,51 @@ func TestNewRepoConfigForScyllaDBFromJSON(t *testing.T) {
 	assert.Equal(t, int(85), int(config.OnlineStore["read_batch_size"].(float64)))
 	assert.Equal(t, int(2), int(config.OnlineStore["table_name_format_version"].(float64)))
 }
+
+func TestGetRegistryConfig_RemoteRegistryType(t *testing.T) {
+	// registry_type: "remote" (Python RemoteRegistryConfig) should map to GrpcRegistryStore
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"registry_type": "remote",
+			"path":          "registry-server:50051",
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "GrpcRegistryStore", registryConfig.RegistryStoreType)
+	assert.Equal(t, "registry-server:50051", registryConfig.Path)
+}
+
+func TestGetRegistryConfig_CertAndIsTls(t *testing.T) {
+	// cert and is_tls fields should be parsed (mirrors Python RemoteRegistryConfig)
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"registry_type": "remote",
+			"path":          "registry-server:50051",
+			"cert":          "/path/to/server.crt",
+			"is_tls":        true,
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "/path/to/server.crt", registryConfig.Cert)
+	assert.True(t, registryConfig.IsTls)
+}
+
+func TestGetRegistryConfig_IsTlsFalseByDefault(t *testing.T) {
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"path": "registry-server:50051",
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.False(t, registryConfig.IsTls)
+	assert.Empty(t, registryConfig.Cert)
+}
