@@ -114,9 +114,10 @@ feast/
 - **Languages**: Python (primary), Go
 - **Dependencies**: pandas, pyarrow, SQLAlchemy, FastAPI, protobuf
 - **Data Sources**: BigQuery, Snowflake, Redshift, Parquet, Postgres, Spark
-- **Online Stores**: Redis, DynamoDB, Bigtable, Snowflake, SQLite, Postgres
+- **Online Stores**: Redis/Valkey, DynamoDB, Bigtable, Snowflake, SQLite, Postgres, Cassandra/AstraDB, ScyllaDB
 - **Offline Stores**: BigQuery, Snowflake, Redshift, Spark, Dask, DuckDB
 - **Cloud Providers**: AWS, GCP, Azure
+- **Registry Backends**: Local file, SQL, GCS, S3, Snowflake, HTTP (remote), gRPC (remote)
 
 ## Common Development Tasks
 
@@ -132,6 +133,15 @@ Protocol buffers are used for data serialization and gRPC APIs. Recompile protos
 
 ### Multi-language Support
 Feast supports Python and Go SDKs. Changes to core functionality may require updates across both languages.
+
+## Recent Notable Changes (since Oct 2025)
+
+- **Remote Registry**: gRPC-based remote registry (`sdk/python/feast/infra/registry/remote.py`) and HTTP registry (`sdk/python/feast/infra/registry/http.py`) for centralized registry access. `HttpRegistry` now supports `get_any_feature_view` for the Feature Retriever pattern.
+- **Rate Limiting**: Centralized token-bucket rate limiter (`sdk/python/feast/rate_limiter.py`) applied to online store writes via `passthrough_provider.py`. Configure via `rate_limit_config` in store config.
+- **Streaming Retry**: Exponential backoff retry on online store writes for streaming ingestion paths (`fec2a105d`).
+- **Cassandra/ScyllaDB**: ScyllaDB online store switched to use the Cassandra driver. Exception handling improved to avoid pickle errors on failure callbacks.
+- **Redis Read Batching**: Configurable `read_batch_size` for Redis/Valkey online store (default 100). Batched reads generalized across all online store providers.
+- **FeastClient (Java)**: Added factory methods for pre-configured gRPC stubs in the Java client (`infra/java/`).
 
 ## Contributing
 
