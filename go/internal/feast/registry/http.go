@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/feast-dev/feast/go/protos/feast/core"
+
 	"github.com/rs/zerolog/log"
 	"google.golang.org/protobuf/proto"
 )
@@ -107,7 +108,7 @@ func (r *HttpRegistryStore) loadProtobufMessages(url string, messageProcessor fu
 	return nil
 }
 
-func (r *HttpRegistryStore) getFeatureService(name string, allowCache bool) (*core.FeatureService, error) {
+func (r *HttpRegistryStore) GetFeatureService(name string, allowCache bool) (*core.FeatureService, error) {
 	url := fmt.Sprintf("%s/projects/%s/feature_services/%s?allow_cache=%t", r.endpoint, r.project, name, allowCache)
 	featureService := &core.FeatureService{}
 	err := r.loadProtobufMessages(url, func(data []byte) error {
@@ -123,7 +124,7 @@ func (r *HttpRegistryStore) getFeatureService(name string, allowCache bool) (*co
 	return featureService, nil
 }
 
-func (r *HttpRegistryStore) getEntity(name string, allowCache bool) (*core.Entity, error) {
+func (r *HttpRegistryStore) GetEntity(name string, allowCache bool) (*core.Entity, error) {
 	url := fmt.Sprintf("%s/projects/%s/entities/%s?allow_cache=%t", r.endpoint, r.project, name, allowCache)
 	entity := &core.Entity{}
 	err := r.loadProtobufMessages(url, func(data []byte) error {
@@ -140,7 +141,7 @@ func (r *HttpRegistryStore) getEntity(name string, allowCache bool) (*core.Entit
 	return entity, nil
 }
 
-func (r *HttpRegistryStore) getFeatureView(name string, allowCache bool) (*core.FeatureView, error) {
+func (r *HttpRegistryStore) GetFeatureView(name string, allowCache bool) (*core.FeatureView, error) {
 	url := fmt.Sprintf("%s/projects/%s/feature_views/%s?allow_cache=%t", r.endpoint, r.project, name, allowCache)
 	featureView := &core.FeatureView{}
 	err := r.loadProtobufMessages(url, func(data []byte) error {
@@ -156,7 +157,7 @@ func (r *HttpRegistryStore) getFeatureView(name string, allowCache bool) (*core.
 	return featureView, nil
 }
 
-func (r *HttpRegistryStore) getOnDemandFeatureView(name string, allowCache bool) (*core.OnDemandFeatureView, error) {
+func (r *HttpRegistryStore) GetOnDemandFeatureView(name string, allowCache bool) (*core.OnDemandFeatureView, error) {
 	url := fmt.Sprintf("%s/projects/%s/on_demand_feature_views/%s?allow_cache=%t", r.endpoint, r.project, name, allowCache)
 	onDemandFeatureView := &core.OnDemandFeatureView{}
 	err := r.loadProtobufMessages(url, func(data []byte) error {
@@ -172,7 +173,7 @@ func (r *HttpRegistryStore) getOnDemandFeatureView(name string, allowCache bool)
 	return onDemandFeatureView, nil
 }
 
-func (r *HttpRegistryStore) getSortedFeatureView(name string, allowCache bool) (*core.SortedFeatureView, error) {
+func (r *HttpRegistryStore) GetSortedFeatureView(name string, allowCache bool) (*core.SortedFeatureView, error) {
 	url := fmt.Sprintf("%s/projects/%s/sorted_feature_views/%s?allow_cache=%t", r.endpoint, r.project, name, allowCache)
 	sortedFeatureView := &core.SortedFeatureView{}
 	err := r.loadProtobufMessages(url, func(data []byte) error {
