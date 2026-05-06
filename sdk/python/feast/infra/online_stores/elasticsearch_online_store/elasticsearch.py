@@ -17,6 +17,7 @@ from feast.infra.key_encoding_utils import (
     get_list_val_str,
     serialize_entity_key,
 )
+from feast.infra.online_stores._signal_scores import encode_signal_scores
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.infra.online_stores.vector_store import VectorStoreConfig
 from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
@@ -708,6 +709,223 @@ class ElasticSearchOnlineStore(OnlineStore):
                     feature_dict[feature] = _to_value_proto(value)
 
             result.append((timestamp, entity_key_proto, feature_dict))
+        return result
+
+    def retrieve_online_documents_v3(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        requested_features: List[str],
+        embeddings: Dict[str, List[float]],
+        top_k: int,
+        query_string: Optional[str] = None,
+        fusion_strategy: str = "AUTO",
+        signal_weights: Optional[Dict[str, float]] = None,
+        rrf_k: int = 60,
+        distance_metric: Optional[str] = None,
+        include_signal_scores: bool = False,
+    ) -> List[
+        Tuple[
+            Optional[datetime],
+            Optional[EntityKeyProto],
+            Optional[Dict[str, ValueProto]],
+        ]
+    ]:
+        """
+        V3 document retrieval on Elasticsearch backend.
+
+        Uses the ES retriever API (ES 8.14+) for all query types: single-signal
+        kNN, multi-signal RRF, and weighted linear fusion.
+
+        Reserved output fields (always present in each result's feature_dict):
+        - ``final_score``: ES _score (higher = better). For single-signal this
+          is the raw kNN score; for fusion it is the rank-based composite score.
+        - ``signal_scores``: JSON-encoded Dict[str, float] with per-signal
+          scores when available, empty dict for fused results (ES does not
+          expose per-retriever scores after fusion).
+
+        Reserved parameters (accepted but currently unused):
+        - ``distance_metric``: V3-ES always uses the metric configured in the
+          index mapping; this param is reserved for future per-query override.
+        - ``include_signal_scores``: No-op today. ``signal_scores`` follows
+          best-effort behavior — populated for single-signal queries, empty
+          for RRF/WEIGHTED_LINEAR fusion (ES does not expose per-retriever
+          scores after fusion). Reserved for a future ES-explain path that
+          will populate the breakdown for fusion strategies at extra latency
+          cost.
+        """
+        del distance_metric
+        del include_signal_scores
+
+        valid_strategies = {"AUTO", "RRF", "WEIGHTED_LINEAR", "VECTOR_ONLY"}
+        effective_strategy = fusion_strategy.upper()
+        if effective_strategy not in valid_strategies:
+            raise ValueError(
+                f"Unknown fusion_strategy '{fusion_strategy}'. "
+                f"Valid options: {sorted(valid_strategies)}"
+            )
+
+        if not embeddings:
+            raise ValueError(
+                "V3 requires at least one embedding. "
+                "Pass embeddings={field_name: vector}."
+            )
+
+        if not config.online_store.vector_enabled:
+            raise ValueError("Vector search is not enabled in the online store config.")
+
+        if effective_strategy == "VECTOR_ONLY":
+            query_string = None
+
+        # Normalize empty/whitespace query_string to None
+        if query_string is not None and not query_string.strip():
+            query_string = None
+
+        # Validate embedding keys against FeatureView schema
+        vector_fields = {f.name: f for f in table.features if f.vector_index}
+        for key in embeddings:
+            if key not in vector_fields:
+                available = sorted(vector_fields.keys())
+                if not available:
+                    raise ValueError(
+                        f"FeatureView '{table.name}' has no vector-indexed fields. "
+                        f"Cannot perform vector search."
+                    )
+                raise ValueError(
+                    f"Embedding key '{key}' does not match any vector-indexed field "
+                    f"in FeatureView '{table.name}'. "
+                    f"Available vector fields: {available}"
+                )
+
+        # Build retrievers: one kNN per embedding, optional BM25 for query_string
+        retrievers_with_names: List[Tuple[str, Dict[str, Any]]] = []
+        for field_name, vec in embeddings.items():
+            knn_retriever: Dict[str, Any] = {
+                "knn": {
+                    "field": f"{field_name}.vector_value",
+                    "query_vector": vec,
+                }
+            }
+            retrievers_with_names.append((field_name, knn_retriever))
+
+        has_text_signal = query_string is not None
+        if has_text_signal:
+            text_retriever: Dict[str, Any] = {
+                "standard": {"query": {"query_string": {"query": query_string}}}
+            }
+            retrievers_with_names.append(("bm25", text_retriever))
+
+        is_single_signal = len(retrievers_with_names) == 1
+
+        if is_single_signal and effective_strategy in ("RRF", "WEIGHTED_LINEAR"):
+            logger.warning(
+                "Only one signal present — fusion_strategy '%s' has no effect. "
+                "The query will execute as a single-signal retrieval.",
+                effective_strategy,
+            )
+
+        # Set inner k based on signal count
+        multiplier = (
+            getattr(config.online_store, "knn_num_candidates_multiplier", 2.0) or 2.0
+        )
+        if is_single_signal:
+            inner_k = top_k
+        else:
+            inner_k = min(max(top_k * 10, 100), 1000)
+        num_candidates = max(inner_k, math.ceil(inner_k * multiplier))
+
+        for _, retriever in retrievers_with_names:
+            if "knn" in retriever:
+                retriever["knn"]["k"] = inner_k
+                retriever["knn"]["num_candidates"] = num_candidates
+
+        # Resolve execution mode
+        if is_single_signal:
+            execution_mode = "single"
+        elif effective_strategy == "WEIGHTED_LINEAR":
+            execution_mode = "linear"
+        else:
+            execution_mode = "rrf"
+
+        # Validate WEIGHTED_LINEAR signal coverage
+        if execution_mode == "linear":
+            expected_signals = {name for name, _ in retrievers_with_names}
+            provided = set(signal_weights.keys()) if signal_weights else set()
+            missing = expected_signals - provided
+            if missing:
+                raise ValueError(
+                    f"WEIGHTED_LINEAR fusion missing weights for signals: "
+                    f"{sorted(missing)}. Provide a weight for each signal: "
+                    f"embedding field names and/or 'bm25'."
+                )
+
+        # Compose query body
+        retrievers = [r for _, r in retrievers_with_names]
+        composite_key_name = _get_composite_key_name(table)
+        source_fields = requested_features.copy()
+        source_fields += ["entity_key", "timestamp"]
+        source_fields += composite_key_name
+
+        if execution_mode == "single":
+            top_retriever = retrievers[0]
+        elif execution_mode == "rrf":
+            top_retriever = {"rrf": {"retrievers": retrievers, "rank_constant": rrf_k}}
+        else:
+            assert signal_weights is not None
+            weighted = []
+            for signal_name, retriever in retrievers_with_names:
+                weight = signal_weights[signal_name]
+                weighted.append({"retriever": retriever, "weight": weight})
+            top_retriever = {"linear": {"retrievers": weighted}}
+
+        body: Dict[str, Any] = {
+            "retriever": top_retriever,
+            "size": top_k,
+            "_source": source_fields,
+        }
+
+        response = self._get_client(config).search(index=table.name, body=body)
+
+        # Parse results
+        result: List[
+            Tuple[
+                Optional[datetime],
+                Optional[EntityKeyProto],
+                Optional[Dict[str, ValueProto]],
+            ]
+        ] = []
+
+        rows = response["hits"]["hits"][:top_k]
+        for row in rows:
+            entity_key = row["_source"]["entity_key"]
+            entity_key_proto = deserialize_entity_key(
+                base64.b64decode(entity_key),
+                entity_key_serialization_version=config.entity_key_serialization_version,
+            )
+            timestamp = datetime.fromisoformat(row["_source"]["timestamp"])
+
+            feature_dict: Dict[str, ValueProto] = {}
+            feature_dict["final_score"] = _to_value_proto(float(row["_score"]))
+
+            signal_scores: Dict[str, float] = {}
+            if is_single_signal:
+                embed_key = next(iter(embeddings.keys()))
+                signal_scores[f"vec_{embed_key}"] = float(row["_score"])
+
+            feature_dict["signal_scores"] = encode_signal_scores(signal_scores)
+
+            join_key_values = _extract_join_keys(entity_key_proto)
+            feature_dict.update(join_key_values)
+
+            for feature in requested_features:
+                if feature in ("final_score", "signal_scores"):
+                    continue
+                value = row["_source"].get(feature, None)
+                if value is not None:
+                    feature_dict[feature] = _to_value_proto(value)
+
+            result.append((timestamp, entity_key_proto, feature_dict))
+
         return result
 
 

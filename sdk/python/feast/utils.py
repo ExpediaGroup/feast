@@ -1421,10 +1421,6 @@ def _get_feature_view_vector_field_metadata(
     feature_view,
 ) -> Optional[Field]:
     vector_fields = [field for field in feature_view.schema if field.vector_index]
-    if len(vector_fields) > 1:
-        raise ValueError(
-            f"Feature view {feature_view.name} has multiple vector fields. Only one vector field per feature view is supported."
-        )
     if not vector_fields:
         return None
     return vector_fields[0]
