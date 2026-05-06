@@ -122,15 +122,15 @@ func (r *RepoConfig) GetRegistryConfig() (*RegistryConfig, error) {
 				if value, ok := v.(string); ok {
 					registryConfig.Path = value
 				}
+			case "registry_type":
+				if value, ok := v.(string); ok {
+					if storeType, found := REGISTRY_STORE_CLASS_FOR_SCHEME[value]; found {
+						registryConfig.RegistryStoreType = storeType
+					}
+				}
 			case "registry_store_type":
 				if value, ok := v.(string); ok {
 					registryConfig.RegistryStoreType = value
-				}
-			case "registry_type":
-				// Python uses registry_type: "remote" for the gRPC remote registry.
-				// Map it to GrpcRegistryStore so the factory selects the right store.
-				if value, ok := v.(string); ok && value == "remote" {
-					registryConfig.RegistryStoreType = "GrpcRegistryStore"
 				}
 			case "client_id":
 				if value, ok := v.(string); ok {
