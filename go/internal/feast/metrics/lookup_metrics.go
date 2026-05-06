@@ -26,14 +26,12 @@ type LookupMetricsAggregator struct {
 	nullOrExpired map[string]int64
 	project       string
 	onlineStore   string
-	service       string
-	env           string
 	client        StatsdClient
 	sampleRate    float64
 }
 
 func NewLookupMetricsAggregator(
-	project, onlineStore, service, env string,
+	project, onlineStore string,
 	client StatsdClient,
 ) *LookupMetricsAggregator {
 	if client == nil {
@@ -55,8 +53,6 @@ func NewLookupMetricsAggregator(
 		nullOrExpired: make(map[string]int64),
 		project:       project,
 		onlineStore:   onlineStore,
-		service:       service,
-		env:           env,
 		client:        client,
 		sampleRate:    sampleRate,
 	}
@@ -115,8 +111,6 @@ func (m *LookupMetricsAggregator) Emit() {
 	baseTags := []string{
 		"project:" + m.project,
 		"online_store_type:" + m.onlineStore,
-		"service:" + m.service,
-		"env:" + m.env,
 	}
 
 	for featureID, count := range m.notFound {

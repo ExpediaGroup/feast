@@ -94,8 +94,6 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		agg := metrics.NewLookupMetricsAggregator(
 			s.config.Project,
 			metrics.GetOnlineStoreType(s.config),
-			metrics.GetServiceName(),
-			metrics.GetEnvironment(),
 			s.metricsClient,
 		)
 		agg.RecordFromFeatureVectors(featureVectors)
@@ -188,8 +186,6 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		agg := metrics.NewLookupMetricsAggregator(
 			s.config.Project,
 			metrics.GetOnlineStoreType(s.config),
-			metrics.GetServiceName(),
-			metrics.GetEnvironment(),
 			s.metricsClient,
 		)
 		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)

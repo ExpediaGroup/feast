@@ -432,8 +432,6 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		agg := metrics.NewLookupMetricsAggregator(
 			s.config.Project,
 			metrics.GetOnlineStoreType(s.config),
-			metrics.GetServiceName(),
-			metrics.GetEnvironment(),
 			s.metricsClient,
 		)
 		agg.RecordFromFeatureVectors(featureVectors)
@@ -648,8 +646,6 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		agg := metrics.NewLookupMetricsAggregator(
 			s.config.Project,
 			metrics.GetOnlineStoreType(s.config),
-			metrics.GetServiceName(),
-			metrics.GetEnvironment(),
 			s.metricsClient,
 		)
 		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)

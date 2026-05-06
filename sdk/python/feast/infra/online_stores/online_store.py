@@ -496,17 +496,10 @@ def _emit_missing_key_metrics(config, project, response_proto):
     online_store_type = (
         config.online_store.type if hasattr(config.online_store, "type") else "unknown"
     )
-    service = os.getenv("SERVICE_NAME", os.getenv("APPLICATION", "unknown_service"))
-    env = os.getenv(
-        "EXPEDIA_ENVIRONMENT_CATEGORY",
-        os.getenv("EXPEDIA_ENVIRONMENT", "unknown_env"),
-    )
 
     agg = LookupMetricsAggregator(
         project=project,
         online_store_type=online_store_type,
-        service=service,
-        env=env,
         metrics_client=get_metrics_client(),
     )
 

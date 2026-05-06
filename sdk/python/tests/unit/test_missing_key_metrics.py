@@ -26,7 +26,7 @@ class FakeMetricsClient:
 class TestLookupMetricsAggregator:
     def test_not_found_only(self):
         fake = FakeMetricsClient()
-        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+        agg = LookupMetricsAggregator("proj", "redis", fake)
 
         agg.record("user_fv__age", FieldStatus.NOT_FOUND)
         agg.record("user_fv__age", FieldStatus.NOT_FOUND)
@@ -40,7 +40,7 @@ class TestLookupMetricsAggregator:
 
     def test_null_or_expired(self):
         fake = FakeMetricsClient()
-        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+        agg = LookupMetricsAggregator("proj", "redis", fake)
 
         agg.record("order_fv__amt", FieldStatus.NULL_VALUE)
         agg.record("order_fv__amt", FieldStatus.OUTSIDE_MAX_AGE)
@@ -52,7 +52,7 @@ class TestLookupMetricsAggregator:
 
     def test_mixed_statuses(self):
         fake = FakeMetricsClient()
-        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+        agg = LookupMetricsAggregator("proj", "redis", fake)
 
         agg.record("fv_a__f1", FieldStatus.PRESENT)
         agg.record("fv_a__f1", FieldStatus.NOT_FOUND)
@@ -89,7 +89,7 @@ class TestLookupMetricsAggregator:
 
     def test_all_present(self):
         fake = FakeMetricsClient()
-        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+        agg = LookupMetricsAggregator("proj", "redis", fake)
 
         agg.record("fv__f1", FieldStatus.PRESENT)
         agg.record("fv__f1", FieldStatus.PRESENT)
@@ -98,13 +98,13 @@ class TestLookupMetricsAggregator:
         assert len(fake.calls) == 0
 
     def test_none_client(self):
-        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", None)
+        agg = LookupMetricsAggregator("proj", "redis", None)
         agg.record("fv__f1", FieldStatus.NOT_FOUND)
         agg.emit()
 
     def test_tags(self):
         fake = FakeMetricsClient()
-        agg = LookupMetricsAggregator("mlpfs", "eg-valkey", "ranking-fs", "dw", fake)
+        agg = LookupMetricsAggregator("mlpfs", "eg-valkey", fake)
 
         agg.record("hotel_fv__price", FieldStatus.NOT_FOUND)
         agg.emit()
@@ -112,8 +112,8 @@ class TestLookupMetricsAggregator:
         tags = fake.calls[0]["tags"]
         assert "project:mlpfs" in tags
         assert "online_store_type:eg-valkey" in tags
-        assert "service:ranking-fs" in tags
-        assert "env:dw" in tags
+        assert not any(t.startswith("service:") for t in tags)
+        assert not any(t.startswith("env:") for t in tags)
         assert "feature:hotel_fv__price" in tags
         assert "feature_view:hotel_fv" in tags
 
@@ -211,7 +211,7 @@ class TestSamplingFeature:
         """Default sample_rate should be 1.0 (no sampling)"""
         os.environ.pop("FEAST_METRICS_SAMPLE_RATE", None)
         fake = FakeMetricsClient()
-        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+        agg = LookupMetricsAggregator("proj", "redis", fake)
 
         assert agg.sample_rate == 1.0
 
@@ -219,7 +219,7 @@ class TestSamplingFeature:
         """Should read sample_rate from environment"""
         os.environ["FEAST_METRICS_SAMPLE_RATE"] = "0.5"
         fake = FakeMetricsClient()
-        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+        agg = LookupMetricsAggregator("proj", "redis", fake)
 
         assert agg.sample_rate == 0.5
         os.environ.pop("FEAST_METRICS_SAMPLE_RATE")
@@ -231,7 +231,7 @@ class TestSamplingFeature:
         for invalid_value in test_cases:
             os.environ["FEAST_METRICS_SAMPLE_RATE"] = invalid_value
             fake = FakeMetricsClient()
-            agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+            agg = LookupMetricsAggregator("proj", "redis", fake)
             assert agg.sample_rate == 1.0, f"Failed for value: {invalid_value}"
 
         os.environ.pop("FEAST_METRICS_SAMPLE_RATE")
@@ -246,7 +246,7 @@ class TestSamplingFeature:
 
         random.seed(0)  # This makes random.random() predictable
 
-        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+        agg = LookupMetricsAggregator("proj", "redis", fake)
         agg.record("fv__f1", FieldStatus.NOT_FOUND)
         agg.record("fv__f1", FieldStatus.NOT_FOUND)  # 2 times
 
@@ -269,7 +269,7 @@ class TestSamplingFeature:
         """With sample_rate=1.0, counts should not be adjusted"""
         os.environ["FEAST_METRICS_SAMPLE_RATE"] = "1.0"
         fake = FakeMetricsClient()
-        agg = LookupMetricsAggregator("proj", "redis", "svc", "test", fake)
+        agg = LookupMetricsAggregator("proj", "redis", fake)
 
         agg.record("fv__f1", FieldStatus.NOT_FOUND)
         agg.record("fv__f1", FieldStatus.NOT_FOUND)

@@ -31,14 +31,10 @@ class LookupMetricsAggregator:
         self,
         project: str,
         online_store_type: str,
-        service: str,
-        env: str,
         metrics_client,
     ):
         self.project = project
         self.online_store_type = online_store_type
-        self.service = service or "unknown_service"
-        self.env = env or "unknown_env"
         self.metrics_client = metrics_client
         self.not_found: Counter = Counter()
         self.null_or_expired: Counter = Counter()
@@ -80,8 +76,6 @@ class LookupMetricsAggregator:
         base_tags: List[str] = [
             f"project:{self.project}",
             f"online_store_type:{self.online_store_type}",
-            f"service:{self.service}",
-            f"env:{self.env}",
         ]
 
         for feat, cnt in self.not_found.items():

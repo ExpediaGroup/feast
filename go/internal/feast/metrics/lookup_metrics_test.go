@@ -25,7 +25,7 @@ func (f *fakeStatsdClient) Count(name string, value int64, tags []string, rate f
 }
 
 func newTestAggregator(client StatsdClient) *LookupMetricsAggregator {
-	return NewLookupMetricsAggregator("test_project", "redis", "test_service", "test", client)
+	return NewLookupMetricsAggregator("test_project", "redis", client)
 }
 
 func TestAggregator_AllNotFound(t *testing.T) {
@@ -103,13 +103,13 @@ func TestAggregator_NilSafe(t *testing.T) {
 }
 
 func TestAggregator_NilClient(t *testing.T) {
-	agg := NewLookupMetricsAggregator("p", "r", "s", "e", nil)
+	agg := NewLookupMetricsAggregator("p", "r", nil)
 	assert.Nil(t, agg)
 }
 
 func TestAggregator_Tags(t *testing.T) {
 	fake := &fakeStatsdClient{}
-	agg := NewLookupMetricsAggregator("mlpfs", "eg-valkey", "ranking-fs", "dw", fake)
+	agg := NewLookupMetricsAggregator("mlpfs", "eg-valkey", fake)
 
 	agg.Record("hotel_fv__price", serving.FieldStatus_NOT_FOUND)
 	agg.Emit()
@@ -118,8 +118,6 @@ func TestAggregator_Tags(t *testing.T) {
 	tags := fake.calls[0].tags
 	assert.Contains(t, tags, "project:mlpfs")
 	assert.Contains(t, tags, "online_store_type:eg-valkey")
-	assert.Contains(t, tags, "service:ranking-fs")
-	assert.Contains(t, tags, "env:dw")
 	assert.Contains(t, tags, "feature:hotel_fv__price")
 	assert.Contains(t, tags, "feature_view:hotel_fv")
 }
@@ -191,9 +189,6 @@ func TestIsMissingKeyMetricsEnabled(t *testing.T) {
 }
 
 func TestGetOnlineStoreType(t *testing.T) {
-	// Test with mock config that has "type" key
-	assert.Equal(t, "unknown_service", GetServiceName())
-	assert.Equal(t, "unknown_env", GetEnvironment())
 }
 
 func TestExtractFeatureView(t *testing.T) {
