@@ -569,6 +569,60 @@ class TestRetrieveOnlineDocumentsV3QueryBuilding:
         assert "timestamp" in source
         assert "title" in source
 
+    def test_rescore_oversample_applied_to_single_knn(self, store, fv_single):
+        """When rescore_oversample is configured on a quantized index, the V3
+        kNN retriever should include a rescore_vector clause."""
+        config = _make_repo_config(
+            vector_index_type="int8_hnsw", rescore_oversample=3.0
+        )
+        body = self._call_and_capture_body(
+            store,
+            config,
+            fv_single,
+            requested_features=["title"],
+            embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+            top_k=5,
+        )
+        knn = body["retriever"]["knn"]
+        assert knn["rescore_vector"] == {"oversample": 3.0}
+
+    def test_rescore_oversample_applied_to_all_multi_vector_knns(self, store, fv_multi):
+        """Multi-vector V3 queries should apply rescore_vector to every kNN
+        retriever, not just the first one."""
+        config = _make_repo_config(
+            vector_index_type="int4_hnsw", rescore_oversample=2.5
+        )
+        body = self._call_and_capture_body(
+            store,
+            config,
+            fv_multi,
+            requested_features=["item_id"],
+            embeddings={
+                "title_vec": [0.1, 0.2, 0.3, 0.4],
+                "body_vec": [0.5, 0.6, 0.7, 0.8],
+            },
+            top_k=5,
+        )
+        retrievers = body["retriever"]["rrf"]["retrievers"]
+        assert len(retrievers) == 2
+        for r in retrievers:
+            assert r["knn"]["rescore_vector"] == {"oversample": 2.5}
+
+    def test_rescore_oversample_absent_when_not_configured(
+        self, store, config, fv_single
+    ):
+        """Default config has no rescore_oversample; the kNN clause should not
+        include rescore_vector."""
+        body = self._call_and_capture_body(
+            store,
+            config,
+            fv_single,
+            requested_features=["title"],
+            embeddings={"embedding": [0.1, 0.2, 0.3, 0.4]},
+            top_k=5,
+        )
+        assert "rescore_vector" not in body["retriever"]["knn"]
+
 
 class TestRetrieveOnlineDocumentsV3ResponseParsing:
     """Tests for parsing ES response into V3 result tuples."""

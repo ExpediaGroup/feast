@@ -834,10 +834,15 @@ class ElasticSearchOnlineStore(OnlineStore):
             inner_k = min(max(top_k * 10, 100), 1000)
         num_candidates = max(inner_k, math.ceil(inner_k * multiplier))
 
+        rescore_oversample = config.online_store.rescore_oversample
         for _, retriever in retrievers_with_names:
             if "knn" in retriever:
                 retriever["knn"]["k"] = inner_k
                 retriever["knn"]["num_candidates"] = num_candidates
+                if rescore_oversample is not None:
+                    retriever["knn"]["rescore_vector"] = {
+                        "oversample": rescore_oversample
+                    }
 
         # Resolve execution mode
         if is_single_signal:
