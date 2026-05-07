@@ -81,11 +81,11 @@ func buildTLSCredentials(certPath string) (credentials.TransportCredentials, err
 // parseGrpcTarget strips grpc:// or grpcs:// scheme prefixes and returns
 // the target address along with whether TLS should be used.
 func parseGrpcTarget(path string) (target string, useTLS bool) {
-	if strings.HasPrefix(path, "grpcs://") {
-		return strings.TrimPrefix(path, "grpcs://"), true
+	if strings.HasPrefix(path, "https://") {
+		return strings.TrimPrefix(path, "https://"), true
 	}
-	if strings.HasPrefix(path, "grpc://") {
-		return strings.TrimPrefix(path, "grpc://"), false
+	if strings.HasPrefix(path, "http://") {
+		return strings.TrimPrefix(path, "http://"), false
 	}
 	return path, false
 }

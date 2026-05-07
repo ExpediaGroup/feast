@@ -175,12 +175,12 @@ func TestGrpcTeardown(t *testing.T) {
 
 func TestParseGrpcTarget(t *testing.T) {
 	cases := []struct {
-		input    string
-		target   string
-		useTLS   bool
+		input  string
+		target string
+		useTLS bool
 	}{
-		{"grpc://host:50051", "host:50051", false},
-		{"grpcs://host:50051", "host:50051", true},
+		{"http://host:50051", "host:50051", false},
+		{"https://host:50051", "host:50051", true},
 		{"host:50051", "host:50051", false},
 	}
 	for _, c := range cases {
