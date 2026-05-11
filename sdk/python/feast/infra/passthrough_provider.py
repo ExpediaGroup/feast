@@ -435,6 +435,37 @@ class PassthroughProvider(Provider):
             )
         return result
 
+    def retrieve_online_documents_v3(
+        self,
+        config: RepoConfig,
+        table: FeatureView,
+        requested_features: Optional[List[str]],
+        embeddings: Dict[str, List[float]],
+        top_k: int,
+        query_string: Optional[str] = None,
+        fusion_strategy: str = "AUTO",
+        signal_weights: Optional[Dict[str, float]] = None,
+        rrf_k: int = 60,
+        distance_metric: Optional[str] = None,
+        include_signal_scores: bool = False,
+    ) -> List:
+        result = []
+        if self.online_store:
+            result = self.online_store.retrieve_online_documents_v3(
+                config,
+                table,
+                requested_features,
+                embeddings,
+                top_k,
+                query_string,
+                fusion_strategy,
+                signal_weights,
+                rrf_k,
+                distance_metric,
+                include_signal_scores,
+            )
+        return result
+
     @staticmethod
     def _prep_table_and_join_keys_for_ingestion(
         feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView],
