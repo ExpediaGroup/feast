@@ -38,7 +38,7 @@ func TestAggregator_AllNotFound(t *testing.T) {
 	agg.Emit()
 
 	assert.Len(t, fake.calls, 1)
-	assert.Equal(t, "featureserver.feature_lookup_not_found", fake.calls[0].name)
+	assert.Equal(t, "mlpfs.featureserver.feature_lookup_not_found", fake.calls[0].name)
 	assert.Equal(t, int64(3), fake.calls[0].value)
 	assert.Contains(t, fake.calls[0].tags, "feature:user_fv__age")
 }
@@ -53,7 +53,7 @@ func TestAggregator_AllNullOrExpired(t *testing.T) {
 	agg.Emit()
 
 	assert.Len(t, fake.calls, 1)
-	assert.Equal(t, "featureserver.feature_lookup_null_or_expired", fake.calls[0].name)
+	assert.Equal(t, "mlpfs.featureserver.feature_lookup_null_or_expired", fake.calls[0].name)
 	assert.Equal(t, int64(3), fake.calls[0].value)
 	assert.Contains(t, fake.calls[0].tags, "feature:order_fv__amt")
 }
@@ -76,10 +76,10 @@ func TestAggregator_MixedStatuses(t *testing.T) {
 		callsByName[c.name+":"+findTag(c.tags, "feature:")] = c
 	}
 
-	nf := callsByName["featureserver.feature_lookup_not_found:fv_a__f1"]
+	nf := callsByName["mlpfs.featureserver.feature_lookup_not_found:fv_a__f1"]
 	assert.Equal(t, int64(1), nf.value)
 
-	ne := callsByName["featureserver.feature_lookup_null_or_expired:fv_b__f2"]
+	ne := callsByName["mlpfs.featureserver.feature_lookup_null_or_expired:fv_b__f2"]
 	assert.Equal(t, int64(2), ne.value)
 }
 
@@ -169,7 +169,7 @@ func TestRecordFromRangeFeatureVectors(t *testing.T) {
 
 	assert.Len(t, fake.calls, 1)
 	assert.Equal(t, int64(2), fake.calls[0].value)
-	assert.Equal(t, "featureserver.feature_lookup_not_found", fake.calls[0].name)
+	assert.Equal(t, "mlpfs.featureserver.feature_lookup_not_found", fake.calls[0].name)
 }
 
 func TestIsMissingKeyMetricsEnabled(t *testing.T) {

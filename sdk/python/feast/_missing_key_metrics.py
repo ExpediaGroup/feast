@@ -83,7 +83,7 @@ class LookupMetricsAggregator:
                 # Adjust count to preserve accuracy when sampling
                 adjusted_count = int(cnt * multiplier)
                 self.metrics_client.increment(
-                    "featureserver.feature_lookup_not_found",
+                    "mlpfs.featureserver.feature_lookup_not_found",
                     adjusted_count,
                     tags=base_tags
                     + [
@@ -96,7 +96,7 @@ class LookupMetricsAggregator:
             if cnt:
                 adjusted_count = int(cnt * multiplier)
                 self.metrics_client.increment(
-                    "featureserver.feature_lookup_null_or_expired",
+                    "mlpfs.featureserver.feature_lookup_null_or_expired",
                     adjusted_count,
                     tags=base_tags
                     + [
