@@ -247,11 +247,11 @@ func TestSampling_InvalidValues(t *testing.T) {
 		value    string
 		expected float64
 	}{
-		{"-0.5", 1.0},  // Negative
-		{"1.5", 1.0},   // > 1.0
-		{"0", 1.0},     // Zero
-		{"abc", 1.0},   // Non-numeric
-		{"", 1.0},      // Empty (unset uses default)
+		{"-0.5", 1.0}, // Negative
+		{"1.5", 1.0},  // > 1.0
+		{"0", 1.0},    // Zero
+		{"abc", 1.0},  // Non-numeric
+		{"", 1.0},     // Empty (unset uses default)
 	}
 
 	for _, tc := range testCases {

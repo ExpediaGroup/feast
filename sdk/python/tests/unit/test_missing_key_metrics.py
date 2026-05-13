@@ -47,7 +47,10 @@ class TestLookupMetricsAggregator:
         agg.emit()
 
         assert len(fake.calls) == 1
-        assert fake.calls[0]["metric"] == "mlpfs.featureserver.feature_lookup_null_or_expired"
+        assert (
+            fake.calls[0]["metric"]
+            == "mlpfs.featureserver.feature_lookup_null_or_expired"
+        )
         assert fake.calls[0]["value"] == 2
 
     def test_mixed_statuses(self):
