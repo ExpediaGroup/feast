@@ -18,8 +18,10 @@ import (
 	httptrace "github.com/DataDog/dd-trace-go/contrib/net/http/v2"
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/feast-dev/feast/go/internal/feast"
+	"github.com/feast-dev/feast/go/internal/feast/metrics"
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
+	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
@@ -30,6 +32,8 @@ import (
 type HttpServer struct {
 	fs             *feast.FeatureStore
 	loggingService *logging.LoggingService
+	metricsClient  metrics.StatsdClient
+	config         *registry.RepoConfig
 	server         *http.Server
 }
 
@@ -320,8 +324,8 @@ type getOnlineFeaturesRequest struct {
 	RequestContext   map[string]repeatedValue `json:"request_context"`
 }
 
-func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingService) *HttpServer {
-	return &HttpServer{fs: fs, loggingService: loggingService}
+func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) *HttpServer {
+	return &HttpServer{fs: fs, loggingService: loggingService, metricsClient: metricsClient, config: config}
 }
 
 func parseIncludeMetadata(r *http.Request) (bool, error) {
@@ -422,6 +426,16 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		logSpanContext.Error().Err(err).Msg("Error getting feature vector")
 		writeJSONError(w, fmt.Errorf("Error getting feature vector: %+v", err), http.StatusInternalServerError)
 		return
+	}
+
+	if s.metricsClient != nil && s.config != nil {
+		agg := metrics.NewLookupMetricsAggregator(
+			s.config.Project,
+			metrics.GetOnlineStoreType(s.config),
+			s.metricsClient,
+		)
+		agg.RecordFromFeatureVectors(featureVectors)
+		agg.Emit()
 	}
 
 	var featureNames []string
@@ -626,6 +640,16 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
+	}
+
+	if s.metricsClient != nil && s.config != nil {
+		agg := metrics.NewLookupMetricsAggregator(
+			s.config.Project,
+			metrics.GetOnlineStoreType(s.config),
+			s.metricsClient,
+		)
+		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
+		agg.Emit()
 	}
 
 	featureNames, entities, results, err := processFeatureVectors(

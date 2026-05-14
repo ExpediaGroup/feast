@@ -6,6 +6,8 @@ import (
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/feast-dev/feast/go/internal/feast"
 	"github.com/feast-dev/feast/go/internal/feast/errors"
+	"github.com/feast-dev/feast/go/internal/feast/metrics"
+	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
 	"github.com/feast-dev/feast/go/internal/feast/version"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
@@ -27,11 +29,13 @@ const feastServerVersion = "0.0.1"
 type grpcServingServiceServer struct {
 	fs             *feast.FeatureStore
 	loggingService *logging.LoggingService
+	metricsClient  metrics.StatsdClient
+	config         *registry.RepoConfig
 	serving.UnimplementedServingServiceServer
 }
 
-func NewGrpcServingServiceServer(fs *feast.FeatureStore, loggingService *logging.LoggingService) *grpcServingServiceServer {
-	return &grpcServingServiceServer{fs: fs, loggingService: loggingService}
+func NewGrpcServingServiceServer(fs *feast.FeatureStore, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) *grpcServingServiceServer {
+	return &grpcServingServiceServer{fs: fs, loggingService: loggingService, metricsClient: metricsClient, config: config}
 }
 
 func (s *grpcServingServiceServer) GetFeastServingInfo(ctx context.Context, request *serving.GetFeastServingInfoRequest) (*serving.GetFeastServingInfoResponse, error) {
@@ -84,6 +88,16 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
 		return nil, errors.GrpcFromError(err)
+	}
+
+	if s.metricsClient != nil && s.config != nil {
+		agg := metrics.NewLookupMetricsAggregator(
+			s.config.Project,
+			metrics.GetOnlineStoreType(s.config),
+			s.metricsClient,
+		)
+		agg.RecordFromFeatureVectors(featureVectors)
+		agg.Emit()
 	}
 
 	resp := &serving.GetOnlineFeaturesResponse{
@@ -166,6 +180,16 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")
 		return nil, errors.GrpcFromError(err)
+	}
+
+	if s.metricsClient != nil && s.config != nil {
+		agg := metrics.NewLookupMetricsAggregator(
+			s.config.Project,
+			metrics.GetOnlineStoreType(s.config),
+			s.metricsClient,
+		)
+		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
+		agg.Emit()
 	}
 
 	entities := request.GetEntities()
