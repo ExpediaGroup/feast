@@ -451,14 +451,7 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting feature vector")
-		if s.metricsClient != nil && s.config != nil && len(fvNames) > 0 {
-			fvMetrics := metrics.NewFeatureViewReadMetrics(
-				s.config.Project,
-				metrics.GetOnlineStoreType(s.config),
-				s.metricsClient,
-			)
-			fvMetrics.Emit(fvNames, latencyMs, true)
-		}
+		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, true)
 		writeJSONError(w, fmt.Errorf("Error getting feature vector: %+v", err), http.StatusInternalServerError)
 		return
 	}
@@ -472,14 +465,7 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		agg.RecordFromFeatureVectors(featureVectors)
 		agg.Emit()
 
-		if len(fvNames) > 0 {
-			fvMetrics := metrics.NewFeatureViewReadMetrics(
-				s.config.Project,
-				metrics.GetOnlineStoreType(s.config),
-				s.metricsClient,
-			)
-			fvMetrics.Emit(fvNames, latencyMs, false)
-		}
+		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, false)
 	}
 
 	var featureNames []string
@@ -687,14 +673,7 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
-		if s.metricsClient != nil && s.config != nil && len(fvNames) > 0 {
-			fvMetrics := metrics.NewFeatureViewReadMetrics(
-				s.config.Project,
-				metrics.GetOnlineStoreType(s.config),
-				s.metricsClient,
-			)
-			fvMetrics.Emit(fvNames, latencyMs, true)
-		}
+		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, true)
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
@@ -708,14 +687,7 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
 		agg.Emit()
 
-		if len(fvNames) > 0 {
-			fvMetrics := metrics.NewFeatureViewReadMetrics(
-				s.config.Project,
-				metrics.GetOnlineStoreType(s.config),
-				s.metricsClient,
-			)
-			fvMetrics.Emit(fvNames, latencyMs, false)
-		}
+		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, false)
 	}
 
 	featureNames, entities, results, err := processFeatureVectors(

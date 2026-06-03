@@ -10,6 +10,12 @@ import (
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 )
 
+const (
+	LookupNotFoundMetric      = "mlpfs.featureserver.feature_lookup_not_found"
+	LookupNullOrExpiredMetric = "mlpfs.featureserver.feature_lookup_null_or_expired"
+	LookupRequestsMetric      = "mlpfs.featureserver.feature_lookup_requests"
+)
+
 // extractFeatureView extracts the feature view name from a full feature name.
 // Feature names follow the format: feature_view__feature_name
 // Example: "hotel_fv__price" -> "hotel_fv"
@@ -126,7 +132,7 @@ func (m *LookupMetricsAggregator) Emit() {
 		copy(tags, baseTags)
 		tags[len(baseTags)] = "feature:" + featureID
 		tags[len(baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
-		m.client.Count("mlpfs.featureserver.feature_lookup_not_found", adjustedCount, tags, 1.0)
+		m.client.Count(LookupNotFoundMetric, adjustedCount, tags, 1.0)
 	}
 
 	for featureID, count := range m.nullOrExpired {
@@ -138,7 +144,7 @@ func (m *LookupMetricsAggregator) Emit() {
 		copy(tags, baseTags)
 		tags[len(baseTags)] = "feature:" + featureID
 		tags[len(baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
-		m.client.Count("mlpfs.featureserver.feature_lookup_null_or_expired", adjustedCount, tags, 1.0)
+		m.client.Count(LookupNullOrExpiredMetric, adjustedCount, tags, 1.0)
 	}
 
 	for fvName, count := range m.totalByFV {
@@ -149,6 +155,6 @@ func (m *LookupMetricsAggregator) Emit() {
 		tags := make([]string, len(baseTags)+1)
 		copy(tags, baseTags)
 		tags[len(baseTags)] = "feature_view:" + fvName
-		m.client.Count("mlpfs.featureserver.feature_lookup_requests", adjustedCount, tags, 1.0)
+		m.client.Count(LookupRequestsMetric, adjustedCount, tags, 1.0)
 	}
 }

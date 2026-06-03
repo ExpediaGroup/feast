@@ -6,6 +6,12 @@ import (
 	"strconv"
 )
 
+const (
+	FVReadLatencyMetric  = "mlpfs.featureserver.fv_read_latency_ms"
+	FVReadRequestsMetric = "mlpfs.featureserver.fv_read_requests"
+	FVReadErrorsMetric   = "mlpfs.featureserver.fv_read_errors"
+)
+
 type FeatureViewReadMetrics struct {
 	project     string
 	onlineStore string
@@ -55,11 +61,11 @@ func (m *FeatureViewReadMetrics) Emit(featureViewNames []string, latencyMs float
 		copy(tags, baseTags)
 		tags[len(baseTags)] = "feature_view:" + fvName
 
-		m.client.Distribution("mlpfs.featureserver.fv_read_latency_ms", latencyMs, tags, 1.0)
-		m.client.Count("mlpfs.featureserver.fv_read_requests", 1, tags, 1.0)
+		m.client.Distribution(FVReadLatencyMetric, latencyMs, tags, 1.0)
+		m.client.Count(FVReadRequestsMetric, 1, tags, 1.0)
 
 		if hasError {
-			m.client.Count("mlpfs.featureserver.fv_read_errors", 1, tags, 1.0)
+			m.client.Count(FVReadErrorsMetric, 1, tags, 1.0)
 		}
 	}
 }

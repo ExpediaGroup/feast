@@ -49,12 +49,12 @@ func TestAggregator_AllNotFound(t *testing.T) {
 	agg.Record("user_fv__age", serving.FieldStatus_NOT_FOUND)
 	agg.Emit()
 
-	notFoundCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_not_found")
+	notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
 	assert.Len(t, notFoundCalls, 1)
 	assert.Equal(t, int64(3), notFoundCalls[0].value)
 	assert.Contains(t, notFoundCalls[0].tags, "feature:user_fv__age")
 
-	totalCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_requests")
+	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 1)
 	assert.Equal(t, int64(3), totalCalls[0].value)
 	assert.Contains(t, totalCalls[0].tags, "feature_view:user_fv")
@@ -69,12 +69,12 @@ func TestAggregator_AllNullOrExpired(t *testing.T) {
 	agg.Record("order_fv__amt", serving.FieldStatus_OUTSIDE_MAX_AGE)
 	agg.Emit()
 
-	nullCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_null_or_expired")
+	nullCalls := filterCalls(fake.calls, LookupNullOrExpiredMetric)
 	assert.Len(t, nullCalls, 1)
 	assert.Equal(t, int64(3), nullCalls[0].value)
 	assert.Contains(t, nullCalls[0].tags, "feature:order_fv__amt")
 
-	totalCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_requests")
+	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 1)
 	assert.Equal(t, int64(3), totalCalls[0].value)
 }
@@ -90,15 +90,15 @@ func TestAggregator_MixedStatuses(t *testing.T) {
 	agg.Record("fv_b__f2", serving.FieldStatus_OUTSIDE_MAX_AGE)
 	agg.Emit()
 
-	notFoundCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_not_found")
+	notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
 	assert.Len(t, notFoundCalls, 1)
 	assert.Equal(t, int64(1), notFoundCalls[0].value)
 
-	nullCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_null_or_expired")
+	nullCalls := filterCalls(fake.calls, LookupNullOrExpiredMetric)
 	assert.Len(t, nullCalls, 1)
 	assert.Equal(t, int64(2), nullCalls[0].value)
 
-	totalCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_requests")
+	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 2)
 	totalByFV := map[string]int64{}
 	for _, c := range totalCalls {
@@ -117,13 +117,13 @@ func TestAggregator_AllPresent(t *testing.T) {
 	agg.Emit()
 
 	// No not_found or null_or_expired calls
-	notFoundCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_not_found")
-	nullCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_null_or_expired")
+	notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
+	nullCalls := filterCalls(fake.calls, LookupNullOrExpiredMetric)
 	assert.Len(t, notFoundCalls, 0)
 	assert.Len(t, nullCalls, 0)
 
 	// But total requests should still be emitted
-	totalCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_requests")
+	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 1)
 	assert.Equal(t, int64(2), totalCalls[0].value)
 }
@@ -148,7 +148,7 @@ func TestAggregator_Tags(t *testing.T) {
 	agg.Record("hotel_fv__price", serving.FieldStatus_NOT_FOUND)
 	agg.Emit()
 
-	notFoundCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_not_found")
+	notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
 	assert.Len(t, notFoundCalls, 1)
 	tags := notFoundCalls[0].tags
 	assert.Contains(t, tags, "project:mlpfs")
@@ -175,7 +175,7 @@ func TestRecordFromFeatureVectors(t *testing.T) {
 	agg.RecordFromFeatureVectors(vectors)
 	agg.Emit()
 
-	notFoundCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_not_found")
+	notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
 	assert.Len(t, notFoundCalls, 2)
 
 	callsByFeature := map[string]int64{}
@@ -185,7 +185,7 @@ func TestRecordFromFeatureVectors(t *testing.T) {
 	assert.Equal(t, int64(1), callsByFeature["fv_a__f1"])
 	assert.Equal(t, int64(2), callsByFeature["fv_a__f2"])
 
-	totalCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_requests")
+	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 1)
 	assert.Equal(t, int64(4), totalCalls[0].value)
 	assert.Contains(t, totalCalls[0].tags, "feature_view:fv_a")
@@ -208,11 +208,11 @@ func TestRecordFromRangeFeatureVectors(t *testing.T) {
 	agg.RecordFromRangeFeatureVectors(vectors)
 	agg.Emit()
 
-	notFoundCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_not_found")
+	notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
 	assert.Len(t, notFoundCalls, 1)
 	assert.Equal(t, int64(2), notFoundCalls[0].value)
 
-	totalCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_requests")
+	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 1)
 	assert.Equal(t, int64(3), totalCalls[0].value)
 	assert.Contains(t, totalCalls[0].tags, "feature_view:sfv")
@@ -346,7 +346,7 @@ func TestSampling_AdjustsCountsCorrectly(t *testing.T) {
 		agg.Emit()
 		if len(fake.calls) > 0 {
 			emitted = true
-			notFoundCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_not_found")
+			notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
 			assert.Len(t, notFoundCalls, 1)
 			// With sample_rate=0.5, count of 2 should become 4 (2 / 0.5)
 			assert.Equal(t, int64(4), notFoundCalls[0].value, "Count should be adjusted by 1/sample_rate")
@@ -368,7 +368,7 @@ func TestSampling_NoAdjustmentWhenNotSampling(t *testing.T) {
 	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
 	agg.Emit()
 
-	notFoundCalls := filterCalls(fake.calls, "mlpfs.featureserver.feature_lookup_not_found")
+	notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
 	assert.Len(t, notFoundCalls, 1)
 	assert.Equal(t, int64(2), notFoundCalls[0].value, "Count should not be adjusted with sample_rate=1.0")
 }

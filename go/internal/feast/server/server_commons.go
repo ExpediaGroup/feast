@@ -1,11 +1,13 @@
 package server
 
 import (
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"net/http"
 	"os"
 
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
+	"github.com/feast-dev/feast/go/internal/feast/metrics"
+	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 )
 
@@ -19,6 +21,18 @@ func LogWithSpanContext(span *tracer.Span) zerolog.Logger {
 		Logger()
 
 	return logger
+}
+
+func emitFVReadMetrics(metricsClient metrics.StatsdClient, config *registry.RepoConfig, fvNames []string, latencyMs float64, hasError bool) {
+	if metricsClient == nil || config == nil || len(fvNames) == 0 {
+		return
+	}
+	fvMetrics := metrics.NewFeatureViewReadMetrics(
+		config.Project,
+		metrics.GetOnlineStoreType(config),
+		metricsClient,
+	)
+	fvMetrics.Emit(fvNames, latencyMs, hasError)
 }
 
 func CommonHttpHandlers(s *HttpServer, healthCheckHandler http.HandlerFunc) []Handler {

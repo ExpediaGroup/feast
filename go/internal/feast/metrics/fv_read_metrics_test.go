@@ -14,7 +14,7 @@ func TestFVMetrics_EmitLatencyDistribution(t *testing.T) {
 	m.Emit([]string{"hotel_fv"}, 42.5, false)
 
 	assert.Len(t, fake.distCalls, 1)
-	assert.Equal(t, "mlpfs.featureserver.fv_read_latency_ms", fake.distCalls[0].name)
+	assert.Equal(t, FVReadLatencyMetric, fake.distCalls[0].name)
 	assert.Equal(t, 42.5, fake.distCalls[0].value)
 	assert.Contains(t, fake.distCalls[0].tags, "project:proj")
 	assert.Contains(t, fake.distCalls[0].tags, "online_store_type:redis")
@@ -27,7 +27,7 @@ func TestFVMetrics_EmitRequestsCount(t *testing.T) {
 
 	m.Emit([]string{"hotel_fv"}, 10.0, false)
 
-	requestCalls := filterCalls(fake.calls, "mlpfs.featureserver.fv_read_requests")
+	requestCalls := filterCalls(fake.calls, FVReadRequestsMetric)
 	assert.Len(t, requestCalls, 1)
 	assert.Equal(t, int64(1), requestCalls[0].value)
 	assert.Contains(t, requestCalls[0].tags, "feature_view:hotel_fv")
@@ -39,7 +39,7 @@ func TestFVMetrics_EmitErrors(t *testing.T) {
 
 	m.Emit([]string{"hotel_fv"}, 100.0, true)
 
-	errorCalls := filterCalls(fake.calls, "mlpfs.featureserver.fv_read_errors")
+	errorCalls := filterCalls(fake.calls, FVReadErrorsMetric)
 	assert.Len(t, errorCalls, 1)
 	assert.Equal(t, int64(1), errorCalls[0].value)
 	assert.Contains(t, errorCalls[0].tags, "feature_view:hotel_fv")
@@ -51,7 +51,7 @@ func TestFVMetrics_NoErrorsWhenSuccess(t *testing.T) {
 
 	m.Emit([]string{"hotel_fv"}, 50.0, false)
 
-	errorCalls := filterCalls(fake.calls, "mlpfs.featureserver.fv_read_errors")
+	errorCalls := filterCalls(fake.calls, FVReadErrorsMetric)
 	assert.Len(t, errorCalls, 0)
 }
 
@@ -65,7 +65,7 @@ func TestFVMetrics_MultipleFeatureViews(t *testing.T) {
 	assert.Len(t, fake.distCalls, 3)
 
 	// 3 request counts
-	requestCalls := filterCalls(fake.calls, "mlpfs.featureserver.fv_read_requests")
+	requestCalls := filterCalls(fake.calls, FVReadRequestsMetric)
 	assert.Len(t, requestCalls, 3)
 
 	// All have same latency

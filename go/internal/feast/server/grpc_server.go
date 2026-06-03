@@ -94,14 +94,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
-		if s.metricsClient != nil && s.config != nil && len(fvNames) > 0 {
-			fvMetrics := metrics.NewFeatureViewReadMetrics(
-				s.config.Project,
-				metrics.GetOnlineStoreType(s.config),
-				s.metricsClient,
-			)
-			fvMetrics.Emit(fvNames, latencyMs, true)
-		}
+		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, true)
 		return nil, errors.GrpcFromError(err)
 	}
 
@@ -114,14 +107,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		agg.RecordFromFeatureVectors(featureVectors)
 		agg.Emit()
 
-		if len(fvNames) > 0 {
-			fvMetrics := metrics.NewFeatureViewReadMetrics(
-				s.config.Project,
-				metrics.GetOnlineStoreType(s.config),
-				s.metricsClient,
-			)
-			fvMetrics.Emit(fvNames, latencyMs, false)
-		}
+		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, false)
 	}
 
 	resp := &serving.GetOnlineFeaturesResponse{
@@ -208,14 +194,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")
-		if s.metricsClient != nil && s.config != nil && len(fvNames) > 0 {
-			fvMetrics := metrics.NewFeatureViewReadMetrics(
-				s.config.Project,
-				metrics.GetOnlineStoreType(s.config),
-				s.metricsClient,
-			)
-			fvMetrics.Emit(fvNames, latencyMs, true)
-		}
+		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, true)
 		return nil, errors.GrpcFromError(err)
 	}
 
@@ -228,14 +207,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
 		agg.Emit()
 
-		if len(fvNames) > 0 {
-			fvMetrics := metrics.NewFeatureViewReadMetrics(
-				s.config.Project,
-				metrics.GetOnlineStoreType(s.config),
-				s.metricsClient,
-			)
-			fvMetrics.Emit(fvNames, latencyMs, false)
-		}
+		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, false)
 	}
 
 	entities := request.GetEntities()
