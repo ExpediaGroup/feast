@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/feast-dev/feast/go/internal/feast"
 	"github.com/feast-dev/feast/go/internal/feast/errors"
@@ -77,6 +79,9 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		return nil, err
 	}
 
+	fvNames := extractFVNamesFromRequest(featuresOrService.FeaturesRefs, featuresOrService.FeatureService)
+	t0 := time.Now()
+
 	featureVectors, err := s.fs.GetOnlineFeatures(
 		ctx,
 		featuresOrService.FeaturesRefs,
@@ -85,8 +90,18 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		request.GetRequestContext(),
 		request.GetFullFeatureNames())
 
+	latencyMs := float64(time.Since(t0).Milliseconds())
+
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
+		if s.metricsClient != nil && s.config != nil && len(fvNames) > 0 {
+			fvMetrics := metrics.NewFeatureViewReadMetrics(
+				s.config.Project,
+				metrics.GetOnlineStoreType(s.config),
+				s.metricsClient,
+			)
+			fvMetrics.Emit(fvNames, latencyMs, true)
+		}
 		return nil, errors.GrpcFromError(err)
 	}
 
@@ -98,6 +113,15 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		)
 		agg.RecordFromFeatureVectors(featureVectors)
 		agg.Emit()
+
+		if len(fvNames) > 0 {
+			fvMetrics := metrics.NewFeatureViewReadMetrics(
+				s.config.Project,
+				metrics.GetOnlineStoreType(s.config),
+				s.metricsClient,
+			)
+			fvMetrics.Emit(fvNames, latencyMs, false)
+		}
 	}
 
 	resp := &serving.GetOnlineFeaturesResponse{
@@ -165,6 +189,9 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		return nil, err
 	}
 
+	fvNames := extractFVNamesFromRequest(featuresOrService.FeaturesRefs, featuresOrService.FeatureService)
+	t0 := time.Now()
+
 	rangeFeatureVectors, err := s.fs.GetOnlineFeaturesRange(
 		ctx,
 		featuresOrService.FeaturesRefs,
@@ -177,8 +204,18 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		request.GetFullFeatureNames(),
 	)
 
+	latencyMs := float64(time.Since(t0).Milliseconds())
+
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")
+		if s.metricsClient != nil && s.config != nil && len(fvNames) > 0 {
+			fvMetrics := metrics.NewFeatureViewReadMetrics(
+				s.config.Project,
+				metrics.GetOnlineStoreType(s.config),
+				s.metricsClient,
+			)
+			fvMetrics.Emit(fvNames, latencyMs, true)
+		}
 		return nil, errors.GrpcFromError(err)
 	}
 
@@ -190,6 +227,15 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		)
 		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
 		agg.Emit()
+
+		if len(fvNames) > 0 {
+			fvMetrics := metrics.NewFeatureViewReadMetrics(
+				s.config.Project,
+				metrics.GetOnlineStoreType(s.config),
+				s.metricsClient,
+			)
+			fvMetrics.Emit(fvNames, latencyMs, false)
+		}
 	}
 
 	entities := request.GetEntities()

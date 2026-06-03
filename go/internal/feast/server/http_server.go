@@ -328,6 +328,28 @@ func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingServic
 	return &HttpServer{fs: fs, loggingService: loggingService, metricsClient: metricsClient, config: config}
 }
 
+func extractFVNamesFromRequest(features []string, featureService *model.FeatureService) []string {
+	seen := make(map[string]struct{})
+
+	for _, ref := range features {
+		if parts := strings.SplitN(ref, ":", 2); len(parts) == 2 {
+			seen[parts[0]] = struct{}{}
+		}
+	}
+
+	if featureService != nil {
+		for _, proj := range featureService.Projections {
+			seen[proj.NameToUse()] = struct{}{}
+		}
+	}
+
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	return names
+}
+
 func parseIncludeMetadata(r *http.Request) (bool, error) {
 	q := r.URL.Query()
 	raw := strings.TrimSpace(q.Get("includeMetadata"))
@@ -408,6 +430,9 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		requestContextProto[key] = value.ToProto()
 	}
 
+	fvNames := extractFVNamesFromRequest(request.Features, featureService)
+	t0 := time.Now()
+
 	featureVectors, err = s.fs.GetOnlineFeatures(
 		ctx,
 		request.Features,
@@ -415,6 +440,8 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		entitiesProto,
 		requestContextProto,
 		request.FullFeatureNames)
+
+	latencyMs := float64(time.Since(t0).Milliseconds())
 
 	defer func() {
 		if featureVectors != nil {
@@ -424,6 +451,14 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting feature vector")
+		if s.metricsClient != nil && s.config != nil && len(fvNames) > 0 {
+			fvMetrics := metrics.NewFeatureViewReadMetrics(
+				s.config.Project,
+				metrics.GetOnlineStoreType(s.config),
+				s.metricsClient,
+			)
+			fvMetrics.Emit(fvNames, latencyMs, true)
+		}
 		writeJSONError(w, fmt.Errorf("Error getting feature vector: %+v", err), http.StatusInternalServerError)
 		return
 	}
@@ -436,6 +471,15 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		)
 		agg.RecordFromFeatureVectors(featureVectors)
 		agg.Emit()
+
+		if len(fvNames) > 0 {
+			fvMetrics := metrics.NewFeatureViewReadMetrics(
+				s.config.Project,
+				metrics.GetOnlineStoreType(s.config),
+				s.metricsClient,
+			)
+			fvMetrics.Emit(fvNames, latencyMs, false)
+		}
 	}
 
 	var featureNames []string
@@ -619,6 +663,9 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	fvNames := extractFVNamesFromRequest(request.Features, featureService)
+	t0 := time.Now()
+
 	rangeFeatureVectors, err := s.fs.GetOnlineFeaturesRange(
 		ctx,
 		request.Features,
@@ -630,6 +677,8 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		requestContextProto,
 		request.FullFeatureNames)
 
+	latencyMs := float64(time.Since(t0).Milliseconds())
+
 	defer func() {
 		if rangeFeatureVectors != nil {
 			go releaseCGORangeMemory(rangeFeatureVectors)
@@ -638,6 +687,14 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
+		if s.metricsClient != nil && s.config != nil && len(fvNames) > 0 {
+			fvMetrics := metrics.NewFeatureViewReadMetrics(
+				s.config.Project,
+				metrics.GetOnlineStoreType(s.config),
+				s.metricsClient,
+			)
+			fvMetrics.Emit(fvNames, latencyMs, true)
+		}
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
@@ -650,6 +707,15 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		)
 		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
 		agg.Emit()
+
+		if len(fvNames) > 0 {
+			fvMetrics := metrics.NewFeatureViewReadMetrics(
+				s.config.Project,
+				metrics.GetOnlineStoreType(s.config),
+				s.metricsClient,
+			)
+			fvMetrics.Emit(fvNames, latencyMs, false)
+		}
 	}
 
 	featureNames, entities, results, err := processFeatureVectors(

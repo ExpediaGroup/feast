@@ -12,6 +12,11 @@ func IsMissingKeyMetricsEnabled() bool {
 	return strings.ToLower(os.Getenv("ENABLE_MISSING_KEY_METRICS")) == "true"
 }
 
+func IsFVMetricsEnabled() bool {
+	return strings.ToLower(os.Getenv("ENABLE_FV_LEVEL_METRICS")) == "true" ||
+		IsMissingKeyMetricsEnabled()
+}
+
 func GetOnlineStoreType(config *registry.RepoConfig) string {
 	if storeType, ok := config.OnlineStore["type"]; ok {
 		return fmt.Sprintf("%v", storeType)

@@ -24,6 +24,7 @@ func extractFeatureView(featureName string) string {
 type LookupMetricsAggregator struct {
 	notFound      map[string]int64
 	nullOrExpired map[string]int64
+	totalByFV     map[string]int64
 	project       string
 	onlineStore   string
 	client        StatsdClient
@@ -51,6 +52,7 @@ func NewLookupMetricsAggregator(
 	return &LookupMetricsAggregator{
 		notFound:      make(map[string]int64),
 		nullOrExpired: make(map[string]int64),
+		totalByFV:     make(map[string]int64),
 		project:       project,
 		onlineStore:   onlineStore,
 		client:        client,
@@ -62,6 +64,7 @@ func (m *LookupMetricsAggregator) Record(featureID string, status serving.FieldS
 	if m == nil {
 		return
 	}
+	m.totalByFV[extractFeatureView(featureID)]++
 	switch status {
 	case serving.FieldStatus_NOT_FOUND:
 		m.notFound[featureID]++
@@ -136,5 +139,16 @@ func (m *LookupMetricsAggregator) Emit() {
 		tags[len(baseTags)] = "feature:" + featureID
 		tags[len(baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
 		m.client.Count("mlpfs.featureserver.feature_lookup_null_or_expired", adjustedCount, tags, 1.0)
+	}
+
+	for fvName, count := range m.totalByFV {
+		if count == 0 {
+			continue
+		}
+		adjustedCount := int64(float64(count) * multiplier)
+		tags := make([]string, len(baseTags)+1)
+		copy(tags, baseTags)
+		tags[len(baseTags)] = "feature_view:" + fvName
+		m.client.Count("mlpfs.featureserver.feature_lookup_requests", adjustedCount, tags, 1.0)
 	}
 }
