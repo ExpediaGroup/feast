@@ -22,7 +22,7 @@ from feast.expediagroup.pydantic_models.stream_format_model import (
     JsonFormatModel,
     ProtoFormatModel,
 )
-from feast.field_constraints import FieldConstraints, Imputation
+from feast.field_constraints import FieldConstraints
 from feast.infra.offline_stores.contrib.spark_offline_store.spark_source import (
     SparkSource,
 )
