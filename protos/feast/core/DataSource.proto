@@ -24,6 +24,7 @@ option java_package = "feast.proto.core";
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 import "feast/core/DataFormat.proto";
 import "feast/types/Value.proto";
 import "feast/core/Feature.proto";
@@ -268,34 +269,36 @@ message DataSource {
   // fields are not validated.
   message FieldConstraints {
     // Null handling.
-    optional bool   nullable      = 1; // false => no nulls allowed
-    optional double max_null_pct  = 2; // e.g. 0.01 = allow up to 1% nulls
+    // false => no nulls allowed; true (or unset) => any null rate allowed
+    google.protobuf.BoolValue   nullable      = 1;
+    // e.g. 0.01 = allow up to 1% nulls
+    google.protobuf.DoubleValue max_null_pct  = 2;
 
     // Numeric range (numeric columns).
-    optional double min_value     = 3;
-    optional double max_value     = 4;
+    google.protobuf.DoubleValue min_value     = 3;
+    google.protobuf.DoubleValue max_value     = 4;
 
     // Minimum row-level compliance for value/range/regex/allowed-values
     // checks. Default 1.0 (strict). Set below 1.0 when the underlying data
     // is known-noisy (e.g. floating-point ratios that drift past [0,1] by
     // ULP-scale rounding error).
-    optional double min_compliance = 5;
+    google.protobuf.DoubleValue min_compliance = 5;
 
     // Categorical (string/enum columns).
     repeated string allowed_values = 6;
 
-    // Pattern match (string columns). Regex must compile.
-    optional string regex          = 7;
+    // Pattern match (string columns). Regex must compile. Empty == unset.
+    string regex = 7;
 
     // Uniqueness contract.
-    optional bool   unique         = 8;
+    google.protobuf.BoolValue unique = 8;
 
     // Escape hatch for library-specific checks. Standard checks belong in typed fields.
     map<string, string> custom = 9;
 
     // Optional null-imputation strategy applied to this column before
-    // validation runs.
-    optional Imputation imputation = 10;
+    // validation runs. Unset == no imputation.
+    Imputation imputation = 10;
   }
 
   // Defines configuration for custom third-party data sources.

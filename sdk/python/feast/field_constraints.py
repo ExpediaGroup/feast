@@ -9,8 +9,9 @@ Only fields the customer sets are enforced. Unset fields are not validated.
 """
 
 import re
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
+from google.protobuf.wrappers_pb2 import BoolValue, DoubleValue
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from feast.protos.feast.core.DataSource_pb2 import DataSource as DataSourceProto
@@ -63,7 +64,7 @@ class Imputation(BaseModel):
             "median": ImputationProto.MEDIAN,
         }[self.strategy]
 
-        kwargs = {"strategy": strategy_enum}
+        kwargs: Dict[str, Any] = {"strategy": strategy_enum}
         if self.strategy == "default":
             # bool must be checked before int since `isinstance(True, int)` is True.
             if isinstance(self.default_value, bool):
@@ -180,23 +181,25 @@ class FieldConstraints(BaseModel):
         return self
 
     def to_proto(self) -> FieldConstraintsProto:
-        kwargs = {}
+        kwargs: Dict[str, Any] = {}
+        # bool / double fields wrap as google.protobuf.BoolValue/DoubleValue
+        # so the proto can distinguish unset from a meaningful zero/false.
         if self.nullable is not None:
-            kwargs["nullable"] = self.nullable
+            kwargs["nullable"] = BoolValue(value=self.nullable)
         if self.max_null_pct is not None:
-            kwargs["max_null_pct"] = self.max_null_pct
+            kwargs["max_null_pct"] = DoubleValue(value=self.max_null_pct)
         if self.min_value is not None:
-            kwargs["min_value"] = self.min_value
+            kwargs["min_value"] = DoubleValue(value=self.min_value)
         if self.max_value is not None:
-            kwargs["max_value"] = self.max_value
+            kwargs["max_value"] = DoubleValue(value=self.max_value)
         if self.min_compliance is not None:
-            kwargs["min_compliance"] = self.min_compliance
+            kwargs["min_compliance"] = DoubleValue(value=self.min_compliance)
         if self.allowed_values is not None:
             kwargs["allowed_values"] = list(self.allowed_values)
         if self.regex is not None:
             kwargs["regex"] = self.regex
         if self.unique is not None:
-            kwargs["unique"] = self.unique
+            kwargs["unique"] = BoolValue(value=self.unique)
         if self.custom is not None:
             kwargs["custom"] = dict(self.custom)
         if self.imputation is not None:
@@ -205,23 +208,26 @@ class FieldConstraints(BaseModel):
 
     @classmethod
     def from_proto(cls, proto: FieldConstraintsProto) -> "FieldConstraints":
-        kwargs = {}
+        kwargs: Dict[str, Any] = {}
+        # Wrapper messages: HasField returns True iff the wrapper itself was
+        # set on the wire. Unwrap .value for the contained primitive.
         if proto.HasField("nullable"):
-            kwargs["nullable"] = proto.nullable
+            kwargs["nullable"] = proto.nullable.value
         if proto.HasField("max_null_pct"):
-            kwargs["max_null_pct"] = proto.max_null_pct
+            kwargs["max_null_pct"] = proto.max_null_pct.value
         if proto.HasField("min_value"):
-            kwargs["min_value"] = proto.min_value
+            kwargs["min_value"] = proto.min_value.value
         if proto.HasField("max_value"):
-            kwargs["max_value"] = proto.max_value
+            kwargs["max_value"] = proto.max_value.value
         if proto.HasField("min_compliance"):
-            kwargs["min_compliance"] = proto.min_compliance
+            kwargs["min_compliance"] = proto.min_compliance.value
         if len(proto.allowed_values) > 0:
             kwargs["allowed_values"] = list(proto.allowed_values)
-        if proto.HasField("regex"):
+        # `regex` is a plain string in proto3; empty == unset.
+        if proto.regex != "":
             kwargs["regex"] = proto.regex
         if proto.HasField("unique"):
-            kwargs["unique"] = proto.unique
+            kwargs["unique"] = proto.unique.value
         if len(proto.custom) > 0:
             kwargs["custom"] = dict(proto.custom)
         if proto.HasField("imputation"):
