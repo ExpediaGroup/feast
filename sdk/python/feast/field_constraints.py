@@ -89,7 +89,9 @@ class Imputation(BaseModel):
             ImputationProto.MEDIAN: "median",
         }.get(proto.strategy)
         if strategy_name is None:
-            raise ValueError(f"unknown imputation strategy proto value: {proto.strategy}")
+            raise ValueError(
+                f"unknown imputation strategy proto value: {proto.strategy}"
+            )
 
         default_value: Optional[Union[float, int, str, bool]] = None
         if strategy_name == "default":
@@ -159,9 +161,7 @@ class FieldConstraints(BaseModel):
 
     @field_validator("allowed_values")
     @classmethod
-    def _allowed_values_nonempty(
-        cls, v: Optional[List[str]]
-    ) -> Optional[List[str]]:
+    def _allowed_values_nonempty(cls, v: Optional[List[str]]) -> Optional[List[str]]:
         if v is not None and len(v) == 0:
             raise ValueError("allowed_values must not be empty if set")
         return v
