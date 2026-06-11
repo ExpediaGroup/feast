@@ -2,8 +2,6 @@ package metrics
 
 import (
 	"math/rand"
-	"os"
-	"strconv"
 	"strings"
 
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
@@ -27,42 +25,39 @@ func extractFeatureView(featureName string) string {
 	return "unknown"
 }
 
+// LookupMetricsAggregator accumulates per-feature lookup statuses within a single
+// request and emits aggregated counts. A new instance is needed per request (because
+// it accumulates state), but the sampleRate is parsed once at startup.
 type LookupMetricsAggregator struct {
 	notFound      map[string]int64
 	nullOrExpired map[string]int64
 	totalByFV     map[string]int64
-	project       string
-	onlineStore   string
+	baseTags      []string
 	client        StatsdClient
 	sampleRate    float64
 }
 
+// NewLookupMetricsAggregator creates a per-request aggregator. The sampleRate should
+// come from ParseSampleRate() called once at server startup.
 func NewLookupMetricsAggregator(
 	project, onlineStore string,
 	client StatsdClient,
+	sampleRate float64,
 ) *LookupMetricsAggregator {
 	if client == nil {
 		return nil
-	}
-
-	// Read sampling rate from environment (default: 1.0 = no sampling)
-	sampleRate := 1.0
-	if rateStr := os.Getenv("FEAST_METRICS_SAMPLE_RATE"); rateStr != "" {
-		if rate, err := strconv.ParseFloat(rateStr, 64); err == nil {
-			if rate > 0 && rate <= 1.0 {
-				sampleRate = rate
-			}
-		}
 	}
 
 	return &LookupMetricsAggregator{
 		notFound:      make(map[string]int64),
 		nullOrExpired: make(map[string]int64),
 		totalByFV:     make(map[string]int64),
-		project:       project,
-		onlineStore:   onlineStore,
-		client:        client,
-		sampleRate:    sampleRate,
+		baseTags: []string{
+			"project:" + project,
+			"online_store_type:" + onlineStore,
+		},
+		client:     client,
+		sampleRate: sampleRate,
 	}
 }
 
@@ -108,30 +103,21 @@ func (m *LookupMetricsAggregator) Emit() {
 		return
 	}
 
-	// Probabilistic sampling: skip this request's metrics based on sample_rate
 	if m.sampleRate < 1.0 && rand.Float64() > m.sampleRate {
 		return
 	}
 
-	// Calculate multiplier to preserve statistical accuracy
-	// If sampleRate=0.1, we only emit 10% of the time, so multiply counts by 10
 	multiplier := 1.0 / m.sampleRate
-
-	baseTags := []string{
-		"project:" + m.project,
-		"online_store_type:" + m.onlineStore,
-	}
 
 	for featureID, count := range m.notFound {
 		if count == 0 {
 			continue
 		}
-		// Adjust count to preserve accuracy when sampling
 		adjustedCount := int64(float64(count) * multiplier)
-		tags := make([]string, len(baseTags)+2)
-		copy(tags, baseTags)
-		tags[len(baseTags)] = "feature:" + featureID
-		tags[len(baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
+		tags := make([]string, len(m.baseTags)+2)
+		copy(tags, m.baseTags)
+		tags[len(m.baseTags)] = "feature:" + featureID
+		tags[len(m.baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
 		m.client.Count(LookupNotFoundMetric, adjustedCount, tags, 1.0)
 	}
 
@@ -140,10 +126,10 @@ func (m *LookupMetricsAggregator) Emit() {
 			continue
 		}
 		adjustedCount := int64(float64(count) * multiplier)
-		tags := make([]string, len(baseTags)+2)
-		copy(tags, baseTags)
-		tags[len(baseTags)] = "feature:" + featureID
-		tags[len(baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
+		tags := make([]string, len(m.baseTags)+2)
+		copy(tags, m.baseTags)
+		tags[len(m.baseTags)] = "feature:" + featureID
+		tags[len(m.baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
 		m.client.Count(LookupNullOrExpiredMetric, adjustedCount, tags, 1.0)
 	}
 
@@ -152,9 +138,9 @@ func (m *LookupMetricsAggregator) Emit() {
 			continue
 		}
 		adjustedCount := int64(float64(count) * multiplier)
-		tags := make([]string, len(baseTags)+1)
-		copy(tags, baseTags)
-		tags[len(baseTags)] = "feature_view:" + fvName
+		tags := make([]string, len(m.baseTags)+1)
+		copy(tags, m.baseTags)
+		tags[len(m.baseTags)] = "feature_view:" + fvName
 		m.client.Count(LookupRequestsMetric, adjustedCount, tags, 1.0)
 	}
 }

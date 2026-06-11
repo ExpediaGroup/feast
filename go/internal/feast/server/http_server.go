@@ -33,6 +33,7 @@ type HttpServer struct {
 	fs             *feast.FeatureStore
 	loggingService *logging.LoggingService
 	metricsClient  metrics.StatsdClient
+	metricsCtx     *MetricsContext
 	config         *registry.RepoConfig
 	server         *http.Server
 }
@@ -325,7 +326,13 @@ type getOnlineFeaturesRequest struct {
 }
 
 func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) *HttpServer {
-	return &HttpServer{fs: fs, loggingService: loggingService, metricsClient: metricsClient, config: config}
+	return &HttpServer{
+		fs:             fs,
+		loggingService: loggingService,
+		metricsClient:  metricsClient,
+		metricsCtx:     NewMetricsContext(metricsClient, config),
+		config:         config,
+	}
 }
 
 func extractFVNamesFromRequest(features []string, featureService *model.FeatureService) []string {
@@ -451,21 +458,19 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting feature vector")
-		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, true)
+		if s.metricsCtx != nil {
+			s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, true)
+		}
 		writeJSONError(w, fmt.Errorf("Error getting feature vector: %+v", err), http.StatusInternalServerError)
 		return
 	}
 
-	if s.metricsClient != nil && s.config != nil {
-		agg := metrics.NewLookupMetricsAggregator(
-			s.config.Project,
-			metrics.GetOnlineStoreType(s.config),
-			s.metricsClient,
-		)
+	if s.metricsCtx != nil {
+		agg := s.metricsCtx.NewLookupAggregator()
 		agg.RecordFromFeatureVectors(featureVectors)
 		agg.Emit()
 
-		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, false)
+		s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, false)
 	}
 
 	var featureNames []string
@@ -673,21 +678,19 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
-		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, true)
+		if s.metricsCtx != nil {
+			s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, true)
+		}
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	if s.metricsClient != nil && s.config != nil {
-		agg := metrics.NewLookupMetricsAggregator(
-			s.config.Project,
-			metrics.GetOnlineStoreType(s.config),
-			s.metricsClient,
-		)
+	if s.metricsCtx != nil {
+		agg := s.metricsCtx.NewLookupAggregator()
 		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
 		agg.Emit()
 
-		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, false)
+		s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, false)
 	}
 
 	featureNames, entities, results, err := processFeatureVectors(

@@ -2,8 +2,6 @@ package metrics
 
 import (
 	"math/rand"
-	"os"
-	"strconv"
 )
 
 const (
@@ -12,32 +10,29 @@ const (
 	FVReadErrorsMetric   = "mlpfs.featureserver.fv_read_errors"
 )
 
+// FeatureViewReadMetrics is a singleton that emits per-feature-view read metrics.
+// Create once at server startup via NewFeatureViewReadMetrics and reuse across requests.
 type FeatureViewReadMetrics struct {
-	project     string
-	onlineStore string
-	client      StatsdClient
-	sampleRate  float64
+	baseTags   []string
+	client     StatsdClient
+	sampleRate float64
 }
 
-func NewFeatureViewReadMetrics(project, onlineStore string, client StatsdClient) *FeatureViewReadMetrics {
+// NewFeatureViewReadMetrics creates a reusable metrics emitter. The sampleRate
+// is parsed once at startup (see ParseSampleRate) rather than reading the
+// environment on every request.
+func NewFeatureViewReadMetrics(project, onlineStore string, client StatsdClient, sampleRate float64) *FeatureViewReadMetrics {
 	if client == nil {
 		return nil
 	}
 
-	sampleRate := 1.0
-	if rateStr := os.Getenv("FEAST_METRICS_SAMPLE_RATE"); rateStr != "" {
-		if rate, err := strconv.ParseFloat(rateStr, 64); err == nil {
-			if rate > 0 && rate <= 1.0 {
-				sampleRate = rate
-			}
-		}
-	}
-
 	return &FeatureViewReadMetrics{
-		project:     project,
-		onlineStore: onlineStore,
-		client:      client,
-		sampleRate:  sampleRate,
+		baseTags: []string{
+			"project:" + project,
+			"online_store_type:" + onlineStore,
+		},
+		client:     client,
+		sampleRate: sampleRate,
 	}
 }
 
@@ -51,15 +46,10 @@ func (m *FeatureViewReadMetrics) Emit(featureViewNames []string, latencyMs float
 		return
 	}
 
-	baseTags := []string{
-		"project:" + m.project,
-		"online_store_type:" + m.onlineStore,
-	}
-
 	for _, fvName := range featureViewNames {
-		tags := make([]string, len(baseTags)+1)
-		copy(tags, baseTags)
-		tags[len(baseTags)] = "feature_view:" + fvName
+		tags := make([]string, len(m.baseTags)+1)
+		copy(tags, m.baseTags)
+		tags[len(m.baseTags)] = "feature_view:" + fvName
 
 		m.client.Distribution(FVReadLatencyMetric, latencyMs, tags, 1.0)
 		m.client.Count(FVReadRequestsMetric, 1, tags, 1.0)

@@ -3,10 +3,13 @@ package metrics
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 )
+
+const DefaultSampleRate = 0.01
 
 func IsMissingKeyMetricsEnabled() bool {
 	return strings.ToLower(os.Getenv("ENABLE_MISSING_KEY_METRICS")) == "true"
@@ -22,6 +25,20 @@ func GetOnlineStoreType(config *registry.RepoConfig) string {
 		return fmt.Sprintf("%v", storeType)
 	}
 	return "unknown"
+}
+
+// ParseSampleRate reads FEAST_METRICS_SAMPLE_RATE from the environment once.
+// Returns DefaultSampleRate (0.01) if unset or invalid.
+func ParseSampleRate() float64 {
+	rateStr := os.Getenv("FEAST_METRICS_SAMPLE_RATE")
+	if rateStr == "" {
+		return DefaultSampleRate
+	}
+	rate, err := strconv.ParseFloat(rateStr, 64)
+	if err != nil || rate <= 0 || rate > 1.0 {
+		return DefaultSampleRate
+	}
+	return rate
 }
 
 // GetStatsDAddress returns the DogStatsD address from environment variables.

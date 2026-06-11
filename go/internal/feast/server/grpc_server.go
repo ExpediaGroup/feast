@@ -32,12 +32,19 @@ type grpcServingServiceServer struct {
 	fs             *feast.FeatureStore
 	loggingService *logging.LoggingService
 	metricsClient  metrics.StatsdClient
+	metricsCtx     *MetricsContext
 	config         *registry.RepoConfig
 	serving.UnimplementedServingServiceServer
 }
 
 func NewGrpcServingServiceServer(fs *feast.FeatureStore, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) *grpcServingServiceServer {
-	return &grpcServingServiceServer{fs: fs, loggingService: loggingService, metricsClient: metricsClient, config: config}
+	return &grpcServingServiceServer{
+		fs:             fs,
+		loggingService: loggingService,
+		metricsClient:  metricsClient,
+		metricsCtx:     NewMetricsContext(metricsClient, config),
+		config:         config,
+	}
 }
 
 func (s *grpcServingServiceServer) GetFeastServingInfo(ctx context.Context, request *serving.GetFeastServingInfoRequest) (*serving.GetFeastServingInfoResponse, error) {
@@ -94,20 +101,18 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
-		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, true)
+		if s.metricsCtx != nil {
+			s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, true)
+		}
 		return nil, errors.GrpcFromError(err)
 	}
 
-	if s.metricsClient != nil && s.config != nil {
-		agg := metrics.NewLookupMetricsAggregator(
-			s.config.Project,
-			metrics.GetOnlineStoreType(s.config),
-			s.metricsClient,
-		)
+	if s.metricsCtx != nil {
+		agg := s.metricsCtx.NewLookupAggregator()
 		agg.RecordFromFeatureVectors(featureVectors)
 		agg.Emit()
 
-		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, false)
+		s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, false)
 	}
 
 	resp := &serving.GetOnlineFeaturesResponse{
@@ -194,20 +199,18 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")
-		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, true)
+		if s.metricsCtx != nil {
+			s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, true)
+		}
 		return nil, errors.GrpcFromError(err)
 	}
 
-	if s.metricsClient != nil && s.config != nil {
-		agg := metrics.NewLookupMetricsAggregator(
-			s.config.Project,
-			metrics.GetOnlineStoreType(s.config),
-			s.metricsClient,
-		)
+	if s.metricsCtx != nil {
+		agg := s.metricsCtx.NewLookupAggregator()
 		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
 		agg.Emit()
 
-		emitFVReadMetrics(s.metricsClient, s.config, fvNames, latencyMs, false)
+		s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, false)
 	}
 
 	entities := request.GetEntities()

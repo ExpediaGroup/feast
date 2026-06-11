@@ -9,7 +9,7 @@ import (
 
 func TestFVMetrics_EmitLatencyDistribution(t *testing.T) {
 	fake := &fakeStatsdClient{}
-	m := NewFeatureViewReadMetrics("proj", "redis", fake)
+	m := NewFeatureViewReadMetrics("proj", "redis", fake, 1.0)
 
 	m.Emit([]string{"hotel_fv"}, 42.5, false)
 
@@ -23,7 +23,7 @@ func TestFVMetrics_EmitLatencyDistribution(t *testing.T) {
 
 func TestFVMetrics_EmitRequestsCount(t *testing.T) {
 	fake := &fakeStatsdClient{}
-	m := NewFeatureViewReadMetrics("proj", "redis", fake)
+	m := NewFeatureViewReadMetrics("proj", "redis", fake, 1.0)
 
 	m.Emit([]string{"hotel_fv"}, 10.0, false)
 
@@ -35,7 +35,7 @@ func TestFVMetrics_EmitRequestsCount(t *testing.T) {
 
 func TestFVMetrics_EmitErrors(t *testing.T) {
 	fake := &fakeStatsdClient{}
-	m := NewFeatureViewReadMetrics("proj", "redis", fake)
+	m := NewFeatureViewReadMetrics("proj", "redis", fake, 1.0)
 
 	m.Emit([]string{"hotel_fv"}, 100.0, true)
 
@@ -47,7 +47,7 @@ func TestFVMetrics_EmitErrors(t *testing.T) {
 
 func TestFVMetrics_NoErrorsWhenSuccess(t *testing.T) {
 	fake := &fakeStatsdClient{}
-	m := NewFeatureViewReadMetrics("proj", "redis", fake)
+	m := NewFeatureViewReadMetrics("proj", "redis", fake, 1.0)
 
 	m.Emit([]string{"hotel_fv"}, 50.0, false)
 
@@ -57,7 +57,7 @@ func TestFVMetrics_NoErrorsWhenSuccess(t *testing.T) {
 
 func TestFVMetrics_MultipleFeatureViews(t *testing.T) {
 	fake := &fakeStatsdClient{}
-	m := NewFeatureViewReadMetrics("proj", "valkey", fake)
+	m := NewFeatureViewReadMetrics("proj", "valkey", fake, 1.0)
 
 	m.Emit([]string{"hotel_fv", "user_fv", "booking_fv"}, 75.0, false)
 
@@ -84,7 +84,7 @@ func TestFVMetrics_MultipleFeatureViews(t *testing.T) {
 }
 
 func TestFVMetrics_NilClient(t *testing.T) {
-	m := NewFeatureViewReadMetrics("proj", "redis", nil)
+	m := NewFeatureViewReadMetrics("proj", "redis", nil, 1.0)
 	assert.Nil(t, m)
 }
 
@@ -94,11 +94,8 @@ func TestFVMetrics_NilSafe(t *testing.T) {
 }
 
 func TestFVMetrics_Sampling(t *testing.T) {
-	os.Setenv("FEAST_METRICS_SAMPLE_RATE", "0.5")
-	defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
-
 	fake := &fakeStatsdClient{}
-	m := NewFeatureViewReadMetrics("proj", "redis", fake)
+	m := NewFeatureViewReadMetrics("proj", "redis", fake, 0.5)
 
 	assert.Equal(t, 0.5, m.sampleRate)
 

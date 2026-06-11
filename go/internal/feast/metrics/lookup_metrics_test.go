@@ -37,7 +37,7 @@ func (f *fakeStatsdClient) Distribution(name string, value float64, tags []strin
 }
 
 func newTestAggregator(client StatsdClient) *LookupMetricsAggregator {
-	return NewLookupMetricsAggregator("test_project", "redis", client)
+	return NewLookupMetricsAggregator("test_project", "redis", client, 1.0)
 }
 
 func TestAggregator_AllNotFound(t *testing.T) {
@@ -137,13 +137,13 @@ func TestAggregator_NilSafe(t *testing.T) {
 }
 
 func TestAggregator_NilClient(t *testing.T) {
-	agg := NewLookupMetricsAggregator("p", "r", nil)
+	agg := NewLookupMetricsAggregator("p", "r", nil, 1.0)
 	assert.Nil(t, agg)
 }
 
 func TestAggregator_Tags(t *testing.T) {
 	fake := &fakeStatsdClient{}
-	agg := NewLookupMetricsAggregator("mlpfs", "eg-valkey", fake)
+	agg := NewLookupMetricsAggregator("mlpfs", "eg-valkey", fake, 1.0)
 
 	agg.Record("hotel_fv__price", serving.FieldStatus_NOT_FOUND)
 	agg.Emit()
@@ -281,34 +281,28 @@ func filterCalls(calls []metricCall, name string) []metricCall {
 	return result
 }
 
-func TestSampling_DefaultNoSampling(t *testing.T) {
+func TestParseSampleRate_Default(t *testing.T) {
 	os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
-	fake := &fakeStatsdClient{}
-	agg := newTestAggregator(fake)
-
-	assert.Equal(t, 1.0, agg.sampleRate, "Default sample rate should be 1.0")
+	assert.Equal(t, DefaultSampleRate, ParseSampleRate(), "Default should be 0.01")
 }
 
-func TestSampling_ReadFromEnv(t *testing.T) {
+func TestParseSampleRate_ReadFromEnv(t *testing.T) {
 	os.Setenv("FEAST_METRICS_SAMPLE_RATE", "0.5")
 	defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
 
-	fake := &fakeStatsdClient{}
-	agg := newTestAggregator(fake)
-
-	assert.Equal(t, 0.5, agg.sampleRate, "Should read sample rate from environment")
+	assert.Equal(t, 0.5, ParseSampleRate())
 }
 
-func TestSampling_InvalidValues(t *testing.T) {
+func TestParseSampleRate_InvalidValues(t *testing.T) {
 	testCases := []struct {
 		value    string
 		expected float64
 	}{
-		{"-0.5", 1.0}, // Negative
-		{"1.5", 1.0},  // > 1.0
-		{"0", 1.0},    // Zero
-		{"abc", 1.0},  // Non-numeric
-		{"", 1.0},     // Empty (unset uses default)
+		{"-0.5", DefaultSampleRate},
+		{"1.5", DefaultSampleRate},
+		{"0", DefaultSampleRate},
+		{"abc", DefaultSampleRate},
+		{"", DefaultSampleRate},
 	}
 
 	for _, tc := range testCases {
@@ -320,22 +314,15 @@ func TestSampling_InvalidValues(t *testing.T) {
 				defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
 			}
 
-			fake := &fakeStatsdClient{}
-			agg := newTestAggregator(fake)
-
-			assert.Equal(t, tc.expected, agg.sampleRate)
+			assert.Equal(t, tc.expected, ParseSampleRate())
 		})
 	}
 }
 
 func TestSampling_AdjustsCountsCorrectly(t *testing.T) {
-	os.Setenv("FEAST_METRICS_SAMPLE_RATE", "0.5")
-	defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
-
 	fake := &fakeStatsdClient{}
-	agg := newTestAggregator(fake)
+	agg := NewLookupMetricsAggregator("test_project", "redis", fake, 0.5)
 
-	// Record 2 missing keys
 	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
 	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
 
@@ -358,11 +345,8 @@ func TestSampling_AdjustsCountsCorrectly(t *testing.T) {
 }
 
 func TestSampling_NoAdjustmentWhenNotSampling(t *testing.T) {
-	os.Setenv("FEAST_METRICS_SAMPLE_RATE", "1.0")
-	defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
-
 	fake := &fakeStatsdClient{}
-	agg := newTestAggregator(fake)
+	agg := NewLookupMetricsAggregator("test_project", "redis", fake, 1.0)
 
 	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
 	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
