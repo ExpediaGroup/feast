@@ -17,6 +17,13 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+const defaultServiceConfig = `{
+  "methodConfig": [{
+    "name": [{}],
+    "timeout": "5s"
+  }]
+}`
+
 type GrpcRegistryStore struct {
 	project string
 	client  registryPb.RegistryServerClient
@@ -47,7 +54,7 @@ func NewGrpcRegistryStore(config *RegistryConfig, project string) (*GrpcRegistry
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	conn, err := grpc.NewClient(target, dialOpts...)
+	conn, err := grpc.NewClient(target, append(dialOpts, grpc.WithDefaultServiceConfig(defaultServiceConfig))...)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +85,7 @@ func buildTLSCredentials(certPath string) (credentials.TransportCredentials, err
 	return credentials.NewTLS(&tls.Config{RootCAs: pool}), nil
 }
 
-// parseGrpcTarget strips grpc:// or grpcs:// scheme prefixes and returns
+// parseGrpcTarget strips http:// or https:// scheme prefixes and returns
 // the target address along with whether TLS should be used.
 func parseGrpcTarget(path string) (target string, useTLS bool) {
 	if strings.HasPrefix(path, "https://") {
