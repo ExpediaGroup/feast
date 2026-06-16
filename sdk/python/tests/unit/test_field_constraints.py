@@ -63,6 +63,13 @@ def test_regex_rejects_uncompilable_pattern():
     assert "regex" in str(exc.value)
 
 
+@pytest.mark.parametrize("value", ["", "   ", "\t"])
+def test_regex_rejects_empty(value):
+    with pytest.raises(ValidationError) as exc:
+        FieldConstraints(regex=value)
+    assert "regex must not be empty" in str(exc.value)
+
+
 def test_allowed_values_rejects_empty_list():
     with pytest.raises(ValidationError) as exc:
         FieldConstraints(allowed_values=[])
@@ -172,6 +179,26 @@ def test_field_constraints_proto_roundtrip_custom_predicates():
         },
     )
     assert _roundtrip_constraints(fc) == fc
+
+
+@pytest.mark.parametrize("predicate", ["", "   ", "\t"])
+def test_custom_rejects_empty_predicate(predicate):
+    with pytest.raises(ValidationError) as exc:
+        FieldConstraints(custom={"amount_cap": predicate})
+    assert "must not be empty" in str(exc.value)
+
+
+@pytest.mark.parametrize("name", ["", "   "])
+def test_custom_rejects_empty_name(name):
+    with pytest.raises(ValidationError) as exc:
+        FieldConstraints(custom={name: "amount < 100"})
+    assert "names must not be empty" in str(exc.value)
+
+
+def test_custom_rejects_empty_map():
+    with pytest.raises(ValidationError) as exc:
+        FieldConstraints(custom={})
+    assert "must not be empty if set" in str(exc.value)
 
 
 def test_field_constraints_proto_roundtrip_with_imputation_default_string():

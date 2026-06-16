@@ -153,6 +153,8 @@ class FieldConstraints(BaseModel):
     @classmethod
     def _regex_compiles(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
+            if v.strip() == "":
+                raise ValueError("regex must not be empty if set")
             try:
                 re.compile(v)
             except re.error as e:
@@ -164,6 +166,29 @@ class FieldConstraints(BaseModel):
     def _allowed_values_nonempty(cls, v: Optional[List[str]]) -> Optional[List[str]]:
         if v is not None and len(v) == 0:
             raise ValueError("allowed_values must not be empty if set")
+        return v
+
+    @field_validator("custom")
+    @classmethod
+    def _custom_nonempty(
+        cls, v: Optional[Dict[str, str]]
+    ) -> Optional[Dict[str, str]]:
+        # Every other field validates at definition time; custom predicates are
+        # raw SQL passed straight to the downstream check, so an empty/whitespace
+        # predicate would otherwise only surface at FE run time. Reject the
+        # common typos here. Also catches the empty-map set != get asymmetry
+        # (proto3 reads an empty map back as unset, i.e. None).
+        if v is None:
+            return v
+        if len(v) == 0:
+            raise ValueError("custom must not be empty if set")
+        for name, predicate in v.items():
+            if name is None or name.strip() == "":
+                raise ValueError("custom check names must not be empty")
+            if predicate is None or predicate.strip() == "":
+                raise ValueError(
+                    f"custom predicate for {name!r} must not be empty"
+                )
         return v
 
     @model_validator(mode="after")
