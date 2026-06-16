@@ -170,9 +170,7 @@ class FieldConstraints(BaseModel):
 
     @field_validator("custom")
     @classmethod
-    def _custom_nonempty(
-        cls, v: Optional[Dict[str, str]]
-    ) -> Optional[Dict[str, str]]:
+    def _custom_nonempty(cls, v: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
         # Every other field validates at definition time; custom predicates are
         # raw SQL passed straight to the downstream check, so an empty/whitespace
         # predicate would otherwise only surface at FE run time. Reject the
@@ -186,9 +184,7 @@ class FieldConstraints(BaseModel):
             if name is None or name.strip() == "":
                 raise ValueError("custom check names must not be empty")
             if predicate is None or predicate.strip() == "":
-                raise ValueError(
-                    f"custom predicate for {name!r} must not be empty"
-                )
+                raise ValueError(f"custom predicate for {name!r} must not be empty")
         return v
 
     @model_validator(mode="after")
