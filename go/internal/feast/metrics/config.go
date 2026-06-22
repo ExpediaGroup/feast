@@ -22,8 +22,7 @@ func IsFVMetricsEnabled() bool {
 	return strings.ToLower(os.Getenv("ENABLE_FV_LEVEL_METRICS")) == "true"
 }
 
-// IsMetricsClientEnabled returns true if any metrics feature is enabled.
-// Use this in main.go to gate statsd client construction.
+// IsMetricsClientEnabled returns true if any metrics feature flag is enabled.
 func IsMetricsClientEnabled() bool {
 	return IsFVMetricsEnabled() || IsMissingKeyMetricsEnabled()
 }
@@ -35,14 +34,12 @@ func GetOnlineStoreType(config *registry.RepoConfig) string {
 	return "unknown"
 }
 
-// ParseSampleRate reads FEAST_METRICS_SAMPLE_RATE for lookup metrics.
-// Returns DefaultLookupSampleRate (1.0) if unset or invalid.
-func ParseSampleRate() float64 {
+// ParseLookupSampleRate reads FEAST_METRICS_SAMPLE_RATE for lookup metrics.
+func ParseLookupSampleRate() float64 {
 	return parseRate(os.Getenv("FEAST_METRICS_SAMPLE_RATE"), DefaultLookupSampleRate)
 }
 
 // ParseFVSampleRate reads FEAST_FV_METRICS_SAMPLE_RATE for feature-view read metrics.
-// Returns DefaultFVSampleRate (0.01) if unset or invalid.
 func ParseFVSampleRate() float64 {
 	return parseRate(os.Getenv("FEAST_FV_METRICS_SAMPLE_RATE"), DefaultFVSampleRate)
 }

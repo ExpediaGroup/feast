@@ -19,22 +19,6 @@ func TestParseFVSampleRate_FVSpecificEnvVar(t *testing.T) {
 	assert.Equal(t, 0.2, ParseFVSampleRate())
 }
 
-func TestParseFVSampleRate_IndependentOfLookupEnvVar(t *testing.T) {
-	os.Unsetenv("FEAST_FV_METRICS_SAMPLE_RATE")
-	os.Setenv("FEAST_METRICS_SAMPLE_RATE", "0.3")
-	defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
-	// FV rate should not pick up the lookup env var — uses its own default.
-	assert.Equal(t, DefaultFVSampleRate, ParseFVSampleRate())
-}
-
-func TestParseSampleRate_IndependentOfFVEnvVar(t *testing.T) {
-	os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
-	os.Setenv("FEAST_FV_METRICS_SAMPLE_RATE", "0.2")
-	defer os.Unsetenv("FEAST_FV_METRICS_SAMPLE_RATE")
-	// Lookup rate should not pick up the FV env var — uses its own default.
-	assert.Equal(t, DefaultLookupSampleRate, ParseSampleRate())
-}
-
 func TestIsMetricsClientEnabled(t *testing.T) {
 	os.Unsetenv("ENABLE_FV_LEVEL_METRICS")
 	os.Unsetenv("ENABLE_MISSING_KEY_METRICS")

@@ -24,9 +24,7 @@ func extractFeatureView(featureName string) string {
 	return "unknown"
 }
 
-// LookupMetricsAggregator accumulates per-feature lookup statuses within a single
-// request and emits aggregated counts. A new instance is needed per request (because
-// it accumulates state), but the sampleRate is parsed once at startup.
+// LookupMetricsAggregator accumulates per-feature lookup statuses for a single request and emits aggregated counts.
 type LookupMetricsAggregator struct {
 	notFound      map[string]int64
 	nullOrExpired map[string]int64
@@ -36,8 +34,6 @@ type LookupMetricsAggregator struct {
 	sampleRate    float64
 }
 
-// NewLookupMetricsAggregator creates a per-request aggregator. The sampleRate should
-// come from ParseSampleRate() called once at server startup.
 func NewLookupMetricsAggregator(
 	project, onlineStore string,
 	client StatsdClient,

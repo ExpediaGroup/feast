@@ -26,7 +26,6 @@ func LogWithSpanContext(span *tracer.Span) zerolog.Logger {
 }
 
 // MetricsContext holds pre-initialized metrics objects for the server lifetime.
-// Created once at server startup to avoid per-request allocations and env reads.
 type MetricsContext struct {
 	FVReadMetrics *metrics.FeatureViewReadMetrics
 	SampleRate    float64
@@ -44,7 +43,7 @@ func NewMetricsContext(client metrics.StatsdClient, config *registry.RepoConfig)
 
 	return &MetricsContext{
 		FVReadMetrics: metrics.NewFeatureViewReadMetrics(project, onlineStore, client, metrics.ParseFVSampleRate()),
-		SampleRate:    metrics.ParseSampleRate(),
+		SampleRate:    metrics.ParseLookupSampleRate(),
 		Project:       project,
 		OnlineStore:   onlineStore,
 		Client:        client,

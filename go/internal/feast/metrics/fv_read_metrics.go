@@ -6,17 +6,13 @@ const (
 	FVReadErrorsMetric   = "mlpfs.featureserver.fv_read_errors"
 )
 
-// FeatureViewReadMetrics is a singleton that emits per-feature-view read metrics.
-// Create once at server startup via NewFeatureViewReadMetrics and reuse across requests.
+// FeatureViewReadMetrics emits per-feature-view read metrics (latency, requests, errors).
 type FeatureViewReadMetrics struct {
 	baseTags   []string
 	client     StatsdClient
 	sampleRate float64
 }
 
-// NewFeatureViewReadMetrics creates a reusable metrics emitter. The sampleRate
-// is parsed once at startup (see ParseSampleRate) rather than reading the
-// environment on every request.
 func NewFeatureViewReadMetrics(project, onlineStore string, client StatsdClient, sampleRate float64) *FeatureViewReadMetrics {
 	if client == nil {
 		return nil
@@ -32,7 +28,6 @@ func NewFeatureViewReadMetrics(project, onlineStore string, client StatsdClient,
 	}
 }
 
-// Emit emits latency, request count, and optionally errors for each feature view.
 func (m *FeatureViewReadMetrics) Emit(featureViewNames []string, latencyMs float64, hasError bool) {
 	if m == nil || m.client == nil {
 		return

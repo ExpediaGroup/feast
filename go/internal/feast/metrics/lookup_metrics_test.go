@@ -283,19 +283,19 @@ func filterCalls(calls []metricCall, name string) []metricCall {
 	return result
 }
 
-func TestParseSampleRate_Default(t *testing.T) {
+func TestParseLookupSampleRate_Default(t *testing.T) {
 	os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
-	assert.Equal(t, DefaultLookupSampleRate, ParseSampleRate(), "Default should be 0.01")
+	assert.Equal(t, DefaultLookupSampleRate, ParseLookupSampleRate(), "Default should be 0.01")
 }
 
-func TestParseSampleRate_ReadFromEnv(t *testing.T) {
+func TestParseLookupSampleRate_ReadFromEnv(t *testing.T) {
 	os.Setenv("FEAST_METRICS_SAMPLE_RATE", "0.5")
 	defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
 
-	assert.Equal(t, 0.5, ParseSampleRate())
+	assert.Equal(t, 0.5, ParseLookupSampleRate())
 }
 
-func TestParseSampleRate_InvalidValues(t *testing.T) {
+func TestParseLookupSampleRate_InvalidValues(t *testing.T) {
 	testCases := []struct {
 		value    string
 		expected float64
@@ -316,7 +316,7 @@ func TestParseSampleRate_InvalidValues(t *testing.T) {
 				defer os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
 			}
 
-			assert.Equal(t, tc.expected, ParseSampleRate())
+			assert.Equal(t, tc.expected, ParseLookupSampleRate())
 		})
 	}
 }
