@@ -146,7 +146,16 @@ class HttpRegistry(BaseRegistry):
 
     def _send_request(self, method: str, url: str, params=None, data=None):
         try:
-            request = httpx.Request(method=method, url=url, params=params, data=data)
+            # `data` carries a JSON string. httpx's `data=<str>` path is deprecated and
+            # sends the body WITHOUT a Content-Type header (the client-level default is
+            # not merged into a pre-built Request by send()). FastAPI then treats the
+            # body as a raw string instead of JSON and rejects it with HTTP 422
+            # (model_attributes_type). Send it as `content=` with an explicit JSON
+            # Content-Type so the registry parses it correctly.
+            headers = {"Content-Type": "application/json"} if data is not None else None
+            request = httpx.Request(
+                method=method, url=url, params=params, content=data, headers=headers
+            )
             response = self.http_client.send(request)
             response.raise_for_status()
             return response.json()
