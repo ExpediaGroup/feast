@@ -13,12 +13,14 @@ type metricCall struct {
 	name  string
 	value int64
 	tags  []string
+	rate  float64
 }
 
 type distCall struct {
 	name  string
 	value float64
 	tags  []string
+	rate  float64
 }
 
 type fakeStatsdClient struct {
@@ -27,12 +29,12 @@ type fakeStatsdClient struct {
 }
 
 func (f *fakeStatsdClient) Count(name string, value int64, tags []string, rate float64) error {
-	f.calls = append(f.calls, metricCall{name: name, value: value, tags: tags})
+	f.calls = append(f.calls, metricCall{name: name, value: value, tags: tags, rate: rate})
 	return nil
 }
 
 func (f *fakeStatsdClient) Distribution(name string, value float64, tags []string, rate float64) error {
-	f.distCalls = append(f.distCalls, distCall{name: name, value: value, tags: tags})
+	f.distCalls = append(f.distCalls, distCall{name: name, value: value, tags: tags, rate: rate})
 	return nil
 }
 
@@ -283,7 +285,7 @@ func filterCalls(calls []metricCall, name string) []metricCall {
 
 func TestParseSampleRate_Default(t *testing.T) {
 	os.Unsetenv("FEAST_METRICS_SAMPLE_RATE")
-	assert.Equal(t, DefaultSampleRate, ParseSampleRate(), "Default should be 0.01")
+	assert.Equal(t, DefaultLookupSampleRate, ParseSampleRate(), "Default should be 0.01")
 }
 
 func TestParseSampleRate_ReadFromEnv(t *testing.T) {
@@ -298,11 +300,11 @@ func TestParseSampleRate_InvalidValues(t *testing.T) {
 		value    string
 		expected float64
 	}{
-		{"-0.5", DefaultSampleRate},
-		{"1.5", DefaultSampleRate},
-		{"0", DefaultSampleRate},
-		{"abc", DefaultSampleRate},
-		{"", DefaultSampleRate},
+		{"-0.5", DefaultLookupSampleRate},
+		{"1.5", DefaultLookupSampleRate},
+		{"0", DefaultLookupSampleRate},
+		{"abc", DefaultLookupSampleRate},
+		{"", DefaultLookupSampleRate},
 	}
 
 	for _, tc := range testCases {
@@ -325,23 +327,13 @@ func TestSampling_AdjustsCountsCorrectly(t *testing.T) {
 
 	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
 	agg.Record("fv__f1", serving.FieldStatus_NOT_FOUND)
+	agg.Emit()
 
-	// Try multiple times to ensure at least one emit happens
-	emitted := false
-	for i := 0; i < 50; i++ {
-		fake.calls = nil
-		agg.Emit()
-		if len(fake.calls) > 0 {
-			emitted = true
-			notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
-			assert.Len(t, notFoundCalls, 1)
-			// With sample_rate=0.5, count of 2 should become 4 (2 / 0.5)
-			assert.Equal(t, int64(4), notFoundCalls[0].value, "Count should be adjusted by 1/sample_rate")
-			break
-		}
-	}
-
-	assert.True(t, emitted, "Should have emitted at least once in 50 tries")
+	notFoundCalls := filterCalls(fake.calls, LookupNotFoundMetric)
+	assert.Len(t, notFoundCalls, 1)
+	// Raw count is passed; statsd agent scales using the sample rate parameter.
+	assert.Equal(t, int64(2), notFoundCalls[0].value)
+	assert.Equal(t, float64(0.5), notFoundCalls[0].rate)
 }
 
 func TestSampling_NoAdjustmentWhenNotSampling(t *testing.T) {

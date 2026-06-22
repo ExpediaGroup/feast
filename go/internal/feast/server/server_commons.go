@@ -3,9 +3,11 @@ package server
 import (
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/DataDog/dd-trace-go/v2/ddtrace/tracer"
 	"github.com/feast-dev/feast/go/internal/feast/metrics"
+	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
@@ -37,13 +39,12 @@ func NewMetricsContext(client metrics.StatsdClient, config *registry.RepoConfig)
 	if client == nil || config == nil {
 		return nil
 	}
-	sampleRate := metrics.ParseSampleRate()
 	project := config.Project
 	onlineStore := metrics.GetOnlineStoreType(config)
 
 	return &MetricsContext{
-		FVReadMetrics: metrics.NewFeatureViewReadMetrics(project, onlineStore, client, sampleRate),
-		SampleRate:    sampleRate,
+		FVReadMetrics: metrics.NewFeatureViewReadMetrics(project, onlineStore, client, metrics.ParseFVSampleRate()),
+		SampleRate:    metrics.ParseSampleRate(),
 		Project:       project,
 		OnlineStore:   onlineStore,
 		Client:        client,
@@ -55,6 +56,28 @@ func (mc *MetricsContext) NewLookupAggregator() *metrics.LookupMetricsAggregator
 		return nil
 	}
 	return metrics.NewLookupMetricsAggregator(mc.Project, mc.OnlineStore, mc.Client, mc.SampleRate)
+}
+
+func extractFVNamesFromRequest(features []string, featureService *model.FeatureService) []string {
+	seen := make(map[string]struct{})
+
+	for _, ref := range features {
+		if parts := strings.SplitN(ref, ":", 2); len(parts) == 2 {
+			seen[parts[0]] = struct{}{}
+		}
+	}
+
+	if featureService != nil {
+		for _, proj := range featureService.Projections {
+			seen[proj.NameToUse()] = struct{}{}
+		}
+	}
+
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	return names
 }
 
 func CommonHttpHandlers(s *HttpServer, healthCheckHandler http.HandlerFunc) []Handler {

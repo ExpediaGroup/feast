@@ -97,7 +97,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		request.GetRequestContext(),
 		request.GetFullFeatureNames())
 
-	latencyMs := float64(time.Since(t0).Milliseconds())
+	latencyMs := float64(time.Since(t0).Microseconds()) / 1000.0
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
@@ -195,7 +195,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		request.GetFullFeatureNames(),
 	)
 
-	latencyMs := float64(time.Since(t0).Milliseconds())
+	latencyMs := float64(time.Since(t0).Microseconds()) / 1000.0
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")

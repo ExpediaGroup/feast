@@ -9,15 +9,23 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 )
 
-const DefaultSampleRate = 0.01
+const (
+	DefaultLookupSampleRate = 1.0
+	DefaultFVSampleRate     = 0.01
+)
 
 func IsMissingKeyMetricsEnabled() bool {
 	return strings.ToLower(os.Getenv("ENABLE_MISSING_KEY_METRICS")) == "true"
 }
 
 func IsFVMetricsEnabled() bool {
-	return strings.ToLower(os.Getenv("ENABLE_FV_LEVEL_METRICS")) == "true" ||
-		IsMissingKeyMetricsEnabled()
+	return strings.ToLower(os.Getenv("ENABLE_FV_LEVEL_METRICS")) == "true"
+}
+
+// IsMetricsClientEnabled returns true if any metrics feature is enabled.
+// Use this in main.go to gate statsd client construction.
+func IsMetricsClientEnabled() bool {
+	return IsFVMetricsEnabled() || IsMissingKeyMetricsEnabled()
 }
 
 func GetOnlineStoreType(config *registry.RepoConfig) string {
@@ -27,16 +35,25 @@ func GetOnlineStoreType(config *registry.RepoConfig) string {
 	return "unknown"
 }
 
-// ParseSampleRate reads FEAST_METRICS_SAMPLE_RATE from the environment once.
-// Returns DefaultSampleRate (0.01) if unset or invalid.
+// ParseSampleRate reads FEAST_METRICS_SAMPLE_RATE for lookup metrics.
+// Returns DefaultLookupSampleRate (1.0) if unset or invalid.
 func ParseSampleRate() float64 {
-	rateStr := os.Getenv("FEAST_METRICS_SAMPLE_RATE")
+	return parseRate(os.Getenv("FEAST_METRICS_SAMPLE_RATE"), DefaultLookupSampleRate)
+}
+
+// ParseFVSampleRate reads FEAST_FV_METRICS_SAMPLE_RATE for feature-view read metrics.
+// Returns DefaultFVSampleRate (0.01) if unset or invalid.
+func ParseFVSampleRate() float64 {
+	return parseRate(os.Getenv("FEAST_FV_METRICS_SAMPLE_RATE"), DefaultFVSampleRate)
+}
+
+func parseRate(rateStr string, defaultRate float64) float64 {
 	if rateStr == "" {
-		return DefaultSampleRate
+		return defaultRate
 	}
 	rate, err := strconv.ParseFloat(rateStr, 64)
 	if err != nil || rate <= 0 || rate > 1.0 {
-		return DefaultSampleRate
+		return defaultRate
 	}
 	return rate
 }

@@ -99,19 +99,13 @@ func TestFVMetrics_Sampling(t *testing.T) {
 
 	assert.Equal(t, 0.5, m.sampleRate)
 
-	// Emit many times — should skip roughly half
-	emitted := 0
-	for i := 0; i < 100; i++ {
-		fake.distCalls = nil
-		m.Emit([]string{"fv"}, 10.0, false)
-		if len(fake.distCalls) > 0 {
-			emitted++
-		}
-	}
+	m.Emit([]string{"fv"}, 10.0, false)
 
-	// With 50% sampling, should emit roughly 50 times (allow wide margin)
-	assert.Greater(t, emitted, 20)
-	assert.Less(t, emitted, 80)
+	// Always emits; sample rate is passed to the statsd client, not used as a local guard.
+	assert.Len(t, fake.distCalls, 1)
+	assert.Equal(t, float64(0.5), fake.distCalls[0].rate)
+	assert.Len(t, fake.calls, 1)
+	assert.Equal(t, float64(0.5), fake.calls[0].rate)
 }
 
 func TestIsFVMetricsEnabled(t *testing.T) {
@@ -123,7 +117,9 @@ func TestIsFVMetricsEnabled(t *testing.T) {
 	assert.True(t, IsFVMetricsEnabled())
 	os.Unsetenv("ENABLE_FV_LEVEL_METRICS")
 
+	// ENABLE_MISSING_KEY_METRICS no longer implies IsFVMetricsEnabled.
 	os.Setenv("ENABLE_MISSING_KEY_METRICS", "true")
-	assert.True(t, IsFVMetricsEnabled())
+	assert.False(t, IsFVMetricsEnabled())
+	assert.True(t, IsMetricsClientEnabled())
 	os.Unsetenv("ENABLE_MISSING_KEY_METRICS")
 }

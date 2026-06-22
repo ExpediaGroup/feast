@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"math/rand"
 	"strings"
 
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
@@ -103,44 +102,35 @@ func (m *LookupMetricsAggregator) Emit() {
 		return
 	}
 
-	if m.sampleRate < 1.0 && rand.Float64() > m.sampleRate {
-		return
-	}
-
-	multiplier := 1.0 / m.sampleRate
-
 	for featureID, count := range m.notFound {
 		if count == 0 {
 			continue
 		}
-		adjustedCount := int64(float64(count) * multiplier)
 		tags := make([]string, len(m.baseTags)+2)
 		copy(tags, m.baseTags)
 		tags[len(m.baseTags)] = "feature:" + featureID
 		tags[len(m.baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
-		m.client.Count(LookupNotFoundMetric, adjustedCount, tags, 1.0)
+		m.client.Count(LookupNotFoundMetric, count, tags, m.sampleRate)
 	}
 
 	for featureID, count := range m.nullOrExpired {
 		if count == 0 {
 			continue
 		}
-		adjustedCount := int64(float64(count) * multiplier)
 		tags := make([]string, len(m.baseTags)+2)
 		copy(tags, m.baseTags)
 		tags[len(m.baseTags)] = "feature:" + featureID
 		tags[len(m.baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
-		m.client.Count(LookupNullOrExpiredMetric, adjustedCount, tags, 1.0)
+		m.client.Count(LookupNullOrExpiredMetric, count, tags, m.sampleRate)
 	}
 
 	for fvName, count := range m.totalByFV {
 		if count == 0 {
 			continue
 		}
-		adjustedCount := int64(float64(count) * multiplier)
 		tags := make([]string, len(m.baseTags)+1)
 		copy(tags, m.baseTags)
 		tags[len(m.baseTags)] = "feature_view:" + fvName
-		m.client.Count(LookupRequestsMetric, adjustedCount, tags, 1.0)
+		m.client.Count(LookupRequestsMetric, count, tags, m.sampleRate)
 	}
 }

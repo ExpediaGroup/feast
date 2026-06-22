@@ -106,7 +106,7 @@ func main() {
 	}
 
 	var metricsClient metrics.StatsdClient
-	if metrics.IsFVMetricsEnabled() {
+	if metrics.IsMetricsClientEnabled() {
 		if addr := metrics.GetStatsDAddress(); addr != "" {
 			client, clientErr := statsd.New(addr)
 			if clientErr != nil {

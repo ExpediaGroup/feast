@@ -10,5 +10,5 @@ type StatsdClient interface {
 // NoOpStatsdClient does nothing when metrics are disabled.
 type NoOpStatsdClient struct{}
 
-func (n *NoOpStatsdClient) Count(string, int64, []string, float64) error        { return nil }
+func (n *NoOpStatsdClient) Count(string, int64, []string, float64) error          { return nil }
 func (n *NoOpStatsdClient) Distribution(string, float64, []string, float64) error { return nil }

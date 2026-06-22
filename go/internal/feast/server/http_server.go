@@ -335,28 +335,6 @@ func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingServic
 	}
 }
 
-func extractFVNamesFromRequest(features []string, featureService *model.FeatureService) []string {
-	seen := make(map[string]struct{})
-
-	for _, ref := range features {
-		if parts := strings.SplitN(ref, ":", 2); len(parts) == 2 {
-			seen[parts[0]] = struct{}{}
-		}
-	}
-
-	if featureService != nil {
-		for _, proj := range featureService.Projections {
-			seen[proj.NameToUse()] = struct{}{}
-		}
-	}
-
-	names := make([]string, 0, len(seen))
-	for name := range seen {
-		names = append(names, name)
-	}
-	return names
-}
-
 func parseIncludeMetadata(r *http.Request) (bool, error) {
 	q := r.URL.Query()
 	raw := strings.TrimSpace(q.Get("includeMetadata"))
@@ -448,7 +426,7 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		requestContextProto,
 		request.FullFeatureNames)
 
-	latencyMs := float64(time.Since(t0).Milliseconds())
+	latencyMs := float64(time.Since(t0).Microseconds()) / 1000.0
 
 	defer func() {
 		if featureVectors != nil {
@@ -668,7 +646,7 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		requestContextProto,
 		request.FullFeatureNames)
 
-	latencyMs := float64(time.Since(t0).Milliseconds())
+	latencyMs := float64(time.Since(t0).Microseconds()) / 1000.0
 
 	defer func() {
 		if rangeFeatureVectors != nil {

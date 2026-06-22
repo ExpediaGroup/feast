@@ -1,9 +1,5 @@
 package metrics
 
-import (
-	"math/rand"
-)
-
 const (
 	FVReadLatencyMetric  = "mlpfs.featureserver.fv_read_latency_ms"
 	FVReadRequestsMetric = "mlpfs.featureserver.fv_read_requests"
@@ -42,20 +38,16 @@ func (m *FeatureViewReadMetrics) Emit(featureViewNames []string, latencyMs float
 		return
 	}
 
-	if m.sampleRate < 1.0 && rand.Float64() > m.sampleRate {
-		return
-	}
-
 	for _, fvName := range featureViewNames {
 		tags := make([]string, len(m.baseTags)+1)
 		copy(tags, m.baseTags)
 		tags[len(m.baseTags)] = "feature_view:" + fvName
 
-		m.client.Distribution(FVReadLatencyMetric, latencyMs, tags, 1.0)
-		m.client.Count(FVReadRequestsMetric, 1, tags, 1.0)
+		m.client.Distribution(FVReadLatencyMetric, latencyMs, tags, m.sampleRate)
+		m.client.Count(FVReadRequestsMetric, 1, tags, m.sampleRate)
 
 		if hasError {
-			m.client.Count(FVReadErrorsMetric, 1, tags, 1.0)
+			m.client.Count(FVReadErrorsMetric, 1, tags, m.sampleRate)
 		}
 	}
 }
