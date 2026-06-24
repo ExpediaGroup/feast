@@ -28,19 +28,22 @@ func NewFeatureViewReadMetrics(project, onlineStore string, client StatsdClient,
 	}
 }
 
+func (m *FeatureViewReadMetrics) fvTags(fvName string) []string {
+	tags := make([]string, len(m.baseTags)+1)
+	copy(tags, m.baseTags)
+	tags[len(m.baseTags)] = "feature_view:" + fvName
+	return tags
+}
+
 func (m *FeatureViewReadMetrics) Emit(featureViewNames []string, latencyMs float64, hasError bool) {
 	if m == nil || m.client == nil {
 		return
 	}
 
 	for _, fvName := range featureViewNames {
-		tags := make([]string, len(m.baseTags)+1)
-		copy(tags, m.baseTags)
-		tags[len(m.baseTags)] = "feature_view:" + fvName
-
+		tags := m.fvTags(fvName)
 		m.client.Distribution(FVReadLatencyMetric, latencyMs, tags, m.sampleRate)
 		m.client.Count(FVReadRequestsMetric, 1, tags, m.sampleRate)
-
 		if hasError {
 			m.client.Count(FVReadErrorsMetric, 1, tags, m.sampleRate)
 		}

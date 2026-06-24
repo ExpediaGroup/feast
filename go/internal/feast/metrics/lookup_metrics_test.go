@@ -59,6 +59,7 @@ func TestAggregator_AllNotFound(t *testing.T) {
 	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 1)
 	assert.Equal(t, int64(3), totalCalls[0].value)
+	assert.Contains(t, totalCalls[0].tags, "feature:user_fv__age")
 	assert.Contains(t, totalCalls[0].tags, "feature_view:user_fv")
 }
 
@@ -79,6 +80,8 @@ func TestAggregator_AllNullOrExpired(t *testing.T) {
 	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 1)
 	assert.Equal(t, int64(3), totalCalls[0].value)
+	assert.Contains(t, totalCalls[0].tags, "feature:order_fv__amt")
+	assert.Contains(t, totalCalls[0].tags, "feature_view:order_fv")
 }
 
 func TestAggregator_MixedStatuses(t *testing.T) {
@@ -102,12 +105,12 @@ func TestAggregator_MixedStatuses(t *testing.T) {
 
 	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 2)
-	totalByFV := map[string]int64{}
+	totalByFeature := map[string]int64{}
 	for _, c := range totalCalls {
-		totalByFV[findTag(c.tags, "feature_view:")] = c.value
+		totalByFeature[findTag(c.tags, "feature:")] = c.value
 	}
-	assert.Equal(t, int64(2), totalByFV["fv_a"])
-	assert.Equal(t, int64(3), totalByFV["fv_b"])
+	assert.Equal(t, int64(2), totalByFeature["fv_a__f1"])
+	assert.Equal(t, int64(3), totalByFeature["fv_b__f2"])
 }
 
 func TestAggregator_AllPresent(t *testing.T) {
@@ -124,10 +127,11 @@ func TestAggregator_AllPresent(t *testing.T) {
 	assert.Len(t, notFoundCalls, 0)
 	assert.Len(t, nullCalls, 0)
 
-	// But total requests should still be emitted
 	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 1)
 	assert.Equal(t, int64(2), totalCalls[0].value)
+	assert.Contains(t, totalCalls[0].tags, "feature:fv__f1")
+	assert.Contains(t, totalCalls[0].tags, "feature_view:fv")
 }
 
 func TestAggregator_NilSafe(t *testing.T) {
@@ -188,9 +192,13 @@ func TestRecordFromFeatureVectors(t *testing.T) {
 	assert.Equal(t, int64(2), callsByFeature["fv_a__f2"])
 
 	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
-	assert.Len(t, totalCalls, 1)
-	assert.Equal(t, int64(4), totalCalls[0].value)
-	assert.Contains(t, totalCalls[0].tags, "feature_view:fv_a")
+	assert.Len(t, totalCalls, 2)
+	totalByFeature := map[string]int64{}
+	for _, c := range totalCalls {
+		totalByFeature[findTag(c.tags, "feature:")] = c.value
+	}
+	assert.Equal(t, int64(2), totalByFeature["fv_a__f1"])
+	assert.Equal(t, int64(2), totalByFeature["fv_a__f2"])
 }
 
 func TestRecordFromRangeFeatureVectors(t *testing.T) {
@@ -217,6 +225,7 @@ func TestRecordFromRangeFeatureVectors(t *testing.T) {
 	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
 	assert.Len(t, totalCalls, 1)
 	assert.Equal(t, int64(3), totalCalls[0].value)
+	assert.Contains(t, totalCalls[0].tags, "feature:sfv__f1")
 	assert.Contains(t, totalCalls[0].tags, "feature_view:sfv")
 }
 

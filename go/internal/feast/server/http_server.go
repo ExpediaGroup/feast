@@ -436,20 +436,13 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting feature vector")
-		if s.metricsCtx != nil {
-			s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, true)
-		}
+		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		writeJSONError(w, fmt.Errorf("Error getting feature vector: %+v", err), http.StatusInternalServerError)
 		return
 	}
 
-	if s.metricsCtx != nil {
-		agg := s.metricsCtx.NewLookupAggregator()
-		agg.RecordFromFeatureVectors(featureVectors)
-		agg.Emit()
-
-		s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, false)
-	}
+	s.metricsCtx.EmitLookupMetrics(featureVectors)
+	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
 
 	var featureNames []string
 	var results []map[string]interface{}
@@ -656,20 +649,13 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
-		if s.metricsCtx != nil {
-			s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, true)
-		}
+		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
 
-	if s.metricsCtx != nil {
-		agg := s.metricsCtx.NewLookupAggregator()
-		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
-		agg.Emit()
-
-		s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, false)
-	}
+	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
+	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
 
 	featureNames, entities, results, err := processFeatureVectors(
 		rangeFeatureVectors, includeMetadata, entitiesProto)

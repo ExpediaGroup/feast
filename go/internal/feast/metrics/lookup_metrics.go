@@ -28,7 +28,7 @@ func extractFeatureView(featureName string) string {
 type LookupMetricsAggregator struct {
 	notFound      map[string]int64
 	nullOrExpired map[string]int64
-	totalByFV     map[string]int64
+	total         map[string]int64
 	baseTags      []string
 	client        StatsdClient
 	sampleRate    float64
@@ -46,7 +46,7 @@ func NewLookupMetricsAggregator(
 	return &LookupMetricsAggregator{
 		notFound:      make(map[string]int64),
 		nullOrExpired: make(map[string]int64),
-		totalByFV:     make(map[string]int64),
+		total:         make(map[string]int64),
 		baseTags: []string{
 			"project:" + project,
 			"online_store_type:" + onlineStore,
@@ -60,7 +60,7 @@ func (m *LookupMetricsAggregator) Record(featureID string, status serving.FieldS
 	if m == nil {
 		return
 	}
-	m.totalByFV[extractFeatureView(featureID)]++
+	m.total[featureID]++
 	switch status {
 	case serving.FieldStatus_NOT_FOUND:
 		m.notFound[featureID]++
@@ -93,40 +93,32 @@ func (m *LookupMetricsAggregator) RecordFromRangeFeatureVectors(vectors []*onlin
 	}
 }
 
+func (m *LookupMetricsAggregator) featureTags(featureID string) []string {
+	tags := make([]string, len(m.baseTags)+2)
+	copy(tags, m.baseTags)
+	tags[len(m.baseTags)] = "feature:" + featureID
+	tags[len(m.baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
+	return tags
+}
+
 func (m *LookupMetricsAggregator) Emit() {
 	if m == nil || m.client == nil {
 		return
 	}
 
 	for featureID, count := range m.notFound {
-		if count == 0 {
-			continue
+		if count > 0 {
+			m.client.Count(LookupNotFoundMetric, count, m.featureTags(featureID), m.sampleRate)
 		}
-		tags := make([]string, len(m.baseTags)+2)
-		copy(tags, m.baseTags)
-		tags[len(m.baseTags)] = "feature:" + featureID
-		tags[len(m.baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
-		m.client.Count(LookupNotFoundMetric, count, tags, m.sampleRate)
 	}
-
 	for featureID, count := range m.nullOrExpired {
-		if count == 0 {
-			continue
+		if count > 0 {
+			m.client.Count(LookupNullOrExpiredMetric, count, m.featureTags(featureID), m.sampleRate)
 		}
-		tags := make([]string, len(m.baseTags)+2)
-		copy(tags, m.baseTags)
-		tags[len(m.baseTags)] = "feature:" + featureID
-		tags[len(m.baseTags)+1] = "feature_view:" + extractFeatureView(featureID)
-		m.client.Count(LookupNullOrExpiredMetric, count, tags, m.sampleRate)
 	}
-
-	for fvName, count := range m.totalByFV {
-		if count == 0 {
-			continue
+	for featureID, count := range m.total {
+		if count > 0 {
+			m.client.Count(LookupRequestsMetric, count, m.featureTags(featureID), m.sampleRate)
 		}
-		tags := make([]string, len(m.baseTags)+1)
-		copy(tags, m.baseTags)
-		tags[len(m.baseTags)] = "feature_view:" + fvName
-		m.client.Count(LookupRequestsMetric, count, tags, m.sampleRate)
 	}
 }

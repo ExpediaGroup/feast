@@ -114,7 +114,7 @@ func main() {
 			} else {
 				metricsClient = client
 				defer client.Close()
-				log.Info().Msg("Feature view level metrics enabled")
+				log.Info().Msg("Metrics client enabled (FV metrics, missing key metrics, or both)")
 			}
 		} else {
 			log.Warn().Msg("ENABLE_FV_LEVEL_METRICS/ENABLE_MISSING_KEY_METRICS is true but DD_AGENT_HOST is not set")

@@ -101,19 +101,12 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
-		if s.metricsCtx != nil {
-			s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, true)
-		}
+		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		return nil, errors.GrpcFromError(err)
 	}
 
-	if s.metricsCtx != nil {
-		agg := s.metricsCtx.NewLookupAggregator()
-		agg.RecordFromFeatureVectors(featureVectors)
-		agg.Emit()
-
-		s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, false)
-	}
+	s.metricsCtx.EmitLookupMetrics(featureVectors)
+	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
 
 	resp := &serving.GetOnlineFeaturesResponse{
 		Results: make([]*serving.GetOnlineFeaturesResponse_FeatureVector, 0),
@@ -199,19 +192,12 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")
-		if s.metricsCtx != nil {
-			s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, true)
-		}
+		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		return nil, errors.GrpcFromError(err)
 	}
 
-	if s.metricsCtx != nil {
-		agg := s.metricsCtx.NewLookupAggregator()
-		agg.RecordFromRangeFeatureVectors(rangeFeatureVectors)
-		agg.Emit()
-
-		s.metricsCtx.FVReadMetrics.Emit(fvNames, latencyMs, false)
-	}
+	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
+	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
 
 	entities := request.GetEntities()
 	results := make([]*serving.GetOnlineFeaturesRangeResponse_RangeFeatureVector, 0, len(rangeFeatureVectors))
