@@ -538,18 +538,14 @@ class CassandraOnlineStore(OnlineStore):
                         if feature_name in sort_key_names:
                             feast_value_type = valProto.WhichOneof("val")
                             if feast_value_type == "unix_timestamp_val":
-                                feature_value = (
-                                    valProto.unix_timestamp_val * 1000
-                                )  # Convert to milliseconds
+                                feature_value = valProto.unix_timestamp_val  # already milliseconds
                             elif feast_value_type is None:
                                 feature_value = None
                             elif feast_value_type in feast_array_types:
                                 if feast_value_type == "unix_timestamp_list_val":
-                                    # Convert list of timestamps to milliseconds
-                                    feature_value = [
-                                        ts * 1000
-                                        for ts in valProto.unix_timestamp_list_val.val  # type:ignore
-                                    ]
+                                    feature_value = list(
+                                        valProto.unix_timestamp_list_val.val  # type:ignore
+                                    )  # already milliseconds
                                 else:
                                     feature_value = getattr(
                                         valProto, str(feast_value_type)

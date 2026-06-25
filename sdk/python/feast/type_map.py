@@ -78,11 +78,16 @@ def feast_value_type_to_python_type(field_value_proto: ProtoValue) -> Any:
     if hasattr(val, "val"):
         val = list(val.val)
 
-    # Convert UNIX_TIMESTAMP values to `datetime`
+    # Convert UNIX_TIMESTAMP values to `datetime`.
+    # unix_timestamp_val stores seconds for regular features and milliseconds for sort key
+    # columns. Values > 1e11 are unambiguously ms (current-era seconds ~1.7e9, ms ~1.7e12;
+    # threshold is safe until year ~5138 in seconds).
     if val_attr == "unix_timestamp_list_val":
         val = [
             (
-                datetime.fromtimestamp(v, tz=timezone.utc)
+                datetime.fromtimestamp(
+                    v / 1000.0 if v > 1e11 else float(v), tz=timezone.utc
+                )
                 if v != NULL_TIMESTAMP_INT_VALUE
                 else None
             )
@@ -90,7 +95,9 @@ def feast_value_type_to_python_type(field_value_proto: ProtoValue) -> Any:
         ]
     elif val_attr == "unix_timestamp_val":
         val = (
-            datetime.fromtimestamp(val, tz=timezone.utc)
+            datetime.fromtimestamp(
+                val / 1000.0 if val > 1e11 else float(val), tz=timezone.utc
+            )
             if val != NULL_TIMESTAMP_INT_VALUE
             else None
         )
@@ -351,6 +358,31 @@ def _python_datetime_to_int_timestamp(
             int_timestamps.append(int(value.ToSeconds()))
         elif isinstance(value, np.datetime64):
             int_timestamps.append(value.astype("datetime64[s]").astype(np.int_))  # type: ignore[attr-defined]
+        elif isinstance(value, type(np.nan)):
+            int_timestamps.append(NULL_TIMESTAMP_INT_VALUE)
+        else:
+            int_timestamps.append(int(value))
+    return int_timestamps
+
+
+def _python_datetime_to_int_ms_timestamp(
+    values: Sequence[Any],
+) -> Sequence[Union[int, np.int_]]:
+    """Convert datetime values to milliseconds since epoch (used for sort key columns)."""
+    # Fast path for Numpy array.
+    if isinstance(values, np.ndarray) and isinstance(values.dtype, np.datetime64):
+        if values.ndim != 1:
+            raise ValueError("Only 1 dimensional arrays are supported.")
+        return cast(Sequence[np.int_], values.astype("datetime64[ms]").astype(np.int_))
+
+    int_timestamps = []
+    for value in values:
+        if isinstance(value, datetime):
+            int_timestamps.append(int(round(value.timestamp() * 1000)))
+        elif isinstance(value, Timestamp):
+            int_timestamps.append(int(value.ToMilliseconds()))
+        elif isinstance(value, np.datetime64):
+            int_timestamps.append(value.astype("datetime64[ms]").astype(np.int_))  # type: ignore[attr-defined]
         elif isinstance(value, type(np.nan)):
             int_timestamps.append(NULL_TIMESTAMP_INT_VALUE)
         else:

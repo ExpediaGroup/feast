@@ -402,7 +402,7 @@ def _make_rows(n=10):
             {
                 "trip_id": ValueProto(int32_val=i),
                 "rating": ValueProto(float_val=i + 0.5),
-                "event_timestamp": ValueProto(unix_timestamp_val=base_ts + i * 60),
+                "event_timestamp": ValueProto(unix_timestamp_val=(base_ts + i * 60) * 1000),
             },
             datetime.fromtimestamp(base_ts + i * 60, tz=timezone.utc),
             None,
