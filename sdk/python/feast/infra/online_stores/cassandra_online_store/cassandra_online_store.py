@@ -538,7 +538,9 @@ class CassandraOnlineStore(OnlineStore):
                         if feature_name in sort_key_names:
                             feast_value_type = valProto.WhichOneof("val")
                             if feast_value_type == "unix_timestamp_val":
-                                feature_value = valProto.unix_timestamp_val  # already milliseconds
+                                feature_value = (
+                                    valProto.unix_timestamp_val
+                                )  # already milliseconds
                             elif feast_value_type is None:
                                 feature_value = None
                             elif feast_value_type in feast_array_types:
