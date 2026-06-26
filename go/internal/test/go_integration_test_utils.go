@@ -279,8 +279,8 @@ func SetupInitializedRepo(basePath string) error {
 		t.Hour(), t.Minute(), t.Second())
 
 	// Use an explicit start time far enough in the past to include test data.
-	// Test parquet files have timestamps from April 2025, so we start from 2025-01-01.
-	materializeCommand := exec.Command(feastExec, "materialize", "2025-01-01T00:00:00", formattedEndTime)
+	// Test parquet files have timestamps from 2021-2022, so we start from 2021-01-01.
+	materializeCommand := exec.Command(feastExec, "materialize", "2021-01-01T00:00:00", formattedEndTime)
 	materializeCommand.Env = os.Environ()
 	materializeCommand.Dir = featureRepoPath
 	out, err = materializeCommand.CombinedOutput()
