@@ -56,7 +56,7 @@ IMG ?= $(IMAGE_TAG_BASE):$(VERSION)
 FS_IMG ?= quay.io/feastdev/feature-server:$(VERSION)
 CJ_IMG ?= quay.io/openshift/origin-cli:4.17
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.30.0
+ENVTEST_K8S_VERSION = 1.31.0
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -116,7 +116,7 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: build-installer vet lint envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v test/e2e | grep -v test/data-source-types | grep -v test/upgrade | grep -v test/previous-version) -coverprofile cover.out
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" GOTOOLCHAIN=go$(shell go env GOVERSION | sed 's/^go//') go test $$(go list ./... | grep -v test/e2e | grep -v test/data-source-types | grep -v test/upgrade | grep -v test/previous-version) -coverprofile cover.out
 
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up.
@@ -242,7 +242,7 @@ ENVSUBST = $(LOCALBIN)/envsubst
 KUSTOMIZE_VERSION ?= v5.4.2
 CONTROLLER_TOOLS_VERSION ?= v0.15.0
 CRD_REF_DOCS_VERSION ?= v0.1.0
-ENVTEST_VERSION ?= release-0.18
+ENVTEST_VERSION ?= release-0.21
 GOLANGCI_LINT_VERSION ?= v1.59.1
 ENVSUBST_VERSION ?= v1.4.2
 
