@@ -423,7 +423,7 @@ func writeTestRecord(
 		fieldHash, valB,
 	).Err())
 	require.NoError(t, store.client.ZAdd(ctx, zkey, redis.Z{
-		Score:  float64(ts.AsTime().Unix()),
+		Score:  float64(ts.AsTime().UnixMilli()),
 		Member: string(sortKeyBytes),
 	}).Err())
 }
@@ -461,8 +461,8 @@ func TestOnlineReadRange(t *testing.T) {
 		SortKeyFilters: []*model.SortKeyFilter{
 			{
 				SortKeyName:    "ts",
-				RangeStart:     int64(1000),
-				RangeEnd:       int64(2500),
+				RangeStart:     int64(1000000),
+				RangeEnd:       int64(2500000),
 				StartInclusive: true,
 				EndInclusive:   true,
 			},
@@ -510,7 +510,7 @@ func TestOnlineReadRange_Reverse(t *testing.T) {
 			{
 				SortKeyName: "ts",
 				RangeStart:  int64(0),
-				RangeEnd:    int64(30)},
+				RangeEnd:    int64(30000)},
 		},
 	}
 
@@ -539,7 +539,7 @@ func TestOnlineReadRange_EmptyResult(t *testing.T) {
 		Limit:              10,
 		IsReverseSortOrder: false,
 		SortKeyFilters: []*model.SortKeyFilter{
-			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10)},
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10000)},
 		},
 	}
 
@@ -577,7 +577,7 @@ func TestOnlineReadRange_WithLimit(t *testing.T) {
 		Limit:              3, // Only get 3
 		IsReverseSortOrder: false,
 		SortKeyFilters: []*model.SortKeyFilter{
-			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10000)},
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10000000)},
 		},
 	}
 
@@ -623,7 +623,7 @@ func TestOnlineReadRange_MultipleEntityKeys(t *testing.T) {
 		Limit:              10,
 		IsReverseSortOrder: false,
 		SortKeyFilters: []*model.SortKeyFilter{
-			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000)},
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000000)},
 		},
 	}
 
@@ -669,7 +669,7 @@ func TestOnlineReadRange_MultipleFeatureViews(t *testing.T) {
 		Limit:              10,
 		IsReverseSortOrder: false,
 		SortKeyFilters: []*model.SortKeyFilter{
-			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000)},
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000000)},
 		},
 	}
 
@@ -767,10 +767,10 @@ func TestOnlineReadRange_ExclusiveRangeBounds(t *testing.T) {
 		SortKeyFilters: []*model.SortKeyFilter{
 			{
 				SortKeyName:    "ts",
-				RangeStart:     int64(1000),
-				RangeEnd:       int64(3000),
-				StartInclusive: false, // Exclude 1000
-				EndInclusive:   false, // Exclude 3000
+				RangeStart:     int64(1000000),
+				RangeEnd:       int64(3000000),
+				StartInclusive: false, // Exclude 1000s
+				EndInclusive:   false, // Exclude 3000s
 			},
 		},
 	}

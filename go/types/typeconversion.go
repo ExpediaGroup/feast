@@ -830,25 +830,35 @@ func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bo
 		return v
 	case *types.Value_UnixTimestampVal:
 		if timestampAsString {
-			return time.Unix(x.UnixTimestampVal, 0).UTC().Format(TimestampFormat)
+			return unixTsToTime(x.UnixTimestampVal).Format(TimestampFormat)
 		}
-		return time.Unix(x.UnixTimestampVal, 0).UTC()
+		return unixTsToTime(x.UnixTimestampVal)
 	case *types.Value_UnixTimestampListVal:
 		if timestampAsString {
 			timestamps := make([]string, len(x.UnixTimestampListVal.Val))
 			for i, ts := range x.UnixTimestampListVal.Val {
-				timestamps[i] = time.Unix(ts, 0).UTC().Format(TimestampFormat)
+				timestamps[i] = unixTsToTime(ts).Format(TimestampFormat)
 			}
 			return timestamps
 		}
 		timestamps := make([]time.Time, len(x.UnixTimestampListVal.Val))
 		for i, ts := range x.UnixTimestampListVal.Val {
-			timestamps[i] = time.Unix(ts, 0).UTC()
+			timestamps[i] = unixTsToTime(ts)
 		}
 		return timestamps
 	default:
 		return nil
 	}
+}
+
+// unixTsToTime converts a unix_timestamp_val int64 to time.Time using a threshold to
+// distinguish seconds (regular features) from milliseconds (sort key columns).
+// Values > 1e11 are unambiguously milliseconds; current-era seconds ~1.7e9 < 1e11.
+func unixTsToTime(val int64) time.Time {
+	if val > 1e11 {
+		return time.UnixMilli(val).UTC()
+	}
+	return time.Unix(val, 0).UTC()
 }
 
 func transformStringToBytes(str string) []byte {

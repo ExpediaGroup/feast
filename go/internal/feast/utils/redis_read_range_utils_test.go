@@ -89,7 +89,7 @@ func TestGetScoreRange(t *testing.T) {
 					StartInclusive: true,
 					EndInclusive:   true,
 				}},
-			"1000", "2000",
+			"1000000", "2000000",
 		},
 	}
 

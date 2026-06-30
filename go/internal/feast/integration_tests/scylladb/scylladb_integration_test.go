@@ -129,7 +129,7 @@ func TestGetOnlineFeaturesRange_withOnlyEqualsFilter(t *testing.T) {
 			{
 				SortKeyName: "event_timestamp",
 				Query: &serving.SortKeyFilter_Equals{
-					Equals: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 1744769171}},
+					Equals: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 1744769171919}},
 				},
 			},
 		},

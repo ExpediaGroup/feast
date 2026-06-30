@@ -29,7 +29,12 @@ type Row struct {
 	Created        int64
 }
 
-var feastExec = "feast"
+var feastExec = func() string {
+	if bin := os.Getenv("FEAST_BIN"); bin != "" {
+		return bin
+	}
+	return "feast"
+}()
 
 func ReadParquet(filePath string) ([]*Row, error) {
 	allocator := memory.NewGoAllocator()
@@ -122,7 +127,7 @@ func ReadParquetDynamically(filePath string) ([]map[string]interface{}, error) {
 			case *array.Timestamp:
 				nanoseconds := int64(col.Value(rowIdx).ToTime(arrow.Second).Unix())
 				t := time.Unix(0, nanoseconds)
-				row[field.Name] = t.Unix()
+				row[field.Name] = t.UnixMilli()
 			case *array.List:
 				// Handle array (list) types
 				listValues := []interface{}{}
@@ -146,7 +151,7 @@ func ReadParquetDynamically(filePath string) ([]map[string]interface{}, error) {
 					case *array.Timestamp:
 						nanoseconds := int64(childCol.Value(int(i)).ToTime(arrow.Second).Unix())
 						t := time.Unix(0, nanoseconds)
-						listValues = append(listValues, t.Unix())
+						listValues = append(listValues, t.UnixMilli())
 					default:
 						listValues = append(listValues, nil) // Handle unsupported types
 					}

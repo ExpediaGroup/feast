@@ -153,7 +153,13 @@ func getValueType(value interface{}, featureName string) *types.Value {
 	case int64:
 		// Check if featureName contains "timestamp"
 		if strings.Contains(featureName, "timestamp") {
-			return &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: value.(int64)}}
+			val := value.(int64)
+			if featureName != "event_timestamp" {
+				// Regular timestamp features are stored as seconds in Redis;
+				// ReadParquetDynamically returns ms, so divide by 1000.
+				val = val / 1000
+			}
+			return &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: val}}
 		} else {
 			if value == nil {
 				return &types.Value{}
@@ -186,10 +192,13 @@ func getValueType(value interface{}, featureName string) *types.Value {
 			if strings.Contains(featureName, "timestamp") {
 
 				for _, v := range arrayInterface {
-					if v.(int64) == 0 {
+					elem := v.(int64)
+					if elem == 0 {
 						arrayValue = append(arrayValue, -9223372036854775808)
 					} else {
-						arrayValue = append(arrayValue, v.(int64))
+						// Array timestamps stored as seconds in Redis;
+						// ReadParquetDynamically returns ms, divide by 1000.
+						arrayValue = append(arrayValue, elem/1000)
 					}
 				}
 				return &types.Value{Val: &types.Value_UnixTimestampListVal{&types.Int64List{Val: arrayValue}}}
@@ -323,7 +332,9 @@ func assertRangeFeatureMatchesParquet(
 			expectedTS := expectedRows[i]["event_timestamp"].(int64)
 			actualTS := result.EventTimestamps[eIdx].Val[i].GetUnixTimestampVal()
 
-			assert.Equal(t, expectedTS, actualTS)
+			// EventTimestamps comes from _ts: hash field stored in seconds;
+			// expectedTS is in ms (from ReadParquetDynamically), so divide by 1000.
+			assert.Equal(t, expectedTS/1000, actualTS)
 		}
 	}
 }
@@ -487,7 +498,8 @@ func TestGetOnlineFeaturesRangeValkey_ReverseSortOrder(t *testing.T) {
 				expectedTS := expectedRows[i]["event_timestamp"].(int64)
 				actualTS := result.EventTimestamps[eIdx].Val[i].GetUnixTimestampVal()
 
-				assert.Equal(t, expectedTS, actualTS,
+				// EventTimestamps is seconds; expectedTS is ms from parquet.
+				assert.Equal(t, expectedTS/1000, actualTS,
 					"timestamp mismatch feature=%s entity=%d idx=%d",
 					feature, entityID, i)
 			}
@@ -569,7 +581,8 @@ func TestGetOnlineFeaturesRangeValkey_RangeStartInclusive(t *testing.T) {
 
 			expTS := expected[i]["event_timestamp"].(int64)
 			actTS := result.EventTimestamps[0].Val[i].GetUnixTimestampVal()
-			assert.Equal(t, expTS, actTS)
+			// EventTimestamps is seconds; expTS is ms from parquet.
+			assert.Equal(t, expTS/1000, actTS)
 		}
 	}
 }
@@ -658,7 +671,8 @@ func TestGetOnlineFeaturesRangeValkey_LimitAppliedAfterHMGET(t *testing.T) {
 
 			expTS := expectedRows[i]["event_timestamp"].(int64)
 			actTS := actualTS[i].GetUnixTimestampVal()
-			assert.Equal(t, expTS, actTS,
+			// EventTimestamps is seconds; expTS is ms from parquet.
+			assert.Equal(t, expTS/1000, actTS,
 				"timestamp mismatch feature=%s idx=%d", feature, i)
 
 			if expectedRows[i][feature] == nil {
