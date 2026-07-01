@@ -4,6 +4,10 @@ from typing import List, Sequence, Union
 import pyarrow as pa
 
 from feast import RepoConfig
+from feast._materialization_metrics import (
+    MaterializationMetricsAggregator,
+    is_materialization_metrics_enabled,
+)
 from feast.batch_feature_view import BatchFeatureView
 from feast.entity import Entity
 from feast.feature_view import FeatureView
@@ -123,6 +127,22 @@ class ComputeEngine(ABC):
         if hasattr(task, "entity_df") and task.entity_df is not None:
             entity_df = task.entity_df
 
+        metrics_collector = None
+        if (
+            isinstance(task, MaterializationTask)
+            and is_materialization_metrics_enabled()
+        ):
+            online_store_type = getattr(
+                self.repo_config.online_store,
+                "type",
+                type(self.online_store).__name__,
+            )
+            metrics_collector = MaterializationMetricsAggregator(
+                project=task.project,
+                feature_view=task.feature_view.name,
+                online_store_type=str(online_store_type),
+            )
+
         return ExecutionContext(
             project=task.project,
             repo_config=self.repo_config,
@@ -130,6 +150,7 @@ class ComputeEngine(ABC):
             online_store=self.online_store,
             entity_defs=entity_defs,
             entity_df=entity_df,
+            metrics_collector=metrics_collector,
         )
 
     def _get_feature_view_engine_config(
