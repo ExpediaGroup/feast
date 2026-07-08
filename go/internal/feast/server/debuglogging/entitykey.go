@@ -12,6 +12,12 @@ import (
 // HashEntityKeys returns one salted sha256 hash per join-key present in
 // entities, sorted by join-key name for deterministic log output. Entity
 // values are never included in plaintext — only the hash.
+//
+// Note: proto.MarshalOptions{Deterministic: true} guarantees byte-stable
+// output within a single binary/process but not across different builds or
+// deploys. This is currently safe because RepeatedValue and Value have no
+// map-typed fields; if the schema changes to add maps, byte-stability across
+// instances is no longer guaranteed.
 func HashEntityKeys(entities map[string]*prototypes.RepeatedValue, salt string) []string {
 	names := make([]string, 0, len(entities))
 	for name := range entities {
