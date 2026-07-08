@@ -5,6 +5,7 @@ from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
 
 from feast import BatchFeatureView, StreamFeatureView
+from feast._materialization_metrics import record_run_result
 from feast.aggregation import Aggregation
 from feast.data_source import DataSource
 from feast.infra.common.serde import SerializedArtifacts
@@ -12,7 +13,10 @@ from feast.infra.compute_engines.dag.context import ColumnInfo, ExecutionContext
 from feast.infra.compute_engines.dag.model import DAGFormat
 from feast.infra.compute_engines.dag.node import DAGNode
 from feast.infra.compute_engines.dag.value import DAGValue
-from feast.infra.compute_engines.spark.utils import map_in_arrow
+from feast.infra.compute_engines.spark.utils import (
+    MaterializationStatsAccumulatorParam,
+    map_in_arrow,
+)
 from feast.infra.compute_engines.utils import (
     create_offline_store_retrieval_job,
 )
@@ -319,10 +323,40 @@ class SparkWriteNode(DAGNode):
 
         # ✅ 1. Write to online store if online enabled
         if self.feature_view.online:
-            spark_df.mapInArrow(
-                lambda x: map_in_arrow(x, serialized_artifacts, mode="online"),
-                spark_df.schema,
-            ).count()
+            collector = context.metrics_collector
+            if collector is not None:
+                # Materialization metrics enabled: aggregate per-executor write
+                # stats via a Spark accumulator, then fold the merged result into
+                # the driver-side collector once the write action completes.
+                active_session = SparkSession.getActiveSession()
+                stats_accumulator = active_session.sparkContext.accumulator(
+                    {}, MaterializationStatsAccumulatorParam()
+                )
+                spark_df.mapInArrow(
+                    lambda x: map_in_arrow(
+                        x,
+                        serialized_artifacts,
+                        mode="online",
+                        stats_accumulator=stats_accumulator,
+                    ),
+                    spark_df.schema,
+                ).count()
+                collector.merge_from_dict(stats_accumulator.value)
+                # NOTE: distinct_entity_keys is intentionally NOT computed on Spark
+                # in v1. A second `.agg(approx_count_distinct)` would be a separate
+                # Spark job over `spark_df`, which isn't cached -- so it would
+                # re-execute the whole upstream lineage (re-reading the offline
+                # source) and roughly double job cost on large tables. It stays
+                # unset on Spark; the follow-up is a mergeable HLL sketch
+                # accumulated during the write pass (no extra pass). Exact
+                # distinct is still captured on the local engine.
+                # Feature view finished writing: hand stats to the job bridge.
+                record_run_result(collector.to_dict())
+            else:
+                spark_df.mapInArrow(
+                    lambda x: map_in_arrow(x, serialized_artifacts, mode="online"),
+                    spark_df.schema,
+                ).count()
 
         # ✅ 2. Write to offline store if offline enabled
         if self.feature_view.offline:

@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 import pyarrow as pa
 
 from feast import BatchFeatureView, StreamFeatureView
-from feast._materialization_metrics import collecting
+from feast._materialization_metrics import collecting, record_run_result
 from feast.data_source import DataSource
 from feast.infra.compute_engines.dag.context import ColumnInfo, ExecutionContext
 from feast.infra.compute_engines.dag.model import DAGFormat
@@ -280,9 +280,14 @@ class LocalOutputNode(LocalNode):
                 input_table,
                 feature_fields=feature_fields,
                 timestamp_column=timestamp_column,
+                # Local engine sees the whole written batch in one table, so an
+                # exact distinct-entity-key count is cheap here.
+                entity_key_columns=[e.name for e in self.feature_view.entity_columns],
             )
 
         if input_table.num_rows == 0:
+            if collector is not None:
+                record_run_result(collector.to_dict())
             return input_table
 
         if self.feature_view.online:
@@ -315,5 +320,9 @@ class LocalOutputNode(LocalNode):
                 table=input_table,
                 progress=lambda x: None,
             )
+
+        # Feature view finished writing: hand the completed stats to the job bridge.
+        if collector is not None:
+            record_run_result(collector.to_dict())
 
         return input_table
