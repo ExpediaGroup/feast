@@ -10,6 +10,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/internal/feast/metrics"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/internal/feast/server/debuglogging"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
 	"github.com/feast-dev/feast/go/internal/feast/version"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
@@ -33,6 +34,7 @@ type grpcServingServiceServer struct {
 	loggingService *logging.LoggingService
 	metricsClient  metrics.StatsdClient
 	metricsCtx     *MetricsContext
+	debugLogCfg    debuglogging.Config
 	config         *registry.RepoConfig
 	serving.UnimplementedServingServiceServer
 }
@@ -43,6 +45,7 @@ func NewGrpcServingServiceServer(fs *feast.FeatureStore, loggingService *logging
 		loggingService: loggingService,
 		metricsClient:  metricsClient,
 		metricsCtx:     NewMetricsContext(metricsClient, config),
+		debugLogCfg:    debuglogging.NewConfig(),
 		config:         config,
 	}
 }
@@ -87,7 +90,17 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 	}
 
 	fvNames := extractFVNamesFromRequest(featuresOrService.FeaturesRefs, featuresOrService.FeatureService)
+	requestFlagged := debuglogging.RequestFlaggedGRPC(ctx)
 	t0 := time.Now()
+
+	// s.metricsCtx may be nil (NewMetricsContext returns nil when the metrics
+	// client or repo config isn't configured), so guard field access here
+	// rather than dereferencing it directly in the EmitDebugRequestLog calls.
+	var debugProject, debugOnlineStore string
+	if s.metricsCtx != nil {
+		debugProject = s.metricsCtx.Project
+		debugOnlineStore = s.metricsCtx.OnlineStore
+	}
 
 	featureVectors, err := s.fs.GetOnlineFeatures(
 		ctx,
@@ -102,11 +115,17 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
+		EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+			"grpc", "ServingService/GetOnlineFeatures", request.GetEntities(), len(featuresOrService.FeaturesRefs),
+			featureVectors, debugOnlineStore, latencyMs, err)
 		return nil, errors.GrpcFromError(err)
 	}
 
 	s.metricsCtx.EmitLookupMetrics(featureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+		"grpc", "ServingService/GetOnlineFeatures", request.GetEntities(), len(featuresOrService.FeaturesRefs),
+		featureVectors, debugOnlineStore, latencyMs, nil)
 
 	resp := &serving.GetOnlineFeaturesResponse{
 		Results: make([]*serving.GetOnlineFeaturesResponse_FeatureVector, 0),
@@ -174,7 +193,17 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 	}
 
 	fvNames := extractFVNamesFromRequest(featuresOrService.FeaturesRefs, featuresOrService.FeatureService)
+	requestFlagged := debuglogging.RequestFlaggedGRPC(ctx)
 	t0 := time.Now()
+
+	// s.metricsCtx may be nil (NewMetricsContext returns nil when the metrics
+	// client or repo config isn't configured), so guard field access here
+	// rather than dereferencing it directly in the EmitDebugRequestLogRange calls.
+	var debugProject, debugOnlineStore string
+	if s.metricsCtx != nil {
+		debugProject = s.metricsCtx.Project
+		debugOnlineStore = s.metricsCtx.OnlineStore
+	}
 
 	rangeFeatureVectors, err := s.fs.GetOnlineFeaturesRange(
 		ctx,
@@ -193,11 +222,17 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
+		EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+			"grpc", "ServingService/GetOnlineFeaturesRange", request.GetEntities(), len(featuresOrService.FeaturesRefs),
+			rangeFeatureVectors, debugOnlineStore, latencyMs, err)
 		return nil, errors.GrpcFromError(err)
 	}
 
 	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+		"grpc", "ServingService/GetOnlineFeaturesRange", request.GetEntities(), len(featuresOrService.FeaturesRefs),
+		rangeFeatureVectors, debugOnlineStore, latencyMs, nil)
 
 	entities := request.GetEntities()
 	results := make([]*serving.GetOnlineFeaturesRangeResponse_RangeFeatureVector, 0, len(rangeFeatureVectors))
