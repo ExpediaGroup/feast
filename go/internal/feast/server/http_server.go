@@ -422,6 +422,15 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	requestFlagged := debuglogging.RequestFlaggedHTTP(r.Header)
 	t0 := time.Now()
 
+	// s.metricsCtx may be nil (NewMetricsContext returns nil when the metrics
+	// client or repo config isn't configured), so guard field access here
+	// rather than dereferencing it directly in the EmitDebugRequestLog calls.
+	var debugProject, debugOnlineStore string
+	if s.metricsCtx != nil {
+		debugProject = s.metricsCtx.Project
+		debugOnlineStore = s.metricsCtx.OnlineStore
+	}
+
 	featureVectors, err = s.fs.GetOnlineFeatures(
 		ctx,
 		request.Features,
@@ -441,16 +450,16 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting feature vector")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
-		EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, s.metricsCtx.Project, fvNames,
-			"http", r.URL.Path, entitiesProto, len(request.Features), featureVectors, s.metricsCtx.OnlineStore, latencyMs, err)
+		EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+			"http", r.URL.Path, entitiesProto, len(request.Features), featureVectors, debugOnlineStore, latencyMs, err)
 		writeJSONError(w, fmt.Errorf("Error getting feature vector: %+v", err), http.StatusInternalServerError)
 		return
 	}
 
 	s.metricsCtx.EmitLookupMetrics(featureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
-	EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, s.metricsCtx.Project, fvNames,
-		"http", r.URL.Path, entitiesProto, len(request.Features), featureVectors, s.metricsCtx.OnlineStore, latencyMs, nil)
+	EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+		"http", r.URL.Path, entitiesProto, len(request.Features), featureVectors, debugOnlineStore, latencyMs, nil)
 
 	var featureNames []string
 	var results []map[string]interface{}
@@ -637,6 +646,15 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 	requestFlagged := debuglogging.RequestFlaggedHTTP(r.Header)
 	t0 := time.Now()
 
+	// s.metricsCtx may be nil (NewMetricsContext returns nil when the metrics
+	// client or repo config isn't configured), so guard field access here
+	// rather than dereferencing it directly in the EmitDebugRequestLogRange calls.
+	var debugProject, debugOnlineStore string
+	if s.metricsCtx != nil {
+		debugProject = s.metricsCtx.Project
+		debugOnlineStore = s.metricsCtx.OnlineStore
+	}
+
 	rangeFeatureVectors, err := s.fs.GetOnlineFeaturesRange(
 		ctx,
 		request.Features,
@@ -659,16 +677,16 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
-		EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, s.metricsCtx.Project, fvNames,
-			"http", r.URL.Path, entitiesProto, len(request.Features), rangeFeatureVectors, s.metricsCtx.OnlineStore, latencyMs, err)
+		EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+			"http", r.URL.Path, entitiesProto, len(request.Features), rangeFeatureVectors, debugOnlineStore, latencyMs, err)
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
 
 	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
-	EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, s.metricsCtx.Project, fvNames,
-		"http", r.URL.Path, entitiesProto, len(request.Features), rangeFeatureVectors, s.metricsCtx.OnlineStore, latencyMs, nil)
+	EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+		"http", r.URL.Path, entitiesProto, len(request.Features), rangeFeatureVectors, debugOnlineStore, latencyMs, nil)
 
 	featureNames, entities, results, err := processFeatureVectors(
 		rangeFeatureVectors, includeMetadata, entitiesProto)
