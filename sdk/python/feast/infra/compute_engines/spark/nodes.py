@@ -329,6 +329,9 @@ class SparkWriteNode(DAGNode):
                 # stats via a Spark accumulator, then fold the merged result into
                 # the driver-side collector once the write action completes.
                 active_session = SparkSession.getActiveSession()
+                # A SparkWriteNode only executes against an active session (the
+                # DataFrame it writes came from one), so this is always set here.
+                assert active_session is not None, "no active SparkSession"
                 stats_accumulator = active_session.sparkContext.accumulator(
                     {}, MaterializationStatsAccumulatorParam()
                 )

@@ -5,7 +5,7 @@ import pandas as pd
 import pyarrow
 import pyarrow as pa
 from pyspark import SparkConf
-from pyspark.accumulators import AccumulatorParam
+from pyspark.accumulators import Accumulator, AccumulatorParam
 from pyspark.sql import SparkSession
 
 from feast._materialization_metrics import (
@@ -57,7 +57,7 @@ def map_in_arrow(
     iterator: Iterable[pa.RecordBatch],
     serialized_artifacts: "SerializedArtifacts",
     mode: Literal["online", "offline"] = "online",
-    stats_accumulator: Optional["MaterializationStatsAccumulatorParam"] = None,
+    stats_accumulator: Optional["Accumulator"] = None,
 ):
     # Per-partition (per-executor-task) metrics tally. Only built when the driver
     # passed a stats accumulator (i.e. materialization metrics are enabled). Its
