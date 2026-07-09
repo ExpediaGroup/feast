@@ -3,6 +3,8 @@ package debuglogging
 import (
 	"os"
 	"strconv"
+
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -28,10 +30,20 @@ func NewConfig() Config {
 	if err != nil {
 		enabled = false
 	}
+	salt := os.Getenv(entityKeySaltEnvVar)
+	if salt == "" {
+		log.Warn().Msgf(
+			"%s is not set: entity-key hashes used in debug logging are sha256(value) with no salt, "+
+				"which is reversible/brute-forceable for low-cardinality IDs (e.g. small integer entity IDs). "+
+				"Set %s to a secret value in production to prevent entity IDs from being recovered from logs.",
+			entityKeySaltEnvVar, entityKeySaltEnvVar,
+		)
+	}
+
 	return Config{
 		Enabled:    enabled,
 		SampleRate: parseSampleRate(os.Getenv(sampleRateEnvVar)),
-		Salt:       os.Getenv(entityKeySaltEnvVar),
+		Salt:       salt,
 	}
 }
 
