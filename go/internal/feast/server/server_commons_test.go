@@ -3,14 +3,22 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"sort"
 	"testing"
 
 	"github.com/feast-dev/feast/go/internal/feast/metrics"
 	"github.com/feast-dev/feast/go/internal/feast/model"
+	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/internal/feast/server/debuglogging"
+	"github.com/feast-dev/feast/go/protos/feast/serving"
+	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeStatsdClient struct{}
@@ -107,4 +115,50 @@ func TestExtractFVNamesFromRequest_Deduplication(t *testing.T) {
 func TestExtractFVNamesFromRequest_Empty(t *testing.T) {
 	names := extractFVNamesFromRequest(nil, nil)
 	assert.Empty(t, names)
+}
+
+func TestEmitDebugRequestLog_NotEmittedWhenShouldEmitFalse(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	EmitDebugRequestLog(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, false,
+		"p13n", []string{"customer_profile"}, "http", "/get-online-features",
+		map[string]*prototypes.RepeatedValue{}, 1, nil, "cassandra", 4.2, nil)
+
+	assert.Empty(t, buf.Bytes())
+}
+
+func TestEmitDebugRequestLog_EmittedWhenRequestFlagged(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	vectors := []*onlineserving.FeatureVector{
+		{Name: "f1", Statuses: []serving.FieldStatus{serving.FieldStatus_NULL_VALUE}},
+	}
+
+	EmitDebugRequestLog(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, true,
+		"p13n", []string{"customer_profile"}, "http", "/get-online-features",
+		map[string]*prototypes.RepeatedValue{}, 1, vectors, "cassandra", 4.2, nil)
+
+	var decoded map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
+	assert.Equal(t, "feature_view_request_debug_log", decoded["event"])
+	assert.Equal(t, float64(1), decoded["null_field_count"])
+	assert.Equal(t, "cassandra", decoded["online_store_type"])
+}
+
+func TestEmitDebugRequestLogRange_EmittedWhenRequestFlagged(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	vectors := []*onlineserving.RangeFeatureVector{
+		{Name: "f1", RangeStatuses: [][]serving.FieldStatus{{serving.FieldStatus_OUTSIDE_MAX_AGE}}},
+	}
+
+	EmitDebugRequestLogRange(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, true,
+		"p13n", []string{"customer_profile"}, "http", "/get-online-features-range",
+		map[string]*prototypes.RepeatedValue{}, 1, vectors, "cassandra", 4.2, nil)
+
+	var decoded map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
+	assert.Equal(t, "feature_view_request_debug_log", decoded["event"])
+	assert.Equal(t, float64(1), decoded["null_field_count"])
 }
