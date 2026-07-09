@@ -1881,6 +1881,71 @@ func testTransposeRangeFeatureRowsIntoColumns(t *testing.T, useArrow bool) *Rang
 	return vector
 }
 
+// TestTransposeRangeFeatureRowsIntoColumns_SubSecondSortKeyValuesRemainDistinct
+// is a regression test for the EAPC-22316 follow-up: when a UNIX_TIMESTAMP
+// sort key column is requested as a feature value (as opposed to just being
+// used for ordering), rows whose sort key differs by less than a second must
+// still be returned as distinct millisecond-precision values, not collapsed
+// to the same second. The raw driver value for a Cassandra/Scylla native
+// `timestamp` column arrives here as a Go time.Time (see RangeFeatureData.Values).
+func TestTransposeRangeFeatureRowsIntoColumns_SubSecondSortKeyValuesRemainDistinct(t *testing.T) {
+	arrowAllocator := memory.NewGoAllocator()
+	numRows := 1
+
+	sortKeyName := "viewed_at"
+	sortKey1 := test.CreateSortKeyProto(sortKeyName, core.SortOrder_DESC, types.ValueType_UNIX_TIMESTAMP)
+	entity1 := test.CreateEntityProto("device_user_agent_id", types.ValueType_STRING, "device_user_agent_id")
+	sfv := test.CreateSortedFeatureViewModel("personalization_pdp_features_repro", []*core.Entity{entity1}, []*core.SortKey{sortKey1},
+		test.CreateFeature(sortKeyName, types.ValueType_UNIX_TIMESTAMP))
+
+	sortedViews := []*SortedFeatureViewAndRefs{
+		{View: sfv, FeatureRefs: []string{sortKeyName}},
+	}
+
+	groupRef := &model.GroupedRangeFeatureRefs{
+		FeatureNames:        []string{sortKeyName},
+		FeatureViewNames:    []string{"personalization_pdp_features_repro"},
+		AliasedFeatureNames: []string{"personalization_pdp_features_repro__" + sortKeyName},
+		Indices:             [][]int{{0}},
+	}
+
+	// Mirrors the real-world repro: two events for the same entity 18ms apart,
+	// within the same second.
+	t1 := time.Date(2026, 7, 9, 12, 17, 37, 886_000_000, time.UTC)
+	t2 := time.Date(2026, 7, 9, 12, 17, 37, 904_000_000, time.UTC)
+
+	featureData := [][]onlinestore.RangeFeatureData{
+		{
+			{
+				FeatureView: "personalization_pdp_features_repro",
+				FeatureName: sortKeyName,
+				Values:      []interface{}{t2, t1}, // DESC order, most recent first
+				Statuses:    []serving.FieldStatus{serving.FieldStatus_PRESENT, serving.FieldStatus_PRESENT},
+				EventTimestamps: []timestamppb.Timestamp{
+					{Seconds: t2.Unix(), Nanos: int32(t2.Nanosecond())},
+					{Seconds: t1.Unix(), Nanos: int32(t1.Nanosecond())},
+				},
+			},
+		},
+	}
+
+	vectors, err := TransposeRangeFeatureRowsIntoColumns(featureData, groupRef, sortedViews, arrowAllocator, numRows, false)
+	assert.NoError(t, err)
+	assert.Len(t, vectors, 1)
+
+	rangeValues, err := vectors[0].GetProtoValues()
+	assert.NoError(t, err)
+	assert.Len(t, rangeValues, numRows)
+	assert.Len(t, rangeValues[0].Val, 2)
+
+	got1 := rangeValues[0].Val[0].GetUnixTimestampVal()
+	got2 := rangeValues[0].Val[1].GetUnixTimestampVal()
+
+	assert.NotEqual(t, got1, got2, "sub-second-apart sort key values must not collapse to the same value")
+	assert.Equal(t, t2.UnixMilli(), got1)
+	assert.Equal(t, t1.UnixMilli(), got2)
+}
+
 func TestValidateFeatureRefs(t *testing.T) {
 	t.Run("NoCollisions", func(t *testing.T) {
 		viewA := &model.FeatureView{

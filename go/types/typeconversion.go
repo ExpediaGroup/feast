@@ -563,7 +563,13 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case bool:
 		protoVal.Val = &types.Value_BoolVal{BoolVal: v}
 	case time.Time:
-		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: v.Unix()}
+		// Only reached for UNIX_TIMESTAMP sort key columns read back from a native
+		// Cassandra/Scylla `timestamp` column (gocql surfaces those as time.Time);
+		// regular features are stored/read as opaque proto blobs, never time.Time.
+		// Sort keys are always written at millisecond precision, so UnixMilli() is
+		// the correct, lossless conversion here (see unixTsToTime for the matching
+		// decode-side threshold).
+		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: v.UnixMilli()}
 	case *timestamppb.Timestamp:
 		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: GetTimestampSeconds(v)}
 
@@ -633,7 +639,7 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case []time.Time:
 		timestamps := make([]int64, len(v))
 		for j, t := range v {
-			timestamps[j] = t.Unix()
+			timestamps[j] = t.UnixMilli()
 		}
 		timestampList := &types.Int64List{Val: timestamps}
 		protoVal.Val = &types.Value_UnixTimestampListVal{UnixTimestampListVal: timestampList}
@@ -1054,4 +1060,13 @@ func GetTimestampSeconds(ts *timestamppb.Timestamp) int64 {
 		return 0
 	}
 	return ts.GetSeconds()
+}
+
+// GetTimestampMillis flattens a proto Timestamp to milliseconds since epoch,
+// preserving sub-second precision that GetTimestampSeconds discards.
+func GetTimestampMillis(ts *timestamppb.Timestamp) int64 {
+	if ts == nil {
+		return 0
+	}
+	return ts.AsTime().UnixMilli()
 }
