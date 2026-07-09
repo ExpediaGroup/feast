@@ -40,7 +40,11 @@ func TestEmit_WritesExpectedFields(t *testing.T) {
 	assert.Equal(t, float64(0), decoded["null_field_count"])
 	assert.Equal(t, 4.2, decoded["store_rtt_ms"])
 	assert.Equal(t, "cassandra", decoded["online_store_type"])
-	assert.Nil(t, decoded["error_type"])
+	// error_type must be emitted as explicit JSON null, not omitted — the
+	// comma-ok check distinguishes "present with nil value" from "absent".
+	errVal, errPresent := decoded["error_type"]
+	assert.True(t, errPresent, "error_type must be emitted explicitly, not omitted")
+	assert.Nil(t, errVal)
 }
 
 func TestEmit_WritesErrorTypeWhenPresent(t *testing.T) {

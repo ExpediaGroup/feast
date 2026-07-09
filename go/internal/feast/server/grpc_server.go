@@ -116,7 +116,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 		logSpanContext.Error().Err(err).Msg("Error getting online features")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-			"grpc", "ServingService/GetOnlineFeatures", len(featuresOrService.FeaturesRefs),
+			"grpc", "ServingService/GetOnlineFeatures", len(featuresOrService.FeaturesRefs), len(request.GetEntities()),
 			featureVectors, debugOnlineStore, latencyMs, err)
 		return nil, errors.GrpcFromError(err)
 	}
@@ -124,7 +124,7 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 	s.metricsCtx.EmitLookupMetrics(featureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
 	EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-		"grpc", "ServingService/GetOnlineFeatures", len(featuresOrService.FeaturesRefs),
+		"grpc", "ServingService/GetOnlineFeatures", len(featuresOrService.FeaturesRefs), len(request.GetEntities()),
 		featureVectors, debugOnlineStore, latencyMs, nil)
 
 	resp := &serving.GetOnlineFeaturesResponse{
@@ -223,7 +223,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-			"grpc", "ServingService/GetOnlineFeaturesRange", len(featuresOrService.FeaturesRefs),
+			"grpc", "ServingService/GetOnlineFeaturesRange", len(featuresOrService.FeaturesRefs), len(request.GetEntities()),
 			rangeFeatureVectors, debugOnlineStore, latencyMs, err)
 		return nil, errors.GrpcFromError(err)
 	}
@@ -231,7 +231,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
 	EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-		"grpc", "ServingService/GetOnlineFeaturesRange", len(featuresOrService.FeaturesRefs),
+		"grpc", "ServingService/GetOnlineFeaturesRange", len(featuresOrService.FeaturesRefs), len(request.GetEntities()),
 		rangeFeatureVectors, debugOnlineStore, latencyMs, nil)
 
 	entities := request.GetEntities()

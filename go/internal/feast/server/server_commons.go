@@ -125,6 +125,7 @@ func EmitDebugRequestLog(
 	transport string,
 	requestPath string,
 	featuresRequested int,
+	entityKeyCount int,
 	featureVectors []*onlineserving.FeatureVector,
 	onlineStoreType string,
 	rttMs float64,
@@ -134,12 +135,16 @@ func EmitDebugRequestLog(
 		return
 	}
 	debuglogging.Emit(logger, debuglogging.RequestEvent{
-		Project:               project,
-		FeatureViews:          fvNames,
-		RequestPath:           requestPath,
-		Transport:             transport,
-		FeaturesRequested:     featuresRequested,
-		FeaturesReturnedCount: len(featureVectors),
+		Project:           project,
+		FeatureViews:      fvNames,
+		RequestPath:       requestPath,
+		Transport:         transport,
+		FeaturesRequested: featuresRequested,
+		// featureVectors includes one column per entity join key ahead of the
+		// feature columns, so subtract entityKeyCount to make this directly
+		// comparable to featuresRequested (clamp at 0 for the error path where
+		// featureVectors is nil).
+		FeaturesReturnedCount: max(0, len(featureVectors)-entityKeyCount),
 		NullFieldCount:        debuglogging.CountNullOrExpired(featureVectors),
 		StoreRTTMs:            rttMs,
 		OnlineStoreType:       onlineStoreType,
@@ -158,6 +163,7 @@ func EmitDebugRequestLogRange(
 	transport string,
 	requestPath string,
 	featuresRequested int,
+	entityKeyCount int,
 	rangeFeatureVectors []*onlineserving.RangeFeatureVector,
 	onlineStoreType string,
 	rttMs float64,
@@ -167,12 +173,16 @@ func EmitDebugRequestLogRange(
 		return
 	}
 	debuglogging.Emit(logger, debuglogging.RequestEvent{
-		Project:               project,
-		FeatureViews:          fvNames,
-		RequestPath:           requestPath,
-		Transport:             transport,
-		FeaturesRequested:     featuresRequested,
-		FeaturesReturnedCount: len(rangeFeatureVectors),
+		Project:           project,
+		FeatureViews:      fvNames,
+		RequestPath:       requestPath,
+		Transport:         transport,
+		FeaturesRequested: featuresRequested,
+		// rangeFeatureVectors includes one column per entity join key ahead of
+		// the feature columns, so subtract entityKeyCount to make this directly
+		// comparable to featuresRequested (clamp at 0 for the error path where
+		// rangeFeatureVectors is nil).
+		FeaturesReturnedCount: max(0, len(rangeFeatureVectors)-entityKeyCount),
 		NullFieldCount:        debuglogging.CountNullOrExpiredRange(rangeFeatureVectors),
 		StoreRTTMs:            rttMs,
 		OnlineStoreType:       onlineStoreType,
