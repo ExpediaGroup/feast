@@ -15,7 +15,6 @@ type RequestEvent struct {
 	StoreRTTMs            float64
 	OnlineStoreType       string
 	ErrorType             *string
-	EntityKeyHashes       []string
 }
 
 // Emit writes one structured JSON log line for a debug-flagged/sampled
@@ -34,8 +33,7 @@ func Emit(logger zerolog.Logger, event RequestEvent) {
 		Int("features_returned_count", event.FeaturesReturnedCount).
 		Int("null_field_count", event.NullFieldCount).
 		Float64("store_rtt_ms", event.StoreRTTMs).
-		Str("online_store_type", event.OnlineStoreType).
-		Strs("entity_key_hash", event.EntityKeyHashes)
+		Str("online_store_type", event.OnlineStoreType)
 
 	if event.ErrorType != nil {
 		e = e.Str("error_type", *event.ErrorType)

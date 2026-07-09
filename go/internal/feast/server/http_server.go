@@ -451,7 +451,7 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 		logSpanContext.Error().Err(err).Msg("Error getting feature vector")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-			"http", r.URL.Path, entitiesProto, len(request.Features), featureVectors, debugOnlineStore, latencyMs, err)
+			"http", r.URL.Path, len(request.Features), featureVectors, debugOnlineStore, latencyMs, err)
 		writeJSONError(w, fmt.Errorf("Error getting feature vector: %+v", err), http.StatusInternalServerError)
 		return
 	}
@@ -459,7 +459,7 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	s.metricsCtx.EmitLookupMetrics(featureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
 	EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-		"http", r.URL.Path, entitiesProto, len(request.Features), featureVectors, debugOnlineStore, latencyMs, nil)
+		"http", r.URL.Path, len(request.Features), featureVectors, debugOnlineStore, latencyMs, nil)
 
 	var featureNames []string
 	var results []map[string]interface{}
@@ -678,7 +678,7 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-			"http", r.URL.Path, entitiesProto, len(request.Features), rangeFeatureVectors, debugOnlineStore, latencyMs, err)
+			"http", r.URL.Path, len(request.Features), rangeFeatureVectors, debugOnlineStore, latencyMs, err)
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
@@ -686,7 +686,7 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
 	EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-		"http", r.URL.Path, entitiesProto, len(request.Features), rangeFeatureVectors, debugOnlineStore, latencyMs, nil)
+		"http", r.URL.Path, len(request.Features), rangeFeatureVectors, debugOnlineStore, latencyMs, nil)
 
 	featureNames, entities, results, err := processFeatureVectors(
 		rangeFeatureVectors, includeMetadata, entitiesProto)

@@ -25,7 +25,6 @@ func TestEmit_WritesExpectedFields(t *testing.T) {
 		StoreRTTMs:            4.2,
 		OnlineStoreType:       "cassandra",
 		ErrorType:             nil,
-		EntityKeyHashes:       []string{"sha256:abc"},
 	})
 
 	var decoded map[string]interface{}
@@ -42,7 +41,6 @@ func TestEmit_WritesExpectedFields(t *testing.T) {
 	assert.Equal(t, 4.2, decoded["store_rtt_ms"])
 	assert.Equal(t, "cassandra", decoded["online_store_type"])
 	assert.Nil(t, decoded["error_type"])
-	assert.Equal(t, []interface{}{"sha256:abc"}, decoded["entity_key_hash"])
 }
 
 func TestEmit_WritesErrorTypeWhenPresent(t *testing.T) {

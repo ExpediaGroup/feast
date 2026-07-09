@@ -15,7 +15,6 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/feast/server/debuglogging"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
-	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,7 +122,7 @@ func TestEmitDebugRequestLog_NotEmittedWhenShouldEmitFalse(t *testing.T) {
 
 	EmitDebugRequestLog(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, false,
 		"p13n", []string{"customer_profile"}, "http", "/get-online-features",
-		map[string]*prototypes.RepeatedValue{}, 1, nil, "cassandra", 4.2, nil)
+		1, nil, "cassandra", 4.2, nil)
 
 	assert.Empty(t, buf.Bytes())
 }
@@ -137,7 +136,7 @@ func TestEmitDebugRequestLog_EmittedWhenRequestFlagged(t *testing.T) {
 
 	EmitDebugRequestLog(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, true,
 		"p13n", []string{"customer_profile"}, "http", "/get-online-features",
-		map[string]*prototypes.RepeatedValue{}, 1, vectors, "cassandra", 4.2, nil)
+		1, vectors, "cassandra", 4.2, nil)
 
 	var decoded map[string]interface{}
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
@@ -155,7 +154,7 @@ func TestEmitDebugRequestLogRange_EmittedWhenRequestFlagged(t *testing.T) {
 
 	EmitDebugRequestLogRange(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, true,
 		"p13n", []string{"customer_profile"}, "http", "/get-online-features-range",
-		map[string]*prototypes.RepeatedValue{}, 1, vectors, "cassandra", 4.2, nil)
+		1, vectors, "cassandra", 4.2, nil)
 
 	var decoded map[string]interface{}
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))

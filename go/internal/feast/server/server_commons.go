@@ -11,7 +11,6 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	debuglogging "github.com/feast-dev/feast/go/internal/feast/server/debuglogging"
-	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 )
@@ -125,7 +124,6 @@ func EmitDebugRequestLog(
 	fvNames []string,
 	transport string,
 	requestPath string,
-	entities map[string]*prototypes.RepeatedValue,
 	featuresRequested int,
 	featureVectors []*onlineserving.FeatureVector,
 	onlineStoreType string,
@@ -146,7 +144,6 @@ func EmitDebugRequestLog(
 		StoreRTTMs:            rttMs,
 		OnlineStoreType:       onlineStoreType,
 		ErrorType:             debuglogging.ClassifyError(err),
-		EntityKeyHashes:       debuglogging.HashEntityKeys(entities, cfg.Salt),
 	})
 }
 
@@ -160,7 +157,6 @@ func EmitDebugRequestLogRange(
 	fvNames []string,
 	transport string,
 	requestPath string,
-	entities map[string]*prototypes.RepeatedValue,
 	featuresRequested int,
 	rangeFeatureVectors []*onlineserving.RangeFeatureVector,
 	onlineStoreType string,
@@ -181,7 +177,6 @@ func EmitDebugRequestLogRange(
 		StoreRTTMs:            rttMs,
 		OnlineStoreType:       onlineStoreType,
 		ErrorType:             debuglogging.ClassifyError(err),
-		EntityKeyHashes:       debuglogging.HashEntityKeys(entities, cfg.Salt),
 	})
 }
 
