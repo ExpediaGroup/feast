@@ -22,6 +22,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/internal/feast/server/debuglogging"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
@@ -34,6 +35,7 @@ type HttpServer struct {
 	loggingService *logging.LoggingService
 	metricsClient  metrics.StatsdClient
 	metricsCtx     *MetricsContext
+	debugLogCfg    debuglogging.Config
 	config         *registry.RepoConfig
 	server         *http.Server
 }
@@ -331,6 +333,7 @@ func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingServic
 		loggingService: loggingService,
 		metricsClient:  metricsClient,
 		metricsCtx:     NewMetricsContext(metricsClient, config),
+		debugLogCfg:    debuglogging.NewConfig(),
 		config:         config,
 	}
 }
@@ -416,6 +419,7 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fvNames := extractFVNamesFromRequest(request.Features, featureService)
+	requestFlagged := debuglogging.RequestFlaggedHTTP(r.Header)
 	t0 := time.Now()
 
 	featureVectors, err = s.fs.GetOnlineFeatures(
@@ -437,12 +441,16 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting feature vector")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
+		EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, s.metricsCtx.Project, fvNames,
+			"http", r.URL.Path, entitiesProto, len(request.Features), featureVectors, s.metricsCtx.OnlineStore, latencyMs, err)
 		writeJSONError(w, fmt.Errorf("Error getting feature vector: %+v", err), http.StatusInternalServerError)
 		return
 	}
 
 	s.metricsCtx.EmitLookupMetrics(featureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, s.metricsCtx.Project, fvNames,
+		"http", r.URL.Path, entitiesProto, len(request.Features), featureVectors, s.metricsCtx.OnlineStore, latencyMs, nil)
 
 	var featureNames []string
 	var results []map[string]interface{}
@@ -626,6 +634,7 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 	}
 
 	fvNames := extractFVNamesFromRequest(request.Features, featureService)
+	requestFlagged := debuglogging.RequestFlaggedHTTP(r.Header)
 	t0 := time.Now()
 
 	rangeFeatureVectors, err := s.fs.GetOnlineFeaturesRange(
@@ -650,12 +659,16 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
+		EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, s.metricsCtx.Project, fvNames,
+			"http", r.URL.Path, entitiesProto, len(request.Features), rangeFeatureVectors, s.metricsCtx.OnlineStore, latencyMs, err)
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
 
 	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, s.metricsCtx.Project, fvNames,
+		"http", r.URL.Path, entitiesProto, len(request.Features), rangeFeatureVectors, s.metricsCtx.OnlineStore, latencyMs, nil)
 
 	featureNames, entities, results, err := processFeatureVectors(
 		rangeFeatureVectors, includeMetadata, entitiesProto)
