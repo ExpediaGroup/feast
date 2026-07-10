@@ -1,5 +1,6 @@
 import copy
 import itertools
+import logging
 import os
 import typing
 import warnings
@@ -56,6 +57,8 @@ if typing.TYPE_CHECKING:
     from feast.feature_view import FeatureView
     from feast.infra.registry.base_registry import BaseRegistry
     from feast.on_demand_feature_view import OnDemandFeatureView
+
+logger = logging.getLogger(__name__)
 
 APPLICATION_NAME = "feast-dev/feast"
 USER_AGENT = "{}/{}".format(APPLICATION_NAME, get_version())
@@ -258,6 +261,7 @@ def _convert_arrow_to_proto(
     table: Union[pyarrow.Table, pyarrow.RecordBatch],
     feature_view: Union["FeatureView", "BaseFeatureView", "OnDemandFeatureView"],
     join_keys: Dict[str, ValueType],
+    log_row_limit: Optional[int] = None,
 ) -> List[Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]]:
     # This is a workaround for isinstance(feature_view, OnDemandFeatureView), which triggers a circular import
     # Check for source_request_sources or source_feature_view_projections attributes to identify ODFVs
@@ -265,9 +269,48 @@ def _convert_arrow_to_proto(
         getattr(feature_view, "source_request_sources", None) is not None
         or getattr(feature_view, "source_feature_view_projections", None) is not None
     ):
-        return _convert_arrow_odfv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
+        result = _convert_arrow_odfv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
     else:
-        return _convert_arrow_fv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
+        result = _convert_arrow_fv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
+
+    if log_row_limit:
+        _log_materialized_rows(feature_view, result, log_row_limit)
+
+    return result
+
+
+def _log_materialized_rows(
+    feature_view: Union["FeatureView", "BaseFeatureView", "OnDemandFeatureView"],
+    rows: List[
+        Tuple[EntityKeyProto, Dict[str, ValueProto], datetime, Optional[datetime]]
+    ],
+    limit: int,
+) -> None:
+    """Logs a summary of materialized rows for debugging/support use. Gated by
+    RepoConfig.log_materialized_rows - caller is responsible for only passing a
+    truthy `limit` when that flag is enabled. Logs raw entity/feature values, which
+    may include PII, so this must remain strictly opt-in."""
+    num_to_log = min(limit, len(rows))
+    logger.info(
+        "[materialize] feature_view=%s writing %d row(s), logging first %d",
+        feature_view.name,
+        len(rows),
+        num_to_log,
+    )
+    for entity_key, feature_dict, event_ts, created_ts in rows[:limit]:
+        entity_values = {
+            join_key: str(value)
+            for join_key, value in zip(entity_key.join_keys, entity_key.entity_values)
+        }
+        feature_values = {name: str(value) for name, value in feature_dict.items()}
+        logger.info(
+            "[materialize] feature_view=%s entity_keys=%s features=%s event_ts=%s created_ts=%s",
+            feature_view.name,
+            entity_values,
+            feature_values,
+            event_ts,
+            created_ts,
+        )
 
 
 def _convert_arrow_fv_to_proto(

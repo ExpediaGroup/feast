@@ -272,7 +272,14 @@ class LocalOutputNode(LocalNode):
             }
 
             rows_to_write = _convert_arrow_to_proto(
-                input_table, self.feature_view, join_key_to_value_type
+                input_table,
+                self.feature_view,
+                join_key_to_value_type,
+                log_row_limit=(
+                    context.repo_config.log_materialized_rows_limit
+                    if context.repo_config.log_materialized_rows
+                    else None
+                ),
             )
 
             online_store.online_write_batch(

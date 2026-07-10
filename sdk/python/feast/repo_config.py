@@ -248,6 +248,15 @@ class RepoConfig(FeastBaseModel):
     coerce_tz_aware: Optional[bool] = True
     """ If True, coerces entity_df timestamp columns to be timezone aware (to UTC by default). """
 
+    log_materialized_rows: StrictBool = False
+    """ Enables logging a summary of each row (entity key, feature values, timestamps) as it
+    is written during batch and streaming materialization. Intended for debugging/support use.
+    Off by default: enabling this will log raw feature and entity data, which may include PII. """
+
+    log_materialized_rows_limit: StrictInt = 100
+    """ Maximum number of rows to log per materialization batch when log_materialized_rows is
+    enabled, to avoid flooding logs for large batches. """
+
     def __init__(self, **data: Any):
         super().__init__(**data)
 

@@ -562,7 +562,16 @@ class PassthroughProvider(Provider):
         feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView],
         join_keys,
     ):
-        rows_to_write = _convert_arrow_to_proto(table, feature_view, join_keys)
+        rows_to_write = _convert_arrow_to_proto(
+            table,
+            feature_view,
+            join_keys,
+            log_row_limit=(
+                self.repo_config.log_materialized_rows_limit
+                if self.repo_config.log_materialized_rows
+                else None
+            ),
+        )
         self.online_write_batch(
             self.repo_config, feature_view, rows_to_write, progress=None
         )

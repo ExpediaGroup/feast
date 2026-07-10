@@ -37,9 +37,15 @@ entity_df = pd.DataFrame({"entity_id": [1, 2], "event_timestamp": [now, now]})
 
 def create_context(node_outputs):
     # Setup execution context
+    repo_config = MagicMock()
+    # Explicit, since a bare MagicMock() is truthy by default: LocalOutputNode
+    # reads this to decide whether to log materialized rows, and an
+    # unconfigured mock would otherwise make log_materialized_rows_limit
+    # (also a MagicMock) get passed through as the log row limit.
+    repo_config.log_materialized_rows = False
     return ExecutionContext(
         project="test_proj",
-        repo_config=MagicMock(),
+        repo_config=repo_config,
         offline_store=MagicMock(),
         online_store=MagicMock(),
         entity_defs=MagicMock(),

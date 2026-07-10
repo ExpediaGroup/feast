@@ -49,7 +49,14 @@ def map_in_arrow(
             }
 
             rows_to_write = _convert_arrow_to_proto(
-                table, feature_view, join_key_to_value_type
+                table,
+                feature_view,
+                join_key_to_value_type,
+                log_row_limit=(
+                    repo_config.log_materialized_rows_limit
+                    if repo_config.log_materialized_rows
+                    else None
+                ),
             )
 
             online_store.online_write_batch(
@@ -127,7 +134,14 @@ def map_in_pandas(iterator, serialized_artifacts: SerializedArtifacts):
         }
 
         rows_to_write = _convert_arrow_to_proto(
-            table, feature_view, join_key_to_value_type
+            table,
+            feature_view,
+            join_key_to_value_type,
+            log_row_limit=(
+                repo_config.log_materialized_rows_limit
+                if repo_config.log_materialized_rows
+                else None
+            ),
         )
         online_store.online_write_batch(
             repo_config,
