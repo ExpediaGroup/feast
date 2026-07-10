@@ -25,6 +25,7 @@ from feast.infra.contrib.stream_processor import (
 from feast.infra.provider import get_provider
 from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import StreamFeatureView
+from feast.version import get_installed_version, get_version
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,11 @@ class SparkKafkaProcessor(StreamProcessor):
     def ingest_stream_feature_view(
         self, to: PushMode = PushMode.ONLINE
     ) -> StreamingQuery:
+        logger.info(
+            "Streaming materialization starting: feast=%s feature-store-materialization=%s",
+            get_version(),
+            get_installed_version("feature-store-materialization"),
+        )
         self._create_infra_if_necessary()
         ingested_stream_df = self._ingest_stream_data()
         transformed_df = self._construct_transformation_plan(ingested_stream_df)

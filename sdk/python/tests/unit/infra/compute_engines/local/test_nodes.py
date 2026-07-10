@@ -37,9 +37,10 @@ entity_df = pd.DataFrame({"entity_id": [1, 2], "event_timestamp": [now, now]})
 
 def create_context(node_outputs):
     # Setup execution context
+    repo_config = MagicMock()
     return ExecutionContext(
         project="test_proj",
-        repo_config=MagicMock(),
+        repo_config=repo_config,
         offline_store=MagicMock(),
         online_store=MagicMock(),
         entity_defs=MagicMock(),

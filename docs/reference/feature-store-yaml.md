@@ -24,7 +24,6 @@ online_store:
   * **path** \(a local filepath\) — Parameter for the sqlite online store. Defines the path to the SQLite database file.
   * **project\_id**  — Optional parameter for the datastore online store. Sets the GCP project id used by Feast, if not set Feast will use the default GCP project id in the local environment.
 * **project** — Defines a namespace for the entire feature store. Can be used to isolate multiple deployments in a single installation of Feast.
-
 ## Providers
 
 The `provider` field defines the environment in which Feast will execute data flows. As a result, it also determines the default values for other fields.

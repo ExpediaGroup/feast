@@ -98,6 +98,7 @@ from feast.stream_feature_view import StreamFeatureView
 from feast.transformation.pandas_transformation import PandasTransformation
 from feast.transformation.python_transformation import PythonTransformation
 from feast.utils import _get_feature_view_vector_field_metadata, _utc_now
+from feast.version import get_installed_version, get_version
 
 warnings.simplefilter("once", DeprecationWarning)
 
@@ -3244,6 +3245,11 @@ class FeatureStore:
 def _print_materialization_log(
     start_date, end_date, num_feature_views: int, online_store: str
 ):
+    logger.info(
+        "Materialization starting: feast=%s feature-store-materialization=%s",
+        get_version(),
+        get_installed_version("feature-store-materialization"),
+    )
     if start_date:
         print(
             f"Materializing {Style.BRIGHT + Fore.GREEN}{num_feature_views}{Style.RESET_ALL} feature views"

@@ -1,5 +1,6 @@
 import copy
 import itertools
+import logging
 import os
 import typing
 import warnings
@@ -56,6 +57,8 @@ if typing.TYPE_CHECKING:
     from feast.feature_view import FeatureView
     from feast.infra.registry.base_registry import BaseRegistry
     from feast.on_demand_feature_view import OnDemandFeatureView
+
+logger = logging.getLogger(__name__)
 
 APPLICATION_NAME = "feast-dev/feast"
 USER_AGENT = "{}/{}".format(APPLICATION_NAME, get_version())
@@ -265,9 +268,17 @@ def _convert_arrow_to_proto(
         getattr(feature_view, "source_request_sources", None) is not None
         or getattr(feature_view, "source_feature_view_projections", None) is not None
     ):
-        return _convert_arrow_odfv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
+        result = _convert_arrow_odfv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
     else:
-        return _convert_arrow_fv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
+        result = _convert_arrow_fv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
+
+    logger.info(
+        "[materialize] feature_view=%s rows=%d",
+        feature_view.name,
+        len(result),
+    )
+
+    return result
 
 
 def _convert_arrow_fv_to_proto(
