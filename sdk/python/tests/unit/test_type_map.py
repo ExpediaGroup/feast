@@ -3,6 +3,8 @@ import pandas as pd
 import pytest
 
 from feast.type_map import (
+    MS_TIMESTAMP_THRESHOLD,
+    _python_datetime_to_int_ms_timestamp,
     feast_value_type_to_python_type,
     python_values_to_proto_values,
 )
@@ -28,6 +30,32 @@ def test_null_unix_timestamp_list():
     converted = feast_value_type_to_python_type(protos[0])
 
     assert converted[0] is None
+
+
+def test_python_datetime_to_int_ms_timestamp_raw_int_below_threshold_is_treated_as_seconds():
+    """A raw (non-datetime) integer below MS_TIMESTAMP_THRESHOLD is assumed to be
+    seconds and converted to milliseconds - e.g. a sort key column that arrived
+    as a Spark LongType rather than TimestampType (source Avro schema missing a
+    timestamp-millis/timestamp-micros logicalType)."""
+
+    seconds_value = 1717244257  # 2024-06-01 12:17:37 UTC, well below the threshold
+    assert seconds_value < MS_TIMESTAMP_THRESHOLD
+
+    result = _python_datetime_to_int_ms_timestamp([seconds_value])
+
+    assert result == [seconds_value * 1000]
+
+
+def test_python_datetime_to_int_ms_timestamp_raw_int_above_threshold_passes_through():
+    """A raw integer already above MS_TIMESTAMP_THRESHOLD is assumed to already be
+    milliseconds and is passed through unchanged."""
+
+    ms_value = 1717244257886  # 2024-06-01 12:17:37.886 UTC
+    assert ms_value > MS_TIMESTAMP_THRESHOLD
+
+    result = _python_datetime_to_int_ms_timestamp([ms_value])
+
+    assert result == [ms_value]
 
 
 @pytest.mark.parametrize(
