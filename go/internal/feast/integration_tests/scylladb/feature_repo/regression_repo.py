@@ -47,3 +47,43 @@ sub_second_sort_key_view: SortedFeatureView = SortedFeatureView(
         Field(name="event_timestamp", dtype=UnixTimestamp),
     ],
 )
+
+# Second regression fixture: the sort key is a secondary feature with a name
+# other than "event_timestamp" (mirroring the real customer schema, where the
+# sort key was named "viewed_at" and was distinct from the source's own
+# ingestion timestamp field). This guards against the fix accidentally being
+# tied to the "event_timestamp" column name rather than working for any
+# UNIX_TIMESTAMP column declared as a sort key.
+custom_sortkey_entity: Entity = Entity(
+    name="custom_sortkey_entity",
+    join_keys=["custom_sortkey_entity_id"],
+    value_type=ValueType.STRING,
+    tags=tags,
+    owner=owner,
+)
+
+sub_second_custom_sortkey_source: FileSource = FileSource(
+    path="sub_second_custom_sortkey_data.parquet", timestamp_field="event_timestamp"
+)
+
+sub_second_custom_sortkey_view: SortedFeatureView = SortedFeatureView(
+    name="sub_second_custom_sortkey_view",
+    entities=[custom_sortkey_entity],
+    ttl=timedelta(days=0),
+    source=sub_second_custom_sortkey_source,
+    tags=tags,
+    description="Regression fixture: sort key named 'viewed_at' (not 'event_timestamp'), rows <1s apart",
+    owner=owner,
+    online=True,
+    sort_keys=[
+        SortKey(
+            name="viewed_at",
+            value_type=ValueType.UNIX_TIMESTAMP,
+            default_sort_order=SortOrder.DESC,
+        )
+    ],
+    schema=[
+        Field(name="value", dtype=String),
+        Field(name="viewed_at", dtype=UnixTimestamp),
+    ],
+)

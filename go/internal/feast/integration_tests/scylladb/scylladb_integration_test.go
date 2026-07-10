@@ -447,6 +447,82 @@ func TestGetOnlineFeaturesRange_SubSecondSortKeyValuesRemainDistinct(t *testing.
 	}
 }
 
+// TestGetOnlineFeaturesRange_CustomNamedSortKeyValuesRemainDistinct guards
+// against the EAPC-22316 fix being tied to the "event_timestamp" column name
+// rather than working for any UNIX_TIMESTAMP column declared as a sort key.
+// The fixture (sub_second_custom_sortkey_view, seeded from
+// sub_second_custom_sortkey_data.parquet) declares "viewed_at" - a name
+// distinct from the source's own "event_timestamp" watermark field - as the
+// sort key, mirroring the real customer schema. Same three-row shape: two
+// rows 18ms apart within the same second, one two seconds later.
+func TestGetOnlineFeaturesRange_CustomNamedSortKeyValuesRemainDistinct(t *testing.T) {
+	entities := make(map[string]*types.RepeatedValue)
+	entities["custom_sortkey_entity_id"] = &types.RepeatedValue{
+		Val: []*types.Value{
+			{Val: &types.Value_StringVal{StringVal: "entity-1"}},
+		},
+	}
+
+	request := &serving.GetOnlineFeaturesRangeRequest{
+		Kind: &serving.GetOnlineFeaturesRangeRequest_Features{
+			Features: &serving.FeatureList{
+				Val: []string{
+					"sub_second_custom_sortkey_view:viewed_at",
+					"sub_second_custom_sortkey_view:value",
+				},
+			},
+		},
+		Entities: entities,
+		SortKeyFilters: []*serving.SortKeyFilter{
+			{
+				SortKeyName: "viewed_at",
+				Query: &serving.SortKeyFilter_Range{
+					Range: &serving.SortKeyFilter_RangeQuery{
+						RangeStart: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 0}},
+					},
+				},
+			},
+		},
+		Limit: 10,
+	}
+
+	response, err := client.GetOnlineFeaturesRange(ctx, request)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	require.Len(t, response.Results, 2, "expected viewed_at and value results")
+
+	viewedAtIdx := -1
+	for i, name := range response.Metadata.FeatureNames.Val {
+		if name == "viewed_at" {
+			viewedAtIdx = i
+		}
+	}
+	require.NotEqual(t, -1, viewedAtIdx, "expected to find viewed_at in the response")
+
+	viewedAtVector := response.Results[viewedAtIdx]
+	require.Len(t, viewedAtVector.Values, 1, "expected results for the single requested entity")
+
+	timestamps := viewedAtVector.Values[0].Val
+	require.Len(t, timestamps, 3, "expected all 3 sub-second-apart rows to be returned")
+
+	seen := make(map[int64]bool)
+	for _, v := range timestamps {
+		ts := v.GetUnixTimestampVal()
+		assert.False(t, seen[ts], "sort key value %d was returned more than once; sub-second rows collapsed", ts)
+		seen[ts] = true
+	}
+	assert.Len(t, seen, 3, "expected 3 distinct millisecond-precision sort key values")
+
+	expected := map[int64]bool{
+		1717244257886: true, // 2024-06-01 12:17:37.886
+		1717244257904: true, // 2024-06-01 12:17:37.904
+		1717244259035: true, // 2024-06-01 12:17:39.035
+	}
+	for ts := range seen {
+		assert.True(t, expected[ts], "unexpected sort key value %d", ts)
+	}
+}
+
 func assertResponseData(t *testing.T, response *serving.GetOnlineFeaturesRangeResponse, featureNames []string, entitiesRequested int, includeMetadata bool) {
 	assert.NotNil(t, response)
 	assert.Equal(t, 1, len(response.Entities), "Should have 1 list of entity")
