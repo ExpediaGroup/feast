@@ -151,6 +151,92 @@ def map_in_arrow_online_stats(
     )
 
 
+def map_in_pandas_online_stats(
+    iterator, serialized_artifacts: "SerializedArtifacts"
+):
+    """Online write (pandas) that RETURNS per-partition Layer-1 stats.
+
+    This is the metrics-enabled counterpart of :func:`map_in_pandas`, used by
+    ``SparkComputeEngine._materialize_from_offline_store`` (the ``from_offline_store``
+    path that batch materialization actually runs -- NOT the DAG SparkWriteNode).
+    It mirrors ``map_in_pandas``'s write exactly (including field mapping), tallies
+    a ``MaterializationMetricsAggregator`` per partition, and yields ONE row with
+    the pickled ``to_dict()`` in a binary ``stats`` column. The driver ``.collect()``s
+    and folds these with ``merge_stats`` -- a returned result is guaranteed to reach
+    the driver (unlike a Spark accumulator updated inside a pandas UDF, which does
+    not reliably propagate).
+
+    The tally is strictly best-effort: any error while measuring is swallowed so it
+    can never block or fail the online write. ``distinct_entity_keys`` is left unset
+    on Spark (v1), matching the DAG path.
+    """
+    import pickle
+
+    (
+        feature_view,
+        online_store,
+        _offline_store,
+        repo_config,
+    ) = serialized_artifacts.unserialize()
+
+    local_agg = MaterializationMetricsAggregator(
+        project=str(getattr(repo_config, "project", "")),
+        feature_view=feature_view.name,
+        online_store_type=str(
+            getattr(
+                getattr(repo_config, "online_store", None),
+                "type",
+                type(online_store).__name__,
+            )
+        ),
+    )
+
+    for pdf in iterator:
+        if pdf.shape[0] == 0:
+            continue
+
+        table = pyarrow.Table.from_pandas(pdf)
+        if feature_view.batch_source.field_mapping is not None:
+            table = _run_pyarrow_field_mapping(
+                table, feature_view.batch_source.field_mapping
+            )
+
+        join_key_to_value_type = {
+            entity.name: entity.dtype.to_value_type()
+            for entity in feature_view.entity_columns
+        }
+        rows_to_write = _convert_arrow_to_proto(
+            table, feature_view, join_key_to_value_type
+        )
+
+        # Best-effort measurement: never let a metrics error block the write.
+        try:
+            # Rows entering the write == rows read at this boundary.
+            local_agg.record_read(table.num_rows)
+            local_agg.record_written(table.num_rows)
+            local_agg.observe_written_batch(
+                table,
+                feature_fields=[f.name for f in feature_view.features],
+                timestamp_column=getattr(
+                    feature_view.batch_source, "timestamp_field", None
+                ),
+            )
+        except Exception:  # noqa: BLE001 -- metrics are best-effort
+            pass
+
+        # Bind the local tally so the online store records its own drops
+        # (e.g. Cassandra negative-TTL skips) into it on this executor.
+        with collecting(local_agg):
+            online_store.online_write_batch(
+                repo_config,
+                feature_view,
+                rows_to_write,
+                lambda x: None,
+            )
+
+    yield pd.DataFrame({"stats": pd.Series([pickle.dumps(local_agg.to_dict())], dtype=object)})
+
+
 def map_in_pandas(iterator, serialized_artifacts: SerializedArtifacts):
     (
         feature_view,
