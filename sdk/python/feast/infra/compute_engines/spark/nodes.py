@@ -5,7 +5,7 @@ from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
 
 from feast import BatchFeatureView, StreamFeatureView
-from feast._materialization_metrics import record_run_result
+from feast._materialization_metrics import merge_stats, record_run_result
 from feast.aggregation import Aggregation
 from feast.data_source import DataSource
 from feast.infra.common.serde import SerializedArtifacts
@@ -14,8 +14,8 @@ from feast.infra.compute_engines.dag.model import DAGFormat
 from feast.infra.compute_engines.dag.node import DAGNode
 from feast.infra.compute_engines.dag.value import DAGValue
 from feast.infra.compute_engines.spark.utils import (
-    MaterializationStatsAccumulatorParam,
     map_in_arrow,
+    map_in_arrow_online_stats,
 )
 from feast.infra.compute_engines.utils import (
     create_offline_store_retrieval_job,
@@ -325,26 +325,33 @@ class SparkWriteNode(DAGNode):
         if self.feature_view.online:
             collector = context.metrics_collector
             if collector is not None:
-                # Materialization metrics enabled: aggregate per-executor write
-                # stats via a Spark accumulator, then fold the merged result into
-                # the driver-side collector once the write action completes.
-                active_session = SparkSession.getActiveSession()
-                # A SparkWriteNode only executes against an active session (the
-                # DataFrame it writes came from one), so this is always set here.
-                assert active_session is not None, "no active SparkSession"
-                stats_accumulator = active_session.sparkContext.accumulator(
-                    {}, MaterializationStatsAccumulatorParam()
+                # Materialization metrics enabled: do the online write and get
+                # per-partition stats back as COLLECTED DATA (one pickled row per
+                # partition), not via a Spark accumulator -- accumulator updates
+                # inside mapInArrow don't reliably propagate to the driver, which
+                # left every Layer-1 field NULL. A .collect() result is guaranteed
+                # to reach the driver; fold the partition dicts with merge_stats.
+                import pickle
+
+                from pyspark.sql.types import (
+                    BinaryType,
+                    StructField,
+                    StructType,
                 )
-                spark_df.mapInArrow(
-                    lambda x: map_in_arrow(
-                        x,
-                        serialized_artifacts,
-                        mode="online",
-                        stats_accumulator=stats_accumulator,
-                    ),
-                    spark_df.schema,
-                ).count()
-                collector.merge_from_dict(stats_accumulator.value)
+
+                stats_schema = StructType(
+                    [StructField("stats", BinaryType(), True)]
+                )
+                stats_rows = spark_df.mapInArrow(
+                    lambda x: map_in_arrow_online_stats(x, serialized_artifacts),
+                    stats_schema,
+                ).collect()
+                merged: dict = {}
+                for row in stats_rows:
+                    payload = row["stats"]
+                    if payload:
+                        merged = merge_stats(merged, pickle.loads(payload))
+                collector.merge_from_dict(merged)
                 # NOTE: distinct_entity_keys is intentionally NOT computed on Spark
                 # in v1. A second `.agg(approx_count_distinct)` would be a separate
                 # Spark job over `spark_df`, which isn't cached -- so it would

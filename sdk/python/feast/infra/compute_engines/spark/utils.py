@@ -1,40 +1,18 @@
 import time
-from typing import Any, Dict, Iterable, Literal, Optional
+from typing import Dict, Iterable, Literal, Optional
 
 import pandas as pd
 import pyarrow
 import pyarrow as pa
 from pyspark import SparkConf
-from pyspark.accumulators import Accumulator, AccumulatorParam
 from pyspark.sql import SparkSession
 
 from feast._materialization_metrics import (
     MaterializationMetricsAggregator,
     collecting,
-    merge_stats,
 )
 from feast.infra.common.serde import SerializedArtifacts
 from feast.utils import _convert_arrow_to_proto, _run_pyarrow_field_mapping
-
-
-class MaterializationStatsAccumulatorParam(AccumulatorParam):
-    """Spark accumulator that merges per-partition materialization-metrics dicts.
-
-    Each executor partition contributes a ``MaterializationMetricsAggregator.to_dict()``
-    payload; Spark folds them together on the driver. ``zero`` is the empty dict and
-    ``addInPlace`` is the pure, commutative :func:`merge_stats`, so partition order and
-    retries don't change the merged result (aside from Spark's usual at-least-once
-    accumulator semantics under task retry/speculation, which is acceptable for
-    best-effort metrics).
-    """
-
-    def zero(self, value: Dict[str, Any]) -> Dict[str, Any]:
-        return dict(value) if value else {}
-
-    def addInPlace(
-        self, value1: Dict[str, Any], value2: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        return merge_stats(value1, value2)
 
 
 def get_or_create_new_spark_session(
@@ -57,14 +35,9 @@ def map_in_arrow(
     iterator: Iterable[pa.RecordBatch],
     serialized_artifacts: "SerializedArtifacts",
     mode: Literal["online", "offline"] = "online",
-    stats_accumulator: Optional["Accumulator"] = None,
 ):
-    # Per-partition (per-executor-task) metrics tally. Only built when the driver
-    # passed a stats accumulator (i.e. materialization metrics are enabled). Its
-    # counts are pushed into the Spark accumulator once the partition is drained,
-    # where the driver merges them across all partitions.
-    local_agg: Optional[MaterializationMetricsAggregator] = None
-
+    # Plain write passthrough (no metrics). The metrics-enabled online path uses
+    # map_in_arrow_online_stats, which returns per-partition stats to the driver.
     for batch in iterator:
         table = pa.Table.from_batches([batch])
 
@@ -85,47 +58,12 @@ def map_in_arrow(
                 table, feature_view, join_key_to_value_type
             )
 
-            if stats_accumulator is not None:
-                if local_agg is None:
-                    local_agg = MaterializationMetricsAggregator(
-                        project=str(getattr(repo_config, "project", "")),
-                        feature_view=feature_view.name,
-                        online_store_type=str(
-                            getattr(
-                                getattr(repo_config, "online_store", None),
-                                "type",
-                                type(online_store).__name__,
-                            )
-                        ),
-                    )
-                # Rows entering the write == rows read at this boundary (Option A:
-                # upstream filter/dedup drops are not separately counted on Spark).
-                local_agg.record_read(table.num_rows)
-                local_agg.record_written(table.num_rows)
-                local_agg.observe_written_batch(
-                    table,
-                    feature_fields=[f.name for f in feature_view.features],
-                    timestamp_column=getattr(
-                        feature_view.batch_source, "timestamp_field", None
-                    ),
-                )
-                # Bind the local tally so the online store records its own drops
-                # (e.g. Cassandra TTL) into it on this executor, without a
-                # signature change -- mirrors the local-engine output node.
-                with collecting(local_agg):
-                    online_store.online_write_batch(
-                        config=repo_config,
-                        table=feature_view,
-                        data=rows_to_write,
-                        progress=lambda x: None,
-                    )
-            else:
-                online_store.online_write_batch(
-                    config=repo_config,
-                    table=feature_view,
-                    data=rows_to_write,
-                    progress=lambda x: None,
-                )
+            online_store.online_write_batch(
+                config=repo_config,
+                table=feature_view,
+                data=rows_to_write,
+                progress=lambda x: None,
+            )
         if mode == "offline":
             offline_store.offline_write_batch(
                 config=repo_config,
@@ -136,9 +74,81 @@ def map_in_arrow(
 
         yield batch
 
-    # Partition drained: contribute this task's tally to the driver-side merge.
-    if stats_accumulator is not None and local_agg is not None:
-        stats_accumulator.add(local_agg.to_dict())
+
+def map_in_arrow_online_stats(
+    iterator: Iterable[pa.RecordBatch],
+    serialized_artifacts: "SerializedArtifacts",
+) -> Iterable[pa.RecordBatch]:
+    """Online write that RETURNS per-partition metrics instead of using a Spark
+    accumulator.
+
+    Accumulator updates performed inside ``mapInArrow`` do not reliably propagate
+    back to the driver (Spark wires accumulator updates through RDD actions, not
+    the Arrow/pandas-UDF SQL path), so the accumulator-based tally came back empty
+    and every Layer-1 field was NULL. Instead, do the same single-pass online
+    write here and yield ONE record batch per partition carrying the partition's
+    ``MaterializationMetricsAggregator.to_dict()`` pickled into a binary column.
+    The driver ``.collect()``s these and folds them with ``merge_stats`` -- a
+    returned result is guaranteed to reach the driver. Pickle (not JSON) preserves
+    datetimes / Counter / list fields exactly.
+    """
+    import pickle
+
+    feature_view = None
+    online_store = None
+    repo_config = None
+    local_agg: Optional[MaterializationMetricsAggregator] = None
+
+    for batch in iterator:
+        table = pa.Table.from_batches([batch])
+        if feature_view is None:
+            feature_view, online_store, _offline_store, repo_config = (
+                serialized_artifacts.unserialize()
+            )
+            local_agg = MaterializationMetricsAggregator(
+                project=str(getattr(repo_config, "project", "")),
+                feature_view=feature_view.name,
+                online_store_type=str(
+                    getattr(
+                        getattr(repo_config, "online_store", None),
+                        "type",
+                        type(online_store).__name__,
+                    )
+                ),
+            )
+
+        join_key_to_value_type = {
+            entity.name: entity.dtype.to_value_type()
+            for entity in feature_view.entity_columns
+        }
+        rows_to_write = _convert_arrow_to_proto(
+            table, feature_view, join_key_to_value_type
+        )
+        # Rows entering the write == rows read at this boundary (Option A: upstream
+        # filter/dedup drops are not separately counted on Spark).
+        local_agg.record_read(table.num_rows)
+        local_agg.record_written(table.num_rows)
+        local_agg.observe_written_batch(
+            table,
+            feature_fields=[f.name for f in feature_view.features],
+            timestamp_column=getattr(
+                feature_view.batch_source, "timestamp_field", None
+            ),
+        )
+        # Bind the local tally so the online store records its own drops
+        # (e.g. Cassandra TTL) into it on this executor.
+        with collecting(local_agg):
+            online_store.online_write_batch(
+                config=repo_config,
+                table=feature_view,
+                data=rows_to_write,
+                progress=lambda x: None,
+            )
+
+    payload = pickle.dumps(local_agg.to_dict() if local_agg is not None else {})
+    yield pa.RecordBatch.from_arrays(
+        [pa.array([payload], type=pa.binary())], names=["stats"]
+    )
 
 
 def map_in_pandas(iterator, serialized_artifacts: SerializedArtifacts):
