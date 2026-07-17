@@ -191,6 +191,8 @@ class FeatureStore:
             )
 
         self._provider = get_provider(self.config)
+        self._openlineage_emitter = None
+        self._openlineage_emitter_initialized = False
 
     def __repr__(self) -> str:
         return (
@@ -211,6 +213,60 @@ class FeatureStore:
     def project(self) -> str:
         """Gets the project of this feature store."""
         return self.config.project
+
+    @property
+    def openlineage_emitter(self):
+        """Lazily-initialized OpenLineage emitter, or None if disabled/unavailable."""
+        if not self._openlineage_emitter_initialized:
+            self._openlineage_emitter = self._init_openlineage_emitter()
+            self._openlineage_emitter_initialized = True
+        return self._openlineage_emitter
+
+    def _init_openlineage_emitter(self):
+        ol_config = getattr(self.config, "openlineage", None)
+        if ol_config is None or not getattr(ol_config, "enabled", False):
+            return None
+        try:
+            from feast.openlineage import FeastOpenLineageEmitter
+
+            emitter = FeastOpenLineageEmitter(ol_config.to_openlineage_config())
+            return emitter if emitter.is_enabled else None
+        except Exception as e:
+            warnings.warn(f"Failed to initialize OpenLineage emitter: {e}")
+            return None
+
+    def _openlineage_project_metadata(self) -> Dict[str, str]:
+        """Best-effort store/provider metadata for the `feast_project` job facet."""
+
+        def _cfg_type(cfg: Any) -> str:
+            if isinstance(cfg, dict):
+                return str(cfg.get("type", ""))
+            if isinstance(cfg, str):
+                return cfg
+            return str(getattr(cfg, "type", "") or "")
+
+        return {
+            "provider": str(getattr(self.config, "provider", "local")),
+            "online_store_type": _cfg_type(getattr(self.config, "online_config", None)),
+            "offline_store_type": _cfg_type(
+                getattr(self.config, "offline_config", None)
+            ),
+            "registry_type": str(
+                getattr(self.config.registry, "registry_type", "file")
+            ),
+        }
+
+    def _emit_openlineage_apply(self, objects: List[Any]) -> None:
+        """Emit OpenLineage apply events. Always non-fatal."""
+        emitter = self.openlineage_emitter
+        if emitter is None:
+            return
+        try:
+            emitter.emit_apply(
+                objects, self.project, self._openlineage_project_metadata()
+            )
+        except Exception as e:
+            warnings.warn(f"Failed to emit OpenLineage apply events: {e}")
 
     def _get_provider(self) -> Provider:
         # TODO: Bake self.repo_path into self.config so that we dont only have one interface to paths
@@ -1199,6 +1255,9 @@ class FeatureStore:
         # - thread mode: Eventual consistency - skip refresh, background thread handles it
         if self.config.registry.cache_mode == "sync":
             self.refresh_registry()
+
+        # Emit OpenLineage lineage to the EG Metadata Bus (non-fatal, no-op if disabled).
+        self._emit_openlineage_apply(objects)
 
     def teardown(self):
         """Tears down all local and cloud resources for the feature store."""

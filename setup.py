@@ -175,6 +175,8 @@ COUCHBASE_REQUIRED = [
 
 MSSQL_REQUIRED = ["ibis-framework[mssql]>=9.0.0,<10"]
 
+OPENLINEAGE_REQUIRED = ["openlineage-python>=1.9.0,<2"]
+
 FAISS_REQUIRED = ["faiss-cpu>=1.7.0,<=1.10.0"]
 QDRANT_REQUIRED = ["qdrant-client>=1.12.0"]
 
@@ -288,6 +290,7 @@ CI_REQUIRED = (
     + RAG_REQUIRED
     + IMAGE_REQUIRED
     + RAY_REQUIRED
+    + OPENLINEAGE_REQUIRED
 )
 MINIMAL_REQUIRED = (
     GCP_REQUIRED
@@ -396,6 +399,7 @@ setup(
         "rag": RAG_REQUIRED,
         "image": IMAGE_REQUIRED,
         "ray": RAY_REQUIRED,
+        "openlineage": OPENLINEAGE_REQUIRED,
     },
     include_package_data=True,
     license="Apache",

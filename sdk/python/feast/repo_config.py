@@ -191,6 +191,55 @@ class RegistryConfig(FeastBaseModel):
         return path
 
 
+class OpenLineageConfig(FeastConfigBaseModel):
+    """
+    Configuration for emitting OpenLineage events to the EG Metadata Bus on
+    ``feast apply``. See ``feast/openlineage/README.md``.
+    """
+
+    enabled: StrictBool = False
+    """ bool: Master switch for OpenLineage emission. Defaults to False. """
+
+    transport_type: Optional[StrictStr] = None
+    """ str: OpenLineage transport type, e.g. 'http'. When unset, the OpenLineage
+        SDK falls back to its own defaults / OPENLINEAGE_* env vars. """
+
+    transport_url: Optional[StrictStr] = None
+    """ str: Base URL of the Metadata Bus proxy (required for http transport),
+        e.g. https://metadata-bus-proxy.rcp.us-east-1.data.test.exp-aws.net """
+
+    transport_endpoint: StrictStr = "api/v1/lineage"
+    """ str: Metadata Bus proxy lineage endpoint path. """
+
+    api_key: Optional[StrictStr] = None
+    """ str: Optional API key for the transport (not required by the proxy). """
+
+    environment: Optional[StrictStr] = None
+    """ str: Explicit override for the namespace env segment (mlp://mlpfs-{env}).
+        When unset, resolved from REGISTRY_ENV then CONTROL_PLANE_ENVIRONMENT. """
+
+    producer: StrictStr = "https://github.com/ExpediaGroup/feast"
+    """ str: Producer URI stamped on every event and facet. """
+
+    emit_on_apply: StrictBool = True
+    """ bool: Emit lineage when `feast apply` runs. """
+
+    def to_openlineage_config(self):
+        """Convert to the runtime dataclass consumed by the emitter/client."""
+        from feast.openlineage.config import OpenLineageConfig as _RuntimeConfig
+
+        return _RuntimeConfig(
+            enabled=self.enabled,
+            transport_type=self.transport_type,
+            transport_url=self.transport_url,
+            transport_endpoint=self.transport_endpoint,
+            api_key=self.api_key,
+            environment=self.environment,
+            producer=self.producer,
+            emit_on_apply=self.emit_on_apply,
+        )
+
+
 class RepoConfig(FeastBaseModel):
     """Repo config. Typically loaded from `feature_store.yaml`"""
 
@@ -229,6 +278,9 @@ class RepoConfig(FeastBaseModel):
 
     feature_server: Optional[Any] = None
     """ FeatureServerConfig: Feature server configuration (optional depending on provider) """
+
+    openlineage_config: Any = Field(None, alias="openlineage")
+    """ OpenLineageConfig: Emit OpenLineage events to the EG Metadata Bus on apply (optional). """
 
     flags: Any = None
     """ Flags (deprecated field): Feature flags for experimental features """
@@ -407,6 +459,14 @@ class RepoConfig(FeastBaseModel):
                 self._batch_engine = self._batch_engine
 
         return self._batch_engine
+
+    @property
+    def openlineage(self) -> Optional[OpenLineageConfig]:
+        if self.openlineage_config is None:
+            return None
+        if isinstance(self.openlineage_config, Dict):
+            self.openlineage_config = OpenLineageConfig(**self.openlineage_config)
+        return self.openlineage_config
 
     @model_validator(mode="before")
     def _validate_auth_config(cls, values: Any) -> Any:
