@@ -167,8 +167,10 @@ def map_in_pandas_online_stats(
     not reliably propagate).
 
     The tally is strictly best-effort: any error while measuring is swallowed so it
-    can never block or fail the online write. ``distinct_entity_keys`` is left unset
-    on Spark (v1), matching the DAG path.
+    can never block or fail the online write. ``distinct_entity_keys`` is not
+    tallied here (per-partition exact counts can't be summed across partitions);
+    the driver computes it once over the whole DataFrame via a Spark
+    ``Observation`` and sets it on the merged collector.
     """
     import pickle
 
@@ -178,6 +180,26 @@ def map_in_pandas_online_stats(
         _offline_store,
         repo_config,
     ) = serialized_artifacts.unserialize()
+
+    # Behavior parity with map_in_pandas: same executor-side warning suppression.
+    if (
+        hasattr(repo_config.batch_engine, "suppress_warnings")
+        and repo_config.batch_engine.suppress_warnings
+    ):
+        import os
+        import warnings
+
+        os.environ["PYTHONWARNINGS"] = "ignore::DeprecationWarning"
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        warnings.filterwarnings(
+            "ignore", message=".*is_categorical_dtype is deprecated.*"
+        )
+        warnings.filterwarnings(
+            "ignore", message=".*is_datetime64tz_dtype is deprecated.*"
+        )
+        warnings.filterwarnings(
+            "ignore", message=".*distutils Version classes are deprecated.*"
+        )
 
     local_agg = MaterializationMetricsAggregator(
         project=str(getattr(repo_config, "project", "")),
@@ -193,7 +215,12 @@ def map_in_pandas_online_stats(
 
     for pdf in iterator:
         if pdf.shape[0] == 0:
-            continue
+            # Behavior parity with map_in_pandas: an empty pandas batch ends the
+            # partition's processing entirely (its bare `return`). `break` keeps
+            # the write behavior identical while still emitting this partition's
+            # stats row below.
+            print("Skipping")
+            break
 
         table = pyarrow.Table.from_pandas(pdf)
         if feature_view.batch_source.field_mapping is not None:

@@ -229,6 +229,33 @@ class SparkComputeEngine(ComputeEngine):
                 stats_schema = StructType(
                     [StructField("stats", BinaryType(), True)]
                 )
+
+                # distinct_entity_keys: attach a Spark Observation so HLL++
+                # (approx_count_distinct) is computed DURING the write action --
+                # no second pass over the (uncached) lineage. Per-partition exact
+                # counts can't be summed (keys repeat across partitions), so this
+                # is the one metric computed driver-side; approximate on Spark,
+                # exact on the local engine. Best-effort: any failure leaves the
+                # field NULL; the observe() node is a passthrough for the data,
+                # so the write plan/rows are untouched either way.
+                observation = None
+                try:
+                    from pyspark.sql import Observation
+                    from pyspark.sql import functions as F
+
+                    present = set(spark_df.columns)
+                    key_cols = [c for c in join_key_columns if c in present]
+                    if key_cols:
+                        dek_expr = F.approx_count_distinct(
+                            F.struct(*key_cols) if len(key_cols) > 1 else key_cols[0]
+                        ).alias("distinct_entity_keys")
+                        # Unnamed -> auto-generated unique name; a fixed name
+                        # could collide when several FVs run in one session.
+                        observation = Observation()
+                        spark_df = spark_df.observe(observation, dek_expr)
+                except Exception:  # noqa: BLE001 -- metrics are best-effort
+                    observation = None
+
                 # .collect() is the action that forces the writes AND returns the
                 # per-partition stats. Write errors here are real failures -> let
                 # them propagate to the except below.
@@ -256,6 +283,12 @@ class SparkComputeEngine(ComputeEngine):
                         if payload:
                             merged = merge_stats(merged, pickle.loads(payload))
                     collector.merge_from_dict(merged)
+                    if observation is not None:
+                        # obs.get is available once the action above completes.
+                        dek = observation.get.get("distinct_entity_keys")
+                        collector.set_distinct_entity_keys(
+                            int(dek) if dek else None
+                        )
                     record_run_result(collector.to_dict())
                 except Exception as e:  # noqa: BLE001 -- metrics are best-effort
                     logger.warning(

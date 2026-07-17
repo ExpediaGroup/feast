@@ -342,6 +342,33 @@ class SparkWriteNode(DAGNode):
                 stats_schema = StructType(
                     [StructField("stats", BinaryType(), True)]
                 )
+
+                # distinct_entity_keys: attach a Spark Observation so HLL++
+                # (approx_count_distinct) runs DURING the write action -- no
+                # second pass over the uncached lineage. Approximate on Spark,
+                # exact on the local engine. Best-effort: failure leaves the
+                # field NULL; observe() is a passthrough for the data, so the
+                # write is untouched either way.
+                observation = None
+                try:
+                    from pyspark.sql import Observation
+
+                    key_cols = [
+                        e.name
+                        for e in self.feature_view.entity_columns
+                        if e.name in set(spark_df.columns)
+                    ]
+                    if key_cols:
+                        dek_expr = F.approx_count_distinct(
+                            F.struct(*key_cols) if len(key_cols) > 1 else key_cols[0]
+                        ).alias("distinct_entity_keys")
+                        # Unnamed -> auto-generated unique name; a fixed name
+                        # could collide when several FVs run in one session.
+                        observation = Observation()
+                        spark_df = spark_df.observe(observation, dek_expr)
+                except Exception:  # noqa: BLE001 -- metrics are best-effort
+                    observation = None
+
                 stats_rows = spark_df.mapInArrow(
                     lambda x: map_in_arrow_online_stats(x, serialized_artifacts),
                     stats_schema,
@@ -352,14 +379,12 @@ class SparkWriteNode(DAGNode):
                     if payload:
                         merged = merge_stats(merged, pickle.loads(payload))
                 collector.merge_from_dict(merged)
-                # NOTE: distinct_entity_keys is intentionally NOT computed on Spark
-                # in v1. A second `.agg(approx_count_distinct)` would be a separate
-                # Spark job over `spark_df`, which isn't cached -- so it would
-                # re-execute the whole upstream lineage (re-reading the offline
-                # source) and roughly double job cost on large tables. It stays
-                # unset on Spark; the follow-up is a mergeable HLL sketch
-                # accumulated during the write pass (no extra pass). Exact
-                # distinct is still captured on the local engine.
+                try:
+                    if observation is not None:
+                        dek = observation.get.get("distinct_entity_keys")
+                        collector.set_distinct_entity_keys(int(dek) if dek else None)
+                except Exception:  # noqa: BLE001 -- metrics are best-effort
+                    pass
                 # Feature view finished writing: hand stats to the job bridge.
                 record_run_result(collector.to_dict())
             else:
