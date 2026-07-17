@@ -190,7 +190,7 @@ func TestEmitDebugRequestLogRange_EmittedWhenRequestFlagged(t *testing.T) {
 
 	EmitDebugRequestLogRange(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, true,
 		"p13n", []string{"customer_profile"}, "http", "/get-online-features-range",
-		1, 0, vectors, "cassandra", 4.2, nil)
+		1, vectors, "cassandra", 4.2, nil)
 
 	var decoded map[string]interface{}
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))

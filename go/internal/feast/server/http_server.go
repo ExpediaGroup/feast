@@ -458,8 +458,12 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 
 	s.metricsCtx.EmitLookupMetrics(featureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	featuresRequested := len(request.Features)
+	if featuresRequested == 0 {
+		featuresRequested = len(featureVectors) - len(request.Entities)
+	}
 	EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-		"http", r.URL.Path, len(request.Features), len(request.Entities), featureVectors, debugOnlineStore, latencyMs, nil)
+		"http", r.URL.Path, featuresRequested, len(request.Entities), featureVectors, debugOnlineStore, latencyMs, nil)
 
 	var featureNames []string
 	var results []map[string]interface{}
@@ -678,15 +682,19 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-			"http", r.URL.Path, len(request.Features), len(request.Entities), rangeFeatureVectors, debugOnlineStore, latencyMs, err)
+			"http", r.URL.Path, len(request.Features), rangeFeatureVectors, debugOnlineStore, latencyMs, err)
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
 
 	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	rangeFeaturesRequested := len(request.Features)
+	if rangeFeaturesRequested == 0 {
+		rangeFeaturesRequested = len(rangeFeatureVectors)
+	}
 	EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-		"http", r.URL.Path, len(request.Features), len(request.Entities), rangeFeatureVectors, debugOnlineStore, latencyMs, nil)
+		"http", r.URL.Path, rangeFeaturesRequested, rangeFeatureVectors, debugOnlineStore, latencyMs, nil)
 
 	featureNames, entities, results, err := processFeatureVectors(
 		rangeFeatureVectors, includeMetadata, entitiesProto)

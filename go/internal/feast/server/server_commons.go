@@ -163,7 +163,6 @@ func EmitDebugRequestLogRange(
 	transport string,
 	requestPath string,
 	featuresRequested int,
-	entityKeyCount int,
 	rangeFeatureVectors []*onlineserving.RangeFeatureVector,
 	onlineStoreType string,
 	rttMs float64,
@@ -178,11 +177,7 @@ func EmitDebugRequestLogRange(
 		RequestPath:       requestPath,
 		Transport:         transport,
 		FeaturesRequested: featuresRequested,
-		// rangeFeatureVectors includes one column per entity join key ahead of
-		// the feature columns, so subtract entityKeyCount to make this directly
-		// comparable to featuresRequested (clamp at 0 for the error path where
-		// rangeFeatureVectors is nil).
-		FeaturesReturnedCount: max(0, len(rangeFeatureVectors)-entityKeyCount),
+		FeaturesReturnedCount: len(rangeFeatureVectors),
 		NullFieldCount:        debuglogging.CountNullOrExpiredRange(rangeFeatureVectors),
 		StoreRTTMs:            rttMs,
 		OnlineStoreType:       onlineStoreType,

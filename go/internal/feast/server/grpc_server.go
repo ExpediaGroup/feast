@@ -123,8 +123,12 @@ func (s *grpcServingServiceServer) GetOnlineFeatures(ctx context.Context, reques
 
 	s.metricsCtx.EmitLookupMetrics(featureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	featuresRequested := len(featuresOrService.FeaturesRefs)
+	if featuresRequested == 0 {
+		featuresRequested = len(featureVectors) - len(request.GetEntities())
+	}
 	EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-		"grpc", "ServingService/GetOnlineFeatures", len(featuresOrService.FeaturesRefs), len(request.GetEntities()),
+		"grpc", "ServingService/GetOnlineFeatures", featuresRequested, len(request.GetEntities()),
 		featureVectors, debugOnlineStore, latencyMs, nil)
 
 	resp := &serving.GetOnlineFeaturesResponse{
@@ -223,15 +227,19 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 		logSpanContext.Error().Err(err).Msg("Error getting online features range")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
 		EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-			"grpc", "ServingService/GetOnlineFeaturesRange", len(featuresOrService.FeaturesRefs), len(request.GetEntities()),
+			"grpc", "ServingService/GetOnlineFeaturesRange", len(featuresOrService.FeaturesRefs),
 			rangeFeatureVectors, debugOnlineStore, latencyMs, err)
 		return nil, errors.GrpcFromError(err)
 	}
 
 	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	rangeFeaturesRequested := len(featuresOrService.FeaturesRefs)
+	if rangeFeaturesRequested == 0 {
+		rangeFeaturesRequested = len(rangeFeatureVectors)
+	}
 	EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
-		"grpc", "ServingService/GetOnlineFeaturesRange", len(featuresOrService.FeaturesRefs), len(request.GetEntities()),
+		"grpc", "ServingService/GetOnlineFeaturesRange", rangeFeaturesRequested,
 		rangeFeatureVectors, debugOnlineStore, latencyMs, nil)
 
 	entities := request.GetEntities()
