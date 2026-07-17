@@ -339,9 +339,7 @@ class SparkWriteNode(DAGNode):
                     StructType,
                 )
 
-                stats_schema = StructType(
-                    [StructField("stats", BinaryType(), True)]
-                )
+                stats_schema = StructType([StructField("stats", BinaryType(), True)])
 
                 # distinct_entity_keys: attach a Spark Observation so HLL++
                 # (approx_count_distinct) runs DURING the write action -- no

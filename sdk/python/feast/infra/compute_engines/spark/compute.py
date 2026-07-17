@@ -226,9 +226,7 @@ class SparkComputeEngine(ComputeEngine):
                     StructType,
                 )
 
-                stats_schema = StructType(
-                    [StructField("stats", BinaryType(), True)]
-                )
+                stats_schema = StructType([StructField("stats", BinaryType(), True)])
 
                 # distinct_entity_keys: attach a Spark Observation so HLL++
                 # (approx_count_distinct) is computed DURING the write action --
@@ -286,9 +284,7 @@ class SparkComputeEngine(ComputeEngine):
                     if observation is not None:
                         # obs.get is available once the action above completes.
                         dek = observation.get.get("distinct_entity_keys")
-                        collector.set_distinct_entity_keys(
-                            int(dek) if dek else None
-                        )
+                        collector.set_distinct_entity_keys(int(dek) if dek else None)
                     record_run_result(collector.to_dict())
                 except Exception as e:  # noqa: BLE001 -- metrics are best-effort
                     logger.warning(

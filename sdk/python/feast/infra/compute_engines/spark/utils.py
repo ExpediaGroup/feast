@@ -151,9 +151,7 @@ def map_in_arrow_online_stats(
     )
 
 
-def map_in_pandas_online_stats(
-    iterator, serialized_artifacts: "SerializedArtifacts"
-):
+def map_in_pandas_online_stats(iterator, serialized_artifacts: "SerializedArtifacts"):
     """Online write (pandas) that RETURNS per-partition Layer-1 stats.
 
     This is the metrics-enabled counterpart of :func:`map_in_pandas`, used by
@@ -261,7 +259,9 @@ def map_in_pandas_online_stats(
                 lambda x: None,
             )
 
-    yield pd.DataFrame({"stats": pd.Series([pickle.dumps(local_agg.to_dict())], dtype=object)})
+    yield pd.DataFrame(
+        {"stats": pd.Series([pickle.dumps(local_agg.to_dict())], dtype=object)}
+    )
 
 
 def map_in_pandas(iterator, serialized_artifacts: SerializedArtifacts):

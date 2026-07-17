@@ -118,9 +118,7 @@ class TestMapInArrowOnlineStats:
         assert stats["rows_written_online"] == 4
         assert set(stats["fields_written"]) == {"conv_rate", "acc_rate"}
         assert stats["field_null_counts"]["conv_rate"] == 2  # one null per batch
-        assert stats["max_event_timestamp"] == datetime(
-            2026, 1, 3, tzinfo=timezone.utc
-        )
+        assert stats["max_event_timestamp"] == datetime(2026, 1, 3, tzinfo=timezone.utc)
 
     def test_store_drops_flow_through_contextvar(self, monkeypatch):
         monkeypatch.setattr(spark_utils, "_convert_arrow_to_proto", lambda *a, **k: [])
@@ -157,8 +155,9 @@ class TestMapInArrowOnlineStats:
         online_store = SimpleNamespace(online_write_batch=lambda **kw: calls.append(1))
         # The non-metrics UDF: write happens, batches pass through, no stats.
         outputs = list(
-            map_in_arrow(iter([_arrow_batch()]), _fake_artifacts(online_store),
-                         mode="online")
+            map_in_arrow(
+                iter([_arrow_batch()]), _fake_artifacts(online_store), mode="online"
+            )
         )
         assert calls == [1]
         assert len(outputs) == 1  # the data batch itself, passed through
@@ -187,9 +186,7 @@ class TestMapInPandasOnlineStats:
         assert stats["rows_read_offline"] == 4
         assert stats["rows_written_online"] == 4
         assert set(stats["fields_written"]) == {"conv_rate", "acc_rate"}
-        assert stats["max_event_timestamp"] == datetime(
-            2026, 1, 3, tzinfo=timezone.utc
-        )
+        assert stats["max_event_timestamp"] == datetime(2026, 1, 3, tzinfo=timezone.utc)
 
     def test_empty_batch_ends_partition_like_map_in_pandas(self, monkeypatch):
         # Behavior parity: map_in_pandas returns on an empty batch (ending the

@@ -172,9 +172,7 @@ class TestEnvGate:
 
 class TestVolume:
     def test_bytes_and_exact_distinct_from_batch(self):
-        table = pa.table(
-            {"driver_id": [1, 1, 2, 3], "conv_rate": [0.1, 0.2, 0.3, 0.4]}
-        )
+        table = pa.table({"driver_id": [1, 1, 2, 3], "conv_rate": [0.1, 0.2, 0.3, 0.4]})
         agg = _aggregator()
         agg.observe_written_batch(
             table, feature_fields=["conv_rate"], entity_key_columns=["driver_id"]
@@ -245,9 +243,14 @@ class TestMergeStats:
         assert merged["rows_written_online"] == 95  # 56 + 39
         assert merged["drop_reasons"] == {"ttl_expired": 5}
         assert merged["rows_dropped"] == 5
-        assert merged["fields_written"] == ["conv_rate", "acc_rate"]  # order-stable union
+        assert merged["fields_written"] == [
+            "conv_rate",
+            "acc_rate",
+        ]  # order-stable union
         assert merged["field_null_counts"] == {"conv_rate": 5, "acc_rate": 5}
-        assert merged["max_event_timestamp"] == datetime(2026, 6, 1, tzinfo=timezone.utc)
+        assert merged["max_event_timestamp"] == datetime(
+            2026, 6, 1, tzinfo=timezone.utc
+        )
         # reconciliation invariant survives the merge
         assert (
             merged["rows_read_offline"] - merged["rows_written_online"]
