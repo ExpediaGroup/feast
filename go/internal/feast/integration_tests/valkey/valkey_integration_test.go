@@ -683,3 +683,86 @@ func TestGetOnlineFeaturesRangeValkey_LimitAppliedAfterHMGET(t *testing.T) {
 		}
 	}
 }
+
+// TestGetOnlineFeaturesRangeValkey_SubSecondSortKey is a regression test for
+// EAPC-22316: UNIX_TIMESTAMP sort key values must retain millisecond precision
+// so that rows for the same entity that differ by less than one second remain
+// distinct. The fixture has three rows: two 18ms apart within the same second
+// and one two seconds later.
+func TestGetOnlineFeaturesRangeValkey_SubSecondSortKey(t *testing.T) {
+	entities := map[string]*types.RepeatedValue{
+		"sub_second_entity_id": {Val: []*types.Value{
+			{Val: &types.Value_StringVal{StringVal: "entity-1"}},
+		}},
+	}
+
+	req := &serving.GetOnlineFeaturesRangeRequest{
+		Kind: &serving.GetOnlineFeaturesRangeRequest_Features{
+			Features: &serving.FeatureList{
+				Val: []string{
+					"sub_second_sort_key_view:event_timestamp",
+					"sub_second_sort_key_view:value",
+				},
+			},
+		},
+		Entities: entities,
+		SortKeyFilters: []*serving.SortKeyFilter{
+			{
+				SortKeyName: "event_timestamp",
+				Query: &serving.SortKeyFilter_Range{
+					Range: &serving.SortKeyFilter_RangeQuery{
+						RangeStart: &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: 0}},
+					},
+				},
+			},
+		},
+		Limit:           10,
+		IncludeMetadata: true,
+	}
+
+	resp, err := client.GetOnlineFeaturesRange(ctx, req)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Results, 2, "expected event_timestamp and value results")
+
+	eventTimestampIdx := -1
+	for i, name := range resp.Metadata.FeatureNames.Val {
+		if name == "event_timestamp" {
+			eventTimestampIdx = i
+		}
+	}
+	require.NotEqual(t, -1, eventTimestampIdx, "expected to find event_timestamp in the response")
+
+	eventTimestampVector := resp.Results[eventTimestampIdx]
+	require.Len(t, eventTimestampVector.Values, 1, "expected results for the single requested entity")
+
+	timestamps := eventTimestampVector.Values[0].Val
+	require.Len(t, timestamps, 3, "expected all 3 sub-second-apart rows to be returned")
+
+	seen := make(map[int64]bool)
+	for _, v := range timestamps {
+		ts := v.GetUnixTimestampVal()
+		assert.False(t, seen[ts], "sort key value %d was returned more than once; sub-second rows collapsed", ts)
+		seen[ts] = true
+	}
+	assert.Len(t, seen, 3, "expected 3 distinct millisecond-precision sort key values")
+
+	expected := map[int64]bool{
+		1717244257886: true, // 2024-06-01 12:17:37.886
+		1717244257904: true, // 2024-06-01 12:17:37.904
+		1717244259035: true, // 2024-06-01 12:17:39.035
+	}
+	for ts := range seen {
+		assert.True(t, expected[ts], "unexpected sort key value %d", ts)
+	}
+
+	// EventTimestamps come from the _ts:<fv> hash field (a timestamppb.Timestamp).
+	// grpc_server calls GetTimestampSeconds, so values must be whole-second Unix timestamps.
+	require.Len(t, eventTimestampVector.EventTimestamps, 1, "expected EventTimestamps for 1 entity")
+	require.Len(t, eventTimestampVector.EventTimestamps[0].Val, 3, "expected EventTimestamp for each of the 3 rows")
+	for _, tsVal := range eventTimestampVector.EventTimestamps[0].Val {
+		secs := tsVal.GetUnixTimestampVal()
+		assert.True(t, secs > 1_000_000_000 && secs < 2_000_000_000,
+			"EventTimestamp must be seconds-precision (~2001–2033), got %d", secs)
+	}
+}

@@ -479,6 +479,11 @@ func TestOnlineReadRange(t *testing.T) {
 	require.Len(t, out.Values, 2)
 	assert.Equal(t, "one", out.Values[0].(*types.Value).GetStringVal())
 	assert.Equal(t, "two", out.Values[1].(*types.Value).GetStringVal())
+
+	// EventTimestamps come from the _ts:<fv> hash field decoded as timestamppb.Timestamp.
+	require.Len(t, out.EventTimestamps, 2, "each returned row should have an event timestamp")
+	assert.Equal(t, int64(1000), out.EventTimestamps[0].Seconds, "row 0 event ts must match ts1")
+	assert.Equal(t, int64(2000), out.EventTimestamps[1].Seconds, "row 1 event ts must match ts2")
 }
 
 func TestOnlineReadRange_Reverse(t *testing.T) {

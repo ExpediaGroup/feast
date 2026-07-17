@@ -407,7 +407,8 @@ func TestGetOnlineFeaturesRange_SubSecondSortKeyValuesRemainDistinct(t *testing.
 				},
 			},
 		},
-		Limit: 10,
+		Limit:           10,
+		IncludeMetadata: true,
 	}
 
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
@@ -444,6 +445,16 @@ func TestGetOnlineFeaturesRange_SubSecondSortKeyValuesRemainDistinct(t *testing.
 	}
 	for ts := range seen {
 		assert.True(t, expected[ts], "unexpected sort key value %d", ts)
+	}
+
+	// EventTimestamps come from the _ts:<fv> hash field (a timestamppb.Timestamp).
+	// grpc_server calls GetTimestampSeconds, so values must be whole-second Unix timestamps.
+	require.Len(t, eventTimestampVector.EventTimestamps, 1, "expected EventTimestamps for 1 entity")
+	require.Len(t, eventTimestampVector.EventTimestamps[0].Val, 3, "expected EventTimestamp for each of the 3 rows")
+	for _, tsVal := range eventTimestampVector.EventTimestamps[0].Val {
+		secs := tsVal.GetUnixTimestampVal()
+		assert.True(t, secs > 1_000_000_000 && secs < 2_000_000_000,
+			"EventTimestamp must be seconds-precision (~2001–2033), got %d", secs)
 	}
 }
 
@@ -483,7 +494,8 @@ func TestGetOnlineFeaturesRange_CustomNamedSortKeyValuesRemainDistinct(t *testin
 				},
 			},
 		},
-		Limit: 10,
+		Limit:           10,
+		IncludeMetadata: true,
 	}
 
 	response, err := client.GetOnlineFeaturesRange(ctx, request)
@@ -520,6 +532,16 @@ func TestGetOnlineFeaturesRange_CustomNamedSortKeyValuesRemainDistinct(t *testin
 	}
 	for ts := range seen {
 		assert.True(t, expected[ts], "unexpected sort key value %d", ts)
+	}
+
+	// EventTimestamps come from the _ts:<fv> hash field (a timestamppb.Timestamp).
+	// grpc_server calls GetTimestampSeconds, so values must be whole-second Unix timestamps.
+	require.Len(t, viewedAtVector.EventTimestamps, 1, "expected EventTimestamps for 1 entity")
+	require.Len(t, viewedAtVector.EventTimestamps[0].Val, 3, "expected EventTimestamp for each of the 3 rows")
+	for _, tsVal := range viewedAtVector.EventTimestamps[0].Val {
+		secs := tsVal.GetUnixTimestampVal()
+		assert.True(t, secs > 1_000_000_000 && secs < 2_000_000_000,
+			"EventTimestamp must be seconds-precision (~2001–2033), got %d", secs)
 	}
 }
 
