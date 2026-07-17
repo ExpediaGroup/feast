@@ -232,7 +232,7 @@ func (s *grpcServingServiceServer) GetOnlineFeaturesRange(ctx context.Context, r
 				for k, ts := range timestamps {
 					timestampValues[k] = &prototypes.Value{
 						Val: &prototypes.Value_UnixTimestampVal{
-							UnixTimestampVal: types.GetTimestampMillis(ts),
+							UnixTimestampVal: types.GetTimestampSeconds(ts),
 						},
 					}
 				}
