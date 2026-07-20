@@ -280,9 +280,6 @@ class LocalOutputNode(LocalNode):
                 input_table,
                 feature_fields=feature_fields,
                 timestamp_column=timestamp_column,
-                # Local engine sees the whole written batch in one table, so an
-                # exact distinct-entity-key count is cheap here.
-                entity_key_columns=[e.name for e in self.feature_view.entity_columns],
             )
 
         if input_table.num_rows == 0:

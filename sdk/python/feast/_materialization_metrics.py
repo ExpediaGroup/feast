@@ -138,11 +138,8 @@ class MaterializationMetricsAggregator:
         self.max_event_timestamp: Optional[datetime] = None
 
         # Volume. bytes_written accumulates the in-memory Arrow size of each
-        # written batch (summed across batches/partitions). distinct_entity_keys
-        # is exact on the local engine (computed from the single output batch) and
-        # set on the driver from an approx count on Spark (see set_distinct_entity_keys).
+        # written batch (summed across batches/partitions).
         self.bytes_written: int = 0
-        self.distinct_entity_keys: int = 0
 
     # -- row counts ---------------------------------------------------------
     def record_read(self, n: int) -> None:
@@ -177,33 +174,24 @@ class MaterializationMetricsAggregator:
         return (now - self.max_event_timestamp).total_seconds()
 
     # -- field coverage / nulls / freshness from an Arrow batch -------------
-    def set_distinct_entity_keys(self, n: Optional[int]) -> None:
-        """Set the distinct-entity-key count directly.
-
-        Used on the Spark driver, where an exact per-partition count can't be summed
-        (keys may repeat across partitions); the driver computes one approximate
-        count over the whole DataFrame and sets it here.
-        """
-        if n is not None:
-            self.distinct_entity_keys = int(n)
-
     def observe_written_batch(
         self,
         table: Any,
         feature_fields: List[str],
         timestamp_column: Optional[str] = None,
-        entity_key_columns: Optional[List[str]] = None,
     ) -> None:
-        """Record field coverage, per-field null counts, freshness, bytes, and (when
-        ``entity_key_columns`` is given) an exact distinct-entity-key count from an
-        Arrow table.
+        """Record field coverage, per-field null counts, freshness, and bytes from
+        an Arrow table.
 
         ``feature_fields`` is the set of declared feature columns; only those actually
-        present in ``table`` are reported. ``entity_key_columns`` should be passed only
-        when this is the whole written batch (the local engine's single output table);
-        on Spark it is omitted and the driver sets distinct keys via
-        :meth:`set_distinct_entity_keys`. Best-effort: any failure is swallowed so
+        present in ``table`` are reported. Best-effort: any failure is swallowed so
         metrics never break a materialization.
+
+        NOTE: there is deliberately no distinct-entity-key metric. For normal
+        feature views the write consumes the output of pull_latest (one row per
+        entity-key combination), so ``rows_written_online`` already approximates
+        "entities refreshed"; a separate distinct count was either redundant
+        (equal to the boundary row count) or approximate, and was removed.
         """
         try:
             present = set(table.column_names)
@@ -225,19 +213,6 @@ class MaterializationMetricsAggregator:
             # Volume: in-memory Arrow size is a cheap, engine-agnostic proxy for
             # bytes written; sums across batches and Spark partitions.
             self.bytes_written += int(getattr(table, "nbytes", 0) or 0)
-
-            # Exact distinct entity keys, only when the caller passes the key columns
-            # (local engine). group_by([]).aggregate([]) yields one row per distinct
-            # key combination; max() guards the (non-local) multi-call case.
-            if entity_key_columns:
-                key_cols = [c for c in entity_key_columns if c in present]
-                if key_cols:
-                    distinct = (
-                        table.select(key_cols).group_by(key_cols).aggregate([]).num_rows
-                    )
-                    self.distinct_entity_keys = max(
-                        self.distinct_entity_keys, int(distinct)
-                    )
         except Exception as e:  # pragma: no cover - defensive, metrics never fail a run
             logger.warning(f"materialization metrics: failed to observe batch: {e}")
 
@@ -253,7 +228,6 @@ class MaterializationMetricsAggregator:
             "drop_reasons": dict(self.drop_reasons),
             "fields_written": list(self.fields_written),
             "field_null_counts": dict(self.field_null_counts),
-            "distinct_entity_keys": self.distinct_entity_keys,
             "bytes_written": self.bytes_written,
             "max_event_timestamp": self.max_event_timestamp,
         }
@@ -278,11 +252,6 @@ class MaterializationMetricsAggregator:
                 self.fields_written.append(field)
         self.field_null_counts.update(stats.get("field_null_counts") or {})
         self.bytes_written += int(stats.get("bytes_written", 0) or 0)
-        # Distinct keys can't be summed across partitions (keys repeat); take the
-        # max, so a driver-set approximate count isn't clobbered by partition zeros.
-        self.distinct_entity_keys = max(
-            self.distinct_entity_keys, int(stats.get("distinct_entity_keys", 0) or 0)
-        )
         self.observe_event_timestamp(stats.get("max_event_timestamp"))
 
 
@@ -334,10 +303,6 @@ def merge_stats(
         "drop_reasons": dict(drop_reasons),
         "fields_written": fields,
         "field_null_counts": dict(null_counts),
-        "distinct_entity_keys": max(
-            int(a.get("distinct_entity_keys", 0) or 0),
-            int(b.get("distinct_entity_keys", 0) or 0),
-        ),
         "bytes_written": int(a.get("bytes_written", 0) or 0)
         + int(b.get("bytes_written", 0) or 0),
         "max_event_timestamp": max_ts,

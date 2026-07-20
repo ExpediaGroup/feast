@@ -171,40 +171,13 @@ class TestEnvGate:
 
 
 class TestVolume:
-    def test_bytes_and_exact_distinct_from_batch(self):
+    def test_bytes_from_batch(self):
         table = pa.table({"driver_id": [1, 1, 2, 3], "conv_rate": [0.1, 0.2, 0.3, 0.4]})
         agg = _aggregator()
-        agg.observe_written_batch(
-            table, feature_fields=["conv_rate"], entity_key_columns=["driver_id"]
-        )
-        assert agg.distinct_entity_keys == 3  # {1, 2, 3}
+        agg.observe_written_batch(table, feature_fields=["conv_rate"])
         assert agg.bytes_written == table.nbytes
         d = agg.to_dict()
-        assert d["distinct_entity_keys"] == 3
         assert d["bytes_written"] == table.nbytes
-
-    def test_distinct_multi_column_entity_key(self):
-        table = pa.table({"a": [1, 1, 2], "b": ["x", "x", "x"]})
-        agg = _aggregator()
-        agg.observe_written_batch(
-            table, feature_fields=[], entity_key_columns=["a", "b"]
-        )
-        assert agg.distinct_entity_keys == 2  # (1,"x"), (2,"x")
-
-    def test_distinct_not_computed_without_key_columns(self):
-        # Spark path omits entity_key_columns (driver sets distinct via approx).
-        table = pa.table({"driver_id": [1, 1, 2]})
-        agg = _aggregator()
-        agg.observe_written_batch(table, feature_fields=[])
-        assert agg.distinct_entity_keys == 0
-        assert agg.bytes_written == table.nbytes  # bytes still counted
-
-    def test_set_distinct_entity_keys(self):
-        agg = _aggregator()
-        agg.set_distinct_entity_keys(42)
-        assert agg.distinct_entity_keys == 42
-        agg.set_distinct_entity_keys(None)  # no-op
-        assert agg.distinct_entity_keys == 42
 
 
 class TestMergeStats:
@@ -262,14 +235,12 @@ class TestMergeStats:
         b = {"rows_read_offline": 3, "rows_written_online": 2, "drop_reasons": {"y": 2}}
         assert merge_stats(a, b) == merge_stats(b, a)
 
-    def test_bytes_sum_distinct_max(self):
-        # bytes accumulate across partitions; distinct keys take the max (can't be
-        # summed -- keys repeat across partitions).
-        a = {"bytes_written": 100, "distinct_entity_keys": 10}
-        b = {"bytes_written": 250, "distinct_entity_keys": 7}
+    def test_bytes_sum(self):
+        # bytes accumulate across partitions.
+        a = {"bytes_written": 100}
+        b = {"bytes_written": 250}
         merged = merge_stats(a, b)
         assert merged["bytes_written"] == 350
-        assert merged["distinct_entity_keys"] == 10
 
 
 class TestBridge:

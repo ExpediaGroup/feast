@@ -1,3 +1,4 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Sequence, Union
 
@@ -22,6 +23,8 @@ from feast.infra.online_stores.online_store import OnlineStore
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.stream_feature_view import StreamFeatureView
+
+logger = logging.getLogger(__name__)
 
 
 class ComputeEngine(ABC):
@@ -127,21 +130,27 @@ class ComputeEngine(ABC):
         if hasattr(task, "entity_df") and task.entity_df is not None:
             entity_df = task.entity_df
 
+        # Best-effort: this runs OUTSIDE the callers' materialize try/except, so a
+        # failure here must degrade to "no metrics" rather than break the run.
         metrics_collector = None
-        if (
-            isinstance(task, MaterializationTask)
-            and is_materialization_metrics_enabled()
-        ):
-            online_store_type = getattr(
-                self.repo_config.online_store,
-                "type",
-                type(self.online_store).__name__,
-            )
-            metrics_collector = MaterializationMetricsAggregator(
-                project=task.project,
-                feature_view=task.feature_view.name,
-                online_store_type=str(online_store_type),
-            )
+        try:
+            if (
+                isinstance(task, MaterializationTask)
+                and is_materialization_metrics_enabled()
+            ):
+                online_store_type = getattr(
+                    self.repo_config.online_store,
+                    "type",
+                    type(self.online_store).__name__,
+                )
+                metrics_collector = MaterializationMetricsAggregator(
+                    project=task.project,
+                    feature_view=task.feature_view.name,
+                    online_store_type=str(online_store_type),
+                )
+        except Exception as e:  # noqa: BLE001 -- metrics must never break a run
+            logger.warning("materialization metrics: collector init skipped: %s", e)
+            metrics_collector = None
 
         return ExecutionContext(
             project=task.project,

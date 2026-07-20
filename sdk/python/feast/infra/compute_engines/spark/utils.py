@@ -165,10 +165,7 @@ def map_in_pandas_online_stats(iterator, serialized_artifacts: "SerializedArtifa
     not reliably propagate).
 
     The tally is strictly best-effort: any error while measuring is swallowed so it
-    can never block or fail the online write. ``distinct_entity_keys`` is not
-    tallied here (per-partition exact counts can't be summed across partitions);
-    the driver computes it once over the whole DataFrame via a Spark
-    ``Observation`` and sets it on the merged collector.
+    can never block or fail the online write.
     """
     import pickle
 
