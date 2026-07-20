@@ -1,3 +1,4 @@
+import pickle
 import time
 from typing import Dict, Iterable, Literal, Optional
 
@@ -9,6 +10,7 @@ from pyspark.sql import SparkSession
 
 from feast._materialization_metrics import (
     MaterializationMetricsAggregator,
+    build_aggregator,
     collecting,
 )
 from feast.infra.common.serde import SerializedArtifacts
@@ -92,8 +94,6 @@ def map_in_arrow_online_stats(
     returned result is guaranteed to reach the driver. Pickle (not JSON) preserves
     datetimes / Counter / list fields exactly.
     """
-    import pickle
-
     feature_view = None
     online_store = None
     repo_config = None
@@ -105,16 +105,11 @@ def map_in_arrow_online_stats(
             feature_view, online_store, _offline_store, repo_config = (
                 serialized_artifacts.unserialize()
             )
-            local_agg = MaterializationMetricsAggregator(
-                project=str(getattr(repo_config, "project", "")),
-                feature_view=feature_view.name,
-                online_store_type=str(
-                    getattr(
-                        getattr(repo_config, "online_store", None),
-                        "type",
-                        type(online_store).__name__,
-                    )
-                ),
+            local_agg = build_aggregator(
+                str(getattr(repo_config, "project", "")),
+                feature_view.name,
+                repo_config,
+                online_store,
             )
 
         join_key_to_value_type = {
@@ -124,17 +119,21 @@ def map_in_arrow_online_stats(
         rows_to_write = _convert_arrow_to_proto(
             table, feature_view, join_key_to_value_type
         )
-        # Rows entering the write == rows read at this boundary (Option A: upstream
-        # filter/dedup drops are not separately counted on Spark).
-        local_agg.record_read(table.num_rows)
-        local_agg.record_written(table.num_rows)
-        local_agg.observe_written_batch(
-            table,
-            feature_fields=[f.name for f in feature_view.features],
-            timestamp_column=getattr(
-                feature_view.batch_source, "timestamp_field", None
-            ),
-        )
+        # Best-effort measurement: never let a metrics error block the write.
+        try:
+            # Rows entering the write == rows read at this boundary (Option A:
+            # upstream filter/dedup drops are not separately counted on Spark).
+            local_agg.record_read(table.num_rows)
+            local_agg.record_written(table.num_rows)
+            local_agg.observe_written_batch(
+                table,
+                feature_fields=[f.name for f in feature_view.features],
+                timestamp_column=getattr(
+                    feature_view.batch_source, "timestamp_field", None
+                ),
+            )
+        except Exception:  # noqa: BLE001 -- metrics are best-effort
+            pass
         # Bind the local tally so the online store records its own drops
         # (e.g. Cassandra TTL) into it on this executor.
         with collecting(local_agg):
@@ -145,7 +144,12 @@ def map_in_arrow_online_stats(
                 progress=lambda x: None,
             )
 
-    payload = pickle.dumps(local_agg.to_dict() if local_agg is not None else {})
+    # Defensive: a stats-serialization error must not fail the partition after the
+    # writes already succeeded (that would flip a good materialization to ERROR).
+    try:
+        payload = pickle.dumps(local_agg.to_dict() if local_agg is not None else {})
+    except Exception:  # noqa: BLE001 -- metrics are best-effort
+        payload = pickle.dumps({})
     yield pa.RecordBatch.from_arrays(
         [pa.array([payload], type=pa.binary())], names=["stats"]
     )
@@ -167,8 +171,6 @@ def map_in_pandas_online_stats(iterator, serialized_artifacts: "SerializedArtifa
     The tally is strictly best-effort: any error while measuring is swallowed so it
     can never block or fail the online write.
     """
-    import pickle
-
     (
         feature_view,
         online_store,
@@ -196,16 +198,11 @@ def map_in_pandas_online_stats(iterator, serialized_artifacts: "SerializedArtifa
             "ignore", message=".*distutils Version classes are deprecated.*"
         )
 
-    local_agg = MaterializationMetricsAggregator(
-        project=str(getattr(repo_config, "project", "")),
-        feature_view=feature_view.name,
-        online_store_type=str(
-            getattr(
-                getattr(repo_config, "online_store", None),
-                "type",
-                type(online_store).__name__,
-            )
-        ),
+    local_agg = build_aggregator(
+        str(getattr(repo_config, "project", "")),
+        feature_view.name,
+        repo_config,
+        online_store,
     )
 
     for pdf in iterator:
@@ -256,9 +253,13 @@ def map_in_pandas_online_stats(iterator, serialized_artifacts: "SerializedArtifa
                 lambda x: None,
             )
 
-    yield pd.DataFrame(
-        {"stats": pd.Series([pickle.dumps(local_agg.to_dict())], dtype=object)}
-    )
+    # Defensive: a stats-serialization error must not fail the partition after the
+    # writes already succeeded (that would flip a good materialization to ERROR).
+    try:
+        stats = pickle.dumps(local_agg.to_dict())
+    except Exception:  # noqa: BLE001 -- metrics are best-effort
+        stats = pickle.dumps({})
+    yield pd.DataFrame({"stats": pd.Series([stats], dtype=object)})
 
 
 def map_in_pandas(iterator, serialized_artifacts: SerializedArtifacts):

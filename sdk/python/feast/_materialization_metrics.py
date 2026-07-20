@@ -307,3 +307,44 @@ def merge_stats(
         + int(b.get("bytes_written", 0) or 0),
         "max_event_timestamp": max_ts,
     }
+
+
+def build_aggregator(
+    project: str,
+    feature_view: str,
+    repo_config: Any,
+    online_store: Any,
+) -> "MaterializationMetricsAggregator":
+    """Construct a collector, resolving the online-store type the same way in every
+    call site (driver-side in the compute engines, executor-side in the write UDFs).
+
+    Defensive: falls back to the online-store class name if ``repo_config`` has no
+    ``online_store.type``.
+    """
+    online_store_type = getattr(
+        getattr(repo_config, "online_store", None),
+        "type",
+        type(online_store).__name__,
+    )
+    return MaterializationMetricsAggregator(
+        project=project,
+        feature_view=feature_view,
+        online_store_type=str(online_store_type),
+    )
+
+
+def fold_stats_rows(stats_rows: Any) -> Dict[str, Any]:
+    """Fold per-partition stats payloads (Spark rows with a pickled ``stats`` binary
+    column) into one merged dict via :func:`merge_stats`.
+
+    Shared by the Spark write paths, which ``.collect()`` one stats row per partition
+    from the write UDFs and merge them on the driver.
+    """
+    import pickle
+
+    merged: Dict[str, Any] = {}
+    for row in stats_rows:
+        payload = row["stats"]
+        if payload:
+            merged = merge_stats(merged, pickle.loads(payload))
+    return merged

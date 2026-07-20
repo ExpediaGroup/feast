@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Callable, List, Optional, Union, cast
 
@@ -5,7 +6,7 @@ from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
 
 from feast import BatchFeatureView, StreamFeatureView
-from feast._materialization_metrics import merge_stats, record_run_result
+from feast._materialization_metrics import fold_stats_rows, record_run_result
 from feast.aggregation import Aggregation
 from feast.data_source import DataSource
 from feast.infra.common.serde import SerializedArtifacts
@@ -30,6 +31,8 @@ from feast.infra.offline_stores.contrib.spark_offline_store.spark_source import 
 from feast.infra.offline_stores.offline_utils import (
     infer_event_timestamp_from_entity_df,
 )
+
+logger = logging.getLogger(__name__)
 
 ENTITY_TS_ALIAS = "__entity_event_timestamp"
 
@@ -331,8 +334,6 @@ class SparkWriteNode(DAGNode):
                 # inside mapInArrow don't reliably propagate to the driver, which
                 # left every Layer-1 field NULL. A .collect() result is guaranteed
                 # to reach the driver; fold the partition dicts with merge_stats.
-                import pickle
-
                 from pyspark.sql.types import (
                     BinaryType,
                     StructField,
@@ -341,18 +342,23 @@ class SparkWriteNode(DAGNode):
 
                 stats_schema = StructType([StructField("stats", BinaryType(), True)])
 
+                # .collect() is the action that forces the writes AND returns the
+                # per-partition stats. Write errors here are real failures -> let
+                # them propagate.
                 stats_rows = spark_df.mapInArrow(
                     lambda x: map_in_arrow_online_stats(x, serialized_artifacts),
                     stats_schema,
                 ).collect()
-                merged: dict = {}
-                for row in stats_rows:
-                    payload = row["stats"]
-                    if payload:
-                        merged = merge_stats(merged, pickle.loads(payload))
-                collector.merge_from_dict(merged)
-                # Feature view finished writing: hand stats to the job bridge.
-                record_run_result(collector.to_dict())
+                # Everything past the write action is best-effort: a metrics
+                # assembly error must never fail a successful materialization.
+                try:
+                    collector.merge_from_dict(fold_stats_rows(stats_rows))
+                    record_run_result(collector.to_dict())
+                except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                    logger.warning(
+                        "materialization metrics: failed to assemble Layer-1 stats: %s",
+                        e,
+                    )
             else:
                 spark_df.mapInArrow(
                     lambda x: map_in_arrow(x, serialized_artifacts, mode="online"),

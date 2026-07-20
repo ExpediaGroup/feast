@@ -14,9 +14,9 @@ from feast import (
     StreamFeatureView,
 )
 from feast._materialization_metrics import (
-    MaterializationMetricsAggregator,
+    build_aggregator,
+    fold_stats_rows,
     is_materialization_metrics_enabled,
-    merge_stats,
     record_run_result,
 )
 from feast.infra.common.materialization_job import (
@@ -218,8 +218,6 @@ class SparkComputeEngine(ComputeEngine):
                 # data (one pickled row per partition), then fold them into a
                 # driver-side collector. (A Spark accumulator updated inside a pandas
                 # UDF does not reliably propagate, which would leave Layer-1 NULL.)
-                import pickle
-
                 from pyspark.sql.types import (
                     BinaryType,
                     StructField,
@@ -239,22 +237,10 @@ class SparkComputeEngine(ComputeEngine):
                 # Everything past the write action is best-effort: a metrics
                 # assembly error must never fail a successful materialization.
                 try:
-                    online_store_type = getattr(
-                        self.repo_config.online_store,
-                        "type",
-                        type(self.online_store).__name__,
+                    collector = build_aggregator(
+                        project, feature_view.name, self.repo_config, self.online_store
                     )
-                    collector = MaterializationMetricsAggregator(
-                        project=project,
-                        feature_view=feature_view.name,
-                        online_store_type=str(online_store_type),
-                    )
-                    merged: dict = {}
-                    for row in stats_rows:
-                        payload = row["stats"]
-                        if payload:
-                            merged = merge_stats(merged, pickle.loads(payload))
-                    collector.merge_from_dict(merged)
+                    collector.merge_from_dict(fold_stats_rows(stats_rows))
                     record_run_result(collector.to_dict())
                 except Exception as e:  # noqa: BLE001 -- metrics are best-effort
                     logger.warning(
