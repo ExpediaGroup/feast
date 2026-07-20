@@ -5,6 +5,7 @@ import pytest
 from feast.type_map import (
     MS_TIMESTAMP_THRESHOLD,
     _python_datetime_to_int_ms_timestamp,
+    _python_datetime_to_int_timestamp,
     feast_value_type_to_python_type,
     python_values_to_proto_values,
 )
@@ -56,6 +57,59 @@ def test_python_datetime_to_int_ms_timestamp_raw_int_above_threshold_passes_thro
     result = _python_datetime_to_int_ms_timestamp([ms_value])
 
     assert result == [ms_value]
+
+
+def test_ms_timestamp_ndarray_fast_path_preserves_millis():
+    """A 1-D datetime64 ndarray should take the vectorized fast path (guarded by
+    np.issubdtype, not isinstance - values.dtype is a numpy.dtype instance and
+    is never an instance of the np.datetime64 scalar type) and retain
+    millisecond precision."""
+
+    arr = np.array(["2024-06-01T12:17:37.886"], dtype="datetime64[ns]")
+
+    result = _python_datetime_to_int_ms_timestamp(arr)
+
+    # The fast path returns an ndarray; the scalar fallback loop returns a
+    # plain list. Asserting the type pins down that the fast path actually ran.
+    assert isinstance(result, np.ndarray)
+    assert result.tolist() == [1717244257886]
+
+
+def test_ms_timestamp_ndarray_matches_scalar_loop():
+    """The ndarray fast path and the scalar fallback loop must agree."""
+
+    arr = np.array(["2024-06-01T12:17:37.886"], dtype="datetime64[ns]")
+
+    fast_path_result = _python_datetime_to_int_ms_timestamp(arr)
+    scalar_loop_result = _python_datetime_to_int_ms_timestamp(list(arr))
+
+    assert list(fast_path_result) == list(scalar_loop_result)
+
+
+def test_seconds_timestamp_ndarray_fast_path():
+    """Same fast-path bug (isinstance vs np.issubdtype) also existed in the
+    pre-existing seconds-precision function; verify it takes the vectorized
+    path and truncates to whole seconds."""
+
+    arr = np.array(["2024-06-01T12:17:37.886"], dtype="datetime64[ns]")
+
+    result = _python_datetime_to_int_timestamp(arr)
+
+    assert isinstance(result, np.ndarray)
+    assert result.tolist() == [1717244257]
+
+
+def test_ndarray_non_1d_raises():
+    """The ndim check is only reachable once the dtype fast-path guard
+    actually matches datetime64 ndarrays."""
+
+    arr = np.array([["2024-06-01"]], dtype="datetime64[ns]")
+
+    with pytest.raises(ValueError, match="Only 1 dimensional arrays are supported."):
+        _python_datetime_to_int_ms_timestamp(arr)
+
+    with pytest.raises(ValueError, match="Only 1 dimensional arrays are supported."):
+        _python_datetime_to_int_timestamp(arr)
 
 
 @pytest.mark.parametrize(

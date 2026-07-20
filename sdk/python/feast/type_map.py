@@ -351,7 +351,7 @@ def _python_datetime_to_int_timestamp(
     values: Sequence[Any],
 ) -> Sequence[Union[int, np.int_]]:
     # Fast path for Numpy array.
-    if isinstance(values, np.ndarray) and isinstance(values.dtype, np.datetime64):
+    if isinstance(values, np.ndarray) and np.issubdtype(values.dtype, np.datetime64):
         if values.ndim != 1:
             raise ValueError("Only 1 dimensional arrays are supported.")
         return cast(Sequence[np.int_], values.astype("datetime64[s]").astype(np.int_))
@@ -376,7 +376,7 @@ def _python_datetime_to_int_ms_timestamp(
 ) -> Sequence[Union[int, np.int_]]:
     """Convert datetime values to milliseconds since epoch (used for sort key columns)."""
     # Fast path for Numpy array.
-    if isinstance(values, np.ndarray) and isinstance(values.dtype, np.datetime64):
+    if isinstance(values, np.ndarray) and np.issubdtype(values.dtype, np.datetime64):
         if values.ndim != 1:
             raise ValueError("Only 1 dimensional arrays are supported.")
         return cast(Sequence[np.int_], values.astype("datetime64[ms]").astype(np.int_))
