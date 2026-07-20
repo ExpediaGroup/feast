@@ -245,3 +245,6 @@ offline_build/
 
 venv39/*
 test.go
+
+# local planning/design artifacts (not part of the codebase)
+docs/superpowers/

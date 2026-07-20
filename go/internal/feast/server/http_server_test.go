@@ -3,11 +3,14 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +20,45 @@ import (
 	"github.com/apache/arrow/go/v17/arrow/memory"
 	"github.com/stretchr/testify/assert"
 )
+
+// TestGetOnlineFeaturesHttpSqlite is a regression test for a nil-pointer
+// dereference: getOnlineFeatures used to access s.metricsCtx.Project and
+// s.metricsCtx.OnlineStore directly when building the debug request log,
+// which panics when s.metricsCtx is nil (NewMetricsContext returns nil when
+// no metrics client is configured, which is exactly what GetHttpServer sets
+// up below). This mirrors TestGetOnlineFeaturesSqlite in grpc_server_test.go,
+// which caught the same bug for the gRPC handler.
+func TestGetOnlineFeaturesHttpSqlite(t *testing.T) {
+	httpServer := GetHttpServer(testRepoBasePath, "")
+
+	requestJson := []byte(`{
+		"features": [
+			"driver_hourly_stats:conv_rate",
+			"driver_hourly_stats:acc_rate",
+			"driver_hourly_stats:avg_daily_trips"
+		],
+		"entities": {
+			"driver_id": [1001, 1003, 1005]
+		}
+	}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/get-online-features", bytes.NewReader(requestJson))
+	w := httptest.NewRecorder()
+
+	assert.NotPanics(t, func() {
+		httpServer.getOnlineFeatures(w, req)
+	})
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var response map[string]interface{}
+	err := json.Unmarshal(w.Body.Bytes(), &response)
+	assert.NoError(t, err)
+
+	metadata := response["metadata"].(map[string]interface{})
+	featureNames := metadata["feature_names"].([]interface{})
+	assert.Equal(t, []interface{}{"driver_id", "conv_rate", "acc_rate", "avg_daily_trips"}, featureNames)
+}
 
 func TestUnmarshalJSON(t *testing.T) {
 	u := repeatedValue{}

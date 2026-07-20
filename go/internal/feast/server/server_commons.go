@@ -10,6 +10,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	debuglogging "github.com/feast-dev/feast/go/internal/feast/server/debuglogging"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 )
@@ -110,6 +111,78 @@ func extractFVNamesFromRequest(features []string, featureService *model.FeatureS
 		names = append(names, name)
 	}
 	return names
+}
+
+// EmitDebugRequestLog builds and emits one structured debug-log line for a
+// getOnlineFeatures request, if debuglogging.ShouldEmit says to (per-request
+// flag OR server-wide config + sampling — see debuglogging.ShouldEmit).
+func EmitDebugRequestLog(
+	logger zerolog.Logger,
+	cfg debuglogging.Config,
+	requestFlagged bool,
+	project string,
+	fvNames []string,
+	transport string,
+	requestPath string,
+	featuresRequested int,
+	entityKeyCount int,
+	featureVectors []*onlineserving.FeatureVector,
+	onlineStoreType string,
+	rttMs float64,
+	err error,
+) {
+	if !debuglogging.ShouldEmit(requestFlagged, cfg) {
+		return
+	}
+	debuglogging.Emit(logger, debuglogging.RequestEvent{
+		Project:           project,
+		FeatureViews:      fvNames,
+		RequestPath:       requestPath,
+		Transport:         transport,
+		FeaturesRequested: featuresRequested,
+		// featureVectors includes one column per entity join key ahead of the
+		// feature columns, so subtract entityKeyCount to make this directly
+		// comparable to featuresRequested (clamp at 0 for the error path where
+		// featureVectors is nil).
+		FeaturesReturnedCount: max(0, len(featureVectors)-entityKeyCount),
+		NullFieldCount:        debuglogging.CountNullOrExpired(featureVectors),
+		StoreRTTMs:            rttMs,
+		OnlineStoreType:       onlineStoreType,
+		ErrorType:             debuglogging.ClassifyError(err),
+	})
+}
+
+// EmitDebugRequestLogRange is the getOnlineFeaturesRange equivalent of
+// EmitDebugRequestLog.
+func EmitDebugRequestLogRange(
+	logger zerolog.Logger,
+	cfg debuglogging.Config,
+	requestFlagged bool,
+	project string,
+	fvNames []string,
+	transport string,
+	requestPath string,
+	featuresRequested int,
+	rangeFeatureVectors []*onlineserving.RangeFeatureVector,
+	onlineStoreType string,
+	rttMs float64,
+	err error,
+) {
+	if !debuglogging.ShouldEmit(requestFlagged, cfg) {
+		return
+	}
+	debuglogging.Emit(logger, debuglogging.RequestEvent{
+		Project:           project,
+		FeatureViews:      fvNames,
+		RequestPath:       requestPath,
+		Transport:         transport,
+		FeaturesRequested: featuresRequested,
+		FeaturesReturnedCount: len(rangeFeatureVectors),
+		NullFieldCount:        debuglogging.CountNullOrExpiredRange(rangeFeatureVectors),
+		StoreRTTMs:            rttMs,
+		OnlineStoreType:       onlineStoreType,
+		ErrorType:             debuglogging.ClassifyError(err),
+	})
 }
 
 func CommonHttpHandlers(s *HttpServer, healthCheckHandler http.HandlerFunc) []Handler {

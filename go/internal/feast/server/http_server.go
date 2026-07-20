@@ -22,6 +22,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/internal/feast/server/debuglogging"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
 	"github.com/feast-dev/feast/go/protos/feast/serving"
 	prototypes "github.com/feast-dev/feast/go/protos/feast/types"
@@ -34,6 +35,7 @@ type HttpServer struct {
 	loggingService *logging.LoggingService
 	metricsClient  metrics.StatsdClient
 	metricsCtx     *MetricsContext
+	debugLogCfg    debuglogging.Config
 	config         *registry.RepoConfig
 	server         *http.Server
 }
@@ -331,6 +333,7 @@ func NewHttpServer(fs *feast.FeatureStore, loggingService *logging.LoggingServic
 		loggingService: loggingService,
 		metricsClient:  metricsClient,
 		metricsCtx:     NewMetricsContext(metricsClient, config),
+		debugLogCfg:    debuglogging.NewConfig(),
 		config:         config,
 	}
 }
@@ -416,7 +419,17 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fvNames := extractFVNamesFromRequest(request.Features, featureService)
+	requestFlagged := debuglogging.RequestFlaggedHTTP(r.Header)
 	t0 := time.Now()
+
+	// s.metricsCtx may be nil (NewMetricsContext returns nil when the metrics
+	// client or repo config isn't configured), so guard field access here
+	// rather than dereferencing it directly in the EmitDebugRequestLog calls.
+	var debugProject, debugOnlineStore string
+	if s.metricsCtx != nil {
+		debugProject = s.metricsCtx.Project
+		debugOnlineStore = s.metricsCtx.OnlineStore
+	}
 
 	featureVectors, err = s.fs.GetOnlineFeatures(
 		ctx,
@@ -437,12 +450,20 @@ func (s *HttpServer) getOnlineFeatures(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting feature vector")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
+		EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+			"http", r.URL.Path, len(request.Features), len(request.Entities), featureVectors, debugOnlineStore, latencyMs, err)
 		writeJSONError(w, fmt.Errorf("Error getting feature vector: %+v", err), http.StatusInternalServerError)
 		return
 	}
 
 	s.metricsCtx.EmitLookupMetrics(featureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	featuresRequested := len(request.Features)
+	if featuresRequested == 0 {
+		featuresRequested = len(featureVectors) - len(request.Entities)
+	}
+	EmitDebugRequestLog(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+		"http", r.URL.Path, featuresRequested, len(request.Entities), featureVectors, debugOnlineStore, latencyMs, nil)
 
 	var featureNames []string
 	var results []map[string]interface{}
@@ -626,7 +647,17 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 	}
 
 	fvNames := extractFVNamesFromRequest(request.Features, featureService)
+	requestFlagged := debuglogging.RequestFlaggedHTTP(r.Header)
 	t0 := time.Now()
+
+	// s.metricsCtx may be nil (NewMetricsContext returns nil when the metrics
+	// client or repo config isn't configured), so guard field access here
+	// rather than dereferencing it directly in the EmitDebugRequestLogRange calls.
+	var debugProject, debugOnlineStore string
+	if s.metricsCtx != nil {
+		debugProject = s.metricsCtx.Project
+		debugOnlineStore = s.metricsCtx.OnlineStore
+	}
 
 	rangeFeatureVectors, err := s.fs.GetOnlineFeaturesRange(
 		ctx,
@@ -650,12 +681,20 @@ func (s *HttpServer) getOnlineFeaturesRange(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		logSpanContext.Error().Err(err).Msg("Error getting range feature vectors")
 		s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, true)
+		EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+			"http", r.URL.Path, len(request.Features), rangeFeatureVectors, debugOnlineStore, latencyMs, err)
 		writeJSONError(w, err, http.StatusInternalServerError)
 		return
 	}
 
 	s.metricsCtx.EmitRangeLookupMetrics(rangeFeatureVectors)
 	s.metricsCtx.EmitFVReadMetrics(fvNames, latencyMs, false)
+	rangeFeaturesRequested := len(request.Features)
+	if rangeFeaturesRequested == 0 {
+		rangeFeaturesRequested = len(rangeFeatureVectors)
+	}
+	EmitDebugRequestLogRange(logSpanContext, s.debugLogCfg, requestFlagged, debugProject, fvNames,
+		"http", r.URL.Path, rangeFeaturesRequested, rangeFeatureVectors, debugOnlineStore, latencyMs, nil)
 
 	featureNames, entities, results, err := processFeatureVectors(
 		rangeFeatureVectors, includeMetadata, entitiesProto)

@@ -3,14 +3,21 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"sort"
 	"testing"
 
 	"github.com/feast-dev/feast/go/internal/feast/metrics"
 	"github.com/feast-dev/feast/go/internal/feast/model"
+	"github.com/feast-dev/feast/go/internal/feast/onlineserving"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
+	"github.com/feast-dev/feast/go/internal/feast/server/debuglogging"
+	"github.com/feast-dev/feast/go/protos/feast/serving"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeStatsdClient struct{}
@@ -107,4 +114,86 @@ func TestExtractFVNamesFromRequest_Deduplication(t *testing.T) {
 func TestExtractFVNamesFromRequest_Empty(t *testing.T) {
 	names := extractFVNamesFromRequest(nil, nil)
 	assert.Empty(t, names)
+}
+
+func TestEmitDebugRequestLog_NotEmittedWhenShouldEmitFalse(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	EmitDebugRequestLog(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, false,
+		"p13n", []string{"customer_profile"}, "http", "/get-online-features",
+		1, 0, nil, "cassandra", 4.2, nil)
+
+	assert.Empty(t, buf.Bytes())
+}
+
+func TestEmitDebugRequestLog_EmittedWhenRequestFlagged(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	vectors := []*onlineserving.FeatureVector{
+		{Name: "f1", Statuses: []serving.FieldStatus{serving.FieldStatus_NULL_VALUE}},
+	}
+
+	EmitDebugRequestLog(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, true,
+		"p13n", []string{"customer_profile"}, "http", "/get-online-features",
+		1, 0, vectors, "cassandra", 4.2, nil)
+
+	var decoded map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
+	assert.Equal(t, "feature_view_request_debug_log", decoded["event"])
+	assert.Equal(t, float64(1), decoded["null_field_count"])
+	assert.Equal(t, "cassandra", decoded["online_store_type"])
+}
+
+func TestEmitDebugRequestLog_ExcludesEntityColumnsFromReturnedCount(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	// Two returned columns: one entity/join-key column plus one feature column.
+	vectors := []*onlineserving.FeatureVector{
+		{Name: "driver_id"},
+		{Name: "conv_rate"},
+	}
+
+	// entityKeyCount = 1, so features_returned_count must be 2 - 1 = 1,
+	// matching features_requested (1) rather than the raw column count (2).
+	EmitDebugRequestLog(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, true,
+		"p13n", []string{"driver_hourly_stats"}, "http", "/get-online-features",
+		1, 1, vectors, "cassandra", 4.2, nil)
+
+	var decoded map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
+	assert.Equal(t, float64(1), decoded["features_requested"])
+	assert.Equal(t, float64(1), decoded["features_returned_count"])
+}
+
+func TestEmitDebugRequestLog_ReturnedCountClampsAtZeroOnError(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+
+	// Error path: featureVectors is nil (len 0) but entityKeyCount is 2;
+	// features_returned_count must clamp to 0, not go negative.
+	EmitDebugRequestLog(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, true,
+		"p13n", []string{"driver_hourly_stats"}, "http", "/get-online-features",
+		1, 2, nil, "cassandra", 4.2, assert.AnError)
+
+	var decoded map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
+	assert.Equal(t, float64(0), decoded["features_returned_count"])
+}
+
+func TestEmitDebugRequestLogRange_EmittedWhenRequestFlagged(t *testing.T) {
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	vectors := []*onlineserving.RangeFeatureVector{
+		{Name: "f1", RangeStatuses: [][]serving.FieldStatus{{serving.FieldStatus_OUTSIDE_MAX_AGE}}},
+	}
+
+	EmitDebugRequestLogRange(logger, debuglogging.Config{Enabled: false, SampleRate: 0}, true,
+		"p13n", []string{"customer_profile"}, "http", "/get-online-features-range",
+		1, vectors, "cassandra", 4.2, nil)
+
+	var decoded map[string]interface{}
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &decoded))
+	assert.Equal(t, "feature_view_request_debug_log", decoded["event"])
+	assert.Equal(t, float64(1), decoded["null_field_count"])
 }
