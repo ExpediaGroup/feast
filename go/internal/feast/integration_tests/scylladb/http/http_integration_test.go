@@ -215,7 +215,7 @@ func TestGetOnlineFeaturesRange_Http_withOnlyEqualsFilter(t *testing.T) {
 	  "sort_key_filters": [
 		{
 		  "sort_key_name": "event_timestamp",
-		  "equals": 1744769171
+		  "equals": 1744769171919
 		}
 	  ],
 	  "limit": 10

@@ -55,6 +55,11 @@ if TYPE_CHECKING:
 # null timestamps get converted to -9223372036854775808
 NULL_TIMESTAMP_INT_VALUE: int = np.datetime64("NaT").astype(int)
 
+# Threshold for disambiguating a raw UNIX_TIMESTAMP integer as milliseconds vs.
+# seconds: current-era seconds are ~1.7e9, milliseconds ~1.7e12, so anything
+# above this is unambiguously milliseconds (safe until year ~5138 in seconds).
+MS_TIMESTAMP_THRESHOLD = 1e11
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,11 +83,16 @@ def feast_value_type_to_python_type(field_value_proto: ProtoValue) -> Any:
     if hasattr(val, "val"):
         val = list(val.val)
 
-    # Convert UNIX_TIMESTAMP values to `datetime`
+    # Convert UNIX_TIMESTAMP values to `datetime`.
+    # unix_timestamp_val stores seconds for regular features and milliseconds for sort key
+    # columns; see MS_TIMESTAMP_THRESHOLD for the disambiguation rule.
     if val_attr == "unix_timestamp_list_val":
         val = [
             (
-                datetime.fromtimestamp(v, tz=timezone.utc)
+                datetime.fromtimestamp(
+                    v / 1000.0 if v > MS_TIMESTAMP_THRESHOLD else float(v),
+                    tz=timezone.utc,
+                )
                 if v != NULL_TIMESTAMP_INT_VALUE
                 else None
             )
@@ -90,7 +100,10 @@ def feast_value_type_to_python_type(field_value_proto: ProtoValue) -> Any:
         ]
     elif val_attr == "unix_timestamp_val":
         val = (
-            datetime.fromtimestamp(val, tz=timezone.utc)
+            datetime.fromtimestamp(
+                val / 1000.0 if val > MS_TIMESTAMP_THRESHOLD else float(val),
+                tz=timezone.utc,
+            )
             if val != NULL_TIMESTAMP_INT_VALUE
             else None
         )
@@ -338,7 +351,7 @@ def _python_datetime_to_int_timestamp(
     values: Sequence[Any],
 ) -> Sequence[Union[int, np.int_]]:
     # Fast path for Numpy array.
-    if isinstance(values, np.ndarray) and isinstance(values.dtype, np.datetime64):
+    if isinstance(values, np.ndarray) and np.issubdtype(values.dtype, np.datetime64):
         if values.ndim != 1:
             raise ValueError("Only 1 dimensional arrays are supported.")
         return cast(Sequence[np.int_], values.astype("datetime64[s]").astype(np.int_))
@@ -355,6 +368,53 @@ def _python_datetime_to_int_timestamp(
             int_timestamps.append(NULL_TIMESTAMP_INT_VALUE)
         else:
             int_timestamps.append(int(value))
+    return int_timestamps
+
+
+def _python_datetime_to_int_ms_timestamp(
+    values: Sequence[Any],
+) -> Sequence[Union[int, np.int_]]:
+    """Convert datetime values to milliseconds since epoch (used for sort key columns)."""
+    # Fast path for Numpy array.
+    if isinstance(values, np.ndarray) and np.issubdtype(values.dtype, np.datetime64):
+        if values.ndim != 1:
+            raise ValueError("Only 1 dimensional arrays are supported.")
+        return cast(Sequence[np.int_], values.astype("datetime64[ms]").astype(np.int_))
+
+    int_timestamps = []
+    for value in values:
+        if isinstance(value, datetime):
+            int_timestamps.append(int(round(value.timestamp() * 1000)))
+        elif isinstance(value, Timestamp):
+            int_timestamps.append(int(value.ToMilliseconds()))
+        elif isinstance(value, np.datetime64):
+            int_timestamps.append(value.astype("datetime64[ms]").astype(np.int_))  # type: ignore[attr-defined]
+        elif isinstance(value, type(np.nan)):
+            int_timestamps.append(NULL_TIMESTAMP_INT_VALUE)
+        else:
+            # A raw (non-datetime) value here means the sort key column
+            # arrived as a plain integer rather than a typed timestamp -
+            # e.g. a Spark LongType column instead of TimestampType,
+            # which can happen if the source Avro schema's field lacks a
+            # timestamp-millis/timestamp-micros logicalType. There is no
+            # reliable way to know whether that raw integer is already
+            # milliseconds or is seconds, so apply the same magnitude
+            # threshold used everywhere else in this codebase to decide
+            # (unixTsToTime in Go, feast_value_type_to_python_type here)
+            # rather than silently assuming it's already milliseconds.
+            raw = int(value)
+            if raw > int(MS_TIMESTAMP_THRESHOLD):
+                int_timestamps.append(raw)
+            else:
+                logger.warning(
+                    "Sort key column received a raw integer timestamp (%d) instead of "
+                    "a typed datetime value; assuming seconds and converting to "
+                    "milliseconds. This usually means the upstream source (e.g. an "
+                    "Avro schema without a timestamp-millis/timestamp-micros "
+                    "logicalType) is not producing typed timestamps.",
+                    raw,
+                )
+                int_timestamps.append(raw * 1000)
     return int_timestamps
 
 

@@ -563,7 +563,13 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case bool:
 		protoVal.Val = &types.Value_BoolVal{BoolVal: v}
 	case time.Time:
-		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: v.Unix()}
+		// Only reached for UNIX_TIMESTAMP sort key columns read back from a native
+		// Cassandra/Scylla `timestamp` column (gocql surfaces those as time.Time);
+		// regular features are stored/read as opaque proto blobs, never time.Time.
+		// Sort keys are always written at millisecond precision, so UnixMilli() is
+		// the correct, lossless conversion here (see unixTsToTime for the matching
+		// decode-side threshold).
+		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: v.UnixMilli()}
 	case *timestamppb.Timestamp:
 		protoVal.Val = &types.Value_UnixTimestampVal{UnixTimestampVal: GetTimestampSeconds(v)}
 
@@ -633,7 +639,7 @@ func InterfaceToProtoValue(val interface{}) (*types.Value, error) {
 	case []time.Time:
 		timestamps := make([]int64, len(v))
 		for j, t := range v {
-			timestamps[j] = t.Unix()
+			timestamps[j] = t.UnixMilli()
 		}
 		timestampList := &types.Int64List{Val: timestamps}
 		protoVal.Val = &types.Value_UnixTimestampListVal{UnixTimestampListVal: timestampList}
@@ -830,25 +836,35 @@ func valueTypeToGoTypeTimestampAsString(value *types.Value, timestampAsString bo
 		return v
 	case *types.Value_UnixTimestampVal:
 		if timestampAsString {
-			return time.Unix(x.UnixTimestampVal, 0).UTC().Format(TimestampFormat)
+			return unixTsToTime(x.UnixTimestampVal).Format(TimestampFormat)
 		}
-		return time.Unix(x.UnixTimestampVal, 0).UTC()
+		return unixTsToTime(x.UnixTimestampVal)
 	case *types.Value_UnixTimestampListVal:
 		if timestampAsString {
 			timestamps := make([]string, len(x.UnixTimestampListVal.Val))
 			for i, ts := range x.UnixTimestampListVal.Val {
-				timestamps[i] = time.Unix(ts, 0).UTC().Format(TimestampFormat)
+				timestamps[i] = unixTsToTime(ts).Format(TimestampFormat)
 			}
 			return timestamps
 		}
 		timestamps := make([]time.Time, len(x.UnixTimestampListVal.Val))
 		for i, ts := range x.UnixTimestampListVal.Val {
-			timestamps[i] = time.Unix(ts, 0).UTC()
+			timestamps[i] = unixTsToTime(ts)
 		}
 		return timestamps
 	default:
 		return nil
 	}
+}
+
+// unixTsToTime converts a unix_timestamp_val int64 to time.Time using a threshold to
+// distinguish seconds (regular features) from milliseconds (sort key columns).
+// Values > 1e11 are unambiguously milliseconds; current-era seconds ~1.7e9 < 1e11.
+func unixTsToTime(val int64) time.Time {
+	if val > 1e11 {
+		return time.UnixMilli(val).UTC()
+	}
+	return time.Unix(val, 0).UTC()
 }
 
 func transformStringToBytes(str string) []byte {
@@ -1044,4 +1060,13 @@ func GetTimestampSeconds(ts *timestamppb.Timestamp) int64 {
 		return 0
 	}
 	return ts.GetSeconds()
+}
+
+// GetTimestampMillis flattens a proto Timestamp to milliseconds since epoch,
+// preserving sub-second precision that GetTimestampSeconds discards.
+func GetTimestampMillis(ts *timestamppb.Timestamp) int64 {
+	if ts == nil {
+		return 0
+	}
+	return ts.AsTime().UnixMilli()
 }

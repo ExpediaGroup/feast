@@ -205,8 +205,8 @@ func fmtInterface(v interface{}) (string, error) {
 		return fmt.Sprintf("%g", x), nil
 
 	case time.Time:
-		// Feast timestamps become time.Time for sort keys
-		return fmt.Sprintf("%d", x.Unix()), nil
+		// Sort key scores are stored as milliseconds; use UnixMilli to match.
+		return fmt.Sprintf("%d", x.UnixMilli()), nil
 
 	case string:
 		return x, nil

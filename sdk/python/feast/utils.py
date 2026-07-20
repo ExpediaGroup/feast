@@ -1,5 +1,6 @@
 import copy
 import itertools
+import logging
 import os
 import typing
 import warnings
@@ -42,7 +43,10 @@ from feast.protos.feast.types.EntityKey_pb2 import EntityKey as EntityKeyProto
 from feast.protos.feast.types.Value_pb2 import FloatList as FloatListProto
 from feast.protos.feast.types.Value_pb2 import RepeatedValue as RepeatedValueProto
 from feast.protos.feast.types.Value_pb2 import Value as ValueProto
-from feast.type_map import python_values_to_proto_values
+from feast.type_map import (
+    _python_datetime_to_int_ms_timestamp,
+    python_values_to_proto_values,
+)
 from feast.types import ComplexFeastType, PrimitiveFeastType, from_feast_to_pyarrow_type
 from feast.value_type import ValueType
 from feast.version import get_version
@@ -53,6 +57,8 @@ if typing.TYPE_CHECKING:
     from feast.feature_view import FeatureView
     from feast.infra.registry.base_registry import BaseRegistry
     from feast.on_demand_feature_view import OnDemandFeatureView
+
+logger = logging.getLogger(__name__)
 
 APPLICATION_NAME = "feast-dev/feast"
 USER_AGENT = "{}/{}".format(APPLICATION_NAME, get_version())
@@ -262,9 +268,17 @@ def _convert_arrow_to_proto(
         getattr(feature_view, "source_request_sources", None) is not None
         or getattr(feature_view, "source_feature_view_projections", None) is not None
     ):
-        return _convert_arrow_odfv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
+        result = _convert_arrow_odfv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
     else:
-        return _convert_arrow_fv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
+        result = _convert_arrow_fv_to_proto(table, feature_view, join_keys)  # type: ignore[arg-type]
+
+    logger.info(
+        "[materialize] feature_view=%s rows=%d",
+        feature_view.name,
+        len(result),
+    )
+
+    return result
 
 
 def _convert_arrow_fv_to_proto(
@@ -281,12 +295,26 @@ def _convert_arrow_fv_to_proto(
         (field.name, field.dtype.to_value_type()) for field in feature_view.features
     ] + list(join_keys.items())
 
-    proto_values_by_column = {
-        column: python_values_to_proto_values(
-            table.column(column).to_numpy(zero_copy_only=False), value_type
-        )
-        for column, value_type in columns
+    # Sort key UNIX_TIMESTAMP columns use ms precision so that timestamps differing
+    # by < 1 second produce distinct sort key scores in the online store.
+    sort_key_ts_names = {
+        sk.name
+        for sk in getattr(feature_view, "sort_keys", [])
+        if sk.value_type == ValueType.UNIX_TIMESTAMP
     }
+
+    proto_values_by_column = {}
+    for column, value_type in columns:
+        raw = table.column(column).to_numpy(zero_copy_only=False)
+        if column in sort_key_ts_names:
+            ms_vals = _python_datetime_to_int_ms_timestamp(raw)
+            proto_values_by_column[column] = [
+                ValueProto(unix_timestamp_val=int(ts)) for ts in ms_vals
+            ]
+        else:
+            proto_values_by_column[column] = python_values_to_proto_values(
+                raw, value_type
+            )
 
     entity_keys = [
         EntityKeyProto(

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
+	featuretypes "github.com/feast-dev/feast/go/types"
 	"github.com/feast-dev/feast/go/internal/feast/model"
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/feast/utils"
@@ -528,6 +530,37 @@ func TestResolveFeatureValue_SortKeyMissingFromRow(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, serving.FieldStatus_NOT_FOUND, status)
 	assert.Nil(t, val)
+}
+
+func TestResolveFeatureValue_SortKey_TimeTime(t *testing.T) {
+	// gocql surfaces Cassandra/Scylla native timestamp columns as time.Time.
+	// resolveFeatureValue returns the raw time.Time for sort keys; the serving
+	// layer then calls InterfaceToProtoValue which uses .UnixMilli() — the
+	// ms-precision encode path added in EAPC-22316. This test verifies both:
+	// (1) resolveFeatureValue preserves the time.Time without truncation, and
+	// (2) InterfaceToProtoValue encodes it as milliseconds, not whole seconds.
+	msVal := int64(1717244257886) // 2024-06-01 12:17:37.886Z
+	tVal := time.UnixMilli(msVal).UTC()
+	readValues := map[string]interface{}{
+		"eventsortkey": tVal,
+	}
+
+	val, status, err := resolveFeatureValue(readValues, canonicalColumnName("EventSortKey"), true)
+	assert.NoError(t, err)
+	assert.Equal(t, serving.FieldStatus_PRESENT, status)
+	require.NotNil(t, val)
+
+	// resolveFeatureValue returns the raw interface{} for sort keys.
+	// Assert it's the exact time.Time we put in (no truncation).
+	gotTime, ok := val.(time.Time)
+	require.True(t, ok, "sort key value should be returned as time.Time")
+	assert.Equal(t, tVal, gotTime, "time.Time must be returned unmodified by resolveFeatureValue")
+
+	// InterfaceToProtoValue (called by the serving layer) must encode it as ms.
+	protoVal, err := featuretypes.InterfaceToProtoValue(val)
+	require.NoError(t, err)
+	assert.Equal(t, msVal, protoVal.GetUnixTimestampVal(),
+		"time.Time sort key must be encoded as UnixMilli, not Unix seconds")
 }
 
 func TestResolveFeatureValue_AlreadyLowercaseFeature(t *testing.T) {

@@ -500,9 +500,7 @@ class RedisOnlineStore(OnlineStore):
         """
         feast_value_type = sort_key_value.WhichOneof("val")
         if feast_value_type == "unix_timestamp_val":
-            feature_value = (
-                sort_key_value.unix_timestamp_val * 1000
-            )  # Convert to milliseconds
+            feature_value = sort_key_value.unix_timestamp_val  # already milliseconds
         else:
             feature_value = getattr(sort_key_value, str(feast_value_type))
         return feature_value

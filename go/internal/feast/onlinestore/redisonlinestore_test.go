@@ -423,7 +423,7 @@ func writeTestRecord(
 		fieldHash, valB,
 	).Err())
 	require.NoError(t, store.client.ZAdd(ctx, zkey, redis.Z{
-		Score:  float64(ts.AsTime().Unix()),
+		Score:  float64(ts.AsTime().UnixMilli()),
 		Member: string(sortKeyBytes),
 	}).Err())
 }
@@ -461,8 +461,8 @@ func TestOnlineReadRange(t *testing.T) {
 		SortKeyFilters: []*model.SortKeyFilter{
 			{
 				SortKeyName:    "ts",
-				RangeStart:     int64(1000),
-				RangeEnd:       int64(2500),
+				RangeStart:     int64(1000000),
+				RangeEnd:       int64(2500000),
 				StartInclusive: true,
 				EndInclusive:   true,
 			},
@@ -479,6 +479,11 @@ func TestOnlineReadRange(t *testing.T) {
 	require.Len(t, out.Values, 2)
 	assert.Equal(t, "one", out.Values[0].(*types.Value).GetStringVal())
 	assert.Equal(t, "two", out.Values[1].(*types.Value).GetStringVal())
+
+	// EventTimestamps come from the _ts:<fv> hash field decoded as timestamppb.Timestamp.
+	require.Len(t, out.EventTimestamps, 2, "each returned row should have an event timestamp")
+	assert.Equal(t, int64(1000), out.EventTimestamps[0].Seconds, "row 0 event ts must match ts1")
+	assert.Equal(t, int64(2000), out.EventTimestamps[1].Seconds, "row 1 event ts must match ts2")
 }
 
 func TestOnlineReadRange_Reverse(t *testing.T) {
@@ -510,7 +515,7 @@ func TestOnlineReadRange_Reverse(t *testing.T) {
 			{
 				SortKeyName: "ts",
 				RangeStart:  int64(0),
-				RangeEnd:    int64(30)},
+				RangeEnd:    int64(30000)},
 		},
 	}
 
@@ -539,7 +544,7 @@ func TestOnlineReadRange_EmptyResult(t *testing.T) {
 		Limit:              10,
 		IsReverseSortOrder: false,
 		SortKeyFilters: []*model.SortKeyFilter{
-			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10)},
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10000)},
 		},
 	}
 
@@ -577,7 +582,7 @@ func TestOnlineReadRange_WithLimit(t *testing.T) {
 		Limit:              3, // Only get 3
 		IsReverseSortOrder: false,
 		SortKeyFilters: []*model.SortKeyFilter{
-			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10000)},
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(10000000)},
 		},
 	}
 
@@ -623,7 +628,7 @@ func TestOnlineReadRange_MultipleEntityKeys(t *testing.T) {
 		Limit:              10,
 		IsReverseSortOrder: false,
 		SortKeyFilters: []*model.SortKeyFilter{
-			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000)},
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000000)},
 		},
 	}
 
@@ -669,7 +674,7 @@ func TestOnlineReadRange_MultipleFeatureViews(t *testing.T) {
 		Limit:              10,
 		IsReverseSortOrder: false,
 		SortKeyFilters: []*model.SortKeyFilter{
-			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000)},
+			{SortKeyName: "ts", RangeStart: int64(0), RangeEnd: int64(5000000)},
 		},
 	}
 
@@ -767,10 +772,10 @@ func TestOnlineReadRange_ExclusiveRangeBounds(t *testing.T) {
 		SortKeyFilters: []*model.SortKeyFilter{
 			{
 				SortKeyName:    "ts",
-				RangeStart:     int64(1000),
-				RangeEnd:       int64(3000),
-				StartInclusive: false, // Exclude 1000
-				EndInclusive:   false, // Exclude 3000
+				RangeStart:     int64(1000000),
+				RangeEnd:       int64(3000000),
+				StartInclusive: false, // Exclude 1000s
+				EndInclusive:   false, // Exclude 3000s
 			},
 		},
 	}

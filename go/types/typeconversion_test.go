@@ -11,6 +11,7 @@ import (
 
 	"github.com/apache/arrow/go/v17/arrow/memory"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/feast-dev/feast/go/protos/feast/types"
@@ -366,7 +367,7 @@ func TestInterfaceToProtoValue(t *testing.T) {
 		{float32(30.5), &types.Value{Val: &types.Value_FloatVal{FloatVal: 30.5}}},
 		{float64(40.5), &types.Value{Val: &types.Value_DoubleVal{DoubleVal: 40.5}}},
 		{true, &types.Value{Val: &types.Value_BoolVal{BoolVal: true}}},
-		{testTime, &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: testTime.Unix()}}},
+		{testTime, &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: testTime.UnixMilli()}}},
 		{&timestamppb.Timestamp{Seconds: testTime.Unix(), Nanos: int32(testTime.Nanosecond())}, &types.Value{Val: &types.Value_UnixTimestampVal{UnixTimestampVal: testTime.Unix()}}},
 		{[][]byte{{1, 2}, {3, 4}}, &types.Value{Val: &types.Value_BytesListVal{BytesListVal: &types.BytesList{Val: [][]byte{{1, 2}, {3, 4}}}}}},
 		{[]string{"a", "b"}, &types.Value{Val: &types.Value_StringListVal{StringListVal: &types.StringList{Val: []string{"a", "b"}}}}},
@@ -376,7 +377,7 @@ func TestInterfaceToProtoValue(t *testing.T) {
 		{[]float32{5.5, 6.6}, &types.Value{Val: &types.Value_FloatListVal{FloatListVal: &types.FloatList{Val: []float32{5.5, 6.6}}}}},
 		{[]float64{7.7, 8.8}, &types.Value{Val: &types.Value_DoubleListVal{DoubleListVal: &types.DoubleList{Val: []float64{7.7, 8.8}}}}},
 		{[]bool{true, false}, &types.Value{Val: &types.Value_BoolListVal{BoolListVal: &types.BoolList{Val: []bool{true, false}}}}},
-		{[]time.Time{testTime, testTime.Add(time.Hour)}, &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{testTime.Unix(), testTime.Add(time.Hour).Unix()}}}}},
+		{[]time.Time{testTime, testTime.Add(time.Hour)}, &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{testTime.UnixMilli(), testTime.Add(time.Hour).UnixMilli()}}}}},
 		{[]*timestamppb.Timestamp{{Seconds: testTime.Unix(), Nanos: int32(testTime.Nanosecond())}, {Seconds: testTime.Add(time.Hour).Unix(), Nanos: int32(testTime.Add(time.Hour).Nanosecond())}}, &types.Value{Val: &types.Value_UnixTimestampListVal{UnixTimestampListVal: &types.Int64List{Val: []int64{testTime.Unix(), testTime.Add(time.Hour).Unix()}}}}},
 		{&types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}, &types.Value{Val: &types.Value_NullVal{NullVal: types.Null_NULL}}},
 		{&types.Value{Val: &types.Value_StringVal{StringVal: "test"}}, &types.Value{Val: &types.Value_StringVal{StringVal: "test"}}},
@@ -388,6 +389,92 @@ func TestInterfaceToProtoValue(t *testing.T) {
 		assert.True(t, proto.Equal(result, tc.expected),
 			"Expected %v but got %v for input %v", tc.expected, result, tc.input)
 	}
+}
+
+// TestInterfaceToProtoValue_TimeSubSecondPrecision guards against EAPC-22316
+// regressing: a time.Time with a non-zero sub-second component (as read back
+// from a Cassandra/Scylla native `timestamp` sort key column) must retain
+// millisecond precision, not collapse to whole seconds.
+func TestInterfaceToProtoValue_TimeSubSecondPrecision(t *testing.T) {
+	sortKeyTime := time.Date(2026, 7, 9, 12, 17, 37, 886_000_000, time.UTC)
+
+	result, err := InterfaceToProtoValue(sortKeyTime)
+	assert.NoError(t, err)
+
+	gotMillis := result.GetUnixTimestampVal()
+	assert.Equal(t, sortKeyTime.UnixMilli(), gotMillis,
+		"expected millisecond-precision conversion")
+	assert.NotEqual(t, sortKeyTime.Unix()*1000, gotMillis,
+		"conversion must not be second-truncated then rescaled")
+}
+
+// TestInterfaceToProtoValue_SubSecondValuesRemainDistinct is the crux
+// regression test for the EAPC-22316 follow-up: two sort key timestamps that
+// differ by less than a second must decode back to distinct, correct values
+// via unixTsToTime, not collapse to the same second.
+func TestInterfaceToProtoValue_SubSecondValuesRemainDistinct(t *testing.T) {
+	t1 := time.Date(2026, 7, 9, 12, 17, 37, 886_000_000, time.UTC)
+	t2 := time.Date(2026, 7, 9, 12, 17, 37, 904_000_000, time.UTC)
+
+	v1, err := InterfaceToProtoValue(t1)
+	assert.NoError(t, err)
+	v2, err := InterfaceToProtoValue(t2)
+	assert.NoError(t, err)
+
+	assert.NotEqual(t, v1.GetUnixTimestampVal(), v2.GetUnixTimestampVal(),
+		"sub-second-apart sort key values must not collapse to the same encoded value")
+
+	decoded1 := unixTsToTime(v1.GetUnixTimestampVal())
+	decoded2 := unixTsToTime(v2.GetUnixTimestampVal())
+
+	assert.True(t, decoded1.Equal(t1), "expected round-trip to preserve t1 exactly, got %v", decoded1)
+	assert.True(t, decoded2.Equal(t2), "expected round-trip to preserve t2 exactly, got %v", decoded2)
+	assert.False(t, decoded1.Equal(decoded2), "decoded values must remain distinct")
+}
+
+func TestGetTimestampMillis(t *testing.T) {
+	assert.Equal(t, int64(0), GetTimestampMillis(nil), "nil timestamp should return 0")
+
+	ts := &timestamppb.Timestamp{Seconds: 1783678657, Nanos: 886_000_000}
+	assert.Equal(t, int64(1783678657886), GetTimestampMillis(ts),
+		"expected millisecond precision to be retained")
+}
+
+func TestGetTimestampSeconds_Nil(t *testing.T) {
+	assert.Equal(t, int64(0), GetTimestampSeconds(nil), "nil timestamp should return 0")
+
+	ts := &timestamppb.Timestamp{Seconds: 1783678657, Nanos: 886_000_000}
+	assert.Equal(t, int64(1783678657), GetTimestampSeconds(ts),
+		"GetTimestampSeconds must discard sub-second nanos and return only whole seconds")
+}
+
+func TestUnixTsToTime_Boundary(t *testing.T) {
+	// The threshold is val > 1e11 (100_000_000_000).
+	// Values at or below the threshold are seconds; values above are milliseconds.
+	// This test pins the exact boundary so a change from > to >= (or a different
+	// constant) is immediately caught.
+	const threshold = int64(100_000_000_000) // 1e11
+
+	below := unixTsToTime(threshold - 1)
+	assert.Equal(t, time.Unix(threshold-1, 0).UTC(), below,
+		"val == 1e11-1 must be treated as seconds")
+
+	exact := unixTsToTime(threshold)
+	assert.Equal(t, time.Unix(threshold, 0).UTC(), exact,
+		"val == 1e11 must be treated as seconds (condition is >, not >=)")
+
+	above := unixTsToTime(threshold + 1)
+	assert.Equal(t, time.UnixMilli(threshold+1).UTC(), above,
+		"val == 1e11+1 must be treated as milliseconds")
+}
+
+func TestUnixTsToTime_ZeroAndNegative(t *testing.T) {
+	assert.Equal(t, time.Unix(0, 0).UTC(), unixTsToTime(0),
+		"zero must map to Unix epoch via seconds branch")
+	assert.Equal(t, time.Unix(-1, 0).UTC(), unixTsToTime(-1),
+		"negative values must take seconds branch (all negatives < 1e11)")
+	assert.Equal(t, time.Unix(math.MinInt64, 0).UTC(), unixTsToTime(math.MinInt64),
+		"MinInt64 must take seconds branch without panic")
 }
 
 func TestValueTypeToGoType(t *testing.T) {
@@ -471,6 +558,31 @@ func TestValueTypeToGoTypeTimestampAsString(t *testing.T) {
 		actual := ValueTypeToGoTypeTimestampAsString(testCase)
 		assert.Equal(t, expectedTypes[i], actual)
 	}
+}
+
+func TestValueTypeToGoTypeTimestampAsString_MsRangeList(t *testing.T) {
+	// These are millisecond-precision sort key values (> 1e11); the list branch of
+	// unixTsToTime must take the ms path, not the seconds path, for each element.
+	ms1 := int64(1717244257886) // 2024-06-01 12:17:37.886Z
+	ms2 := int64(1717244257904) // 2024-06-01 12:17:37.904Z
+
+	val := &types.Value{Val: &types.Value_UnixTimestampListVal{
+		UnixTimestampListVal: &types.Int64List{Val: []int64{ms1, ms2}},
+	}}
+
+	result := ValueTypeToGoTypeTimestampAsString(val)
+	strs, ok := result.([]string)
+	require.True(t, ok, "expected []string from UnixTimestampListVal")
+	require.Len(t, strs, 2)
+
+	assert.Equal(t, time.UnixMilli(ms1).UTC().Format(TimestampFormat), strs[0],
+		"ms-range list element 0 must use UnixMilli, not Unix")
+	assert.Equal(t, time.UnixMilli(ms2).UTC().Format(TimestampFormat), strs[1],
+		"ms-range list element 1 must use UnixMilli, not Unix")
+
+	// Confirm both strings carry sub-second precision (the ".886" / ".904" suffix).
+	assert.Contains(t, strs[0], ".886", "expected sub-second suffix .886 in formatted timestamp")
+	assert.Contains(t, strs[1], ".904", "expected sub-second suffix .904 in formatted timestamp")
 }
 
 func TestConvertToValueType_String(t *testing.T) {
