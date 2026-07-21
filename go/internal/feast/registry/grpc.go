@@ -33,12 +33,12 @@ type GrpcRegistryStore struct {
 // NewGrpcRegistryStore creates a gRPC-backed registry store.
 //
 // TLS is enabled when any of the following are true (mirrors Python RemoteRegistryConfig):
-//   - config.Path uses the "grpcs://" scheme
+//   - config.Path uses the "https://" scheme
 //   - config.IsTls is true
 //   - config.Cert is set (path to a PEM certificate file)
 //
 // Without TLS, the connection is insecure. config.Path may be bare "host:port",
-// "grpc://host:port", or "grpcs://host:port".
+// or optionally prefixed with "http://" or "https://".
 func NewGrpcRegistryStore(config *RegistryConfig, project string) (*GrpcRegistryStore, error) {
 	target, schemeIsTLS := parseGrpcTarget(config.Path)
 	useTLS := schemeIsTLS || config.IsTls || config.Cert != ""

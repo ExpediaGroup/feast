@@ -7,15 +7,22 @@ import (
 	"net"
 	"testing"
 
+	"github.com/feast-dev/feast/go/internal/feast/errors"
 	"github.com/feast-dev/feast/go/protos/feast/core"
 	registryPb "github.com/feast-dev/feast/go/protos/feast/registry"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+// notFoundName is a sentinel request name that makes testRegistryServer
+// return a NotFound gRPC status, for exercising not-found propagation.
+const notFoundName = "missing"
 
 // testRegistryServer is a minimal RegistryServer implementation for testing.
 type testRegistryServer struct {
@@ -23,22 +30,37 @@ type testRegistryServer struct {
 }
 
 func (s *testRegistryServer) GetEntity(_ context.Context, req *registryPb.GetEntityRequest) (*core.Entity, error) {
+	if req.Name == notFoundName {
+		return nil, status.Errorf(codes.NotFound, "entity %s not found", req.Name)
+	}
 	return &core.Entity{Spec: &core.EntitySpecV2{Name: req.Name}}, nil
 }
 
 func (s *testRegistryServer) GetFeatureView(_ context.Context, req *registryPb.GetFeatureViewRequest) (*core.FeatureView, error) {
+	if req.Name == notFoundName {
+		return nil, status.Errorf(codes.NotFound, "feature view %s not found", req.Name)
+	}
 	return &core.FeatureView{Spec: &core.FeatureViewSpec{Name: req.Name}}, nil
 }
 
 func (s *testRegistryServer) GetSortedFeatureView(_ context.Context, req *registryPb.GetSortedFeatureViewRequest) (*core.SortedFeatureView, error) {
+	if req.Name == notFoundName {
+		return nil, status.Errorf(codes.NotFound, "sorted feature view %s not found", req.Name)
+	}
 	return &core.SortedFeatureView{Spec: &core.SortedFeatureViewSpec{Name: req.Name}}, nil
 }
 
 func (s *testRegistryServer) GetOnDemandFeatureView(_ context.Context, req *registryPb.GetOnDemandFeatureViewRequest) (*core.OnDemandFeatureView, error) {
+	if req.Name == notFoundName {
+		return nil, status.Errorf(codes.NotFound, "on demand feature view %s not found", req.Name)
+	}
 	return &core.OnDemandFeatureView{Spec: &core.OnDemandFeatureViewSpec{Name: req.Name}}, nil
 }
 
 func (s *testRegistryServer) GetFeatureService(_ context.Context, req *registryPb.GetFeatureServiceRequest) (*core.FeatureService, error) {
+	if req.Name == notFoundName {
+		return nil, status.Errorf(codes.NotFound, "feature service %s not found", req.Name)
+	}
 	return &core.FeatureService{Spec: &core.FeatureServiceSpec{Name: req.Name}}, nil
 }
 
@@ -171,6 +193,16 @@ func TestGrpcTeardown(t *testing.T) {
 
 	assert.Nil(t, err)
 	assert.Equal(t, connectivity.Shutdown, store.conn.GetState())
+}
+
+func TestGrpcGetEntity_NotFound(t *testing.T) {
+	store, cleanup := newTestGrpcStore(t, "test_project")
+	defer cleanup()
+
+	result, err := store.getEntity(notFoundName, true)
+
+	assert.Nil(t, result)
+	assert.True(t, errors.IsGrpcNotFoundError(err), "expected a NotFound gRPC status, got: %v", err)
 }
 
 func TestParseGrpcTarget(t *testing.T) {

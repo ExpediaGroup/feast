@@ -84,6 +84,53 @@ func mockRegistryWithInternalServerError() (*Registry, *httptest.Server) {
 	return registry, server
 }
 
+func mockRegistryWithGrpcStore(t *testing.T) (*Registry, func()) {
+	store, cleanup := newTestGrpcStore(t, PROJECT)
+
+	registryTtl := 5 * time.Second
+	registry := &Registry{
+		project:                    PROJECT,
+		registryStore:              store,
+		cachedFeatureServices:      newCacheMap[*model.FeatureService](registryTtl),
+		cachedEntities:             newCacheMap[*model.Entity](registryTtl),
+		cachedFeatureViews:         newCacheMap[*model.FeatureView](registryTtl),
+		cachedSortedFeatureViews:   newCacheMap[*model.SortedFeatureView](registryTtl),
+		cachedOnDemandFeatureViews: newCacheMap[*model.OnDemandFeatureView](registryTtl),
+		cachedRegistryProtoTtl:     registryTtl,
+	}
+
+	return registry, cleanup
+}
+
+// TestRegistry_Grpc_NotFound_ReportedAsNotFound guards against a regression where
+// a NotFound error from GrpcRegistryStore (a gRPC status, not an HTTP 404) was not
+// recognized by errors.IsHTTPNotFoundError and therefore surfaced as an internal
+// error instead of a not-found error.
+func TestRegistry_Grpc_NotFound_ReportedAsNotFound(t *testing.T) {
+	registry, cleanup := mockRegistryWithGrpcStore(t)
+	defer cleanup()
+
+	entity, err := registry.GetEntity(PROJECT, notFoundName)
+	assert.Nil(t, entity)
+	assert.True(t, errors.IsGrpcNotFoundError(err), "expected a NotFound error, got: %v", err)
+
+	featureView, err := registry.GetFeatureView(PROJECT, notFoundName)
+	assert.Nil(t, featureView)
+	assert.True(t, errors.IsGrpcNotFoundError(err), "expected a NotFound error, got: %v", err)
+
+	sortedFeatureView, err := registry.GetSortedFeatureView(PROJECT, notFoundName)
+	assert.Nil(t, sortedFeatureView)
+	assert.True(t, errors.IsGrpcNotFoundError(err), "expected a NotFound error, got: %v", err)
+
+	onDemandFeatureView, err := registry.GetOnDemandFeatureView(PROJECT, notFoundName)
+	assert.Nil(t, onDemandFeatureView)
+	assert.True(t, errors.IsGrpcNotFoundError(err), "expected a NotFound error, got: %v", err)
+
+	featureService, err := registry.GetFeatureService(PROJECT, notFoundName)
+	assert.Nil(t, featureService)
+	assert.True(t, errors.IsGrpcNotFoundError(err), "expected a NotFound error, got: %v", err)
+}
+
 func TestRegistry_GetFeatureService_FromCache(t *testing.T) {
 	// Set up a mock feature service
 	featureService := &model.FeatureService{
