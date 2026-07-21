@@ -11,3 +11,13 @@ type RegistryStore interface {
 	Teardown() error
 	HasFallback() bool
 }
+
+// FallbackRegistryStore is implemented by stores that support per-item fetching
+// (HasFallback() == true). This avoids store-specific type casts in registry.go.
+type FallbackRegistryStore interface {
+	getEntity(name string, allowCache bool) (*core.Entity, error)
+	getFeatureView(name string, allowCache bool) (*core.FeatureView, error)
+	getSortedFeatureView(name string, allowCache bool) (*core.SortedFeatureView, error)
+	getOnDemandFeatureView(name string, allowCache bool) (*core.OnDemandFeatureView, error)
+	getFeatureService(name string, allowCache bool) (*core.FeatureService, error)
+}

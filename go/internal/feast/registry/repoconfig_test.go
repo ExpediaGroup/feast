@@ -193,10 +193,10 @@ func TestGetRegistryConfig_Map(t *testing.T) {
 	// Create a RepoConfig with a map Registry
 	config := &RepoConfig{
 		Registry: map[string]interface{}{
-			"path":                "data/registry.db",
-			"registry_store_type": "local",
-			"client_id":           "test_client_id",
-			"cache_ttl_seconds":   60,
+			"path":          "data/registry.db",
+			"registry_type": "file",
+			"client_id":     "test_client_id",
+			"cache_ttl_seconds": 60,
 		},
 	}
 
@@ -205,7 +205,7 @@ func TestGetRegistryConfig_Map(t *testing.T) {
 
 	// Assert that the method correctly processed the map
 	assert.Equal(t, "data/registry.db", registryConfig.Path)
-	assert.Equal(t, "local", registryConfig.RegistryStoreType)
+	assert.Equal(t, "FileRegistryStore", registryConfig.RegistryStoreType)
 	assert.Equal(t, int64(60), registryConfig.CacheTtlSeconds)
 	assert.Equal(t, "test_client_id", registryConfig.ClientId)
 }
@@ -384,4 +384,181 @@ func TestNewRepoConfigForScyllaDBFromJSON(t *testing.T) {
 	assert.Equal(t, float64(2), config.OnlineStore["table_name_format_version"])
 	assert.Equal(t, int(85), int(config.OnlineStore["read_batch_size"].(float64)))
 	assert.Equal(t, int(2), int(config.OnlineStore["table_name_format_version"].(float64)))
+}
+
+func TestGetRegistryConfig_RemoteRegistryType(t *testing.T) {
+	// registry_type: "remote" (Python RemoteRegistryConfig) should map to GrpcRegistryStore
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"registry_type": "remote",
+			"path":          "registry-server:50051",
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "GrpcRegistryStore", registryConfig.RegistryStoreType)
+	assert.Equal(t, "registry-server:50051", registryConfig.Path)
+}
+
+func TestGetRegistryConfig_CertAndIsTls(t *testing.T) {
+	// cert and is_tls fields should be parsed (mirrors Python RemoteRegistryConfig)
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"registry_type": "remote",
+			"path":          "registry-server:50051",
+			"cert":          "/path/to/server.crt",
+			"is_tls":        true,
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "/path/to/server.crt", registryConfig.Cert)
+	assert.True(t, registryConfig.IsTls)
+}
+
+func TestGetRegistryConfig_IsTlsFalseByDefault(t *testing.T) {
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"path": "registry-server:50051",
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.False(t, registryConfig.IsTls)
+	assert.Empty(t, registryConfig.Cert)
+}
+
+// HTTP registry config tests
+
+func TestGetRegistryConfig_HttpStringPath(t *testing.T) {
+	// registry: "http://..." as a plain string — path stored, store type left empty
+	// (scheme-based inference to HttpRegistryStore happens later in getRegistryStoreFromScheme)
+	config := &RepoConfig{
+		Registry: "http://registry-server:8080",
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "http://registry-server:8080", registryConfig.Path)
+	assert.Empty(t, registryConfig.RegistryStoreType)
+	assert.Equal(t, defaultClientID, registryConfig.ClientId)
+	assert.Equal(t, defaultCacheTtlSeconds, registryConfig.CacheTtlSeconds)
+}
+
+func TestGetRegistryConfig_HttpsStringPath(t *testing.T) {
+	config := &RepoConfig{
+		Registry: "https://registry-server:8443",
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "https://registry-server:8443", registryConfig.Path)
+	assert.Empty(t, registryConfig.RegistryStoreType)
+}
+
+func TestGetRegistryConfig_HttpExplicitStoreType(t *testing.T) {
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"registry_type": "http",
+			"path":          "http://registry-server:8080",
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "HttpRegistryStore", registryConfig.RegistryStoreType)
+	assert.Equal(t, "http://registry-server:8080", registryConfig.Path)
+}
+
+func TestGetRegistryConfig_HttpWithClientId(t *testing.T) {
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"registry_type": "https",
+			"path":          "https://registry-server:8443",
+			"client_id":     "my-service",
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "HttpRegistryStore", registryConfig.RegistryStoreType)
+	assert.Equal(t, "https://registry-server:8443", registryConfig.Path)
+	assert.Equal(t, "my-service", registryConfig.ClientId)
+}
+
+func TestGetRegistryConfig_HttpWithAllFields(t *testing.T) {
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"registry_type":     "https",
+			"path":              "https://registry-server:8443",
+			"client_id":         "feast-go-server",
+			"cache_ttl_seconds": float64(120),
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, "HttpRegistryStore", registryConfig.RegistryStoreType)
+	assert.Equal(t, "https://registry-server:8443", registryConfig.Path)
+	assert.Equal(t, "feast-go-server", registryConfig.ClientId)
+	assert.Equal(t, int64(120), registryConfig.CacheTtlSeconds)
+}
+
+func TestGetRegistryConfig_HttpDefaultClientId(t *testing.T) {
+	// client_id should default to "Unknown" when not specified
+	config := &RepoConfig{
+		Registry: map[string]interface{}{
+			"path": "http://registry-server:8080",
+		},
+	}
+
+	registryConfig, err := config.GetRegistryConfig()
+
+	assert.Nil(t, err)
+	assert.Equal(t, defaultClientID, registryConfig.ClientId)
+}
+
+func TestGetRegistryConfig_HttpFromYaml(t *testing.T) {
+	dir, err := os.MkdirTemp("", "feature_repo_*")
+	assert.Nil(t, err)
+	defer func() {
+		assert.Nil(t, os.RemoveAll(dir))
+	}()
+
+	filePath := filepath.Join(dir, "feature_store.yaml")
+	data := []byte(`
+project: feature_repo
+registry:
+  registry_type: https
+  path: "https://registry-server:8443"
+  client_id: "feast-go-server"
+  cache_ttl_seconds: 300
+provider: local
+online_store:
+  type: redis
+  connection_string: "localhost:6379"
+`)
+	err = os.WriteFile(filePath, data, 0666)
+	assert.Nil(t, err)
+
+	config, err := NewRepoConfigFromFile(dir)
+	assert.Nil(t, err)
+
+	registryConfig, err := config.GetRegistryConfig()
+	assert.Nil(t, err)
+	assert.Equal(t, "HttpRegistryStore", registryConfig.RegistryStoreType)
+	assert.Equal(t, "https://registry-server:8443", registryConfig.Path)
+	assert.Equal(t, "feast-go-server", registryConfig.ClientId)
+	assert.Equal(t, int64(300), registryConfig.CacheTtlSeconds)
 }

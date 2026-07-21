@@ -16,12 +16,13 @@ import (
 
 var REGISTRY_SCHEMA_VERSION string = "1"
 var REGISTRY_STORE_CLASS_FOR_SCHEME map[string]string = map[string]string{
-	"gs":    "GCSRegistryStore",
-	"s3":    "S3RegistryStore",
-	"file":  "FileRegistryStore",
-	"http":  "HttpRegistryStore",
-	"https": "HttpRegistryStore",
-	"":      "FileRegistryStore",
+	"gs":     "GCSRegistryStore",
+	"s3":     "S3RegistryStore",
+	"file":   "FileRegistryStore",
+	"http":   "HttpRegistryStore",
+	"https":  "HttpRegistryStore",
+	"remote": "GrpcRegistryStore",
+	"":       "FileRegistryStore",
 }
 
 /*
@@ -277,9 +278,9 @@ func (r *Registry) GetEntity(project string, entityName string) (*model.Entity, 
 }
 
 func (r *Registry) GetEntityFromRegistry(entityName string, project string) (*model.Entity, error) {
-	entityProto, err := r.registryStore.(*HttpRegistryStore).getEntity(entityName, true)
+	entityProto, err := r.registryStore.(FallbackRegistryStore).getEntity(entityName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no entity %s found in project %s", entityName, project)
 			return nil, errors.GrpcNotFoundErrorf("no entity %s found in project %s", entityName, project)
 		}
@@ -304,9 +305,9 @@ func (r *Registry) GetFeatureView(project string, featureViewName string) (*mode
 }
 
 func (r *Registry) GetFeatureViewFromRegistry(featureViewName string, project string) (*model.FeatureView, error) {
-	featureViewProto, err := r.registryStore.(*HttpRegistryStore).getFeatureView(featureViewName, true)
+	featureViewProto, err := r.registryStore.(FallbackRegistryStore).getFeatureView(featureViewName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no feature view %s found in project %s", featureViewName, project)
 			return nil, errors.GrpcNotFoundErrorf("no feature view %s found in project %s", featureViewName, project)
 		}
@@ -331,9 +332,9 @@ func (r *Registry) GetSortedFeatureView(project string, sortedFeatureViewName st
 }
 
 func (r *Registry) GetSortedFeatureViewFromRegistry(sortedFeatureViewName string, project string) (*model.SortedFeatureView, error) {
-	sortedFeatureViewProto, err := r.registryStore.(*HttpRegistryStore).getSortedFeatureView(sortedFeatureViewName, true)
+	sortedFeatureViewProto, err := r.registryStore.(FallbackRegistryStore).getSortedFeatureView(sortedFeatureViewName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no sorted feature view %s found in project %s", sortedFeatureViewName, project)
 			return nil, errors.GrpcNotFoundErrorf("no sorted feature view %s found in project %s", sortedFeatureViewName, project)
 		}
@@ -358,9 +359,9 @@ func (r *Registry) GetFeatureService(project string, featureServiceName string) 
 }
 
 func (r *Registry) GetFeatureServiceFromRegistry(featureServiceName string, project string) (*model.FeatureService, error) {
-	featureServiceProto, err := r.registryStore.(*HttpRegistryStore).getFeatureService(featureServiceName, true)
+	featureServiceProto, err := r.registryStore.(FallbackRegistryStore).getFeatureService(featureServiceName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no feature service %s found in project %s", featureServiceName, project)
 			return nil, errors.GrpcNotFoundErrorf("no feature service %s found in project %s", featureServiceName, project)
 		}
@@ -385,9 +386,9 @@ func (r *Registry) GetOnDemandFeatureView(project string, onDemandFeatureViewNam
 }
 
 func (r *Registry) GetOnDemandFeatureViewFromRegistry(onDemandFeatureViewName string, project string) (*model.OnDemandFeatureView, error) {
-	onDemandFeatureViewProto, err := r.registryStore.(*HttpRegistryStore).getOnDemandFeatureView(onDemandFeatureViewName, true)
+	onDemandFeatureViewProto, err := r.registryStore.(FallbackRegistryStore).getOnDemandFeatureView(onDemandFeatureViewName, true)
 	if err != nil {
-		if errors.IsHTTPNotFoundError(err) {
+		if errors.IsHTTPNotFoundError(err) || errors.IsGrpcNotFoundError(err) {
 			log.Error().Err(err).Msgf("no on demand feature view %s found in project %s", onDemandFeatureViewName, project)
 			return nil, errors.GrpcNotFoundErrorf("no on demand feature view %s found in project %s", onDemandFeatureViewName, project)
 		}
@@ -418,6 +419,8 @@ func getRegistryStoreFromType(registryStoreType string, registryConfig *Registry
 		return NewHttpRegistryStore(registryConfig, project)
 	case "S3RegistryStore":
 		return NewS3RegistryStore(registryConfig, repoPath), nil
+	case "GrpcRegistryStore":
+		return NewGrpcRegistryStore(registryConfig, project)
 	}
-	return nil, errors.GrpcInternalErrorf("only FileRegistryStore or HttpRegistryStore as a RegistryStore is supported at this moment")
+	return nil, errors.GrpcInternalErrorf("only FileRegistryStore, HttpRegistryStore, S3RegistryStore, or GrpcRegistryStore is supported at this moment")
 }
