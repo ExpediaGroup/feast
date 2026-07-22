@@ -136,7 +136,7 @@ class ComputeEngine(ABC):
         try:
             if (
                 isinstance(task, MaterializationTask)
-                and is_materialization_metrics_enabled()
+                and is_materialization_metrics_enabled(self.repo_config)
             ):
                 metrics_collector = build_aggregator(
                     task.project,

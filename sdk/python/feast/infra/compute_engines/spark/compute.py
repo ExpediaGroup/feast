@@ -64,6 +64,10 @@ class SparkComputeEngineConfig(FeastConfigBaseModel):
     partitions: int = 0
     """Number of partitions to use when writing data to online store. If 0, no repartitioning is done"""
 
+    metrics_enabled: bool = False
+    """Enable write-time materialization metrics capture (Layer-1). Declarative
+    opt-in via feature_store.yaml (the only way to enable it)."""
+
 
 class SparkComputeEngine(ComputeEngine):
     def update(
@@ -212,7 +216,7 @@ class SparkComputeEngine(ComputeEngine):
                 f"INFO: Processing {feature_view.name} with {spark_df.count()} records and {spark_df.rdd.getNumPartitions()} partitions"
             )
 
-            if is_materialization_metrics_enabled():
+            if is_materialization_metrics_enabled(self.repo_config):
                 # Materialization metrics on: use the stats-returning write UDF so
                 # per-partition Layer-1 counts come back to the driver as COLLECTED
                 # data (one pickled row per partition), then fold them into a

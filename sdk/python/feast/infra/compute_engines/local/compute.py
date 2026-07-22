@@ -34,6 +34,10 @@ class LocalComputeEngineConfig(FeastConfigBaseModel):
     backend: Optional[str] = None
     """Backend to use for DataFrame operations (e.g., 'pandas', 'polars')"""
 
+    metrics_enabled: bool = False
+    """Enable write-time materialization metrics capture (Layer-1). Declarative
+    opt-in via feature_store.yaml (the only way to enable it)."""
+
 
 class LocalComputeEngine(ComputeEngine):
     def update(

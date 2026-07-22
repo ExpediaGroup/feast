@@ -15,22 +15,19 @@ The collector is reached in two ways:
   reaches the aggregator through the :data:`_active_aggregator` ``ContextVar`` that the
   output node sets around the write call via :func:`collecting`.
 
-All of this is gated behind the ``ENABLE_MATERIALIZATION_METRICS`` env var; when it is
-off, nothing is instantiated and the hooks are no-ops.
+All of this is gated behind ``feature_store.yaml``'s ``batch_engine.metrics_enabled``
+flag; when it is off (the default), nothing is instantiated and the hooks are no-ops.
 """
 
 import contextlib
 import contextvars
 import logging
-import os
 import threading
 from collections import Counter
 from datetime import datetime
 from typing import Any, Dict, Iterator, List, Optional
 
 logger = logging.getLogger(__name__)
-
-_TRUTHY = {"1", "true", "yes", "on"}
 
 # The aggregator active for the current materialization write, if any. Set by the
 # compute-engine output node so the online store can record its drops without a
@@ -41,9 +38,16 @@ _active_aggregator: "contextvars.ContextVar[Optional[MaterializationMetricsAggre
 )
 
 
-def is_materialization_metrics_enabled() -> bool:
-    """Whether write-time materialization metrics are enabled (env-gated, off by default)."""
-    return os.getenv("ENABLE_MATERIALIZATION_METRICS", "").strip().lower() in _TRUTHY
+def is_materialization_metrics_enabled(repo_config: Any = None) -> bool:
+    """Whether write-time materialization metrics are enabled (off by default).
+
+    Declarative opt-in via ``feature_store.yaml``: enabled when the batch engine
+    config sets ``metrics_enabled: true`` (e.g. ``batch_engine.metrics_enabled``).
+    The read is duck-typed via ``getattr`` so it stays safe for any batch-engine
+    config class and when ``repo_config`` is not passed.
+    """
+    batch_engine = getattr(repo_config, "batch_engine", None)
+    return bool(getattr(batch_engine, "metrics_enabled", False))
 
 
 def get_active_aggregator() -> "Optional[MaterializationMetricsAggregator]":
