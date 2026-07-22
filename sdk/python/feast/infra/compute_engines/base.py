@@ -134,10 +134,9 @@ class ComputeEngine(ABC):
         # failure here must degrade to "no metrics" rather than break the run.
         metrics_collector = None
         try:
-            if (
-                isinstance(task, MaterializationTask)
-                and is_materialization_metrics_enabled(self.repo_config)
-            ):
+            if isinstance(
+                task, MaterializationTask
+            ) and is_materialization_metrics_enabled(self.repo_config):
                 metrics_collector = build_aggregator(
                     task.project,
                     task.feature_view.name,
