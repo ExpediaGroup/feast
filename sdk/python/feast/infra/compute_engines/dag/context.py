@@ -86,10 +86,8 @@ class ExecutionContext:
             Automatically populated during ExecutionPlan execution to avoid redundant
             computation. Used by downstream nodes to access their input data.
 
-        metrics_collector: Optional write-time materialization metrics aggregator.
-            Set only for materialization runs when metrics.materialization.enabled is
-            on in feature_store.yaml; None otherwise. Nodes populate it with row
-            counts, drops, and freshness.
+        metrics_collector: Optional metrics aggregator; set only when
+            metrics.materialization.enabled is on. Nodes populate counts/drops/freshness.
     """
 
     project: str

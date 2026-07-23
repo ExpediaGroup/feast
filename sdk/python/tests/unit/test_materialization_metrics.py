@@ -156,8 +156,7 @@ class TestToDict:
 
 
 class TestConfigGate:
-    """Enablement is declarative-only: feature_store.yaml metrics.materialization.enabled.
-    The ENABLE_MATERIALIZATION_METRICS env var was removed."""
+    """Declarative-only: metrics.materialization.enabled (env var removed)."""
 
     @staticmethod
     def _cfg(enabled):
@@ -189,7 +188,7 @@ class TestConfigGate:
 
     @pytest.mark.parametrize("val", ["1", "true", "yes", "on"])
     def test_env_var_is_ignored(self, monkeypatch, val):
-        # The env var no longer enables anything; only the yaml flag does.
+        # env var no longer enables anything
         monkeypatch.setenv("ENABLE_MATERIALIZATION_METRICS", val)
         assert is_materialization_metrics_enabled() is False
         assert is_materialization_metrics_enabled(self._cfg(False)) is False
