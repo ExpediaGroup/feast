@@ -13,6 +13,12 @@ from feast import (
     SortedFeatureView,
     StreamFeatureView,
 )
+from feast._materialization_metrics import (
+    build_aggregator,
+    fold_stats_rows,
+    is_materialization_metrics_enabled,
+    record_run_result,
+)
 from feast.infra.common.materialization_job import (
     MaterializationJob,
     MaterializationJobStatus,
@@ -29,6 +35,7 @@ from feast.infra.compute_engines.spark.job import (
 from feast.infra.compute_engines.spark.utils import (
     get_or_create_new_spark_session,
     map_in_pandas,
+    map_in_pandas_online_stats,
 )
 from feast.infra.offline_stores.contrib.spark_offline_store.spark import (
     SparkRetrievalJob,
@@ -37,6 +44,8 @@ from feast.infra.offline_stores.offline_store import RetrievalJob
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.repo_config import FeastConfigBaseModel
 from feast.utils import _get_column_names
+
+logger = logging.getLogger(__name__)
 
 
 class SparkComputeEngineConfig(FeastConfigBaseModel):
@@ -203,9 +212,45 @@ class SparkComputeEngine(ComputeEngine):
                 f"INFO: Processing {feature_view.name} with {spark_df.count()} records and {spark_df.rdd.getNumPartitions()} partitions"
             )
 
-            spark_df.mapInPandas(
-                lambda x: map_in_pandas(x, serialized_artifacts), "status int"
-            ).count()  # dummy action to force evaluation
+            if is_materialization_metrics_enabled(self.repo_config):
+                # Materialization metrics on: use the stats-returning write UDF so
+                # per-partition Layer-1 counts come back to the driver as COLLECTED
+                # data (one pickled row per partition), then fold them into a
+                # driver-side collector. (A Spark accumulator updated inside a pandas
+                # UDF does not reliably propagate, which would leave Layer-1 NULL.)
+                from pyspark.sql.types import (
+                    BinaryType,
+                    StructField,
+                    StructType,
+                )
+
+                stats_schema = StructType([StructField("stats", BinaryType(), True)])
+
+                # .collect() is the action that forces the writes AND returns the
+                # per-partition stats. Write errors here are real failures -> let
+                # them propagate to the except below.
+                stats_rows = spark_df.mapInPandas(
+                    lambda x: map_in_pandas_online_stats(x, serialized_artifacts),
+                    stats_schema,
+                ).collect()
+
+                # Everything past the write action is best-effort: a metrics
+                # assembly error must never fail a successful materialization.
+                try:
+                    collector = build_aggregator(
+                        project, feature_view.name, self.repo_config, self.online_store
+                    )
+                    collector.merge_from_dict(fold_stats_rows(stats_rows))
+                    record_run_result(collector.to_dict())
+                except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                    logger.warning(
+                        "materialization metrics: failed to assemble Layer-1 stats: %s",
+                        e,
+                    )
+            else:
+                spark_df.mapInPandas(
+                    lambda x: map_in_pandas(x, serialized_artifacts), "status int"
+                ).count()  # dummy action to force evaluation
 
             return SparkMaterializationJob(
                 job_id=job_id, status=MaterializationJobStatus.SUCCEEDED

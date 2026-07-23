@@ -1,9 +1,14 @@
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Sequence, Union
 
 import pyarrow as pa
 
 from feast import RepoConfig
+from feast._materialization_metrics import (
+    build_aggregator,
+    is_materialization_metrics_enabled,
+)
 from feast.batch_feature_view import BatchFeatureView
 from feast.entity import Entity
 from feast.feature_view import FeatureView
@@ -18,6 +23,8 @@ from feast.infra.online_stores.online_store import OnlineStore
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.stream_feature_view import StreamFeatureView
+
+logger = logging.getLogger(__name__)
 
 
 class ComputeEngine(ABC):
@@ -123,6 +130,23 @@ class ComputeEngine(ABC):
         if hasattr(task, "entity_df") and task.entity_df is not None:
             entity_df = task.entity_df
 
+        # Best-effort: this runs OUTSIDE the callers' materialize try/except, so a
+        # failure here must degrade to "no metrics" rather than break the run.
+        metrics_collector = None
+        try:
+            if isinstance(
+                task, MaterializationTask
+            ) and is_materialization_metrics_enabled(self.repo_config):
+                metrics_collector = build_aggregator(
+                    task.project,
+                    task.feature_view.name,
+                    self.repo_config,
+                    self.online_store,
+                )
+        except Exception as e:  # noqa: BLE001 -- metrics must never break a run
+            logger.warning("materialization metrics: collector init skipped: %s", e)
+            metrics_collector = None
+
         return ExecutionContext(
             project=task.project,
             repo_config=self.repo_config,
@@ -130,6 +154,7 @@ class ComputeEngine(ABC):
             online_store=self.online_store,
             entity_defs=entity_defs,
             entity_df=entity_df,
+            metrics_collector=metrics_collector,
         )
 
     def _get_feature_view_engine_config(

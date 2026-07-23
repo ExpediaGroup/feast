@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Callable, List, Optional, Union, cast
 
@@ -5,6 +6,7 @@ from pyspark.sql import DataFrame, SparkSession, Window
 from pyspark.sql import functions as F
 
 from feast import BatchFeatureView, StreamFeatureView
+from feast._materialization_metrics import fold_stats_rows, record_run_result
 from feast.aggregation import Aggregation
 from feast.data_source import DataSource
 from feast.infra.common.serde import SerializedArtifacts
@@ -12,7 +14,10 @@ from feast.infra.compute_engines.dag.context import ColumnInfo, ExecutionContext
 from feast.infra.compute_engines.dag.model import DAGFormat
 from feast.infra.compute_engines.dag.node import DAGNode
 from feast.infra.compute_engines.dag.value import DAGValue
-from feast.infra.compute_engines.spark.utils import map_in_arrow
+from feast.infra.compute_engines.spark.utils import (
+    map_in_arrow,
+    map_in_arrow_online_stats,
+)
 from feast.infra.compute_engines.utils import (
     create_offline_store_retrieval_job,
 )
@@ -26,6 +31,8 @@ from feast.infra.offline_stores.contrib.spark_offline_store.spark_source import 
 from feast.infra.offline_stores.offline_utils import (
     infer_event_timestamp_from_entity_df,
 )
+
+logger = logging.getLogger(__name__)
 
 ENTITY_TS_ALIAS = "__entity_event_timestamp"
 
@@ -319,10 +326,44 @@ class SparkWriteNode(DAGNode):
 
         # ✅ 1. Write to online store if online enabled
         if self.feature_view.online:
-            spark_df.mapInArrow(
-                lambda x: map_in_arrow(x, serialized_artifacts, mode="online"),
-                spark_df.schema,
-            ).count()
+            collector = context.metrics_collector
+            if collector is not None:
+                # Materialization metrics enabled: do the online write and get
+                # per-partition stats back as COLLECTED DATA (one pickled row per
+                # partition), not via a Spark accumulator -- accumulator updates
+                # inside mapInArrow don't reliably propagate to the driver, which
+                # left every Layer-1 field NULL. A .collect() result is guaranteed
+                # to reach the driver; fold the partition dicts with merge_stats.
+                from pyspark.sql.types import (
+                    BinaryType,
+                    StructField,
+                    StructType,
+                )
+
+                stats_schema = StructType([StructField("stats", BinaryType(), True)])
+
+                # .collect() is the action that forces the writes AND returns the
+                # per-partition stats. Write errors here are real failures -> let
+                # them propagate.
+                stats_rows = spark_df.mapInArrow(
+                    lambda x: map_in_arrow_online_stats(x, serialized_artifacts),
+                    stats_schema,
+                ).collect()
+                # Everything past the write action is best-effort: a metrics
+                # assembly error must never fail a successful materialization.
+                try:
+                    collector.merge_from_dict(fold_stats_rows(stats_rows))
+                    record_run_result(collector.to_dict())
+                except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                    logger.warning(
+                        "materialization metrics: failed to assemble Layer-1 stats: %s",
+                        e,
+                    )
+            else:
+                spark_df.mapInArrow(
+                    lambda x: map_in_arrow(x, serialized_artifacts, mode="online"),
+                    spark_df.schema,
+                ).count()
 
         # ✅ 2. Write to offline store if offline enabled
         if self.feature_view.offline:
