@@ -156,8 +156,14 @@ class TestToDict:
 
 
 class TestConfigGate:
-    """Enablement is declarative-only: feature_store.yaml batch_engine.metrics_enabled.
+    """Enablement is declarative-only: feature_store.yaml metrics.materialization.enabled.
     The ENABLE_MATERIALIZATION_METRICS env var was removed."""
+
+    @staticmethod
+    def _cfg(enabled):
+        return SimpleNamespace(
+            metrics=SimpleNamespace(materialization=SimpleNamespace(enabled=enabled))
+        )
 
     def test_disabled_by_default(self):
         assert is_materialization_metrics_enabled() is False
@@ -166,15 +172,19 @@ class TestConfigGate:
         assert is_materialization_metrics_enabled(None) is False
 
     def test_enabled_via_config(self):
-        cfg = SimpleNamespace(batch_engine=SimpleNamespace(metrics_enabled=True))
-        assert is_materialization_metrics_enabled(cfg) is True
+        assert is_materialization_metrics_enabled(self._cfg(True)) is True
 
     def test_config_false(self):
-        cfg = SimpleNamespace(batch_engine=SimpleNamespace(metrics_enabled=False))
+        assert is_materialization_metrics_enabled(self._cfg(False)) is False
+
+    def test_missing_materialization_block_is_false(self):
+        cfg = SimpleNamespace(
+            metrics=SimpleNamespace()
+        )  # metrics present, no materialization
         assert is_materialization_metrics_enabled(cfg) is False
 
-    def test_missing_metrics_field_is_false(self):
-        cfg = SimpleNamespace(batch_engine=SimpleNamespace())  # no metrics_enabled
+    def test_missing_metrics_block_is_false(self):
+        cfg = SimpleNamespace()  # no metrics namespace at all
         assert is_materialization_metrics_enabled(cfg) is False
 
     @pytest.mark.parametrize("val", ["1", "true", "yes", "on"])
@@ -182,8 +192,7 @@ class TestConfigGate:
         # The env var no longer enables anything; only the yaml flag does.
         monkeypatch.setenv("ENABLE_MATERIALIZATION_METRICS", val)
         assert is_materialization_metrics_enabled() is False
-        cfg = SimpleNamespace(batch_engine=SimpleNamespace(metrics_enabled=False))
-        assert is_materialization_metrics_enabled(cfg) is False
+        assert is_materialization_metrics_enabled(self._cfg(False)) is False
 
 
 class TestVolume:

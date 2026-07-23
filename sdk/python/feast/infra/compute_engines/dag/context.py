@@ -87,9 +87,9 @@ class ExecutionContext:
             computation. Used by downstream nodes to access their input data.
 
         metrics_collector: Optional write-time materialization metrics aggregator.
-            Set only for materialization runs when batch_engine.metrics_enabled is on
-            in feature_store.yaml; None otherwise. Nodes populate it with row counts,
-            drops, and freshness.
+            Set only for materialization runs when metrics.materialization.enabled is
+            on in feature_store.yaml; None otherwise. Nodes populate it with row
+            counts, drops, and freshness.
     """
 
     project: str

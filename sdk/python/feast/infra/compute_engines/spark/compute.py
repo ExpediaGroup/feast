@@ -64,10 +64,6 @@ class SparkComputeEngineConfig(FeastConfigBaseModel):
     partitions: int = 0
     """Number of partitions to use when writing data to online store. If 0, no repartitioning is done"""
 
-    metrics_enabled: bool = False
-    """Enable write-time materialization metrics capture (Layer-1). Declarative
-    opt-in via feature_store.yaml (the only way to enable it)."""
-
 
 class SparkComputeEngine(ComputeEngine):
     def update(

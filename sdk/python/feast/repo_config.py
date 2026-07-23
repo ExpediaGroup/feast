@@ -191,6 +191,25 @@ class RegistryConfig(FeastBaseModel):
         return path
 
 
+class MaterializationMetricsConfig(FeastBaseModel):
+    """Write-time materialization metrics capture settings (under ``metrics``)."""
+
+    enabled: bool = False
+    """Enable materialization metrics capture (Layer-1 + Layer-2); off by default."""
+
+
+class MetricsConfig(FeastBaseModel):
+    """Top-level ``metrics`` namespace for observability toggles.
+
+    Extends ``FeastBaseModel`` (``extra="allow"``) so future ``metrics.*`` keys are
+    tolerated across mixed SDK/image versions rather than rejected.
+    """
+
+    materialization: MaterializationMetricsConfig = Field(
+        default_factory=MaterializationMetricsConfig
+    )
+
+
 class RepoConfig(FeastBaseModel):
     """Repo config. Typically loaded from `feature_store.yaml`"""
 
@@ -247,6 +266,10 @@ class RepoConfig(FeastBaseModel):
 
     coerce_tz_aware: Optional[bool] = True
     """ If True, coerces entity_df timestamp columns to be timezone aware (to UTC by default). """
+
+    metrics: MetricsConfig = Field(default_factory=MetricsConfig)
+    """ Observability configuration, e.g. ``metrics.materialization.enabled`` to turn
+    on write-time materialization metrics capture. """
 
     def __init__(self, **data: Any):
         super().__init__(**data)

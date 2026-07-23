@@ -15,7 +15,7 @@ The collector is reached in two ways:
   reaches the aggregator through the :data:`_active_aggregator` ``ContextVar`` that the
   output node sets around the write call via :func:`collecting`.
 
-All of this is gated behind ``feature_store.yaml``'s ``batch_engine.metrics_enabled``
+All of this is gated behind ``feature_store.yaml``'s ``metrics.materialization.enabled``
 flag; when it is off (the default), nothing is instantiated and the hooks are no-ops.
 """
 
@@ -41,13 +41,14 @@ _active_aggregator: "contextvars.ContextVar[Optional[MaterializationMetricsAggre
 def is_materialization_metrics_enabled(repo_config: Any = None) -> bool:
     """Whether write-time materialization metrics are enabled (off by default).
 
-    Declarative opt-in via ``feature_store.yaml``: enabled when the batch engine
-    config sets ``metrics_enabled: true`` (e.g. ``batch_engine.metrics_enabled``).
-    The read is duck-typed via ``getattr`` so it stays safe for any batch-engine
-    config class and when ``repo_config`` is not passed.
+    Declarative opt-in via ``feature_store.yaml``: enabled when
+    ``metrics.materialization.enabled`` is true. The read is duck-typed via
+    ``getattr`` so it stays safe whether the block is present, absent, or
+    ``repo_config`` is not passed.
     """
-    batch_engine = getattr(repo_config, "batch_engine", None)
-    return bool(getattr(batch_engine, "metrics_enabled", False))
+    metrics = getattr(repo_config, "metrics", None)
+    materialization = getattr(metrics, "materialization", None)
+    return bool(getattr(materialization, "enabled", False))
 
 
 def get_active_aggregator() -> "Optional[MaterializationMetricsAggregator]":
