@@ -15,21 +15,19 @@
 """
 OpenLineage integration for the ML Platform Feature Store (EG Feast fork).
 
-Emits OpenLineage ``DatasetEvent`` (node registration) and ``RunEvent`` (lineage
-edge) events to the Metadata Bus when ``feast apply`` runs, so feature-store
-assets become discoverable in OpenMetadata. Enabled via the ``openlineage`` block
-in ``feature_store.yaml``. See ``README.md`` in this package for configuration.
+Emits one OpenLineage ``DatasetEvent`` per FeatureView to the Metadata Bus when
+``feast apply`` runs, so feature views become discoverable in OpenMetadata and
+the sync app can draw their lineage edges. Enabled via the ``openlineage`` block
+in ``feature_store.yaml``.
 """
 
 from feast.openlineage.client import FeastOpenLineageClient
 from feast.openlineage.config import OpenLineageConfig
 from feast.openlineage.emitter import FeastOpenLineageEmitter
 from feast.openlineage.facets import (
-    FeastDataSourceFacet,
-    FeastEntityFacet,
-    FeastFeatureServiceFacet,
+    FeastBatchSourceFacet,
     FeastFeatureViewFacet,
-    FeastProjectFacet,
+    FeastStreamSourceFacet,
 )
 
 __all__ = [
@@ -37,8 +35,6 @@ __all__ = [
     "FeastOpenLineageEmitter",
     "OpenLineageConfig",
     "FeastFeatureViewFacet",
-    "FeastFeatureServiceFacet",
-    "FeastDataSourceFacet",
-    "FeastEntityFacet",
-    "FeastProjectFacet",
+    "FeastStreamSourceFacet",
+    "FeastBatchSourceFacet",
 ]

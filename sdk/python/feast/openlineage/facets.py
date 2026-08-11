@@ -15,8 +15,23 @@
 """
 Custom OpenLineage facets for the ML Platform Feature Store (Feast).
 
-These facets extend the standard OpenLineage facets to capture Feast-specific
-metadata about feature views, feature services, data sources, and entities.
+Scope (EAPC-22333, metadata-bus-user-guide PR #21)
+--------------------------------------------------
+``feast apply`` emits exactly **one** ``DatasetEvent`` per FeatureView. Standard
+concerns (description, ownership, tags, schema, data source, dataset type) ride
+on the corresponding **standard** OpenLineage facets, built directly from the
+OpenLineage client in the emitter. The custom facets defined here carry only the
+Feast-specific residue that has no standard-facet home:
+
+* ``feast_featureView`` -- join-key entities, online/offline flags, mode,
+  timestamp field.
+* ``feast_streamSource`` / ``feast_batchSource`` -- the two upstreams of a
+  *stream-backed* FeatureView. A ``KafkaSource`` always wraps a required
+  ``batch_source`` (SDK-enforced), so a single standard ``dataSource`` facet
+  cannot represent both. The stream rides on the standard ``dataSource`` facet
+  (discriminated by ``datasetType: STREAM``); the mandatory batch source rides
+  on ``feast_batchSource``; ``feast_streamSource`` carries the Kafka-only detail
+  (topic URN, message format, watermark) that has no standard home.
 
 EG divergence from upstream feast-dev/feast
 --------------------------------------------
@@ -24,18 +39,10 @@ Upstream points every custom facet's ``_schemaURL`` at
 ``https://feast.dev/spec/facets/1-0-0/<Name>.json`` -- URLs that are not hosted
 and therefore 404. The Metadata Bus / OpenMetadata relay expects a resolvable
 schema URL, so this fork deliberately does **not** override ``_get_schema()``.
-Inheriting the OpenLineage base facet means:
-
-* dataset facets resolve to ``.../OpenLineage.json#/$defs/DatasetFacet``
-* job facets resolve to ``.../OpenLineage.json#/$defs/JobFacet``
-
-which matches the interim convention already used by the model side (MRS,
-EAPC-22420) and ``data-api-sdk``. A governed EG-hosted facet-schema location is
-the intended long-term home, to be settled with EGDL alongside the MRS facets.
-
-Only the facets used by the ``feast apply`` emit path are defined here. Upstream's
-materialization / retrieval run facets are intentionally omitted (out of scope --
-see EAPC-22333).
+Inheriting the OpenLineage base facet means custom dataset facets resolve to
+``.../OpenLineage.json#/$defs/DatasetFacet`` -- matching the interim convention
+already used by the model side (MRS, EAPC-22420) and ``data-api-sdk``. A governed
+EG-hosted facet-schema location is the intended long-term home.
 """
 
 from typing import Dict, List, Optional
@@ -43,22 +50,14 @@ from typing import Dict, List, Optional
 import attr
 
 try:
-    from openlineage.client.generated.base import DatasetFacet, JobFacet
+    from openlineage.client.generated.base import DatasetFacet
     from openlineage.client.utils import RedactMixin  # noqa: F401
 
     OPENLINEAGE_AVAILABLE = True
 except ImportError:
-    # Provide stub classes when OpenLineage is not installed so imports do not
+    # Provide a stub class when OpenLineage is not installed so imports do not
     # fail; the facets are only ever instantiated when OpenLineage is available.
     OPENLINEAGE_AVAILABLE = False
-
-    @attr.define
-    class JobFacet:  # type: ignore[no-redef]
-        _producer: str = attr.field(default="")
-        _schemaURL: str = attr.field(default="")
-
-        def __attrs_post_init__(self):
-            pass
 
     @attr.define
     class DatasetFacet:  # type: ignore[no-redef]
@@ -73,129 +72,86 @@ except ImportError:
 @attr.define(kw_only=True)
 class FeastFeatureViewFacet(DatasetFacet):
     """
-    Custom facet for Feast Feature View metadata.
+    Feast-specific FeatureView metadata with no standard-facet home.
 
-    Carried on the ``DatasetEvent`` that registers the feature-view node.
+    Carried on the FeatureView ``DatasetEvent`` alongside the standard
+    ``documentation`` / ``ownership`` / ``tags`` / ``schema`` / ``dataSource`` /
+    ``datasetType`` facets. Everything with a standard home lives there; this
+    facet is deliberately trimmed to the residue.
 
     Attributes:
-        name: Feature view name (bare Feast name, not project-qualified)
-        ttl_seconds: Time-to-live in seconds (0 means no TTL)
-        entities: List of entity names associated with the feature view
-        features: List of feature names in the feature view
-        online_enabled: Whether online retrieval is enabled
-        offline_enabled: Whether offline retrieval is enabled
-        mode: Transformation mode (PYTHON, PANDAS, RAY, SPARK, SQL, etc.)
-        description: Human-readable description
-        owner: Owner of the feature view
-        tags: Key-value tags
+        entities: Join-key entity names this view is keyed on. Doubles as the
+            signal for which ``schema.fields`` entries are join-key columns.
+        online_enabled: Whether online retrieval is enabled.
+        offline_enabled: Whether offline retrieval is enabled.
+        mode: Transformation mode (PYTHON, PANDAS, SPARK, ...); the stream
+            transformation engine on stream feature views.
+        timestamp_field: Event-timestamp column used for point-in-time
+            correctness.
     """
 
-    name: str = attr.field()
-    ttl_seconds: int = attr.field(default=0)
     entities: List[str] = attr.field(factory=list)
-    features: List[str] = attr.field(factory=list)
     online_enabled: bool = attr.field(default=True)
     offline_enabled: bool = attr.field(default=False)
     mode: Optional[str] = attr.field(default=None)
-    description: str = attr.field(default="")
-    owner: str = attr.field(default="")
-    tags: Dict[str, str] = attr.field(factory=dict)
+    timestamp_field: Optional[str] = attr.field(default=None)
 
 
 @attr.define(kw_only=True)
-class FeastFeatureServiceFacet(DatasetFacet):
+class FeastStreamSourceFacet(DatasetFacet):
     """
-    Custom facet for Feast Feature Service metadata.
+    Kafka-only metadata for a stream-backed FeatureView.
 
-    Carried on the ``DatasetEvent`` that registers the feature-service node.
+    The stream itself rides on the standard ``dataSource`` facet (with
+    ``datasetType: STREAM``); this facet carries the Feast/Kafka detail that has
+    no standard-facet home. Consumers resolve ``topic`` (an EGSP consumer URN at
+    EG) to the ``egsp://`` topic node registered by ``egsp-stream-registry``.
 
     Attributes:
-        name: Feature service name (bare Feast name)
-        feature_views: List of feature view names included in the service
-        feature_count: Total number of features in the service
-        description: Human-readable description
-        owner: Owner of the feature service
-        tags: Key-value tags
-        logging_enabled: Whether feature logging is enabled
+        name: Stream source name.
+        topic: Kafka topic (an ``urn:egsp:consumer:...`` URN at EG).
+        kafka_bootstrap_servers: Bootstrap servers, when set.
+        message_format: Serialization format of the messages (e.g.
+            ``ConfluentAvroFormat``).
+        timestamp_field: Event-timestamp field on the stream.
+        field_mapping: Mapping from (possibly nested) source fields to feature
+            columns -- source-column-to-feature column lineage.
+        watermark_delay_seconds: Watermark delay threshold in seconds, when set.
     """
 
     name: str = attr.field()
-    feature_views: List[str] = attr.field(factory=list)
-    feature_count: int = attr.field(default=0)
-    description: str = attr.field(default="")
-    owner: str = attr.field(default="")
-    tags: Dict[str, str] = attr.field(factory=dict)
-    logging_enabled: bool = attr.field(default=False)
+    topic: Optional[str] = attr.field(default=None)
+    kafka_bootstrap_servers: Optional[str] = attr.field(default=None)
+    message_format: Optional[str] = attr.field(default=None)
+    timestamp_field: Optional[str] = attr.field(default=None)
+    field_mapping: Dict[str, str] = attr.field(factory=dict)
+    watermark_delay_seconds: Optional[int] = attr.field(default=None)
 
 
 @attr.define(kw_only=True)
-class FeastDataSourceFacet(DatasetFacet):
+class FeastBatchSourceFacet(DatasetFacet):
     """
-    Custom facet for Feast Data Source (batch source) metadata.
+    The mandatory batch (historical-retrieval) source of a stream-backed
+    FeatureView.
 
-    Carried on the ``DatasetEvent`` that registers the batch-source node,
-    alongside the standard ``dataSource`` facet that carries the physical URI.
+    A ``KafkaSource`` always wraps a required ``batch_source``; since the stream
+    occupies the standard ``dataSource`` facet, the batch source is carried here
+    so its historical-retrieval upstream is not lost. Consumers resolve ``uri``
+    to the real ``egdl://`` lake table.
 
     Attributes:
-        name: Data source name
-        source_type: Type of data source (file, bigquery, snowflake, etc.)
-        timestamp_field: Name of the timestamp field
-        created_timestamp_field: Name of the created timestamp field
-        field_mapping: Mapping from source fields to feature names
-        description: Human-readable description
-        tags: Key-value tags
+        name: Batch source name.
+        uri: Physical/logical URI (``egdl://...`` FQN when resolvable).
+        source_type: ``datasetType`` sub-type of the batch source (e.g.
+            ``BATCH_SPARK``).
+        timestamp_field: Event-timestamp field on the batch source.
+        created_timestamp_field: Created-timestamp field, when set.
+        field_mapping: Source-field-to-feature-column mapping.
     """
 
     name: str = attr.field()
-    source_type: str = attr.field()
+    uri: Optional[str] = attr.field(default=None)
+    source_type: str = attr.field(default="")
     timestamp_field: Optional[str] = attr.field(default=None)
     created_timestamp_field: Optional[str] = attr.field(default=None)
     field_mapping: Dict[str, str] = attr.field(factory=dict)
-    description: str = attr.field(default="")
-    tags: Dict[str, str] = attr.field(factory=dict)
-
-
-@attr.define(kw_only=True)
-class FeastEntityFacet(DatasetFacet):
-    """
-    Custom facet for Feast Entity metadata.
-
-    Carried on the ``DatasetEvent`` that registers the entity node.
-
-    Attributes:
-        name: Entity name
-        join_keys: List of join key column names
-        value_type: Data type of the entity
-        description: Human-readable description
-        owner: Owner of the entity
-        tags: Key-value tags
-    """
-
-    name: str = attr.field()
-    join_keys: List[str] = attr.field(factory=list)
-    value_type: str = attr.field(default="STRING")
-    description: str = attr.field(default="")
-    owner: str = attr.field(default="")
-    tags: Dict[str, str] = attr.field(factory=dict)
-
-
-@attr.define(kw_only=True)
-class FeastProjectFacet(JobFacet):
-    """
-    Custom facet for Feast Project metadata.
-
-    Carried as a **job** facet on the feature-view edge ``RunEvent``.
-
-    Attributes:
-        project_name: Name of the Feast project
-        provider: Infrastructure provider (local, gcp, aws, etc.)
-        online_store_type: Type of online store
-        offline_store_type: Type of offline store
-        registry_type: Type of registry (file, sql, http, etc.)
-    """
-
-    project_name: str = attr.field()
-    provider: str = attr.field(default="local")
-    online_store_type: str = attr.field(default="")
-    offline_store_type: str = attr.field(default="")
-    registry_type: str = attr.field(default="file")

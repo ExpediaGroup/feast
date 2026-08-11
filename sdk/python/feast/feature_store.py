@@ -235,36 +235,13 @@ class FeatureStore:
             warnings.warn(f"Failed to initialize OpenLineage emitter: {e}")
             return None
 
-    def _openlineage_project_metadata(self) -> Dict[str, str]:
-        """Best-effort store/provider metadata for the `feast_project` job facet."""
-
-        def _cfg_type(cfg: Any) -> str:
-            if isinstance(cfg, dict):
-                return str(cfg.get("type", ""))
-            if isinstance(cfg, str):
-                return cfg
-            return str(getattr(cfg, "type", "") or "")
-
-        return {
-            "provider": str(getattr(self.config, "provider", "local")),
-            "online_store_type": _cfg_type(getattr(self.config, "online_config", None)),
-            "offline_store_type": _cfg_type(
-                getattr(self.config, "offline_config", None)
-            ),
-            "registry_type": str(
-                getattr(self.config.registry, "registry_type", "file")
-            ),
-        }
-
     def _emit_openlineage_apply(self, objects: List[Any]) -> None:
         """Emit OpenLineage apply events. Always non-fatal."""
         emitter = self.openlineage_emitter
         if emitter is None:
             return
         try:
-            emitter.emit_apply(
-                objects, self.project, self._openlineage_project_metadata()
-            )
+            emitter.emit_apply(objects, self.project)
         except Exception as e:
             warnings.warn(f"Failed to emit OpenLineage apply events: {e}")
 

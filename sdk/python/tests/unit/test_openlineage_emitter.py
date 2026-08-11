@@ -14,8 +14,11 @@
 
 """Unit tests for the EG Feast -> Metadata Bus OpenLineage emitter.
 
-Asserts the event shapes documented in metadata-bus-user-guide PR #21
-(EAPC-22333): DatasetEvents register nodes, RunEvents draw edges.
+Scope (metadata-bus-user-guide PR #21, EAPC-22333): ``feast apply`` emits exactly
+one ``DatasetEvent`` per FeatureView -- no source/entity/service nodes, no
+``RunEvent`` edges. Standard concerns ride on standard OpenLineage facets; the
+Feast residue rides on ``feast_*`` custom facets. Stream-backed views are
+discriminated by ``datasetType`` and keep both upstreams.
 """
 
 from datetime import timedelta
@@ -31,7 +34,11 @@ from feast import (  # noqa: E402
     FeatureService,
     FeatureView,
     Field,
-    FileSource,
+)
+from feast.data_format import AvroFormat  # noqa: E402
+from feast.data_source import KafkaSource  # noqa: E402
+from feast.infra.offline_stores.contrib.spark_offline_store.spark_source import (  # noqa: E402
+    SparkSource,
 )
 from feast.openlineage.client import FeastOpenLineageClient  # noqa: E402
 from feast.openlineage.config import OpenLineageConfig  # noqa: E402
@@ -40,18 +47,41 @@ from feast.types import Float32, Int64  # noqa: E402
 from feast.value_type import ValueType  # noqa: E402
 
 PROJECT = "hcom_feast_store"
-PROJECT_META = {
-    "provider": "aws",
-    "online_store_type": "valkey",
-    "offline_store_type": "iceberg",
-    "registry_type": "http",
-}
+FV_DATASET = "hcom_feast_store.hotel_price_features"
 
 
-def _build_objects():
-    source = FileSource(
+@pytest.fixture
+def captured(monkeypatch):
+    events = []
+    monkeypatch.setenv("REGISTRY_ENV", "dw")
+    monkeypatch.delenv("CONTROL_PLANE_ENVIRONMENT", raising=False)
+    # Region defaults to the MLP us-east-1 constant; pin it deterministically.
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.setattr(
+        FeastOpenLineageClient,
+        "emit",
+        lambda self, event: (events.append(event), True)[1],
+    )
+    return events
+
+
+def _emitter(**overrides):
+    kwargs = dict(
+        enabled=True,
+        transport_type="http",
+        transport_url="http://localhost:9999",
+    )
+    kwargs.update(overrides)
+    emitter = FeastOpenLineageEmitter(OpenLineageConfig(**kwargs))
+    assert emitter.is_enabled
+    return emitter
+
+
+def _batch_feature_view():
+    source = SparkSource(
         name="hotel_price_batch_source",
-        path="s3://eg-feature-store/hotel_price/",
+        table="prod_offline_feature_store.feature_store_hotel_price",
         timestamp_field="event_timestamp",
     )
     hotel = Entity(name="hotel_id", join_keys=["hotel_id"], value_type=ValueType.INT64)
@@ -61,131 +91,159 @@ def _build_objects():
         ttl=timedelta(days=1),
         source=source,
         schema=[
-            Field(name="base_price", dtype=Float32),
+            Field(name="base_price", dtype=Float32, description="nightly base price"),
             Field(name="price_bucket", dtype=Int64),
         ],
         online=True,
+        description="Hotel price signals for ranking and forecasting",
+        owner="mlp-feature-team",
+        tags={"domain": "hotels", "application": "hotel-price-app"},
     )
-    fs = FeatureService(name="hcom_feature_service", features=[fv])
-    return [source, hotel, fv, fs], fv, fs
+    return source, hotel, fv
 
 
-@pytest.fixture
-def captured(monkeypatch):
-    events = []
-    monkeypatch.setenv("REGISTRY_ENV", "dw")
-    monkeypatch.delenv("CONTROL_PLANE_ENVIRONMENT", raising=False)
-    monkeypatch.setattr(
-        FeastOpenLineageClient,
-        "emit",
-        lambda self, event: (events.append(event), True)[1],
+def _stream_feature_view():
+    batch = SparkSource(
+        name="example_stream_batch_source",
+        table="prod_offline_feature_store.example_streaming",
+        timestamp_field="published_timestamp",
     )
-    return events
-
-
-def _emit(captured):
-    cfg = OpenLineageConfig(
-        enabled=True, transport_type="http", transport_url="http://localhost:9999"
+    kafka = KafkaSource(
+        name="example_stream_kafka_source",
+        timestamp_field="published_timestamp",
+        message_format=AvroFormat("{}"),
+        kafka_bootstrap_servers="broker:9092",
+        topic="urn:egsp:consumer:data:mlpfs_stream_example:1:consumer:aws_us_east_1",
+        batch_source=batch,
+        watermark_delay_threshold=timedelta(minutes=5),
+        field_mapping={"event_header.published_datetime_utc": "published_timestamp"},
     )
-    emitter = FeastOpenLineageEmitter(cfg)
-    assert emitter.is_enabled
-    objects, fv, fs = _build_objects()
-    emitter.emit_apply(objects, PROJECT, PROJECT_META)
-    return captured, fv, fs
+    hotel = Entity(name="hotel_id", join_keys=["hotel_id"], value_type=ValueType.INT64)
+    fv = FeatureView(
+        name="example_streaming_view",
+        entities=[hotel],
+        ttl=timedelta(days=1),
+        source=kafka,
+        schema=[Field(name="click_count", dtype=Int64)],
+        online=True,
+    )
+    return fv
 
 
-def test_node_registration_dataset_events(captured):
-    events, _, _ = _emit(captured)
-    dataset_events = [e for e in events if isinstance(e, DatasetEvent)]
-
-    # One DatasetEvent per batch source, entity, feature view, feature service.
-    names = {e.dataset.name for e in dataset_events}
-    assert names == {
-        "hcom_feast_store.hotel_price_batch_source",
-        "hcom_feast_store.hotel_id",
-        "hcom_feast_store.hotel_price_features",
-        "hcom_feast_store.hcom_feature_service",
-    }
-    # All share the env-derived namespace.
-    assert {e.dataset.namespace for e in dataset_events} == {"mlp://mlpfs-dw"}
-
-    by_name = {e.dataset.name: e for e in dataset_events}
-
-    # Feature view node carries lifecycleStateChange + feast_featureView.
-    fv_facets = by_name["hcom_feast_store.hotel_price_features"].dataset.facets
-    assert fv_facets["lifecycleStateChange"].lifecycleStateChange == "CREATE"
-    assert fv_facets["feast_featureView"].name == "hotel_price_features"
-    assert fv_facets["feast_featureView"].ttl_seconds == 86400
-    assert fv_facets["feast_featureView"].entities == ["hotel_id"]
-    # EG divergence: generic OL DatasetFacet schema, not feast.dev/spec.
-    assert fv_facets["feast_featureView"]._schemaURL.endswith("#/$defs/DatasetFacet")
-
-    # Batch source node carries both standard dataSource + feast_dataSource.
-    src_facets = by_name["hcom_feast_store.hotel_price_batch_source"].dataset.facets
-    assert src_facets["dataSource"].uri == "s3://eg-feature-store/hotel_price/"
-    assert src_facets["feast_dataSource"].timestamp_field == "event_timestamp"
-
-    # Entity node.
-    ent_facets = by_name["hcom_feast_store.hotel_id"].dataset.facets
-    assert ent_facets["feast_entity"].join_keys == ["hotel_id"]
+# --------------------------------------------------------------------- batch
 
 
-def test_lineage_edge_run_events(captured):
-    events, _, _ = _emit(captured)
-    run_events = [e for e in events if isinstance(e, RunEvent)]
-    by_job = {e.job.name: e for e in run_events}
+def test_batch_feature_view_dataset_event(captured):
+    _, _, fv = _batch_feature_view()
+    _emitter().emit_apply([fv], PROJECT)
 
-    # One edge per feature view and per feature service, project-qualified.
-    assert set(by_job) == {
-        "feature_view_hcom_feast_store.hotel_price_features",
-        "feature_service_hcom_feast_store.hcom_feature_service",
-    }
+    dataset_events = [e for e in captured if isinstance(e, DatasetEvent)]
+    assert len(dataset_events) == 1
+    event = dataset_events[0]
+    assert event.dataset.namespace == "mlp://mlpfs-dw"
+    assert event.dataset.name == FV_DATASET
 
-    fv_edge = by_job["feature_view_hcom_feast_store.hotel_price_features"]
+    facets = event.dataset.facets
+    assert facets["lifecycleStateChange"].lifecycleStateChange == "CREATE"
+    assert facets["documentation"].description.startswith("Hotel price signals")
+    assert facets["ownership"].owners[0].name == "mlp-feature-team"
+    assert facets["ownership"].owners[0].type == "maintainer"
+
+    tags = {t.key: t.value for t in facets["tags"].tags}
+    assert tags["domain"] == "hotels"
+    assert tags["ttl_seconds"] == "86400"
+    # The apply-time `application` tag is re-keyed onto the governed tag.
+    assert tags["eg-application-name"] == "hotel-price-app"
+
+    field_names = {f.name for f in facets["schema"].fields}
+    assert {"hotel_id", "base_price", "price_bucket"} <= field_names
+    by_field = {f.name: f for f in facets["schema"].fields}
+    assert by_field["base_price"].type == "Float32"
+    assert by_field["base_price"].description == "nightly base price"
+
+    assert facets["dataSource"].name == "hotel_price_batch_source"
     assert (
-        str(fv_edge.eventType) == "RunState.COMPLETE"
-        or fv_edge.eventType.name == "COMPLETE"
+        facets["dataSource"].uri
+        == "egdl://data-dw.us-east-1/prod_offline_feature_store.feature_store_hotel_price"
     )
-    assert fv_edge.job.namespace == "mlp://mlpfs-dw"
+    assert facets["datasetType"].datasetType == "TABLE"
+    assert facets["datasetType"].subType == "BATCH_SPARK"
 
-    # Inputs = batch source + entity, by identity only (no facets).
-    input_names = {i.name for i in fv_edge.inputs}
-    assert input_names == {
-        "hcom_feast_store.hotel_price_batch_source",
-        "hcom_feast_store.hotel_id",
+    ffv = facets["feast_featureView"]
+    assert ffv.entities == ["hotel_id"]
+    assert ffv.online_enabled is True
+    assert ffv.timestamp_field == "event_timestamp"
+    # EG divergence: generic OL DatasetFacet schema, not feast.dev/spec.
+    assert ffv._schemaURL.endswith("#/$defs/DatasetFacet")
+
+    # No RunEvents, and trimmed custom facet drops standardized fields.
+    assert not [e for e in captured if isinstance(e, RunEvent)]
+    assert not hasattr(ffv, "features")
+    assert not hasattr(ffv, "ttl_seconds")
+
+
+def test_aws_region_env_overrides_default(captured, monkeypatch):
+    monkeypatch.setenv("AWS_REGION", "us-west-2")
+    _, _, fv = _batch_feature_view()
+    _emitter().emit_apply([fv], PROJECT)
+
+    event = next(e for e in captured if isinstance(e, DatasetEvent))
+    # No config option: region comes from AWS_REGION, else the us-east-1 default.
+    assert event.dataset.facets["dataSource"].uri == (
+        "egdl://data-dw.us-west-2/prod_offline_feature_store.feature_store_hotel_price"
+    )
+
+
+# -------------------------------------------------------------------- stream
+
+
+def test_stream_feature_view_dataset_event(captured):
+    fv = _stream_feature_view()
+    _emitter().emit_apply([fv], PROJECT)
+
+    event = next(e for e in captured if isinstance(e, DatasetEvent))
+    facets = event.dataset.facets
+
+    assert facets["datasetType"].datasetType == "STREAM"
+    assert facets["datasetType"].subType == "STREAM_KAFKA"
+
+    # The stream rides on the standard dataSource facet (URN passed through).
+    assert facets["dataSource"].name == "example_stream_kafka_source"
+    assert facets["dataSource"].uri.startswith("urn:egsp:consumer:")
+
+    stream = facets["feast_streamSource"]
+    assert stream.topic.startswith("urn:egsp:consumer:")
+    assert stream.message_format == "AvroFormat"
+    assert stream.watermark_delay_seconds == 300
+    assert stream.field_mapping == {
+        "event_header.published_datetime_utc": "published_timestamp"
     }
-    assert all(not getattr(i, "facets", {}) for i in fv_edge.inputs)
-    # Output = the feature view, by identity.
-    assert [o.name for o in fv_edge.outputs] == [
-        "hcom_feast_store.hotel_price_features"
-    ]
 
-    # jobType facet: integration FEAST.
-    jt = fv_edge.job.facets["jobType"]
-    assert jt.integration == "FEAST"
-    assert jt.processingType == "BATCH"
-    assert jt.jobType == "APPLICATION"
-
-    # feast_project job facet, generic JobFacet schema.
-    proj = fv_edge.job.facets["feast_project"]
-    assert proj.project_name == "hcom_feast_store"
-    assert proj.offline_store_type == "iceberg"
-    assert proj._schemaURL.endswith("#/$defs/JobFacet")
-
-    # Feature-service edge: views -> service, jobType only.
-    fs_edge = by_job["feature_service_hcom_feast_store.hcom_feature_service"]
-    assert [o.name for o in fs_edge.outputs] == [
-        "hcom_feast_store.hcom_feature_service"
-    ]
-    assert {i.name for i in fs_edge.inputs} == {"hcom_feast_store.hotel_price_features"}
-    assert "feast_project" not in fs_edge.job.facets
+    # The mandatory batch source is preserved on its own facet, not dropped.
+    batch = facets["feast_batchSource"]
+    assert batch.name == "example_stream_batch_source"
+    assert batch.source_type == "BATCH_SPARK"
+    assert (
+        batch.uri
+        == "egdl://data-dw.us-east-1/prod_offline_feature_store.example_streaming"
+    )
 
 
-def test_nodes_emitted_before_edges(captured):
-    events, _, _ = _emit(captured)
-    last_dataset = max(i for i, e in enumerate(events) if isinstance(e, DatasetEvent))
-    first_run = min(i for i, e in enumerate(events) if isinstance(e, RunEvent))
-    assert last_dataset < first_run
+# --------------------------------------------------------------------- scope
+
+
+def test_only_feature_views_are_emitted(captured):
+    source, hotel, fv = _batch_feature_view()
+    fs = FeatureService(name="hcom_feature_service", features=[fv])
+    # Sources, entities and services are passed but must not produce events.
+    _emitter().emit_apply([source, hotel, fv, fs], PROJECT)
+
+    dataset_events = [e for e in captured if isinstance(e, DatasetEvent)]
+    assert {e.dataset.name for e in dataset_events} == {FV_DATASET}
+    assert not [e for e in captured if isinstance(e, RunEvent)]
+
+
+# --------------------------------------------------------------------- config
 
 
 def test_disabled_when_env_unresolved(monkeypatch):
@@ -195,7 +253,6 @@ def test_disabled_when_env_unresolved(monkeypatch):
         enabled=True, transport_type="http", transport_url="http://localhost:9999"
     )
     emitter = FeastOpenLineageEmitter(cfg)
-    # No environment resolvable -> namespace None -> emission skipped.
     assert emitter.is_enabled is False
 
 
