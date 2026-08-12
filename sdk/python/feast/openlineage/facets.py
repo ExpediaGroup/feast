@@ -80,8 +80,11 @@ class FeastFeatureViewFacet(DatasetFacet):
     facet is deliberately trimmed to the residue.
 
     Attributes:
-        entities: Join-key entity names this view is keyed on. Doubles as the
-            signal for which ``schema.fields`` entries are join-key columns.
+        entities: Join-key *column* names this view is keyed on (the Entity
+            join_keys, which can differ from the Entity names). Doubles as the
+            signal for which ``schema.fields`` entries are join-key columns, so it
+            must carry the column names that appear in ``schema.fields`` -- not the
+            logical Entity names -- for the cross-reference to land.
         online_enabled: Whether online retrieval is enabled.
         offline_enabled: Whether offline retrieval is enabled.
         mode: Transformation mode (PYTHON, PANDAS, SPARK, ...); the stream

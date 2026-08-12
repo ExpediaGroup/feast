@@ -194,6 +194,49 @@ def test_aws_region_env_overrides_default(captured, monkeypatch):
     )
 
 
+def test_entity_name_differs_from_join_key(captured):
+    # Entity name != join_key (e.g. name ``flyte_sample_key`` / join_key ``long_id``).
+    # ``long_id`` in the schema is moved into entity_columns by FeatureView.__init__,
+    # reproducing the post-inference shape that used to emit a phantom, type-less
+    # column for the entity *name*.
+    source = SparkSource(
+        name="flyte_sample_source",
+        table="data_corp_offline_feature_store_dev.feature_store_flyte_sample_table",
+        timestamp_field="event_timestamp",
+    )
+    key = Entity(
+        name="flyte_sample_key", join_keys=["long_id"], value_type=ValueType.INT64
+    )
+    fv = FeatureView(
+        name="flyte_fv_3",
+        entities=[key],
+        ttl=timedelta(days=25),
+        source=source,
+        schema=[
+            Field(name="long_id", dtype=Int64),
+            Field(name="double_feature_1", dtype=Float32),
+        ],
+        online=True,
+        offline=False,
+    )
+    assert [c.name for c in fv.entity_columns] == ["long_id"]  # guard the fixture
+
+    _emitter().emit_apply([fv], PROJECT)
+    facets = next(e for e in captured if isinstance(e, DatasetEvent)).dataset.facets
+
+    by_field = {f.name: f for f in facets["schema"].fields}
+    # The real join-key column is present and typed...
+    assert by_field["long_id"].type == "Int64"
+    # ...and no phantom column for the entity *name* is emitted.
+    assert "flyte_sample_key" not in by_field
+
+    ffv = facets["feast_featureView"]
+    # entities carries the join-key column so it lines up with schema.fields.
+    assert ffv.entities == ["long_id"]
+    assert set(ffv.entities) <= set(by_field)
+    assert ffv.offline_enabled is False
+
+
 # -------------------------------------------------------------------- stream
 
 

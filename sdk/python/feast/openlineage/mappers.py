@@ -143,28 +143,52 @@ def stream_source_uri(data_source: "DataSource") -> str:
 
 def schema_fields(feature_view: "FeatureView") -> List[Tuple[str, str, str]]:
     """
-    ``(name, type, description)`` per column: join-key/entity columns first,
-    then features. Types are the Feast dtype string (OM-type mapping is a
+    ``(name, type, description)`` per column: join-key columns first, then
+    features. Types are the Feast dtype string (OM-type mapping is a
     consumer/follow-up concern -- see EAPC-22333 open items).
     """
     fields: List[Tuple[str, str, str]] = []
     seen = set()
 
-    for col in getattr(feature_view, "entity_columns", None) or []:
+    entity_columns = getattr(feature_view, "entity_columns", None) or []
+    for col in entity_columns:
         fields.append((col.name, str(col.dtype), col.description or ""))
         seen.add(col.name)
-    # entity_columns is only populated after registry inference; fall back to the
-    # bare entity names so join keys still surface as columns pre-inference.
-    for entity_name in getattr(feature_view, "entities", None) or []:
-        if entity_name and entity_name not in seen:
-            fields.append((entity_name, "", ""))
-            seen.add(entity_name)
+    # entity_columns holds the join-key *columns* (keyed by join_key). It is only
+    # populated after schema inference; ONLY when it is still empty do we fall back
+    # to the bare entity *names* so join keys still surface as columns pre-inference.
+    # Once it is populated, the fallback must not run: an Entity whose name differs
+    # from its join_key (e.g. name ``driver`` / join_key ``driver_id``) would emit
+    # a phantom, type-less column for the *name* on top of the real join-key column.
+    if not entity_columns:
+        for entity_name in getattr(feature_view, "entities", None) or []:
+            if entity_name and entity_name not in seen:
+                fields.append((entity_name, "", ""))
+                seen.add(entity_name)
 
     for feat in getattr(feature_view, "features", None) or []:
         if feat.name not in seen:
             fields.append((feat.name, str(feat.dtype), feat.description or ""))
             seen.add(feat.name)
     return fields
+
+
+def join_keys(feature_view: "FeatureView") -> List[str]:
+    """
+    Physical join-key column names for the view -- what ``feast_featureView.entities``
+    carries, so it lines up with ``schema.fields`` for join-key column tagging.
+
+    Prefer ``entity_columns`` (the resolved join-key ``Field``s, keyed by join_key,
+    populated after inference); fall back to the bare entity *names* only
+    pre-inference, when the join keys are not yet resolvable. An Entity's ``name``
+    and ``join_key`` can differ (e.g. name ``driver`` / join_key ``driver_id``); the
+    join_key is the real source column, so it -- not the name -- is what a consumer
+    must match against ``schema.fields`` to tag the join-key column.
+    """
+    entity_columns = getattr(feature_view, "entity_columns", None) or []
+    if entity_columns:
+        return [col.name for col in entity_columns]
+    return [e for e in (getattr(feature_view, "entities", None) or []) if e]
 
 
 def tag_pairs(feature_view: "FeatureView") -> List[Tuple[str, str]]:
@@ -231,7 +255,7 @@ def build_feature_view_facet(feature_view: "FeatureView") -> Any:
     ts_field = getattr(primary, "timestamp_field", None) if primary else None
 
     return FeastFeatureViewFacet(
-        entities=list(feature_view.entities) if feature_view.entities else [],
+        entities=join_keys(feature_view),
         online_enabled=bool(getattr(feature_view, "online", True)),
         offline_enabled=bool(getattr(feature_view, "offline", False)),
         mode=str(mode) if mode else None,
