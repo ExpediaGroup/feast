@@ -1447,6 +1447,7 @@ class SqlRegistry(CachingRegistry):
                     feature_views,
                     on_demand_feature_views,
                     stream_feature_views,
+                    sorted_feature_views,
                     data_sources,
                     entities,
                     permissions,

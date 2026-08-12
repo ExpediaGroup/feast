@@ -53,9 +53,12 @@ from feast.permissions.action import AuthzedAction
 from feast.permissions.permission import Permission
 from feast.permissions.policy import RoleBasedPolicy
 from feast.project import Project
+from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.protos.feast.registry import RegistryServer_pb2, RegistryServer_pb2_grpc
 from feast.registry_server import RegistryServer
 from feast.repo_config import RegistryConfig
+from feast.sort_key import SortKey
+from feast.sorted_feature_view import SortedFeatureView
 from feast.stream_feature_view import Aggregation, StreamFeatureView
 from feast.types import Array, Bytes, Float32, Int32, Int64, String
 from feast.utils import _utc_now
@@ -1803,12 +1806,35 @@ def test_apply_project_success(test_registry):
     entities = test_registry.list_entities(project.name)
     assert len(entities) == 1
 
+    # A SortedFeatureView is persisted in its own table (separate from FeatureView), so
+    # it's a distinct code path that delete_project must also clean up.
+    sorted_feature_view = SortedFeatureView(
+        name="driver_sorted_feature_view",
+        source=FileSource(name="my_file_source", path="test.parquet"),
+        entities=[entity],
+        schema=[Field(name="sort_key1", dtype=Int64)],
+        sort_keys=[
+            SortKey(
+                name="sort_key1",
+                value_type=ValueType.INT64,
+                default_sort_order=SortOrder.ASC,
+            )
+        ],
+    )
+    test_registry.apply_feature_view(sorted_feature_view, project.name)
+    sorted_feature_views = test_registry.list_sorted_feature_views(project.name)
+    assert len(sorted_feature_views) == 1
+
     test_registry.delete_project(project.name, commit=False)
 
     test_registry.commit()
 
     entities = test_registry.list_entities(project.name, False)
     assert len(entities) == 0
+    sorted_feature_views = test_registry.list_sorted_feature_views(
+        project.name, allow_cache=False
+    )
+    assert len(sorted_feature_views) == 0
     projects_list = test_registry.list_projects()
     assert len(projects_list) == 0
 
