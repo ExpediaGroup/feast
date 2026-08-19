@@ -239,6 +239,277 @@ def test_update_materialization_intervals():
     )
 
 
+def test_add_materialization_interval_caps_at_max_len():
+    from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN
+
+    batch_source = FileSource(path="some path")
+    entity = Entity(name="entity_1", description="Some entity")
+    feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+
+    current_time = _utc_now()
+    num_intervals = MATERIALIZATION_INTERVALS_MAX_LEN + 5
+    expected_last_end_dates = []
+    for i in range(num_intervals):
+        start_date = make_tzaware(current_time - timedelta(days=num_intervals - i))
+        end_date = make_tzaware(current_time - timedelta(days=num_intervals - i - 1))
+        feature_view.add_materialization_interval(start_date, end_date)
+        expected_last_end_dates.append(end_date)
+
+    assert (
+        len(feature_view.materialization_intervals) == MATERIALIZATION_INTERVALS_MAX_LEN
+    )
+    # Only the most recent MATERIALIZATION_INTERVALS_MAX_LEN intervals survive,
+    # in original (chronological) order.
+    expected_last_end_dates = expected_last_end_dates[
+        -MATERIALIZATION_INTERVALS_MAX_LEN:
+    ]
+    actual_end_dates = [
+        interval[1] for interval in feature_view.materialization_intervals
+    ]
+    assert actual_end_dates == expected_last_end_dates
+    # most_recent_end_time should still reflect the true most recent interval.
+    assert feature_view.most_recent_end_time == expected_last_end_dates[-1]
+
+
+def test_update_materialization_intervals_also_caps_at_max_len():
+    from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN
+
+    batch_source = FileSource(path="some path")
+    entity = Entity(name="entity_1", description="Some entity")
+    stored_feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+    # Simulate a feature view that already had more than the cap worth of
+    # intervals persisted before the cap existed (pre-migration state).
+    current_time = _utc_now()
+    num_intervals = MATERIALIZATION_INTERVALS_MAX_LEN + 5
+    for i in range(num_intervals):
+        start_date = make_tzaware(current_time - timedelta(days=num_intervals - i))
+        end_date = make_tzaware(current_time - timedelta(days=num_intervals - i - 1))
+        stored_feature_view.materialization_intervals.append((start_date, end_date))
+    assert len(stored_feature_view.materialization_intervals) == num_intervals
+
+    updated_feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+    updated_feature_view.update_materialization_intervals(
+        stored_feature_view.materialization_intervals
+    )
+    assert (
+        len(updated_feature_view.materialization_intervals)
+        == MATERIALIZATION_INTERVALS_MAX_LEN
+    )
+
+
+def test_add_materialization_interval_honors_custom_max_intervals():
+    from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN
+
+    batch_source = FileSource(path="some path")
+    entity = Entity(name="entity_1", description="Some entity")
+    feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+
+    custom_max_intervals = 3
+    assert custom_max_intervals != MATERIALIZATION_INTERVALS_MAX_LEN
+
+    current_time = _utc_now()
+    num_intervals = custom_max_intervals + 5
+    expected_last_end_dates = []
+    for i in range(num_intervals):
+        start_date = make_tzaware(current_time - timedelta(days=num_intervals - i))
+        end_date = make_tzaware(current_time - timedelta(days=num_intervals - i - 1))
+        feature_view.add_materialization_interval(
+            start_date, end_date, max_intervals=custom_max_intervals
+        )
+        expected_last_end_dates.append(end_date)
+
+    assert len(feature_view.materialization_intervals) == custom_max_intervals
+    expected_last_end_dates = expected_last_end_dates[-custom_max_intervals:]
+    actual_end_dates = [
+        interval[1] for interval in feature_view.materialization_intervals
+    ]
+    assert actual_end_dates == expected_last_end_dates
+
+
+def test_update_materialization_intervals_honors_custom_max_intervals():
+    from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN
+
+    batch_source = FileSource(path="some path")
+    entity = Entity(name="entity_1", description="Some entity")
+    stored_feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+
+    custom_max_intervals = 3
+    assert custom_max_intervals != MATERIALIZATION_INTERVALS_MAX_LEN
+
+    current_time = _utc_now()
+    num_intervals = custom_max_intervals + 5
+    for i in range(num_intervals):
+        start_date = make_tzaware(current_time - timedelta(days=num_intervals - i))
+        end_date = make_tzaware(current_time - timedelta(days=num_intervals - i - 1))
+        stored_feature_view.materialization_intervals.append((start_date, end_date))
+    assert len(stored_feature_view.materialization_intervals) == num_intervals
+
+    updated_feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+    updated_feature_view.update_materialization_intervals(
+        stored_feature_view.materialization_intervals,
+        max_intervals=custom_max_intervals,
+    )
+    assert len(updated_feature_view.materialization_intervals) == custom_max_intervals
+
+
+def test_add_materialization_interval_returns_dropped_intervals():
+    batch_source = FileSource(path="some path")
+    entity = Entity(name="entity_1", description="Some entity")
+    feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+
+    custom_max_intervals = 3
+    current_time = _utc_now()
+    all_intervals = []
+    all_dropped = []
+    num_intervals = custom_max_intervals + 5
+    for i in range(num_intervals):
+        start_date = make_tzaware(current_time - timedelta(days=num_intervals - i))
+        end_date = make_tzaware(current_time - timedelta(days=num_intervals - i - 1))
+        dropped = feature_view.add_materialization_interval(
+            start_date, end_date, max_intervals=custom_max_intervals
+        )
+        all_intervals.append((start_date, end_date))
+        all_dropped.extend(dropped)
+
+    # No entry is ever both currently-retained and reported as dropped, and
+    # every entry that ever entered the list is accounted for exactly once
+    # across "currently retained" + "ever dropped".
+    assert len(feature_view.materialization_intervals) == custom_max_intervals
+    assert len(all_dropped) == num_intervals - custom_max_intervals
+    accounted_for = set(feature_view.materialization_intervals) | set(all_dropped)
+    assert accounted_for == set(all_intervals)
+    # The dropped ones are exactly the oldest entries, in original order.
+    assert all_dropped == all_intervals[: num_intervals - custom_max_intervals]
+
+
+def test_update_materialization_intervals_returns_dropped_intervals():
+    batch_source = FileSource(path="some path")
+    entity = Entity(name="entity_1", description="Some entity")
+    stored_feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+
+    custom_max_intervals = 3
+    current_time = _utc_now()
+    num_intervals = custom_max_intervals + 5
+    all_intervals = []
+    for i in range(num_intervals):
+        start_date = make_tzaware(current_time - timedelta(days=num_intervals - i))
+        end_date = make_tzaware(current_time - timedelta(days=num_intervals - i - 1))
+        stored_feature_view.materialization_intervals.append((start_date, end_date))
+        all_intervals.append((start_date, end_date))
+
+    updated_feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+    dropped = updated_feature_view.update_materialization_intervals(
+        stored_feature_view.materialization_intervals,
+        max_intervals=custom_max_intervals,
+    )
+    assert len(updated_feature_view.materialization_intervals) == custom_max_intervals
+    assert dropped == all_intervals[: num_intervals - custom_max_intervals]
+
+
+def test_add_materialization_interval_returns_empty_when_under_cap():
+    batch_source = FileSource(path="some path")
+    entity = Entity(name="entity_1", description="Some entity")
+    feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+    current_time = _utc_now()
+    dropped = feature_view.add_materialization_interval(
+        make_tzaware(current_time - timedelta(days=1)),
+        make_tzaware(current_time),
+        max_intervals=10,
+    )
+    assert dropped == []
+
+
+def test_add_materialization_interval_max_intervals_zero_drops_everything():
+    """max_intervals=0 must actually disable the list (keep none), not
+    silently disable capping -- `list[:-0]`/`list[-0:]` both resolve to
+    slicing at index 0 in Python, so a naive `-effective_max` slice bound
+    would leave the list completely untouched instead of capping it to
+    empty."""
+    batch_source = FileSource(path="some path")
+    entity = Entity(name="entity_1", description="Some entity")
+    feature_view = FeatureView(
+        name="my-feature-view",
+        entities=[entity],
+        ttl=timedelta(days=1),
+        source=batch_source,
+    )
+    current_time = _utc_now()
+    pre_existing = [
+        (
+            make_tzaware(current_time - timedelta(days=2)),
+            make_tzaware(current_time - timedelta(days=1)),
+        )
+    ]
+    feature_view.materialization_intervals = list(pre_existing)
+
+    dropped = feature_view.add_materialization_interval(
+        make_tzaware(current_time - timedelta(hours=1)),
+        make_tzaware(current_time),
+        max_intervals=0,
+    )
+
+    assert feature_view.materialization_intervals == []
+    assert set(dropped) == set(
+        pre_existing
+        + [
+            (
+                make_tzaware(current_time - timedelta(hours=1)),
+                make_tzaware(current_time),
+            )
+        ]
+    )
+
+
 def test_create_feature_view_with_chained_views():
     file_source = FileSource(name="my-file-source", path="test.parquet")
     sink_source = FileSource(name="my-sink-source", path="sink.parquet")

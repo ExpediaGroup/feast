@@ -45,7 +45,7 @@ else:
 DESCRIPTOR: google.protobuf.descriptor.FileDescriptor
 
 class Registry(google.protobuf.message.Message):
-    """Next id: 18"""
+    """Next id: 19"""
 
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
@@ -66,6 +66,7 @@ class Registry(google.protobuf.message.Message):
     LAST_UPDATED_FIELD_NUMBER: builtins.int
     PERMISSIONS_FIELD_NUMBER: builtins.int
     PROJECTS_FIELD_NUMBER: builtins.int
+    MATERIALIZATION_INTERVAL_HISTORY_FIELD_NUMBER: builtins.int
     @property
     def entities(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[feast.core.Entity_pb2.Entity]: ...
     @property
@@ -101,6 +102,12 @@ class Registry(google.protobuf.message.Message):
     def permissions(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[feast.core.Permission_pb2.Permission]: ...
     @property
     def projects(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[feast.core.Project_pb2.Project]: ...
+    @property
+    def materialization_interval_history(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[feast.core.FeatureView_pb2.MaterializationIntervalHistoryEntry]:
+        """Full, uncapped history of materialization intervals across every feature
+        view in every project -- the file-based registry's counterpart to the
+        SQL/Snowflake backends' separate materialization_interval_history table.
+        """
     def __init__(
         self,
         *,
@@ -121,9 +128,10 @@ class Registry(google.protobuf.message.Message):
         last_updated: google.protobuf.timestamp_pb2.Timestamp | None = ...,
         permissions: collections.abc.Iterable[feast.core.Permission_pb2.Permission] | None = ...,
         projects: collections.abc.Iterable[feast.core.Project_pb2.Project] | None = ...,
+        materialization_interval_history: collections.abc.Iterable[feast.core.FeatureView_pb2.MaterializationIntervalHistoryEntry] | None = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["infra", b"infra", "last_updated", b"last_updated"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["data_sources", b"data_sources", "entities", b"entities", "feature_services", b"feature_services", "feature_tables", b"feature_tables", "feature_views", b"feature_views", "infra", b"infra", "last_updated", b"last_updated", "on_demand_feature_views", b"on_demand_feature_views", "permissions", b"permissions", "project_metadata", b"project_metadata", "projects", b"projects", "registry_schema_version", b"registry_schema_version", "saved_datasets", b"saved_datasets", "sorted_feature_views", b"sorted_feature_views", "stream_feature_views", b"stream_feature_views", "validation_references", b"validation_references", "version_id", b"version_id"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["data_sources", b"data_sources", "entities", b"entities", "feature_services", b"feature_services", "feature_tables", b"feature_tables", "feature_views", b"feature_views", "infra", b"infra", "last_updated", b"last_updated", "materialization_interval_history", b"materialization_interval_history", "on_demand_feature_views", b"on_demand_feature_views", "permissions", b"permissions", "project_metadata", b"project_metadata", "projects", b"projects", "registry_schema_version", b"registry_schema_version", "saved_datasets", b"saved_datasets", "sorted_feature_views", b"sorted_feature_views", "stream_feature_views", b"stream_feature_views", "validation_references", b"validation_references", "version_id", b"version_id"]) -> None: ...
 
 global___Registry = Registry
 

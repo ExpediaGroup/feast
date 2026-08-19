@@ -218,6 +218,48 @@ class MaterializationInterval(google.protobuf.message.Message):
 
 global___MaterializationInterval = MaterializationInterval
 
+class MaterializationIntervalHistoryEntry(google.protobuf.message.Message):
+    """A single durably-retained entry in a feature view's full, uncapped
+    materialization-interval history. Unlike MaterializationInterval (which
+    lives on a specific FeatureViewMeta and is capped to the most recent N
+    entries), this is discriminated by feature_view_name/project so it can
+    live in a separate collection -- a registry-backend-specific table (SQL,
+    Snowflake) or a top-level Registry field (file-based) -- and is written
+    for every interval, including ones already dropped from the capped list.
+    """
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    FEATURE_VIEW_NAME_FIELD_NUMBER: builtins.int
+    PROJECT_FIELD_NUMBER: builtins.int
+    START_TIME_FIELD_NUMBER: builtins.int
+    END_TIME_FIELD_NUMBER: builtins.int
+    RECORDED_AT_FIELD_NUMBER: builtins.int
+    feature_view_name: builtins.str
+    project: builtins.str
+    @property
+    def start_time(self) -> google.protobuf.timestamp_pb2.Timestamp: ...
+    @property
+    def end_time(self) -> google.protobuf.timestamp_pb2.Timestamp: ...
+    @property
+    def recorded_at(self) -> google.protobuf.timestamp_pb2.Timestamp:
+        """When this entry was recorded to history (not necessarily when the
+        materialization run itself happened).
+        """
+    def __init__(
+        self,
+        *,
+        feature_view_name: builtins.str = ...,
+        project: builtins.str = ...,
+        start_time: google.protobuf.timestamp_pb2.Timestamp | None = ...,
+        end_time: google.protobuf.timestamp_pb2.Timestamp | None = ...,
+        recorded_at: google.protobuf.timestamp_pb2.Timestamp | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["end_time", b"end_time", "recorded_at", b"recorded_at", "start_time", b"start_time"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["end_time", b"end_time", "feature_view_name", b"feature_view_name", "project", b"project", "recorded_at", b"recorded_at", "start_time", b"start_time"]) -> None: ...
+
+global___MaterializationIntervalHistoryEntry = MaterializationIntervalHistoryEntry
+
 class FeatureViewList(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 

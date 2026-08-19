@@ -233,6 +233,11 @@ class RegistryServerStub(object):
                 request_serializer=feast_dot_registry_dot_RegistryServer__pb2.ApplyMaterializationRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 )
+        self.GetMaterializationIntervalHistory = channel.unary_unary(
+                '/feast.registry.RegistryServer/GetMaterializationIntervalHistory',
+                request_serializer=feast_dot_registry_dot_RegistryServer__pb2.GetMaterializationIntervalHistoryRequest.SerializeToString,
+                response_deserializer=feast_dot_registry_dot_RegistryServer__pb2.GetMaterializationIntervalHistoryResponse.FromString,
+                )
         self.ListProjectMetadata = channel.unary_unary(
                 '/feast.registry.RegistryServer/ListProjectMetadata',
                 request_serializer=feast_dot_registry_dot_RegistryServer__pb2.ListProjectMetadataRequest.SerializeToString,
@@ -556,6 +561,12 @@ class RegistryServerServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetMaterializationIntervalHistory(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ListProjectMetadata(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -838,6 +849,11 @@ def add_RegistryServerServicer_to_server(servicer, server):
                     servicer.ApplyMaterialization,
                     request_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ApplyMaterializationRequest.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'GetMaterializationIntervalHistory': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetMaterializationIntervalHistory,
+                    request_deserializer=feast_dot_registry_dot_RegistryServer__pb2.GetMaterializationIntervalHistoryRequest.FromString,
+                    response_serializer=feast_dot_registry_dot_RegistryServer__pb2.GetMaterializationIntervalHistoryResponse.SerializeToString,
             ),
             'ListProjectMetadata': grpc.unary_unary_rpc_method_handler(
                     servicer.ListProjectMetadata,
@@ -1603,6 +1619,23 @@ class RegistryServer(object):
         return grpc.experimental.unary_unary(request, target, '/feast.registry.RegistryServer/ApplyMaterialization',
             feast_dot_registry_dot_RegistryServer__pb2.ApplyMaterializationRequest.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def GetMaterializationIntervalHistory(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/feast.registry.RegistryServer/GetMaterializationIntervalHistory',
+            feast_dot_registry_dot_RegistryServer__pb2.GetMaterializationIntervalHistoryRequest.SerializeToString,
+            feast_dot_registry_dot_RegistryServer__pb2.GetMaterializationIntervalHistoryResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
 

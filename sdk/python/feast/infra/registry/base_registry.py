@@ -37,6 +37,9 @@ from feast.protos.feast.core.FeatureService_pb2 import (
     FeatureService as FeatureServiceProto,
 )
 from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+from feast.protos.feast.core.FeatureView_pb2 import (
+    MaterializationIntervalHistoryEntry as MaterializationIntervalHistoryEntryProto,
+)
 from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
     OnDemandFeatureView as OnDemandFeatureViewProto,
 )
@@ -491,6 +494,31 @@ class BaseRegistry(ABC):
             start_date (datetime): Start date of the materialization interval to track
             end_date (datetime): End date of the materialization interval to track
             commit: Whether the change should be persisted immediately
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_materialization_interval_history(
+        self,
+        feature_view_name: str,
+        project: str,
+    ) -> List[MaterializationIntervalHistoryEntryProto]:
+        """
+        Retrieves the full, uncapped history of materialization intervals for a
+        feature view -- including entries already dropped from
+        FeatureViewMeta.materialization_intervals by the
+        materialization_intervals_max_len cap. Every registry backend durably
+        retains this history in a separate table/collection from the capped
+        list (see apply_materialization), so this works the same way
+        regardless of registry backend.
+
+        Args:
+            feature_view_name: Name of the feature view to fetch history for
+            project: Feast project that this feature view belongs to
+
+        Returns:
+            List of MaterializationIntervalHistoryEntry protos, ordered by
+            start_time ascending
         """
         raise NotImplementedError
 

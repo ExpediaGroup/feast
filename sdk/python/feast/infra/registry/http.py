@@ -1,3 +1,4 @@
+import json
 import logging
 import threading
 import time
@@ -33,6 +34,9 @@ from feast.expediagroup.pydantic_models.feature_view_model import (
     FeatureViewModel,
     OnDemandFeatureViewModel,
     SortedFeatureViewModel,
+)
+from feast.expediagroup.pydantic_models.materialization_interval_history_model import (
+    MaterializationIntervalHistoryEntryModel,
 )
 from feast.expediagroup.pydantic_models.project_metadata_model import (
     ProjectMetadataModel,
@@ -666,28 +670,52 @@ class HttpRegistry(BaseRegistry):
     ):
         if isinstance(feature_view, OnDemandFeatureView):
             raise TypeError("Materialization not supported for OnDemandFeatureView")
+        if not isinstance(feature_view, (FeatureView, SortedFeatureView)):
+            raise TypeError(
+                "Unsupported FeatureView type. Please use either FeatureView, SortedFeatureView or OnDemandFeatureView only"
+            )
         try:
-            feature_view.materialization_intervals.append((start_date, end_date))
+            # A dedicated endpoint, rather than the generic whole-object
+            # feature_views PUT: this lets the server fetch the canonical
+            # stored feature view and call apply_materialization directly,
+            # so the cap/archive logic in SqlFallbackRegistry.apply_materialization
+            # actually runs -- appending the interval client-side and PUTting
+            # the whole object (the old approach) bypassed that entirely,
+            # and could clobber previously-stored intervals if this
+            # in-memory object wasn't fully hydrated.
+            url = (
+                f"{self.base_url}/projects/{project}/feature_views/"
+                f"{feature_view.name}/materialization_intervals"
+            )
             params = {"commit": commit}
-            url = f"{self.base_url}/projects/{project}/feature_views"
-            if isinstance(feature_view, SortedFeatureView):
-                data = SortedFeatureViewModel.from_feature_view(
-                    feature_view
-                ).model_dump_json()
-                response_data = self._send_request("PUT", url, params=params, data=data)
-                return SortedFeatureViewModel.model_validate(
-                    response_data
-                ).to_feature_view()
-            elif isinstance(feature_view, FeatureView):
-                data = FeatureViewModel.from_feature_view(
-                    feature_view
-                ).model_dump_json()
-                response_data = self._send_request("PUT", url, params=params, data=data)
-                return FeatureViewModel.model_validate(response_data).to_feature_view()
-            else:
-                raise TypeError(
-                    "Unsupported FeatureView type. Please use either FeatureView, SortedFeatureView or OnDemandFeatureView only"
-                )
+            data = json.dumps(
+                {
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                }
+            )
+            self._send_request("PUT", url, params=params, data=data)
+        except Exception as exception:
+            self._handle_exception(exception)
+
+    def get_materialization_interval_history(
+        self,
+        feature_view_name: str,
+        project: str,
+    ):
+        try:
+            url = (
+                f"{self.base_url}/projects/{project}/feature_views/"
+                f"{feature_view_name}/materialization_interval_history"
+            )
+            response_data = self._send_request("GET", url)
+            response_list = response_data if isinstance(response_data, list) else []
+            return [
+                MaterializationIntervalHistoryEntryModel.model_validate(
+                    entry
+                ).to_proto()
+                for entry in response_list
+            ]
         except Exception as exception:
             self._handle_exception(exception)
 

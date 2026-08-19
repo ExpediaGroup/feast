@@ -36,7 +36,7 @@ import "google/protobuf/timestamp.proto";
 import "feast/core/Permission.proto";
 import "feast/core/Project.proto";
 
-// Next id: 18
+// Next id: 19
 message Registry {
     repeated Entity entities = 1;
     repeated FeatureTable feature_tables = 2;
@@ -57,6 +57,10 @@ message Registry {
     google.protobuf.Timestamp last_updated = 5;
     repeated Permission permissions = 16;
     repeated Project projects = 17;
+    // Full, uncapped history of materialization intervals across every feature
+    // view in every project -- the file-based registry's counterpart to the
+    // SQL/Snowflake backends' separate materialization_interval_history table.
+    repeated MaterializationIntervalHistoryEntry materialization_interval_history = 18;
 }
 
 message ProjectMetadata {

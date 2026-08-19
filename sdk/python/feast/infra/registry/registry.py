@@ -48,6 +48,9 @@ from feast.permissions.auth_model import AuthConfig, NoAuthConfig
 from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.project_metadata import ProjectMetadata
+from feast.protos.feast.core.FeatureView_pb2 import (
+    MaterializationIntervalHistoryEntry as MaterializationIntervalHistoryEntryProto,
+)
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.repo_config import RegistryConfig
 from feast.repo_contents import RepoContents
@@ -226,6 +229,7 @@ class Registry(BaseRegistry):
             if registry_config is not None
             else False
         )
+        self.registry_config = registry_config
 
         if registry_config:
             registry_store_type = registry_config.registry_store_type
@@ -522,7 +526,20 @@ class Registry(BaseRegistry):
                         (FeatureView, StreamFeatureView, SortedFeatureView),
                     ):
                         feature_view.update_materialization_intervals(
-                            existing_feature_view.materialization_intervals
+                            existing_feature_view.materialization_intervals,
+                            max_intervals=self._materialization_intervals_max_len(),
+                        )
+                        # Archive the *entire* previously-stored list here (not
+                        # just what the cap drops): entries that survive the
+                        # cap were never individually archived either, since
+                        # nothing "new" is being added on this path (unlike
+                        # apply_materialization). Idempotent, so re-archiving
+                        # entries an earlier apply_materialization call
+                        # already recorded is a no-op.
+                        self._record_materialization_interval_history(
+                            feature_view.name,
+                            project,
+                            existing_feature_view.materialization_intervals,
                         )
                     feature_view_proto = feature_view.to_proto()
                     feature_view_proto.spec.project = project
@@ -617,8 +634,15 @@ class Registry(BaseRegistry):
                 existing_feature_view = FeatureView.from_proto(
                     existing_feature_view_proto
                 )
-                existing_feature_view.materialization_intervals.append(
-                    (start_date, end_date)
+                dropped = existing_feature_view.add_materialization_interval(
+                    start_date,
+                    end_date,
+                    max_intervals=self._materialization_intervals_max_len(),
+                )
+                self._record_materialization_interval_history(
+                    feature_view.name,
+                    project,
+                    dropped + [(start_date, end_date)],
                 )
                 existing_feature_view.last_updated_timestamp = _utc_now()
                 feature_view_proto = existing_feature_view.to_proto()
@@ -639,8 +663,15 @@ class Registry(BaseRegistry):
                 existing_sorted_feature_view = SortedFeatureView.from_proto(
                     existing_sorted_feature_view_proto
                 )
-                existing_sorted_feature_view.materialization_intervals.append(
-                    (start_date, end_date)
+                dropped = existing_sorted_feature_view.add_materialization_interval(
+                    start_date,
+                    end_date,
+                    max_intervals=self._materialization_intervals_max_len(),
+                )
+                self._record_materialization_interval_history(
+                    feature_view.name,
+                    project,
+                    dropped + [(start_date, end_date)],
                 )
                 existing_sorted_feature_view.last_updated_timestamp = _utc_now()
                 sorted_feature_view_proto = existing_sorted_feature_view.to_proto()
@@ -663,8 +694,15 @@ class Registry(BaseRegistry):
                 existing_stream_feature_view = StreamFeatureView.from_proto(
                     existing_stream_feature_view_proto
                 )
-                existing_stream_feature_view.materialization_intervals.append(
-                    (start_date, end_date)
+                dropped = existing_stream_feature_view.add_materialization_interval(
+                    start_date,
+                    end_date,
+                    max_intervals=self._materialization_intervals_max_len(),
+                )
+                self._record_materialization_interval_history(
+                    feature_view.name,
+                    project,
+                    dropped + [(start_date, end_date)],
                 )
                 existing_stream_feature_view.last_updated_timestamp = _utc_now()
                 stream_feature_view_proto = existing_stream_feature_view.to_proto()
@@ -676,6 +714,69 @@ class Registry(BaseRegistry):
                 if commit:
                     self.commit()
                 return
+
+    def _materialization_intervals_max_len(self) -> Optional[int]:
+        return (
+            self.registry_config.materialization_intervals_max_len
+            if self.registry_config is not None
+            else None
+        )
+
+    def _record_materialization_interval_history(
+        self,
+        feature_view_name: str,
+        project: str,
+        intervals: List[tuple],
+    ) -> None:
+        """
+        Durably appends entries to the full, uncapped materialization-interval
+        history -- the file-based registry's counterpart to the SQL/Snowflake
+        backends' separate history table, stored as a top-level repeated
+        field on the same Registry proto blob (see
+        feast.core.Registry.materialization_interval_history).
+
+        Idempotent on (feature_view_name, project, start_time, end_time), same
+        as the SQL registry's version -- callers don't need to reason about
+        whether an interval was already archived by an earlier call.
+        """
+        if not intervals:
+            return
+        assert self.cached_registry_proto
+
+        existing_keys = {
+            (
+                entry.start_time.ToSeconds(),
+                entry.end_time.ToSeconds(),
+            )
+            for entry in self.cached_registry_proto.materialization_interval_history
+            if entry.project == project and entry.feature_view_name == feature_view_name
+        }
+        recorded_at = _utc_now()
+        for start, end in intervals:
+            key = (int(start.timestamp()), int(end.timestamp()))
+            if key in existing_keys:
+                continue
+            existing_keys.add(key)
+            entry = self.cached_registry_proto.materialization_interval_history.add()
+            entry.feature_view_name = feature_view_name
+            entry.project = project
+            entry.start_time.FromDatetime(start)
+            entry.end_time.FromDatetime(end)
+            entry.recorded_at.FromDatetime(recorded_at)
+
+    def get_materialization_interval_history(
+        self,
+        feature_view_name: str,
+        project: str,
+    ) -> List[MaterializationIntervalHistoryEntryProto]:
+        assert self.cached_registry_proto
+        entries = [
+            entry
+            for entry in self.cached_registry_proto.materialization_interval_history
+            if entry.project == project and entry.feature_view_name == feature_view_name
+        ]
+        entries.sort(key=lambda entry: entry.start_time.ToSeconds())
+        return entries
 
     def list_all_feature_views(
         self,

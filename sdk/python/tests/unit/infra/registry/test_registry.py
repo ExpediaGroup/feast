@@ -117,6 +117,9 @@ class TestCachingRegistry(CachingRegistry):
     def apply_materialization(self, *args, **kwargs):
         pass
 
+    def get_materialization_interval_history(self, *args, **kwargs):
+        return []
+
     def apply_permission(self, *args, **kwargs):
         pass
 

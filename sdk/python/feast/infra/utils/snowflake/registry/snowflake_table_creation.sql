@@ -97,3 +97,17 @@ CREATE TABLE IF NOT EXISTS REGISTRY_PATH."PERMISSIONS" (
     permission_proto BINARY NOT NULL,
     PRIMARY KEY (permission_name, project_id)
 );
+
+-- Durable, append-only history of materialization intervals -- the
+-- companion to the capped FEATURE_VIEWS.materialized_intervals column (see
+-- feast.feature_view.MATERIALIZATION_INTERVALS_MAX_LEN). Unlike every table
+-- above, this is genuinely multi-row per (feature_view_name, project_id) --
+-- one row per interval over time, not one row per object.
+CREATE TABLE IF NOT EXISTS REGISTRY_PATH."MATERIALIZATION_INTERVAL_HISTORY" (
+    id NUMBER AUTOINCREMENT PRIMARY KEY,
+    feature_view_name VARCHAR NOT NULL,
+    project_id VARCHAR NOT NULL,
+    start_time TIMESTAMP_LTZ NOT NULL,
+    end_time TIMESTAMP_LTZ NOT NULL,
+    recorded_at TIMESTAMP_LTZ NOT NULL
+);

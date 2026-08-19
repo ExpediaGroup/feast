@@ -87,6 +87,7 @@ service RegistryServer{
   rpc DeleteProject (DeleteProjectRequest) returns (google.protobuf.Empty) {}
 
   rpc ApplyMaterialization (ApplyMaterializationRequest) returns (google.protobuf.Empty) {}
+  rpc GetMaterializationIntervalHistory (GetMaterializationIntervalHistoryRequest) returns (GetMaterializationIntervalHistoryResponse) {}
   rpc ListProjectMetadata (ListProjectMetadataRequest) returns (ListProjectMetadataResponse) {}
   rpc UpdateInfra (UpdateInfraRequest) returns (google.protobuf.Empty) {}
   rpc GetInfra (GetInfraRequest) returns (feast.core.Infra) {}
@@ -157,6 +158,18 @@ message ApplyMaterializationRequest {
   google.protobuf.Timestamp start_date = 3;
   google.protobuf.Timestamp end_date = 4;
   bool commit = 5;
+}
+
+message GetMaterializationIntervalHistoryRequest {
+    string feature_view_name = 1;
+    string project = 2;
+    PaginationParams pagination = 3;
+    SortingParams sorting = 4;
+}
+
+message GetMaterializationIntervalHistoryResponse {
+    repeated feast.core.MaterializationIntervalHistoryEntry entries = 1;
+    PaginationMetadata pagination = 2;
 }
 
 message ApplyEntityRequest {

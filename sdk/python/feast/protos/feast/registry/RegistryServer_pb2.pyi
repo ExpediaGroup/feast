@@ -215,6 +215,52 @@ class ApplyMaterializationRequest(google.protobuf.message.Message):
 
 global___ApplyMaterializationRequest = ApplyMaterializationRequest
 
+class GetMaterializationIntervalHistoryRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    FEATURE_VIEW_NAME_FIELD_NUMBER: builtins.int
+    PROJECT_FIELD_NUMBER: builtins.int
+    PAGINATION_FIELD_NUMBER: builtins.int
+    SORTING_FIELD_NUMBER: builtins.int
+    feature_view_name: builtins.str
+    project: builtins.str
+    @property
+    def pagination(self) -> global___PaginationParams: ...
+    @property
+    def sorting(self) -> global___SortingParams: ...
+    def __init__(
+        self,
+        *,
+        feature_view_name: builtins.str = ...,
+        project: builtins.str = ...,
+        pagination: global___PaginationParams | None = ...,
+        sorting: global___SortingParams | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["pagination", b"pagination", "sorting", b"sorting"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["feature_view_name", b"feature_view_name", "pagination", b"pagination", "project", b"project", "sorting", b"sorting"]) -> None: ...
+
+global___GetMaterializationIntervalHistoryRequest = GetMaterializationIntervalHistoryRequest
+
+class GetMaterializationIntervalHistoryResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ENTRIES_FIELD_NUMBER: builtins.int
+    PAGINATION_FIELD_NUMBER: builtins.int
+    @property
+    def entries(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[feast.core.FeatureView_pb2.MaterializationIntervalHistoryEntry]: ...
+    @property
+    def pagination(self) -> global___PaginationMetadata: ...
+    def __init__(
+        self,
+        *,
+        entries: collections.abc.Iterable[feast.core.FeatureView_pb2.MaterializationIntervalHistoryEntry] | None = ...,
+        pagination: global___PaginationMetadata | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["pagination", b"pagination"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["entries", b"entries", "pagination", b"pagination"]) -> None: ...
+
+global___GetMaterializationIntervalHistoryResponse = GetMaterializationIntervalHistoryResponse
+
 class ApplyEntityRequest(google.protobuf.message.Message):
     DESCRIPTOR: google.protobuf.descriptor.Descriptor
 
