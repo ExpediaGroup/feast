@@ -69,6 +69,11 @@ func (m *LookupMetricsAggregator) RecordFromFeatureVectors(vectors []*onlineserv
 		return
 	}
 	for _, vector := range vectors {
+		if vector.FeatureViewName == "" {
+			// Entity/join-key columns don't belong to a feature view; skip them
+			// so they aren't misreported as "unknown" feature lookups.
+			continue
+		}
 		for _, status := range vector.Statuses {
 			m.Record(vector.Name, vector.FeatureViewName, status)
 		}
@@ -80,6 +85,11 @@ func (m *LookupMetricsAggregator) RecordFromRangeFeatureVectors(vectors []*onlin
 		return
 	}
 	for _, vector := range vectors {
+		if vector.FeatureViewName == "" {
+			// Entity/join-key columns don't belong to a feature view; skip them
+			// so they aren't misreported as "unknown" feature lookups.
+			continue
+		}
 		for _, entityStatuses := range vector.RangeStatuses {
 			for _, status := range entityStatuses {
 				m.Record(vector.Name, vector.FeatureViewName, status)
