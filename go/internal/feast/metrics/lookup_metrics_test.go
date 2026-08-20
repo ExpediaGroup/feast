@@ -203,6 +203,66 @@ func TestRecordFromFeatureVectors(t *testing.T) {
 	assert.Equal(t, int64(2), totalByFeature["fv_a__f2"])
 }
 
+func TestRecordFromFeatureVectors_SkipsEntityColumns(t *testing.T) {
+	fake := &fakeStatsdClient{}
+	agg := newTestAggregator(fake)
+
+	vectors := []*onlineserving.FeatureVector{
+		{
+			Name:            "exp_user_id",
+			FeatureViewName: "",
+			Statuses:        []serving.FieldStatus{serving.FieldStatus_PRESENT},
+		},
+		{
+			Name:            "fv_a__f1",
+			FeatureViewName: "fv_a",
+			Statuses:        []serving.FieldStatus{serving.FieldStatus_NOT_FOUND},
+		},
+	}
+
+	agg.RecordFromFeatureVectors(vectors)
+	agg.Emit()
+
+	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
+	assert.Len(t, totalCalls, 1)
+	assert.Equal(t, "fv_a__f1", findTag(totalCalls[0].tags, "feature:"))
+
+	for _, c := range fake.calls {
+		assert.NotContains(t, c.tags, "feature_view:unknown")
+		assert.NotContains(t, c.tags, "feature:exp_user_id")
+	}
+}
+
+func TestRecordFromRangeFeatureVectors_SkipsEntityColumns(t *testing.T) {
+	fake := &fakeStatsdClient{}
+	agg := newTestAggregator(fake)
+
+	vectors := []*onlineserving.RangeFeatureVector{
+		{
+			Name:            "eg_user_id",
+			FeatureViewName: "",
+			RangeStatuses:   [][]serving.FieldStatus{{serving.FieldStatus_PRESENT}},
+		},
+		{
+			Name:            "sfv__f1",
+			FeatureViewName: "sfv",
+			RangeStatuses:   [][]serving.FieldStatus{{serving.FieldStatus_NOT_FOUND}},
+		},
+	}
+
+	agg.RecordFromRangeFeatureVectors(vectors)
+	agg.Emit()
+
+	totalCalls := filterCalls(fake.calls, LookupRequestsMetric)
+	assert.Len(t, totalCalls, 1)
+	assert.Equal(t, "sfv__f1", findTag(totalCalls[0].tags, "feature:"))
+
+	for _, c := range fake.calls {
+		assert.NotContains(t, c.tags, "feature_view:unknown")
+		assert.NotContains(t, c.tags, "feature:eg_user_id")
+	}
+}
+
 func TestRecordFromRangeFeatureVectors(t *testing.T) {
 	fake := &fakeStatsdClient{}
 	agg := newTestAggregator(fake)
