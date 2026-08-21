@@ -952,6 +952,35 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
         )
         return Empty()
 
+    def GetMaterializationIntervalHistory(
+        self,
+        request: RegistryServer_pb2.GetMaterializationIntervalHistoryRequest,
+        context,
+    ):
+        assert_permissions(
+            cast(
+                FeastObject,
+                self.proxied_registry.get_any_feature_view(
+                    name=request.feature_view_name, project=request.project
+                ),
+            ),
+            actions=AuthzedAction.DESCRIBE,
+        )
+
+        entries, pagination_metadata = apply_pagination_and_sorting(
+            self.proxied_registry.get_materialization_interval_history(
+                feature_view_name=request.feature_view_name,
+                project=request.project,
+            ),
+            pagination=request.pagination,
+            sorting=request.sorting,
+        )
+
+        return RegistryServer_pb2.GetMaterializationIntervalHistoryResponse(
+            entries=entries,
+            pagination=pagination_metadata,
+        )
+
     def UpdateInfra(self, request: RegistryServer_pb2.UpdateInfraRequest, context):
         self.proxied_registry.update_infra(
             infra=Infra.from_proto(request.infra),

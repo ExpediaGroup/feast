@@ -25,6 +25,9 @@ from feast.permissions.client.grpc_client_auth_interceptor import (
 from feast.permissions.permission import Permission
 from feast.project import Project
 from feast.project_metadata import ProjectMetadata
+from feast.protos.feast.core.FeatureView_pb2 import (
+    MaterializationIntervalHistoryEntry as MaterializationIntervalHistoryEntryProto,
+)
 from feast.protos.feast.core.Registry_pb2 import Registry as RegistryProto
 from feast.protos.feast.registry import RegistryServer_pb2, RegistryServer_pb2_grpc
 from feast.repo_config import RegistryConfig
@@ -410,6 +413,17 @@ class RemoteRegistry(BaseRegistry):
             commit=commit,
         )
         self.stub.ApplyMaterialization(request)
+
+    def get_materialization_interval_history(
+        self,
+        feature_view_name: str,
+        project: str,
+    ) -> List[MaterializationIntervalHistoryEntryProto]:
+        request = RegistryServer_pb2.GetMaterializationIntervalHistoryRequest(
+            feature_view_name=feature_view_name, project=project
+        )
+        response = self.stub.GetMaterializationIntervalHistory(request)
+        return list(response.entries)
 
     def apply_saved_dataset(
         self,

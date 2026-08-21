@@ -62,6 +62,20 @@ DUMMY_ENTITY_FIELD = Field(
 
 ONLINE_STORE_TAG_SUFFIX = "online_store_"
 
+# Rolling-window cap on FeatureViewMeta.materialization_intervals -- kept
+# small so the registry's per-feature-view proto blob doesn't grow
+# unboundedly over the life of a feature view; this field is only ever meant
+# to answer "when was this feature view most recently materialized," which
+# never needs more than a handful of recent entries. The full, uncapped
+# history (including every interval this field ever drops) is durably
+# retained by each registry backend in a separate materialization-interval
+# history store -- see add_materialization_interval/_cap_materialization_intervals's
+# return value, which callers archive there. Configurable per registry
+# instance via RegistryConfig.materialization_intervals_max_len (currently
+# honored by SqlRegistry/SqlFallbackRegistry only) to stage a rollout of a
+# new cap value via config rather than a code change.
+MATERIALIZATION_INTERVALS_MAX_LEN = 10
+
 logger = logging.getLogger(__name__)
 
 
@@ -389,14 +403,83 @@ class FeatureView(BaseFeatureView):
         return cp
 
     def update_materialization_intervals(
-        self, existing_materialization_intervals: List[Tuple[datetime, datetime]]
-    ):
+        self,
+        existing_materialization_intervals: List[Tuple[datetime, datetime]],
+        max_intervals: Optional[int] = None,
+    ) -> List[Tuple[datetime, datetime]]:
         if (
             len(existing_materialization_intervals) > 0
             and len(self.materialization_intervals) == 0
         ):
             for interval in existing_materialization_intervals:
                 self.materialization_intervals.append((interval[0], interval[1]))
+        # Defensively re-apply the cap here too: this hydrates an in-memory
+        # object from what's already persisted (e.g. the SQL registry's
+        # "no changes, preserve existing intervals" path), so an
+        # already-persisted, not-yet-migrated feature view with more than
+        # the cap can't leak an over-long list back out through this path.
+        # The caller is responsible for archiving whatever this returns --
+        # this is also the moment a feature view that already has more than
+        # the cap (e.g. persisted before a cap tightening rollout) first gets
+        # trimmed, so the returned list may be more than one entry.
+        return self._cap_materialization_intervals(max_intervals)
+
+    def add_materialization_interval(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        max_intervals: Optional[int] = None,
+    ) -> List[Tuple[datetime, datetime]]:
+        """
+        Records that this feature view was materialized for [start_date, end_date),
+        keeping only the most recent `max_intervals` entries (or
+        MATERIALIZATION_INTERVALS_MAX_LEN if not given).
+
+        This is the single choke point every registry backend's
+        apply_materialization should call through (instead of appending to
+        materialization_intervals directly), so the cap is enforced
+        identically everywhere.
+
+        Returns the list of intervals dropped by the cap as a result of this
+        call (usually empty). Callers are expected to durably archive both
+        the dropped intervals and the newly-added (start_date, end_date) to a
+        separate, uncapped materialization-interval history store -- this
+        object only ever holds the bounded, recent-only view.
+
+        max_intervals lets a caller override the default cap -- e.g. a
+        registry backend reading RegistryConfig.materialization_intervals_max_len
+        so a rollout of a new cap value can be staged via config rather than
+        a code change (start high to match today's effectively-uncapped
+        behavior, then lower it in steps).
+        """
+        self.materialization_intervals.append((start_date, end_date))
+        return self._cap_materialization_intervals(max_intervals)
+
+    def _cap_materialization_intervals(
+        self, max_intervals: Optional[int] = None
+    ) -> List[Tuple[datetime, datetime]]:
+        effective_max = (
+            max_intervals
+            if max_intervals is not None
+            else MATERIALIZATION_INTERVALS_MAX_LEN
+        )
+        # Guard against effective_max <= 0: `-effective_max` would be `0` (or
+        # positive) rather than a negative slice bound, so `list[:-0]` and
+        # `list[-0:]` both silently resolve to slicing at index 0 -- meaning
+        # a cap of 0 would report nothing as dropped and leave the list
+        # completely untouched instead of capping it to empty. A cap of 0
+        # (or a nonsensical negative value) means "keep none".
+        if effective_max <= 0:
+            dropped = self.materialization_intervals
+            self.materialization_intervals = []
+            return dropped
+        if len(self.materialization_intervals) > effective_max:
+            dropped = self.materialization_intervals[:-effective_max]
+            self.materialization_intervals = self.materialization_intervals[
+                -effective_max:
+            ]
+            return dropped
+        return []
 
     def to_proto(self) -> FeatureViewProto:
         """

@@ -109,6 +109,23 @@ message MaterializationInterval {
     google.protobuf.Timestamp end_time = 2;
 }
 
+// A single durably-retained entry in a feature view's full, uncapped
+// materialization-interval history. Unlike MaterializationInterval (which
+// lives on a specific FeatureViewMeta and is capped to the most recent N
+// entries), this is discriminated by feature_view_name/project so it can
+// live in a separate collection -- a registry-backend-specific table (SQL,
+// Snowflake) or a top-level Registry field (file-based) -- and is written
+// for every interval, including ones already dropped from the capped list.
+message MaterializationIntervalHistoryEntry {
+    string feature_view_name = 1;
+    string project = 2;
+    google.protobuf.Timestamp start_time = 3;
+    google.protobuf.Timestamp end_time = 4;
+    // When this entry was recorded to history (not necessarily when the
+    // materialization run itself happened).
+    google.protobuf.Timestamp recorded_at = 5;
+}
+
 message FeatureViewList {
     repeated FeatureView featureviews = 1;
 }

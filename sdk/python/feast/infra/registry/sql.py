@@ -12,6 +12,7 @@ from sqlalchemy import (  # type: ignore
     BigInteger,
     Column,
     Index,
+    Integer,
     LargeBinary,
     MetaData,
     String,
@@ -26,6 +27,7 @@ from sqlalchemy import (  # type: ignore
     update,
 )
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 
 from feast import utils
 from feast.base_feature_view import BaseFeatureView
@@ -60,6 +62,9 @@ from feast.protos.feast.core.FeatureService_pb2 import (
     FeatureService as FeatureServiceProto,
 )
 from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+from feast.protos.feast.core.FeatureView_pb2 import (
+    MaterializationIntervalHistoryEntry as MaterializationIntervalHistoryEntryProto,
+)
 from feast.protos.feast.core.InfraObject_pb2 import Infra as InfraProto
 from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
     OnDemandFeatureView as OnDemandFeatureViewProto,
@@ -235,6 +240,41 @@ permissions = Table(
 )
 
 Index("idx_permissions_project_id", permissions.c.project_id)
+
+# Durable, append-only history of materialization intervals -- the companion
+# to the capped FeatureViewMeta.materialization_intervals rolling window (see
+# feast.feature_view.MATERIALIZATION_INTERVALS_MAX_LEN). Unlike every table
+# above, this is genuinely multi-row per (feature_view_name, project_id) --
+# one row per interval over time, not one row per object -- so it's
+# intentionally NOT wired through the generic _apply_object/_get_object
+# single-row-per-key helpers.
+materialization_interval_history = Table(
+    "materialization_interval_history",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("feature_view_name", String(255), nullable=False),
+    Column("project_id", String(255), nullable=False),
+    Column("start_time", BigInteger, nullable=False),
+    Column("end_time", BigInteger, nullable=False),
+    Column("recorded_at", BigInteger, nullable=False),
+)
+
+# Unique (not just a plain index): enforces idempotency at the DB level, not
+# only in application code -- without this, two concurrent writers (e.g. a
+# retry racing the original apply_materialization call) could both pass a
+# "does this interval already exist" check before either commits, producing
+# duplicate history rows. The leading columns (project_id, feature_view_name,
+# start_time) also make this the index that serves
+# get_materialization_interval_history's filtered, start_time-ordered query,
+# so no separate non-unique index is needed alongside it.
+Index(
+    "idx_materialization_interval_history_fv_project",
+    materialization_interval_history.c.project_id,
+    materialization_interval_history.c.feature_view_name,
+    materialization_interval_history.c.start_time,
+    materialization_interval_history.c.end_time,
+    unique=True,
+)
 
 
 class FeastMetadataKeys(Enum):
@@ -837,10 +877,110 @@ class SqlRegistry(CachingRegistry):
             "feature_view_proto",
             FeatureViewNotFoundException,
         )
-        fv.materialization_intervals.append((start_date, end_date))
+        dropped = fv.add_materialization_interval(
+            start_date,
+            end_date,
+            max_intervals=self.registry_config.materialization_intervals_max_len,
+        )
+        self._record_materialization_interval_history(
+            fv.name, project, dropped + [(start_date, end_date)]
+        )
         self._apply_object(
             table, project, "feature_view_name", fv, "feature_view_proto"
         )
+
+    def _record_materialization_interval_history(
+        self,
+        feature_view_name: str,
+        project: str,
+        intervals: List[tuple],
+        conn: Optional[Any] = None,
+    ) -> None:
+        """
+        Durably appends entries to the full, uncapped materialization-interval
+        history table -- called both when a new interval is added (usually a
+        single-entry list) and when the capped list drops entries that were
+        never previously archived (e.g. a feature view persisted before a cap
+        tightening rollout, first encountered here with more than the cap).
+
+        Idempotent on (feature_view_name, project, start_time, end_time): a
+        newly-added interval is archived immediately by the caller, so by the
+        time it's later dropped from the capped list it's typically already
+        in history -- callers don't have to reason about which case applies,
+        this just skips entries already present instead of duplicating them.
+
+        Enforced via a unique index (not a check-then-insert in application
+        code): two concurrent callers racing to archive the same interval
+        (e.g. a retry racing the original apply_materialization call) could
+        otherwise both pass a "does this already exist" SELECT before either
+        commits, producing duplicate rows. Each row is inserted in its own
+        savepoint so a unique-constraint violation on one interval rolls
+        back only that insert, not the rest of the batch or (when `conn` is
+        the caller's own connection) the surrounding transaction.
+
+        If `conn` is provided, inserts run on that connection (so callers
+        already inside a write transaction -- e.g. _apply_object's hydration
+        path -- get one atomic commit instead of a nested transaction);
+        otherwise a new transaction is opened here.
+        """
+        if not intervals:
+            return
+
+        def _do_record(c):
+            recorded_at = int(utils._utc_now().timestamp())
+            for start, end in intervals:
+                try:
+                    with c.begin_nested():
+                        c.execute(
+                            insert(materialization_interval_history),
+                            {
+                                "feature_view_name": feature_view_name,
+                                "project_id": project,
+                                "start_time": int(start.timestamp()),
+                                "end_time": int(end.timestamp()),
+                                "recorded_at": recorded_at,
+                            },
+                        )
+                except IntegrityError:
+                    # Already recorded -- either archived earlier when this
+                    # exact interval was first added, or a concurrent writer
+                    # won the race. The unique index makes this safe to skip.
+                    pass
+
+        if conn is not None:
+            _do_record(conn)
+        else:
+            with self.write_engine.begin() as new_conn:
+                _do_record(new_conn)
+
+    def get_materialization_interval_history(
+        self,
+        feature_view_name: str,
+        project: str,
+    ) -> List[MaterializationIntervalHistoryEntryProto]:
+        with self.read_engine.begin() as conn:
+            stmt = (
+                select(materialization_interval_history)
+                .where(
+                    materialization_interval_history.c.project_id == project,
+                    materialization_interval_history.c.feature_view_name
+                    == feature_view_name,
+                )
+                .order_by(materialization_interval_history.c.start_time.asc())
+            )
+            rows = conn.execute(stmt).all()
+
+        entries = []
+        for row in rows:
+            entry = MaterializationIntervalHistoryEntryProto(
+                feature_view_name=row.feature_view_name,
+                project=row.project_id,
+            )
+            entry.start_time.FromSeconds(row.start_time)
+            entry.end_time.FromSeconds(row.end_time)
+            entry.recorded_at.FromSeconds(row.recorded_at)
+            entries.append(entry)
+        return entries
 
     def delete_validation_reference(self, name: str, project: str, commit: bool = True):
         self._delete_object(
@@ -1103,10 +1243,33 @@ class SqlRegistry(CachingRegistry):
                         if isinstance(
                             obj, (FeatureView, StreamFeatureView, SortedFeatureView)
                         ):
-                            obj.update_materialization_intervals(
+                            previously_stored_intervals = (
                                 type(obj)
                                 .from_proto(deserialized_proto)
                                 .materialization_intervals
+                            )
+                            obj.update_materialization_intervals(
+                                previously_stored_intervals,
+                                max_intervals=self.registry_config.materialization_intervals_max_len,
+                            )
+                            # This is the moment a feature view persisted
+                            # before a cap (tightening) was ever enforced --
+                            # e.g. by a backend/config that historically
+                            # didn't cap -- first gets trimmed here. Archive
+                            # the *entire* previously-stored list, not just
+                            # what the cap drops: entries that survive the
+                            # cap here were never individually archived
+                            # either (unlike apply_materialization's new-entry
+                            # path, nothing "new" is being added on this
+                            # path). _record_materialization_interval_history
+                            # is idempotent, so re-archiving entries already
+                            # recorded by an earlier apply_materialization
+                            # call is a no-op, not a duplicate.
+                            self._record_materialization_interval_history(
+                                obj.name,
+                                project,
+                                previously_stored_intervals,
+                                conn=conn,
                             )
                 values = {
                     proto_field_name: obj.to_proto().SerializeToString(),

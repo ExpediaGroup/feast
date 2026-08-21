@@ -175,6 +175,17 @@ class RegistryConfig(FeastBaseModel):
         Once this is set to True, it cannot be reverted back to False. Reverting back to False will
         only reset the project but not all the projects"""
 
+    materialization_intervals_max_len: StrictInt = 10
+    """int: The maximum number of (start_time, end_time) entries kept in a feature view's
+     materialization_intervals rolling window. Older entries beyond this count are dropped
+     on the next materialization run -- full, durable materialization history is expected to
+     live externally (an EGDL/Iceberg metrics table written by the materialization job), not
+     on this object, so this field is only ever meant to answer "when was this feature view
+     most recently materialized". Deployments can override this per-registry-instance
+     (currently honored by SqlRegistry/SqlFallbackRegistry only) to stage a rollout of a new
+     cap value via config rather than a code change -- e.g. start high to match today's
+     effectively-uncapped behavior, then lower it in steps."""
+
     @field_validator("path")
     def validate_path(cls, path: str, values: ValidationInfo) -> str:
         if values.data.get("registry_type") == "sql":

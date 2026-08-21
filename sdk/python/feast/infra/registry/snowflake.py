@@ -43,6 +43,9 @@ from feast.protos.feast.core.FeatureService_pb2 import (
     FeatureService as FeatureServiceProto,
 )
 from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewProto
+from feast.protos.feast.core.FeatureView_pb2 import (
+    MaterializationIntervalHistoryEntry as MaterializationIntervalHistoryEntryProto,
+)
 from feast.protos.feast.core.InfraObject_pb2 import Infra as InfraProto
 from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
     OnDemandFeatureView as OnDemandFeatureViewProto,
@@ -1034,7 +1037,14 @@ class SnowflakeRegistry(BaseRegistry):
             f"{fv_column_name}_PROTO",
             FeatureViewNotFoundException,
         )
-        fv.materialization_intervals.append((start_date, end_date))
+        dropped = fv.add_materialization_interval(
+            start_date,
+            end_date,
+            max_intervals=self.registry_config.materialization_intervals_max_len,
+        )
+        self._record_materialization_interval_history(
+            fv.name, project, dropped + [(start_date, end_date)]
+        )
         self._apply_object(
             fv_table_str,
             project,
@@ -1042,6 +1052,102 @@ class SnowflakeRegistry(BaseRegistry):
             fv,
             f"{fv_column_name}_PROTO",
         )
+
+    def _record_materialization_interval_history(
+        self,
+        feature_view_name: str,
+        project: str,
+        intervals: List[tuple],
+    ) -> None:
+        """
+        Durably appends entries to the full, uncapped materialization-interval
+        history table -- the Snowflake counterpart to the SQL registry's
+        separate materialization_interval_history table. Bespoke inserts
+        (not through _apply_object/_get_object, which assume upsert-by-key)
+        since this is genuinely multi-row per (feature_view_name, project_id).
+
+        Idempotent on (feature_view_name, project, start_time, end_time), same
+        as the SQL registry's version.
+        """
+        if not intervals:
+            return
+        with GetSnowflakeConnection(self.registry_config) as conn:
+            existing_query = f"""
+                SELECT
+                    start_time,
+                    end_time
+                FROM
+                    {self.registry_path}."MATERIALIZATION_INTERVAL_HISTORY"
+                WHERE
+                    project_id = '{project}'
+                    AND feature_view_name = '{feature_view_name}'
+            """
+            existing_df = execute_snowflake_statement(
+                conn, existing_query
+            ).fetch_pandas_all()
+            existing_keys = {
+                (
+                    int(row["START_TIME"].timestamp()),
+                    int(row["END_TIME"].timestamp()),
+                )
+                for _, row in existing_df.iterrows()
+            }
+
+            recorded_at = _utc_now()
+            values_clauses = []
+            for start, end in intervals:
+                key = (int(start.timestamp()), int(end.timestamp()))
+                if key in existing_keys:
+                    continue
+                existing_keys.add(key)
+                values_clauses.append(
+                    f"('{feature_view_name}', '{project}', "
+                    f"TO_TIMESTAMP_LTZ('{start.isoformat()}'), "
+                    f"TO_TIMESTAMP_LTZ('{end.isoformat()}'), "
+                    f"TO_TIMESTAMP_LTZ('{recorded_at.isoformat()}'))"
+                )
+            if not values_clauses:
+                return
+            insert_query = f"""
+                INSERT INTO {self.registry_path}."MATERIALIZATION_INTERVAL_HISTORY"
+                    (feature_view_name, project_id, start_time, end_time, recorded_at)
+                VALUES
+                    {", ".join(values_clauses)}
+            """
+            execute_snowflake_statement(conn, insert_query)
+
+    def get_materialization_interval_history(
+        self,
+        feature_view_name: str,
+        project: str,
+    ) -> List[MaterializationIntervalHistoryEntryProto]:
+        with GetSnowflakeConnection(self.registry_config) as conn:
+            query = f"""
+                SELECT
+                    start_time,
+                    end_time,
+                    recorded_at
+                FROM
+                    {self.registry_path}."MATERIALIZATION_INTERVAL_HISTORY"
+                WHERE
+                    project_id = '{project}'
+                    AND feature_view_name = '{feature_view_name}'
+                ORDER BY
+                    start_time ASC
+            """
+            df = execute_snowflake_statement(conn, query).fetch_pandas_all()
+
+        entries = []
+        for _, row in df.iterrows():
+            entry = MaterializationIntervalHistoryEntryProto(
+                feature_view_name=feature_view_name,
+                project=project,
+            )
+            entry.start_time.FromDatetime(row["START_TIME"])
+            entry.end_time.FromDatetime(row["END_TIME"])
+            entry.recorded_at.FromDatetime(row["RECORDED_AT"])
+            entries.append(entry)
+        return entries
 
     def list_project_metadata(
         self, project: str, allow_cache: bool = False
