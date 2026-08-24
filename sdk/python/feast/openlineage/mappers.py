@@ -191,21 +191,61 @@ def join_keys(feature_view: "FeatureView") -> List[str]:
     return [e for e in (getattr(feature_view, "entities", None) or []) if e]
 
 
-def tag_pairs(feature_view: "FeatureView") -> List[Tuple[str, str]]:
-    """
-    ``(key, value)`` tag pairs: the view's own tags, then ``ttl_seconds`` (as a
-    string), then the governed ``eg-application-name`` tag when resolvable.
+# EG mandatory FeatureView tags (application, team, owner, product, costCenter --
+# feature-store-feast-sdk validation) that are re-homed onto other facets, so they
+# are dropped from the tags facet to avoid duplicating information there (EGDL
+# feedback, Deepak Jain, EAPC-22333):
+#   * application -> re-keyed to the governed ``eg-application-name`` tag (below)
+#   * product     -> re-keyed to the governed ``eg-data-product`` tag (below); the
+#                    Metadata Bus relay resolves that against data-mesh-definitions
+#                    to set the FeatureView's data-mesh domain + owner
+#   * team, owner -> already carried by the standard ``ownership`` facet
+_TAGS_REHOMED = frozenset({"application", "product", "team", "owner"})
 
-    At apply time the FeatureView carries the app name under the ``application``
-    tag (the ML Platform convention -- ``eg-application-name`` itself only exists
-    on the offline table tags, which the emitter never sees). Re-key that value
-    onto the governed ``eg-application-name`` tag the sync app recognizes. Per the
-    metadata-bus rule, the tag is omitted entirely -- never a placeholder -- when
-    no value exists.
+
+def tag_pairs(
+    feature_view: "FeatureView", default_data_product: Optional[str] = None
+) -> List[Tuple[str, str]]:
+    """
+    ``(key, value)`` tag pairs for the standard ``tags`` facet.
+
+    Emits the view's own tags -- minus the EG mandatory tags that are re-homed
+    onto other facets (see ``_TAGS_REHOMED``) so the tags facet does not duplicate
+    ownership / application / product information -- then ``ttl_seconds`` (as a
+    string) and the two governed re-keys below.
+
+    ``application`` -> ``eg-application-name``:
+        At apply time the FeatureView carries the app name under the ML Platform
+        ``application`` tag; ``eg-application-name`` itself only exists on the
+        offline table tags, which the emitter never sees. Re-key onto the governed
+        tag the sync app recognizes.
+
+    ``product`` -> ``eg-data-product``:
+        The ML Platform ``product`` tag is re-keyed onto the governed
+        ``eg-data-product`` tag. Feast does **not** map the product to a data-mesh
+        domain itself -- it forwards the product identity, and the Metadata Bus
+        relay resolves ``eg-data-product`` against ``eg-internal/data-mesh-definitions``
+        to set the FeatureView's domain and owner (the same mechanism the model
+        side / MRS uses, EAPC-22420). The FeatureView's ``product`` tag is mandatory
+        and lowercase-hyphen (validated by feature-store-feast-sdk), matching the
+        data-product-name shape. When the view carries no ``product`` (e.g. a view
+        that skipped EG validation, where ``product`` is not enforced) and
+        ``default_data_product`` is set, it is used as the fallback ``eg-data-product``
+        value so the view still resolves to a domain/owner rather than landing
+        unowned -- mirroring the model side, which defaults to the
+        ``ai-ml-platform/model-repository`` product (MRS, EAPC-22420). The default is
+        left unset (no fallback) unless a real feature-store data product has been
+        registered in ``data-mesh-definitions`` to resolve against; emitting a value
+        with no registered product would strand the view in the ``legacy`` domain.
+
+    Per the metadata-bus rule, each re-keyed tag is omitted entirely -- never a
+    placeholder -- when no value exists.
     """
     view_tags = getattr(feature_view, "tags", None) or {}
 
-    pairs: List[Tuple[str, str]] = [(str(k), str(v)) for k, v in view_tags.items()]
+    pairs: List[Tuple[str, str]] = [
+        (str(k), str(v)) for k, v in view_tags.items() if k not in _TAGS_REHOMED
+    ]
 
     ttl = getattr(feature_view, "ttl", None)
     if ttl:
@@ -218,6 +258,14 @@ def tag_pairs(feature_view: "FeatureView") -> List[Tuple[str, str]]:
     )
     if app and "eg-application-name" not in view_tags:
         pairs.append(("eg-application-name", str(app)))
+
+    product = (
+        view_tags.get("product")
+        or view_tags.get("eg-data-product")
+        or default_data_product
+    )
+    if product and "eg-data-product" not in view_tags:
+        pairs.append(("eg-data-product", str(product)))
     return pairs
 
 

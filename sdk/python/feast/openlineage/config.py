@@ -62,6 +62,12 @@ class OpenLineageConfig:
     environment: Optional[str] = None
     producer: str = DEFAULT_PRODUCER
     emit_on_apply: bool = True
+    # Fallback ``eg-data-product`` tag value for views that carry no ``product``
+    # tag. Left unset (no fallback) by default: only set it once a real
+    # feature-store data product exists in data-mesh-definitions to resolve
+    # against, else the view is stranded in the ``legacy`` domain. Mirrors the
+    # model side's ai-ml-platform/model-repository default (MRS, EAPC-22420).
+    default_data_product: Optional[str] = None
     additional_config: Dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -79,6 +85,7 @@ class OpenLineageConfig:
             producer=os.getenv("FEAST_OPENLINEAGE_PRODUCER", DEFAULT_PRODUCER),
             emit_on_apply=os.getenv("FEAST_OPENLINEAGE_EMIT_ON_APPLY", "true").lower()
             == "true",
+            default_data_product=os.getenv("FEAST_OPENLINEAGE_DEFAULT_DATA_PRODUCT"),
         )
 
     def resolve_environment(self) -> Optional[str]:

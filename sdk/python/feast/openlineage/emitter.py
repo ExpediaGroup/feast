@@ -123,7 +123,9 @@ class FeastOpenLineageEmitter:
                 ]
             )
 
-        tag_pairs = mappers.tag_pairs(fv)
+        tag_pairs = mappers.tag_pairs(
+            fv, default_data_product=self._config.default_data_product
+        )
         if tag_pairs:
             facets["tags"] = tags_dataset.TagsDatasetFacet(
                 tags=[
@@ -137,7 +139,17 @@ class FeastOpenLineageEmitter:
             facets["schema"] = schema_dataset.SchemaDatasetFacet(
                 fields=[
                     schema_dataset.SchemaDatasetFacetFields(
-                        name=name, type=ftype or None, description=fdesc or None
+                        name=name,
+                        type=ftype or None,
+                        # Always emit a description string ("" when the feature has
+                        # none) rather than dropping the key -- EGDL asked for an
+                        # empty string over an absent field (Deepak Jain, EAPC-22333).
+                        description=fdesc or "",
+                        # The OL client defaults the nested-struct `fields` to `[]`
+                        # via attr factory=list, which then serializes as an empty
+                        # array on every column. Feast columns are flat, so pin it to
+                        # None to drop the key entirely (EGDL request, EAPC-22333).
+                        fields=None,
                     )
                     for name, ftype, fdesc in fields
                 ]
