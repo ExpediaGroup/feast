@@ -194,7 +194,12 @@ class RegistryConfig(FeastBaseModel):
 class OpenLineageConfig(FeastConfigBaseModel):
     """
     Configuration for emitting OpenLineage events to the EG Metadata Bus on
-    ``feast apply``. See ``feast/openlineage/README.md``.
+    ``feast apply``. See the ``feast.openlineage`` package docstring.
+
+    Transport and identity only. What each event *says* -- notably the governed
+    ``eg-data-product`` tag -- is not configurable here: it comes from the Feast
+    objects' own tags, else from the platform default in
+    ``feast.openlineage.config``.
     """
 
     enabled: StrictBool = False
@@ -224,13 +229,6 @@ class OpenLineageConfig(FeastConfigBaseModel):
     emit_on_apply: StrictBool = True
     """ bool: Emit lineage when `feast apply` runs. """
 
-    default_data_product: Optional[StrictStr] = None
-    """ str: Fallback `eg-data-product` tag value for feature views with no `product`
-        tag. The Metadata Bus relay resolves `eg-data-product` against
-        data-mesh-definitions to set the view's domain and owner. Leave unset (no
-        fallback) unless a real feature-store data product is registered there to
-        resolve against; otherwise the view lands in the `legacy` domain. """
-
     def to_openlineage_config(self):
         """Convert to the runtime dataclass consumed by the emitter/client."""
         from feast.openlineage.config import OpenLineageConfig as _RuntimeConfig
@@ -244,7 +242,6 @@ class OpenLineageConfig(FeastConfigBaseModel):
             environment=self.environment,
             producer=self.producer,
             emit_on_apply=self.emit_on_apply,
-            default_data_product=self.default_data_product,
         )
 
 

@@ -192,15 +192,21 @@ def join_keys(feature_view: "FeatureView") -> List[str]:
 
 
 # EG mandatory FeatureView tags (application, team, owner, product, costCenter --
-# feature-store-feast-sdk validation) that are re-homed onto other facets, so they
-# are dropped from the tags facet to avoid duplicating information there (EGDL
-# feedback, Deepak Jain, EAPC-22333):
+# feature-store-feast-sdk validation) that are dropped from the tags facet, either
+# because they are re-homed onto another facet or because a governed tag carries
+# the information instead (EGDL feedback, Deepak Jain, EAPC-22333):
 #   * application -> re-keyed to the governed ``eg-application-name`` tag (below)
-#   * product     -> re-keyed to the governed ``eg-data-product`` tag (below); the
-#                    Metadata Bus relay resolves that against data-mesh-definitions
-#                    to set the FeatureView's data-mesh domain + owner
+#   * product     -> dropped outright. The ML Platform ``product`` tag is an MLP
+#                    product name, *not* a data-mesh data-product name, so it is
+#                    not a valid ``eg-data-product`` value; the governed tag is
+#                    resolved independently of it (see ``tag_pairs``)
 #   * team, owner -> already carried by the standard ``ownership`` facet
 _TAGS_REHOMED = frozenset({"application", "product", "team", "owner"})
+
+# The governed data-product tag. Resolved -- and therefore emitted -- exactly once
+# by ``tag_pairs`` rather than passed straight through, so a present-but-blank tag
+# still falls back to the configured default.
+_TAG_DATA_PRODUCT = "eg-data-product"
 
 
 def tag_pairs(
@@ -209,10 +215,10 @@ def tag_pairs(
     """
     ``(key, value)`` tag pairs for the standard ``tags`` facet.
 
-    Emits the view's own tags -- minus the EG mandatory tags that are re-homed
-    onto other facets (see ``_TAGS_REHOMED``) so the tags facet does not duplicate
-    ownership / application / product information -- then ``ttl_seconds`` (as a
-    string) and the two governed re-keys below.
+    Emits the view's own tags -- minus the EG mandatory tags dropped in favour of
+    another facet or a governed tag (see ``_TAGS_REHOMED``) so the tags facet does
+    not duplicate ownership / application / product information -- then
+    ``ttl_seconds`` (as a string) and the two governed tags below.
 
     ``application`` -> ``eg-application-name``:
         At apply time the FeatureView carries the app name under the ML Platform
@@ -220,31 +226,36 @@ def tag_pairs(
         offline table tags, which the emitter never sees. Re-key onto the governed
         tag the sync app recognizes.
 
-    ``product`` -> ``eg-data-product``:
-        The ML Platform ``product`` tag is re-keyed onto the governed
-        ``eg-data-product`` tag. Feast does **not** map the product to a data-mesh
-        domain itself -- it forwards the product identity, and the Metadata Bus
-        relay resolves ``eg-data-product`` against ``eg-internal/data-mesh-definitions``
-        to set the FeatureView's domain and owner (the same mechanism the model
-        side / MRS uses, EAPC-22420). The FeatureView's ``product`` tag is mandatory
-        and lowercase-hyphen (validated by feature-store-feast-sdk), matching the
-        data-product-name shape. When the view carries no ``product`` (e.g. a view
-        that skipped EG validation, where ``product`` is not enforced) and
-        ``default_data_product`` is set, it is used as the fallback ``eg-data-product``
-        value so the view still resolves to a domain/owner rather than landing
-        unowned -- mirroring the model side, which defaults to the
-        ``ai-ml-platform/model-repository`` product (MRS, EAPC-22420). The default is
-        left unset (no fallback) unless a real feature-store data product has been
-        registered in ``data-mesh-definitions`` to resolve against; emitting a value
-        with no registered product would strand the view in the ``legacy`` domain.
+    ``eg-data-product``:
+        Taken from the view's own ``eg-data-product`` tag, falling back to
+        ``default_data_product`` when the view carries no such tag or its value is
+        blank. Feast does **not** map the product to a data-mesh domain itself --
+        it forwards the product identity, and the Metadata Bus relay resolves
+        ``eg-data-product`` against ``eg-internal/data-mesh-definitions`` to set
+        the FeatureView's domain and owners (the same mechanism the model side /
+        MRS uses, EAPC-22420): "``eg-data-product`` is a tag when provided is used
+        to resolve Domain and Owner of the asset in OM" (Deepak Jain), and "the tag
+        value must match the ``metadata.name`` field in your data product YAML"
+        (FAQ: OpenMetadata).
 
-    Per the metadata-bus rule, each re-keyed tag is omitted entirely -- never a
+        The ML Platform ``product`` tag is deliberately **not** used as a source
+        here. Its values are MLP product names, which are not registered data
+        products -- emitting one (e.g. ``unified-feature-store``) resolves to
+        nothing and strands the view. So a view is tagged either with a real
+        ``eg-data-product`` or with the platform default
+        (``config.DEFAULT_DATA_PRODUCT``, ``mlp-feature-registry``), per
+        data-mesh-definitions#480; teams override it by tagging their objects
+        with their own registered product.
+
+    Per the metadata-bus rule, each governed tag is omitted entirely -- never a
     placeholder -- when no value exists.
     """
     view_tags = getattr(feature_view, "tags", None) or {}
 
     pairs: List[Tuple[str, str]] = [
-        (str(k), str(v)) for k, v in view_tags.items() if k not in _TAGS_REHOMED
+        (str(k), str(v))
+        for k, v in view_tags.items()
+        if k not in _TAGS_REHOMED and k != _TAG_DATA_PRODUCT
     ]
 
     ttl = getattr(feature_view, "ttl", None)
@@ -259,13 +270,11 @@ def tag_pairs(
     if app and "eg-application-name" not in view_tags:
         pairs.append(("eg-application-name", str(app)))
 
-    product = (
-        view_tags.get("product")
-        or view_tags.get("eg-data-product")
-        or default_data_product
+    data_product = (
+        str(view_tags.get(_TAG_DATA_PRODUCT) or "").strip() or default_data_product
     )
-    if product and "eg-data-product" not in view_tags:
-        pairs.append(("eg-data-product", str(product)))
+    if data_product:
+        pairs.append((_TAG_DATA_PRODUCT, str(data_product)))
     return pairs
 
 

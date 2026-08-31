@@ -97,14 +97,16 @@ def _batch_feature_view():
         online=True,
         description="Hotel price signals for ranking and forecasting",
         owner="mlp-feature-team",
-        # The EG mandatory tags (application/team/owner/product/costCenter) plus a
-        # custom tag, to exercise re-keying + duplicate-tag dropping (EAPC-22333).
+        # The EG mandatory tags (application/team/owner/product/costCenter), the
+        # governed eg-data-product tag, and a custom tag -- to exercise re-keying
+        # + duplicate-tag dropping (EAPC-22333).
         tags={
             "domain": "hotels",
             "application": "hotel-price-app",
             "team": "mlp-feature-team-dl",
             "owner": "mlp-owner@expediagroup.com",
-            "product": "commerce-attribute-store",
+            "product": "unified-feature-store",
+            "eg-data-product": "commerce-attribute-store",
             "costCenter": "12345",
         },
     )
@@ -162,13 +164,15 @@ def test_batch_feature_view_dataset_event(captured):
     assert tags["domain"] == "hotels"  # custom tag preserved verbatim
     assert tags["costCenter"] == "12345"  # non-duplicate mandatory tag preserved
     assert tags["ttl_seconds"] == "86400"
-    # `application` is re-keyed onto the governed eg-application-name tag, and
-    # `product` onto eg-data-product (the relay resolves it to a data-mesh domain).
+    # `application` is re-keyed onto the governed eg-application-name tag; the
+    # view's own eg-data-product rides through as-is (the relay resolves it to a
+    # data-mesh domain + owners) and is *not* taken from the MLP `product` tag.
     assert tags["eg-application-name"] == "hotel-price-app"
     assert tags["eg-data-product"] == "commerce-attribute-store"
-    # Re-homed EG mandatory tags are dropped from the tags facet to avoid
-    # duplicate info (EGDL feedback): application/product are re-keyed above;
-    # team/owner ride on the ownership facet.
+    # EG mandatory tags dropped from the tags facet to avoid duplicate info (EGDL
+    # feedback): `application` is re-keyed above, `product` is not a data-mesh
+    # product name so it is dropped outright, team/owner ride on the ownership
+    # facet.
     assert "application" not in tags
     assert "product" not in tags
     assert "team" not in tags
@@ -261,51 +265,64 @@ def test_entity_name_differs_from_join_key(captured):
     assert ffv.offline_enabled is False
 
 
-def test_default_data_product_fallback(captured):
-    # A view with no `product` tag: with a configured default_data_product, the
-    # governed eg-data-product tag falls back to it so the view still resolves to
-    # a domain/owner instead of landing unowned (mirrors MRS model-repository).
-    source = SparkSource(
-        name="src",
-        table="db.tbl",
-        timestamp_field="event_timestamp",
-    )
+def _view_tagged(tags):
+    source = SparkSource(name="src", table="db.tbl", timestamp_field="event_timestamp")
     hotel = Entity(name="hotel_id", join_keys=["hotel_id"], value_type=ValueType.INT64)
-    fv = FeatureView(
+    return FeatureView(
         name="no_product_view",
         entities=[hotel],
         ttl=timedelta(days=1),
         source=source,
         schema=[Field(name="base_price", dtype=Float32)],
         online=True,
-        tags={"application": "some-app"},  # no product tag
+        tags=tags,
     )
 
-    _emitter(default_data_product="feature-store").emit_apply([fv], PROJECT)
+
+def _emitted_tags(captured):
     facets = next(e for e in captured if isinstance(e, DatasetEvent)).dataset.facets
-    tags = {t.key: t.value for t in facets["tags"].tags}
-    assert tags["eg-data-product"] == "feature-store"
+    return {t.key: t.value for t in facets["tags"].tags}
+
+
+def test_default_data_product_fallback(captured):
+    # A view with no eg-data-product tag falls back to the platform default so it
+    # still resolves to a domain/owners instead of landing unowned (mirrors MRS
+    # model-repository). The MLP `product` tag is *not* a data-mesh product name,
+    # so it is neither used as the fallback source nor emitted.
+    fv = _view_tagged({"application": "some-app", "product": "unified-feature-store"})
+
+    _emitter().emit_apply([fv], PROJECT)
+    tags = _emitted_tags(captured)
+    assert tags["eg-data-product"] == "mlp-feature-registry"
+    assert "product" not in tags
+
+
+def test_blank_data_product_tag_falls_back(captured):
+    # A present-but-blank eg-data-product tag is not a valid product value: fall
+    # back rather than emit the blank through.
+    fv = _view_tagged({"eg-data-product": "   "})
+
+    _emitter().emit_apply([fv], PROJECT)
+    assert _emitted_tags(captured)["eg-data-product"] == "mlp-feature-registry"
+
+
+def test_configured_data_product_is_emitted(captured):
+    # The fallback is whatever the config carries -- not hardcoded in the mapper.
+    # In-process only: it is deliberately not a feature_store.yaml knob, since the
+    # per-object eg-data-product tag is the supported override.
+    fv = _view_tagged({"application": "some-app"})
+
+    _emitter(default_data_product="feature-store").emit_apply([fv], PROJECT)
+    assert _emitted_tags(captured)["eg-data-product"] == "feature-store"
 
 
 def test_no_default_data_product_omits_tag(captured):
-    # Without a configured default and no `product` tag, eg-data-product is omitted
-    # entirely -- never a placeholder that would strand the view in `legacy`.
-    source = SparkSource(name="src", table="db.tbl", timestamp_field="event_timestamp")
-    hotel = Entity(name="hotel_id", join_keys=["hotel_id"], value_type=ValueType.INT64)
-    fv = FeatureView(
-        name="no_product_view",
-        entities=[hotel],
-        ttl=timedelta(days=1),
-        source=source,
-        schema=[Field(name="base_price", dtype=Float32)],
-        online=True,
-        tags={"application": "some-app"},
-    )
+    # With the fallback nulled out and no tag on the view, eg-data-product is
+    # omitted entirely -- never a placeholder that would strand the view.
+    fv = _view_tagged({"application": "some-app"})
 
-    _emitter().emit_apply([fv], PROJECT)
-    facets = next(e for e in captured if isinstance(e, DatasetEvent)).dataset.facets
-    tags = {t.key: t.value for t in facets["tags"].tags}
-    assert "eg-data-product" not in tags
+    _emitter(default_data_product=None).emit_apply([fv], PROJECT)
+    assert "eg-data-product" not in _emitted_tags(captured)
 
 
 # -------------------------------------------------------------------- stream

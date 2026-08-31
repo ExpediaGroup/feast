@@ -47,6 +47,15 @@ ENV_RESOLUTION_ORDER = ("REGISTRY_ENV", "CONTROL_PLANE_ENVIRONMENT")
 # with endpoint "api/v1/lineage".
 DEFAULT_TRANSPORT_ENDPOINT = "api/v1/lineage"
 
+# Fallback ``eg-data-product`` for FeatureViews that carry no valid tag of their
+# own: the Feature Store registry's own data product, in the ``ai-ml-platform``
+# domain (data-mesh-definitions#480). The Metadata Bus relay resolves
+# ``eg-data-product`` against data-mesh-definitions to set the view's domain and
+# owners, so a value that is not registered there is worse than none -- keep this
+# pointed at a published product. Mirrors the model side, which defaults every
+# event to ``ai-ml-platform/model-repository`` (MRS, EAPC-22420).
+DEFAULT_DATA_PRODUCT = "mlp-feature-registry"
+
 
 @dataclass
 class OpenLineageConfig:
@@ -62,31 +71,14 @@ class OpenLineageConfig:
     environment: Optional[str] = None
     producer: str = DEFAULT_PRODUCER
     emit_on_apply: bool = True
-    # Fallback ``eg-data-product`` tag value for views that carry no ``product``
-    # tag. Left unset (no fallback) by default: only set it once a real
-    # feature-store data product exists in data-mesh-definitions to resolve
-    # against, else the view is stranded in the ``legacy`` domain. Mirrors the
-    # model side's ai-ml-platform/model-repository default (MRS, EAPC-22420).
-    default_data_product: Optional[str] = None
+    # Fallback ``eg-data-product`` tag value for views that carry no valid
+    # ``eg-data-product`` tag of their own (see DEFAULT_DATA_PRODUCT). Deliberately
+    # *not* exposed in ``feature_store.yaml``: the per-object ``eg-data-product``
+    # tag is the supported override, and an unregistered value here would strand
+    # every untagged view in a project. Settable in-process (tests, embedding);
+    # ``None`` emits no fallback at all.
+    default_data_product: Optional[str] = DEFAULT_DATA_PRODUCT
     additional_config: Dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_env(cls) -> "OpenLineageConfig":
-        """Build a config from FEAST_OPENLINEAGE_* environment variables."""
-        return cls(
-            enabled=os.getenv("FEAST_OPENLINEAGE_ENABLED", "false").lower() == "true",
-            transport_type=os.getenv("FEAST_OPENLINEAGE_TRANSPORT_TYPE"),
-            transport_url=os.getenv("FEAST_OPENLINEAGE_URL"),
-            transport_endpoint=os.getenv(
-                "FEAST_OPENLINEAGE_ENDPOINT", DEFAULT_TRANSPORT_ENDPOINT
-            ),
-            api_key=os.getenv("FEAST_OPENLINEAGE_API_KEY"),
-            environment=os.getenv("FEAST_OPENLINEAGE_ENV"),
-            producer=os.getenv("FEAST_OPENLINEAGE_PRODUCER", DEFAULT_PRODUCER),
-            emit_on_apply=os.getenv("FEAST_OPENLINEAGE_EMIT_ON_APPLY", "true").lower()
-            == "true",
-            default_data_product=os.getenv("FEAST_OPENLINEAGE_DEFAULT_DATA_PRODUCT"),
-        )
 
     def resolve_environment(self) -> Optional[str]:
         """
