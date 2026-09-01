@@ -84,8 +84,10 @@ def record_run_result(stats: Optional[Dict[str, Any]]) -> None:
 def drain_run_results() -> "List[Dict[str, Any]]":
     """Return and clear all write-time stats stashed since the last drain.
 
-    Called by the materialization job after each `store.materialize(...)`; typically
-    one entry per feature view materialized.
+    Public seam with no in-repo caller by design: the consumer is the external
+    materialization job (the ``feature-store-materialization`` package imports
+    ``drain_run_results``), which drains after each ``store.materialize(...)`` and
+    flushes one row per materialized feature view. Exercised in-repo by unit tests.
     """
     global _run_results
     with _run_results_lock:
