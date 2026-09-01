@@ -184,14 +184,42 @@ class TestOutputNodeCapture:
             node_outputs={"source": ArrowTableValue(table)},
             metrics_collector=agg,
         )
-        # online=offline=False: capture happens, no store/offline write is attempted.
-        node = _wire(LocalOutputNode("output", _fake_feature_view()))
-        node.execute(context)
+        # The write-time tally is scoped to the online write, so exercise an online
+        # view; the online store is mocked so no real write happens.
+        node = _wire(LocalOutputNode("output", _fake_feature_view(online=True)))
+        with patch(
+            "feast.infra.compute_engines.local.nodes._convert_arrow_to_proto",
+            return_value=[],
+        ):
+            node.execute(context)
 
         assert agg.rows_written_online == 3
         assert agg.fields_written == ["value"]
         assert agg.field_null_counts == {"value": 1}
         assert agg.max_event_timestamp == datetime(2026, 1, 5, tzinfo=timezone.utc)
+
+    def test_offline_only_view_emits_no_metrics_row(self):
+        table = pa.table(
+            {
+                "entity_id": [1, 2, 3],
+                "value": [1.0, 2.0, 3.0],
+                "event_timestamp": [
+                    datetime(2026, 1, 1, tzinfo=timezone.utc) for _ in range(3)
+                ],
+            }
+        )
+        agg = _make_aggregator()
+        context = create_context(
+            node_outputs={"source": ArrowTableValue(table)},
+            metrics_collector=agg,
+        )
+        node = _wire(LocalOutputNode("output", _fake_feature_view(offline=True)))
+        with patch("feast.infra.compute_engines.local.nodes.record_run_result") as rec:
+            node.execute(context)
+
+        # No online write -> no online tally and no metrics row (mirrors Spark).
+        rec.assert_not_called()
+        assert agg.rows_written_online == 0
 
 
 class TestOutputNodeStoreDropSeam:

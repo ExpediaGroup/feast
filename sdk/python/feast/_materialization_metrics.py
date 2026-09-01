@@ -66,13 +66,9 @@ def collecting(
         _active_aggregator.reset(token)
 
 
-# --- Layer-1 -> job bridge --------------------------------------------------
-# The compute engine can't write the metrics row itself (it doesn't know the run
-# lifecycle/identity/provenance -- that's the materialization job's job). So when a
-# feature view finishes writing, the engine stashes the collector's stats here, and
-# the job drains them after `store.materialize(...)` returns, merges its own Layer-2
-# facts, and flushes one row. Process-local (the driver is a single process), guarded
-# by a lock for safety.
+# Engine -> job hand-off. The compute engine captures write-time stats but can't
+# write the metrics row (it lacks run identity/lifecycle), so it stashes them here;
+# the job drains and flushes one row after `store.materialize(...)` returns.
 _run_results_lock = threading.Lock()
 _run_results: "List[Dict[str, Any]]" = []
 

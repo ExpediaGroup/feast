@@ -328,12 +328,9 @@ class SparkWriteNode(DAGNode):
         if self.feature_view.online:
             collector = context.metrics_collector
             if collector is not None:
-                # Materialization metrics enabled: do the online write and get
-                # per-partition stats back as COLLECTED DATA (one pickled row per
-                # partition), not via a Spark accumulator -- accumulator updates
-                # inside mapInArrow don't reliably propagate to the driver, which
-                # left every Layer-1 field NULL. A .collect() result is guaranteed
-                # to reach the driver; fold the partition dicts with merge_stats.
+                # Return per-partition stats via .collect() (a Spark accumulator set
+                # inside the UDF doesn't reach the driver). The write is real and its
+                # errors propagate; assembling the stats afterward is best-effort.
                 from pyspark.sql.types import (
                     BinaryType,
                     StructField,
@@ -342,21 +339,16 @@ class SparkWriteNode(DAGNode):
 
                 stats_schema = StructType([StructField("stats", BinaryType(), True)])
 
-                # .collect() is the action that forces the writes AND returns the
-                # per-partition stats. Write errors here are real failures -> let
-                # them propagate.
                 stats_rows = spark_df.mapInArrow(
                     lambda x: map_in_arrow_online_stats(x, serialized_artifacts),
                     stats_schema,
                 ).collect()
-                # Everything past the write action is best-effort: a metrics
-                # assembly error must never fail a successful materialization.
                 try:
                     collector.merge_from_dict(fold_stats_rows(stats_rows))
                     record_run_result(collector.to_dict())
                 except Exception as e:  # noqa: BLE001 -- metrics are best-effort
                     logger.warning(
-                        "materialization metrics: failed to assemble Layer-1 stats: %s",
+                        "materialization metrics: failed to record write-time stats: %s",
                         e,
                     )
             else:

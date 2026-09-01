@@ -213,11 +213,9 @@ class SparkComputeEngine(ComputeEngine):
             )
 
             if is_materialization_metrics_enabled(self.repo_config):
-                # Materialization metrics on: use the stats-returning write UDF so
-                # per-partition Layer-1 counts come back to the driver as COLLECTED
-                # data (one pickled row per partition), then fold them into a
-                # driver-side collector. (A Spark accumulator updated inside a pandas
-                # UDF does not reliably propagate, which would leave Layer-1 NULL.)
+                # Return per-partition stats via .collect() (a Spark accumulator set
+                # inside the UDF doesn't reach the driver). The write is real and its
+                # errors propagate; assembling the stats afterward is best-effort.
                 from pyspark.sql.types import (
                     BinaryType,
                     StructField,
@@ -226,16 +224,11 @@ class SparkComputeEngine(ComputeEngine):
 
                 stats_schema = StructType([StructField("stats", BinaryType(), True)])
 
-                # .collect() is the action that forces the writes AND returns the
-                # per-partition stats. Write errors here are real failures -> let
-                # them propagate to the except below.
                 stats_rows = spark_df.mapInPandas(
                     lambda x: map_in_pandas_online_stats(x, serialized_artifacts),
                     stats_schema,
                 ).collect()
 
-                # Everything past the write action is best-effort: a metrics
-                # assembly error must never fail a successful materialization.
                 try:
                     collector = build_aggregator(
                         project, feature_view.name, self.repo_config, self.online_store
@@ -244,7 +237,7 @@ class SparkComputeEngine(ComputeEngine):
                     record_run_result(collector.to_dict())
                 except Exception as e:  # noqa: BLE001 -- metrics are best-effort
                     logger.warning(
-                        "materialization metrics: failed to assemble Layer-1 stats: %s",
+                        "materialization metrics: failed to record write-time stats: %s",
                         e,
                     )
             else:

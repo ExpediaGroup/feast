@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Union
 
@@ -19,6 +20,8 @@ from feast.infra.offline_stores.offline_utils import (
     infer_event_timestamp_from_entity_df,
 )
 from feast.utils import _convert_arrow_to_proto
+
+logger = logging.getLogger(__name__)
 
 ENTITY_TS_ALIAS = "__entity_event_timestamp"
 
@@ -270,21 +273,16 @@ class LocalOutputNode(LocalNode):
         context.node_outputs[self.name] = input_table
 
         collector = context.metrics_collector
-        if collector is not None:
-            collector.record_written(input_table.num_rows)
-            feature_fields = [f.name for f in self.feature_view.features]
-            timestamp_column = getattr(
-                self.feature_view.batch_source, "timestamp_field", None
-            )
-            collector.observe_written_batch(
-                input_table,
-                feature_fields=feature_fields,
-                timestamp_column=timestamp_column,
-            )
 
         if input_table.num_rows == 0:
-            if collector is not None:
-                record_run_result(collector.to_dict())
+            if self.feature_view.online and collector is not None:
+                try:
+                    record_run_result(collector.to_dict())
+                except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                    logger.warning(
+                        "materialization metrics: failed to record write-time stats: %s",
+                        e,
+                    )
             return input_table
 
         if self.feature_view.online:
@@ -298,6 +296,24 @@ class LocalOutputNode(LocalNode):
             rows_to_write = _convert_arrow_to_proto(
                 input_table, self.feature_view, join_key_to_value_type
             )
+
+            if collector is not None:
+                try:
+                    collector.record_written(input_table.num_rows)
+                    feature_fields = [f.name for f in self.feature_view.features]
+                    timestamp_column = getattr(
+                        self.feature_view.batch_source, "timestamp_field", None
+                    )
+                    collector.observe_written_batch(
+                        input_table,
+                        feature_fields=feature_fields,
+                        timestamp_column=timestamp_column,
+                    )
+                except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                    logger.warning(
+                        "materialization metrics: failed to record write-time stats: %s",
+                        e,
+                    )
 
             # Bind the aggregator as the active collector so the online store can
             # record its own drops (e.g. Cassandra TTL) without a signature change.
@@ -318,8 +334,15 @@ class LocalOutputNode(LocalNode):
                 progress=lambda x: None,
             )
 
-        # Feature view finished writing: hand the completed stats to the job bridge.
-        if collector is not None:
-            record_run_result(collector.to_dict())
+        # Emit one metrics row per online write (mirrors Spark; an offline-only view
+        # has no online write to report). Hand the stats to the job bridge.
+        if self.feature_view.online and collector is not None:
+            try:
+                record_run_result(collector.to_dict())
+            except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                logger.warning(
+                    "materialization metrics: failed to record write-time stats: %s",
+                    e,
+                )
 
         return input_table

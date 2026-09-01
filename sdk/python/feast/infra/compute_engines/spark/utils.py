@@ -84,15 +84,11 @@ def map_in_arrow_online_stats(
     """Online write that RETURNS per-partition metrics instead of using a Spark
     accumulator.
 
-    Accumulator updates performed inside ``mapInArrow`` do not reliably propagate
-    back to the driver (Spark wires accumulator updates through RDD actions, not
-    the Arrow/pandas-UDF SQL path), so the accumulator-based tally came back empty
-    and every Layer-1 field was NULL. Instead, do the same single-pass online
-    write here and yield ONE record batch per partition carrying the partition's
-    ``MaterializationMetricsAggregator.to_dict()`` pickled into a binary column.
-    The driver ``.collect()``s these and folds them with ``merge_stats`` -- a
-    returned result is guaranteed to reach the driver. Pickle (not JSON) preserves
-    datetimes / Counter / list fields exactly.
+    Accumulator updates inside ``mapInArrow`` don't reliably reach the driver, so
+    each partition instead yields one record batch carrying its
+    ``MaterializationMetricsAggregator.to_dict()`` pickled into a binary column; the
+    driver ``.collect()``s and folds them with ``merge_stats``. Pickle (not JSON)
+    preserves datetimes / Counter / list fields exactly.
     """
     feature_view = None
     online_store = None
@@ -156,20 +152,15 @@ def map_in_arrow_online_stats(
 
 
 def map_in_pandas_online_stats(iterator, serialized_artifacts: "SerializedArtifacts"):
-    """Online write (pandas) that RETURNS per-partition Layer-1 stats.
+    """Online write (pandas) that RETURNS per-partition metrics.
 
-    This is the metrics-enabled counterpart of :func:`map_in_pandas`, used by
-    ``SparkComputeEngine._materialize_from_offline_store`` (the ``from_offline_store``
-    path that batch materialization actually runs -- NOT the DAG SparkWriteNode).
-    It mirrors ``map_in_pandas``'s write exactly (including field mapping), tallies
-    a ``MaterializationMetricsAggregator`` per partition, and yields ONE row with
-    the pickled ``to_dict()`` in a binary ``stats`` column. The driver ``.collect()``s
-    and folds these with ``merge_stats`` -- a returned result is guaranteed to reach
-    the driver (unlike a Spark accumulator updated inside a pandas UDF, which does
-    not reliably propagate).
-
-    The tally is strictly best-effort: any error while measuring is swallowed so it
-    can never block or fail the online write.
+    Metrics-enabled counterpart of :func:`map_in_pandas`, used by
+    ``SparkComputeEngine._materialize_from_offline_store`` (the path batch
+    materialization actually runs, NOT the DAG SparkWriteNode). Mirrors
+    ``map_in_pandas``'s write exactly, tallies a per-partition aggregator, and yields
+    ONE row with the pickled ``to_dict()`` in a binary ``stats`` column for the driver
+    to fold (a Spark accumulator inside the UDF wouldn't reach the driver). The tally
+    is best-effort: measurement errors are swallowed so they never fail the write.
     """
     (
         feature_view,
@@ -207,10 +198,8 @@ def map_in_pandas_online_stats(iterator, serialized_artifacts: "SerializedArtifa
 
     for pdf in iterator:
         if pdf.shape[0] == 0:
-            # Behavior parity with map_in_pandas: an empty pandas batch ends the
-            # partition's processing entirely (its bare `return`). `break` keeps
-            # the write behavior identical while still emitting this partition's
-            # stats row below.
+            # Parity with map_in_pandas (which bare-returns on an empty batch); we
+            # `break` instead so this partition's stats row is still emitted below.
             print("Skipping")
             break
 
