@@ -13,6 +13,12 @@ from feast import (
     SortedFeatureView,
     StreamFeatureView,
 )
+from feast._materialization_metrics import (
+    build_aggregator,
+    fold_stats_rows,
+    is_materialization_metrics_enabled,
+    record_run_result,
+)
 from feast.infra.common.materialization_job import (
     MaterializationJob,
     MaterializationJobStatus,
@@ -29,6 +35,7 @@ from feast.infra.compute_engines.spark.job import (
 from feast.infra.compute_engines.spark.utils import (
     get_or_create_new_spark_session,
     map_in_pandas,
+    map_in_pandas_online_stats,
 )
 from feast.infra.offline_stores.contrib.spark_offline_store.spark import (
     SparkRetrievalJob,
@@ -37,6 +44,8 @@ from feast.infra.offline_stores.offline_store import RetrievalJob
 from feast.infra.registry.base_registry import BaseRegistry
 from feast.repo_config import FeastConfigBaseModel
 from feast.utils import _get_column_names
+
+logger = logging.getLogger(__name__)
 
 
 class SparkComputeEngineConfig(FeastConfigBaseModel):
@@ -203,9 +212,38 @@ class SparkComputeEngine(ComputeEngine):
                 f"INFO: Processing {feature_view.name} with {spark_df.count()} records and {spark_df.rdd.getNumPartitions()} partitions"
             )
 
-            spark_df.mapInPandas(
-                lambda x: map_in_pandas(x, serialized_artifacts), "status int"
-            ).count()  # dummy action to force evaluation
+            if is_materialization_metrics_enabled(self.repo_config):
+                # Return per-partition stats via .collect() (a Spark accumulator set
+                # inside the UDF doesn't reach the driver). The write is real and its
+                # errors propagate; assembling the stats afterward is best-effort.
+                from pyspark.sql.types import (
+                    BinaryType,
+                    StructField,
+                    StructType,
+                )
+
+                stats_schema = StructType([StructField("stats", BinaryType(), True)])
+
+                stats_rows = spark_df.mapInPandas(
+                    lambda x: map_in_pandas_online_stats(x, serialized_artifacts),
+                    stats_schema,
+                ).collect()
+
+                try:
+                    collector = build_aggregator(
+                        project, feature_view.name, self.repo_config, self.online_store
+                    )
+                    collector.merge_from_dict(fold_stats_rows(stats_rows))
+                    record_run_result(collector.to_dict())
+                except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                    logger.warning(
+                        "materialization metrics: failed to record write-time stats: %s",
+                        e,
+                    )
+            else:
+                spark_df.mapInPandas(
+                    lambda x: map_in_pandas(x, serialized_artifacts), "status int"
+                ).count()  # dummy action to force evaluation
 
             return SparkMaterializationJob(
                 job_id=job_id, status=MaterializationJobStatus.SUCCEEDED

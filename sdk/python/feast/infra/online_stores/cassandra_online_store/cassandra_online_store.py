@@ -44,6 +44,7 @@ from cassandra.query import BatchStatement, BatchType, PreparedStatement
 from pydantic import StrictFloat, StrictInt, StrictStr
 
 from feast import Entity, FeatureView, RepoConfig, utils
+from feast._materialization_metrics import get_active_aggregator
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
@@ -89,6 +90,19 @@ E_CASSANDRA_UNKNOWN_LB_POLICY = (
 # 32-bit int, "Unable to make int from ..."), which would otherwise abort the
 # whole batch and stall a stream on a single bad row.
 CASSANDRA_MAX_TTL = 630_720_000
+
+
+def _record_materialization_drop(reason: str, n: int = 1) -> None:
+    """Record a store-level row drop on the active materialization metrics
+    aggregator, if one is bound for the current write. Best-effort and no-op when
+    metrics are disabled; never affects the write path."""
+    try:
+        aggregator = get_active_aggregator()
+        if aggregator is not None:
+            aggregator.record_store_drop(reason, n)
+    except Exception:  # pragma: no cover - metrics must never break a write
+        pass
+
 
 # CQL command templates (that is, before replacing schema names)
 INSERT_CQL_4_TEMPLATE = (
@@ -523,6 +537,7 @@ class CassandraOnlineStore(OnlineStore):
                     )
                     if ttl < 0:
                         # The ttl is negative when the timestamp-adjusted ttl is in the past in which case skip inserting the row
+                        _record_materialization_drop("ttl_expired")
                         continue
                     if ttl > CASSANDRA_MAX_TTL:
                         logger.warning(
@@ -531,6 +546,7 @@ class CassandraOnlineStore(OnlineStore):
                             f"(event_timestamp={timestamp}). The source timestamp is "
                             f"likely invalid."
                         )
+                        _record_materialization_drop("ttl_exceeds_max")
                         continue
 
                     feature_values: tuple[Any, ...] = ()

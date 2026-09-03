@@ -1,3 +1,4 @@
+import pickle
 import time
 from typing import Dict, Iterable, Literal, Optional
 
@@ -7,6 +8,11 @@ import pyarrow as pa
 from pyspark import SparkConf
 from pyspark.sql import SparkSession
 
+from feast._materialization_metrics import (
+    MaterializationMetricsAggregator,
+    build_aggregator,
+    collecting,
+)
 from feast.infra.common.serde import SerializedArtifacts
 from feast.utils import _convert_arrow_to_proto, _run_pyarrow_field_mapping
 
@@ -32,6 +38,8 @@ def map_in_arrow(
     serialized_artifacts: "SerializedArtifacts",
     mode: Literal["online", "offline"] = "online",
 ):
+    # Plain write passthrough (no metrics). The metrics-enabled online path uses
+    # map_in_arrow_online_stats, which returns per-partition stats to the driver.
     for batch in iterator:
         table = pa.Table.from_batches([batch])
 
@@ -67,6 +75,180 @@ def map_in_arrow(
             )
 
         yield batch
+
+
+def map_in_arrow_online_stats(
+    iterator: Iterable[pa.RecordBatch],
+    serialized_artifacts: "SerializedArtifacts",
+) -> Iterable[pa.RecordBatch]:
+    """Online write that RETURNS per-partition metrics instead of using a Spark
+    accumulator.
+
+    Accumulator updates inside ``mapInArrow`` don't reliably reach the driver, so
+    each partition instead yields one record batch carrying its
+    ``MaterializationMetricsAggregator.to_dict()`` pickled into a binary column; the
+    driver ``.collect()``s and folds them with ``merge_stats``. Pickle (not JSON)
+    preserves datetimes / Counter / list fields exactly.
+    """
+    feature_view = None
+    online_store = None
+    repo_config = None
+    local_agg: Optional[MaterializationMetricsAggregator] = None
+
+    for batch in iterator:
+        table = pa.Table.from_batches([batch])
+        if feature_view is None:
+            feature_view, online_store, _offline_store, repo_config = (
+                serialized_artifacts.unserialize()
+            )
+            local_agg = build_aggregator(
+                str(getattr(repo_config, "project", "")),
+                feature_view.name,
+                repo_config,
+                online_store,
+            )
+
+        join_key_to_value_type = {
+            entity.name: entity.dtype.to_value_type()
+            for entity in feature_view.entity_columns
+        }
+        rows_to_write = _convert_arrow_to_proto(
+            table, feature_view, join_key_to_value_type
+        )
+        # Best-effort measurement: never let a metrics error block the write.
+        try:
+            # Rows entering the write == rows read at this boundary (Option A:
+            # upstream filter/dedup drops are not separately counted on Spark).
+            local_agg.record_read(table.num_rows)
+            local_agg.record_written(table.num_rows)
+            local_agg.observe_written_batch(
+                table,
+                feature_fields=[f.name for f in feature_view.features],
+                timestamp_column=getattr(
+                    feature_view.batch_source, "timestamp_field", None
+                ),
+            )
+        except Exception:  # noqa: BLE001 -- metrics are best-effort
+            pass
+        # Bind the local tally so the online store records its own drops
+        # (e.g. Cassandra TTL) into it on this executor.
+        with collecting(local_agg):
+            online_store.online_write_batch(
+                config=repo_config,
+                table=feature_view,
+                data=rows_to_write,
+                progress=lambda x: None,
+            )
+
+    # Defensive: a stats-serialization error must not fail the partition after the
+    # writes already succeeded (that would flip a good materialization to ERROR).
+    try:
+        payload = pickle.dumps(local_agg.to_dict() if local_agg is not None else {})
+    except Exception:  # noqa: BLE001 -- metrics are best-effort
+        payload = pickle.dumps({})
+    yield pa.RecordBatch.from_arrays(
+        [pa.array([payload], type=pa.binary())], names=["stats"]
+    )
+
+
+def map_in_pandas_online_stats(iterator, serialized_artifacts: "SerializedArtifacts"):
+    """Online write (pandas) that RETURNS per-partition metrics.
+
+    Metrics-enabled counterpart of :func:`map_in_pandas`, used by
+    ``SparkComputeEngine._materialize_from_offline_store`` (the path batch
+    materialization actually runs, NOT the DAG SparkWriteNode). Mirrors
+    ``map_in_pandas``'s write exactly, tallies a per-partition aggregator, and yields
+    ONE row with the pickled ``to_dict()`` in a binary ``stats`` column for the driver
+    to fold (a Spark accumulator inside the UDF wouldn't reach the driver). The tally
+    is best-effort: measurement errors are swallowed so they never fail the write.
+    """
+    (
+        feature_view,
+        online_store,
+        _offline_store,
+        repo_config,
+    ) = serialized_artifacts.unserialize()
+
+    # Behavior parity with map_in_pandas: same executor-side warning suppression.
+    if (
+        hasattr(repo_config.batch_engine, "suppress_warnings")
+        and repo_config.batch_engine.suppress_warnings
+    ):
+        import os
+        import warnings
+
+        os.environ["PYTHONWARNINGS"] = "ignore::DeprecationWarning"
+        warnings.filterwarnings("ignore", category=DeprecationWarning)
+        warnings.filterwarnings(
+            "ignore", message=".*is_categorical_dtype is deprecated.*"
+        )
+        warnings.filterwarnings(
+            "ignore", message=".*is_datetime64tz_dtype is deprecated.*"
+        )
+        warnings.filterwarnings(
+            "ignore", message=".*distutils Version classes are deprecated.*"
+        )
+
+    local_agg = build_aggregator(
+        str(getattr(repo_config, "project", "")),
+        feature_view.name,
+        repo_config,
+        online_store,
+    )
+
+    for pdf in iterator:
+        if pdf.shape[0] == 0:
+            # Parity with map_in_pandas (which bare-returns on an empty batch); we
+            # `break` instead so this partition's stats row is still emitted below.
+            print("Skipping")
+            break
+
+        table = pyarrow.Table.from_pandas(pdf)
+        if feature_view.batch_source.field_mapping is not None:
+            table = _run_pyarrow_field_mapping(
+                table, feature_view.batch_source.field_mapping
+            )
+
+        join_key_to_value_type = {
+            entity.name: entity.dtype.to_value_type()
+            for entity in feature_view.entity_columns
+        }
+        rows_to_write = _convert_arrow_to_proto(
+            table, feature_view, join_key_to_value_type
+        )
+
+        # Best-effort measurement: never let a metrics error block the write.
+        try:
+            # Rows entering the write == rows read at this boundary.
+            local_agg.record_read(table.num_rows)
+            local_agg.record_written(table.num_rows)
+            local_agg.observe_written_batch(
+                table,
+                feature_fields=[f.name for f in feature_view.features],
+                timestamp_column=getattr(
+                    feature_view.batch_source, "timestamp_field", None
+                ),
+            )
+        except Exception:  # noqa: BLE001 -- metrics are best-effort
+            pass
+
+        # Bind the local tally so the online store records its own drops
+        # (e.g. Cassandra negative-TTL skips) into it on this executor.
+        with collecting(local_agg):
+            online_store.online_write_batch(
+                repo_config,
+                feature_view,
+                rows_to_write,
+                lambda x: None,
+            )
+
+    # Defensive: a stats-serialization error must not fail the partition after the
+    # writes already succeeded (that would flip a good materialization to ERROR).
+    try:
+        stats = pickle.dumps(local_agg.to_dict())
+    except Exception:  # noqa: BLE001 -- metrics are best-effort
+        stats = pickle.dumps({})
+    yield pd.DataFrame({"stats": pd.Series([stats], dtype=object)})
 
 
 def map_in_pandas(iterator, serialized_artifacts: SerializedArtifacts):

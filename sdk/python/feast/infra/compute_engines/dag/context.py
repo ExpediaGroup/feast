@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 import pandas as pd
 
@@ -8,6 +8,9 @@ from feast.infra.compute_engines.dag.value import DAGValue
 from feast.infra.offline_stores.offline_store import OfflineStore
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.repo_config import RepoConfig
+
+if TYPE_CHECKING:
+    from feast._materialization_metrics import MaterializationMetricsAggregator
 
 
 @dataclass
@@ -82,6 +85,9 @@ class ExecutionContext:
         node_outputs: Internal cache of DAGValue outputs keyed by DAGNode name.
             Automatically populated during ExecutionPlan execution to avoid redundant
             computation. Used by downstream nodes to access their input data.
+
+        metrics_collector: Optional metrics aggregator; set only when
+            metrics.materialization.enabled is on. Nodes populate counts/drops/freshness.
     """
 
     project: str
@@ -91,3 +97,4 @@ class ExecutionContext:
     entity_defs: List[Entity]
     entity_df: Union[pd.DataFrame, None] = None
     node_outputs: Dict[str, DAGValue] = field(default_factory=dict)
+    metrics_collector: "Optional[MaterializationMetricsAggregator]" = None

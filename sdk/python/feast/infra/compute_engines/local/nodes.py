@@ -1,9 +1,11 @@
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Union
 
 import pyarrow as pa
 
 from feast import BatchFeatureView, StreamFeatureView
+from feast._materialization_metrics import collecting, record_run_result
 from feast.data_source import DataSource
 from feast.infra.compute_engines.dag.context import ColumnInfo, ExecutionContext
 from feast.infra.compute_engines.dag.model import DAGFormat
@@ -18,6 +20,8 @@ from feast.infra.offline_stores.offline_utils import (
     infer_event_timestamp_from_entity_df,
 )
 from feast.utils import _convert_arrow_to_proto
+
+logger = logging.getLogger(__name__)
 
 ENTITY_TS_ALIAS = "__entity_event_timestamp"
 
@@ -53,6 +57,8 @@ class LocalSourceReadNode(LocalNode):
                     for col in arrow_table.column_names
                 ]
             )
+        if context.metrics_collector is not None:
+            context.metrics_collector.record_read(arrow_table.num_rows)
         return ArrowTableValue(data=arrow_table)
 
 
@@ -147,6 +153,9 @@ class LocalFilterNode(LocalNode):
             df = self.backend.filter(df, self.filter_expr)
 
         result = self.backend.to_arrow(df)
+        if context.metrics_collector is not None:
+            dropped = input_table.num_rows - result.num_rows
+            context.metrics_collector.record_upstream_drop("filter", dropped)
         output = ArrowTableValue(result)
         context.node_outputs[self.name] = output
         return output
@@ -203,6 +212,9 @@ class LocalDedupNode(LocalNode):
                 df, keys=dedup_keys, sort_by=sort_keys, ascending=False
             )
         result = self.backend.to_arrow(df)
+        if context.metrics_collector is not None:
+            dropped = input_table.num_rows - result.num_rows
+            context.metrics_collector.record_upstream_drop("dedup", dropped)
         output = ArrowTableValue(result)
         context.node_outputs[self.name] = output
         return output
@@ -260,7 +272,17 @@ class LocalOutputNode(LocalNode):
         input_table = self.get_single_table(context).data
         context.node_outputs[self.name] = input_table
 
+        collector = context.metrics_collector
+
         if input_table.num_rows == 0:
+            if self.feature_view.online and collector is not None:
+                try:
+                    record_run_result(collector.to_dict())
+                except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                    logger.warning(
+                        "materialization metrics: failed to record write-time stats: %s",
+                        e,
+                    )
             return input_table
 
         if self.feature_view.online:
@@ -275,12 +297,33 @@ class LocalOutputNode(LocalNode):
                 input_table, self.feature_view, join_key_to_value_type
             )
 
-            online_store.online_write_batch(
-                config=context.repo_config,
-                table=self.feature_view,
-                data=rows_to_write,
-                progress=lambda x: None,
-            )
+            if collector is not None:
+                try:
+                    collector.record_written(input_table.num_rows)
+                    feature_fields = [f.name for f in self.feature_view.features]
+                    timestamp_column = getattr(
+                        self.feature_view.batch_source, "timestamp_field", None
+                    )
+                    collector.observe_written_batch(
+                        input_table,
+                        feature_fields=feature_fields,
+                        timestamp_column=timestamp_column,
+                    )
+                except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                    logger.warning(
+                        "materialization metrics: failed to record write-time stats: %s",
+                        e,
+                    )
+
+            # Bind the aggregator as the active collector so the online store can
+            # record its own drops (e.g. Cassandra TTL) without a signature change.
+            with collecting(collector):
+                online_store.online_write_batch(
+                    config=context.repo_config,
+                    table=self.feature_view,
+                    data=rows_to_write,
+                    progress=lambda x: None,
+                )
 
         if self.feature_view.offline:
             offline_store = context.offline_store
@@ -290,5 +333,16 @@ class LocalOutputNode(LocalNode):
                 table=input_table,
                 progress=lambda x: None,
             )
+
+        # Emit one metrics row per online write (mirrors Spark; an offline-only view
+        # has no online write to report). Hand the stats to the job bridge.
+        if self.feature_view.online and collector is not None:
+            try:
+                record_run_result(collector.to_dict())
+            except Exception as e:  # noqa: BLE001 -- metrics are best-effort
+                logger.warning(
+                    "materialization metrics: failed to record write-time stats: %s",
+                    e,
+                )
 
         return input_table
