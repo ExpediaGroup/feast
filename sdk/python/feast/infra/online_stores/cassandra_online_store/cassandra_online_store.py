@@ -26,7 +26,7 @@ import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from functools import partial
-from queue import Queue
+from queue import Empty, Full, Queue
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
 
 from cassandra import Timeout
@@ -37,6 +37,7 @@ from cassandra.cluster import (
     ExecutionProfile,
     ResultSet,
     Session,
+    default_lbp_factory,
 )
 from cassandra.concurrent import execute_concurrent_with_args
 from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
@@ -90,6 +91,15 @@ E_CASSANDRA_UNKNOWN_LB_POLICY = (
 # 32-bit int, "Unable to make int from ..."), which would otherwise abort the
 # whole batch and stall a stream on a single bad row.
 CASSANDRA_MAX_TTL = 630_720_000
+
+# Hard wall-clock deadline for the two spots in online_write_batch that
+# otherwise wait forever on the driver's async write callbacks: the bounded
+# queue.put() in _apply_batch and the final drain loop. If the Cassandra
+# cluster or driver reactor stalls, the callbacks never fire, the queue
+# never drains, and without this deadline the write blocks indefinitely --
+# which hangs the calling Spark foreachBatch and turns the stream into a
+# silent zombie (no crash, no progress, requires a manual restart).
+PENDING_FUTURE_TIMEOUT_SECONDS = 120
 
 
 def _record_materialization_drop(reason: str, n: int = 1) -> None:
@@ -165,6 +175,17 @@ logger = logging.getLogger(__name__)
 
 
 class CassandraInvalidConfig(Exception):
+    def __init__(self, msg: str):
+        super().__init__(msg)
+
+
+class CassandraWriteTimeoutError(Exception):
+    """Raised when online_write_batch gives up waiting on a stalled
+    Cassandra cluster/driver, instead of hanging indefinitely. Distinct
+    from the underlying driver's own Timeout subclasses (which carry the
+    real, more specific failure) so callers can tell "we gave up waiting"
+    apart from "the driver reported a timeout"."""
+
     def __init__(self, msg: str):
         super().__init__(msg)
 
@@ -341,7 +362,21 @@ class CassandraOnlineStore(OnlineStore):
             else:
                 auth_provider = None
 
-            # handling of load-balancing policy (optional)
+            # handling of load-balancing policy and/or request timeout
+            # (optional). Both are only ever applied to the driver via an
+            # ExecutionProfile, so build one whenever either is configured --
+            # not just when `load_balancing` is set -- otherwise a configured
+            # `request_timeout` is silently never passed to the driver.
+            #
+            # IMPORTANT: only pass `request_timeout` through when it's
+            # actually set. ExecutionProfile(request_timeout=None) stores
+            # None verbatim (it does NOT fall back to the driver's 10s
+            # default), which disables the driver's own per-request timer
+            # entirely -- a write can then hang on the driver side with no
+            # deadline at all, which was the root cause of the incident
+            # this file's PENDING_FUTURE_TIMEOUT_SECONDS deadline guards
+            # against as a backstop. Restoring this timer is the primary
+            # fix; the backstop is defense in depth, not a replacement.
             if online_store_config.load_balancing:
                 # construct a proper execution profile embedding
                 # the configured LB policy
@@ -359,10 +394,23 @@ class CassandraOnlineStore(OnlineStore):
                 else:
                     raise CassandraInvalidConfig(E_CASSANDRA_UNKNOWN_LB_POLICY)
 
-                # wrap it up in a map of ex.profiles with a default
+                profile_kwargs: Dict[str, Any] = {"load_balancing_policy": lb_policy}
+                if online_store_config.request_timeout is not None:
+                    profile_kwargs["request_timeout"] = (
+                        online_store_config.request_timeout
+                    )
+                exe_profile = ExecutionProfile(**profile_kwargs)
+                execution_profiles = {EXEC_PROFILE_DEFAULT: exe_profile}
+            elif online_store_config.request_timeout is not None:
+                # Pass an explicit load-balancing policy even though we
+                # only intend to set request_timeout here: an ExecutionProfile
+                # with no explicit policy marks the driver's internal
+                # _load_balancing_policy_explicit flag False, which the
+                # driver logs a forward-compat warning for on every connect
+                # (and says will become an error in a future major version).
                 exe_profile = ExecutionProfile(
                     request_timeout=online_store_config.request_timeout,
-                    load_balancing_policy=lb_policy,
+                    load_balancing_policy=default_lbp_factory(),
                 )
                 execution_profiles = {EXEC_PROFILE_DEFAULT: exe_profile}
             else:
@@ -453,11 +501,17 @@ class CassandraOnlineStore(OnlineStore):
             # Wrap them in a plain Exception so they survive pickle
             # round-trip across Spark's multiprocessing boundaries.
             if isinstance(exc, Timeout):
-                ex = Exception(
+                wrapped = Exception(
                     f"Error writing batch to Cassandra: {type(exc).__name__}: {exc}"
                 )
             else:
-                ex = exc
+                wrapped = exc
+            # Multiple in-flight batches can fail concurrently on different
+            # callback threads. Keep the first failure rather than letting a
+            # later one overwrite it -- the first is the most likely root
+            # cause, and later failures are often just fallout from it.
+            if ex is None:
+                ex = wrapped
             concurrent_queue.get_nowait()
             logger.exception(f"Error writing a batch: {exc}")
 
@@ -468,7 +522,37 @@ class CassandraOnlineStore(OnlineStore):
         ttl_feature_view = table.ttl or timedelta(seconds=0)
         ttl_online_store_config = online_store_config.key_ttl_seconds or 0
         write_concurrency = online_store_config.write_concurrency
+        if not write_concurrency or write_concurrency < 1:
+            # maxsize=0 (or a falsy/negative value) makes the queue
+            # unbounded, which would let an unresponsive cluster be
+            # flooded with writes with no backpressure at all. Clamp to a
+            # sane floor so the queue always acts as a real semaphore.
+            logger.warning(
+                f"write_concurrency={write_concurrency!r} is not a positive "
+                "value; clamping to 1 so writes are throttled against an "
+                "unresponsive cluster."
+            )
+            write_concurrency = 1
         concurrent_queue: Queue = Queue(maxsize=write_concurrency)
+        # One deadline for the *entire* call, not one per batch: if this
+        # were recomputed fresh for every _apply_batch call, a cluster that
+        # drains just barely fast enough to admit one write per almost-full
+        # timeout window would never trip either timeout while still
+        # hanging the caller indefinitely across many batches.
+        #
+        # Derive the backstop from the existing `request_timeout` config
+        # (rather than adding a new config field): request_timeout already
+        # bounds each individual driver request, so this backstop -- which
+        # only matters when even that per-request timer never fires (e.g.
+        # the driver's reactor itself is stalled) -- should never be
+        # *shorter* than it, or it could preempt a write that was still
+        # legitimately within its configured per-request budget.
+        pending_future_timeout_seconds = PENDING_FUTURE_TIMEOUT_SECONDS
+        if online_store_config.request_timeout is not None:
+            pending_future_timeout_seconds = max(
+                pending_future_timeout_seconds, online_store_config.request_timeout
+            )
+        write_deadline = time.monotonic() + pending_future_timeout_seconds
         feast_array_types = [
             "bytes_list_val",
             "string_list_val",
@@ -602,6 +686,8 @@ class CassandraOnlineStore(OnlineStore):
                             concurrent_queue,
                             on_success,
                             on_failure,
+                            fqtable=fqtable,
+                            deadline=write_deadline,
                         )
                         batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                         batch_count = 0
@@ -614,6 +700,8 @@ class CassandraOnlineStore(OnlineStore):
                         concurrent_queue,
                         on_success,
                         on_failure,
+                        fqtable=fqtable,
+                        deadline=write_deadline,
                     )
         else:
             insert_cql = self._get_cql_statement(
@@ -652,6 +740,8 @@ class CassandraOnlineStore(OnlineStore):
                             concurrent_queue,
                             on_success,
                             on_failure,
+                            fqtable=fqtable,
+                            deadline=write_deadline,
                         )
                         batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                         batch_count = 0
@@ -664,6 +754,8 @@ class CassandraOnlineStore(OnlineStore):
                         concurrent_queue,
                         on_success,
                         on_failure,
+                        fqtable=fqtable,
+                        deadline=write_deadline,
                     )
 
         if ex:
@@ -673,9 +765,29 @@ class CassandraOnlineStore(OnlineStore):
             logger.warning(
                 f"Waiting for futures. Pending are {concurrent_queue.qsize()}"
             )
+            # Reuse the same write_deadline computed at the top of this
+            # call (not a fresh one) -- it's already been ticking down
+            # while prior batches were submitted, so the *total* time this
+            # call can spend waiting is bounded by
+            # pending_future_timeout_seconds, not that value multiplied by
+            # however many batches were submitted.
             while not concurrent_queue.empty():
                 if ex:
                     raise ex
+                if time.monotonic() > write_deadline:
+                    # Re-check ex immediately before raising: a callback
+                    # thread may have just set the real, more specific
+                    # failure in the instant between the check above and
+                    # here. Prefer surfacing that over the generic deadline
+                    # message.
+                    if ex:
+                        raise ex
+                    raise CassandraWriteTimeoutError(
+                        f"Timed out after {pending_future_timeout_seconds}s "
+                        f"waiting for {concurrent_queue.qsize()} pending "
+                        f"Cassandra write future(s) on {fqtable}. The cluster "
+                        f"or driver is likely unresponsive."
+                    )
                 time.sleep(0.001)
             if ex:
                 raise ex
@@ -1131,19 +1243,59 @@ class CassandraOnlineStore(OnlineStore):
         concurrent_queue: Queue,
         on_success,
         on_failure,
+        fqtable: str = "<unknown table>",
+        deadline: Optional[float] = None,
     ):
-        future = session.execute_async(batch)
-        concurrent_queue.put(future)
-        future.add_callbacks(
-            partial(
-                on_success,
-                concurrent_queue=concurrent_queue,
-            ),
-            partial(
-                on_failure,
-                concurrent_queue=concurrent_queue,
-            ),
-        )
+        # Reserve a queue slot *before* submitting the write. on_success/
+        # on_failure only ever call get_nowait() to free a slot -- they never
+        # look at the queued value -- so the queue is really just a bounded
+        # semaphore. Reserving the slot first means a saturated queue (the
+        # cluster/driver isn't draining in-flight writes) blocks/times out
+        # here without ever calling execute_async, instead of submitting a
+        # write that then has no callback attached to track it.
+        #
+        # `deadline` is an absolute time.monotonic() value shared across
+        # every _apply_batch call within one online_write_batch call, so a
+        # multi-batch write has one total time budget rather than a fresh
+        # one per batch.
+        if deadline is None:
+            deadline = time.monotonic() + PENDING_FUTURE_TIMEOUT_SECONDS
+        put_timeout = max(0.0, deadline - time.monotonic())
+        try:
+            concurrent_queue.put(True, timeout=put_timeout)
+        except Full:
+            raise CassandraWriteTimeoutError(
+                f"Timed out after {put_timeout:.3g}s enqueuing a Cassandra "
+                f"write future on {fqtable} ({concurrent_queue.maxsize} "
+                "in-flight writes not completing). The cluster or driver is "
+                "likely unresponsive."
+            ) from None
+        try:
+            future = session.execute_async(batch)
+            future.add_callbacks(
+                partial(
+                    on_success,
+                    concurrent_queue=concurrent_queue,
+                ),
+                partial(
+                    on_failure,
+                    concurrent_queue=concurrent_queue,
+                ),
+            )
+        except Exception:
+            # Release the slot we just reserved. get_nowait() is safe here
+            # because the put() above guarantees at least one token is
+            # present; swallow a stray Empty rather than let it mask the
+            # real failure being raised below. Covers both execute_async
+            # raising synchronously, and add_callbacks invoking an
+            # already-completed future's callback inline (the driver does
+            # this without its usual try/except) -- if that callback itself
+            # raises, the slot must still be released here.
+            try:
+                concurrent_queue.get_nowait()
+            except Empty:
+                pass
+            raise
 
         # this happens N-1 times, will be corrected outside:
         if progress:
