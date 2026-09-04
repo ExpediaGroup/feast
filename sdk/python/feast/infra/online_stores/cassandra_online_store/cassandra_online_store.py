@@ -539,7 +539,20 @@ class CassandraOnlineStore(OnlineStore):
         # drains just barely fast enough to admit one write per almost-full
         # timeout window would never trip either timeout while still
         # hanging the caller indefinitely across many batches.
-        write_deadline = time.monotonic() + PENDING_FUTURE_TIMEOUT_SECONDS
+        #
+        # Derive the backstop from the existing `request_timeout` config
+        # (rather than adding a new config field): request_timeout already
+        # bounds each individual driver request, so this backstop -- which
+        # only matters when even that per-request timer never fires (e.g.
+        # the driver's reactor itself is stalled) -- should never be
+        # *shorter* than it, or it could preempt a write that was still
+        # legitimately within its configured per-request budget.
+        pending_future_timeout_seconds = PENDING_FUTURE_TIMEOUT_SECONDS
+        if online_store_config.request_timeout is not None:
+            pending_future_timeout_seconds = max(
+                pending_future_timeout_seconds, online_store_config.request_timeout
+            )
+        write_deadline = time.monotonic() + pending_future_timeout_seconds
         feast_array_types = [
             "bytes_list_val",
             "string_list_val",
@@ -756,7 +769,7 @@ class CassandraOnlineStore(OnlineStore):
             # call (not a fresh one) -- it's already been ticking down
             # while prior batches were submitted, so the *total* time this
             # call can spend waiting is bounded by
-            # PENDING_FUTURE_TIMEOUT_SECONDS, not that value multiplied by
+            # pending_future_timeout_seconds, not that value multiplied by
             # however many batches were submitted.
             while not concurrent_queue.empty():
                 if ex:
@@ -770,7 +783,7 @@ class CassandraOnlineStore(OnlineStore):
                     if ex:
                         raise ex
                     raise CassandraWriteTimeoutError(
-                        f"Timed out after {PENDING_FUTURE_TIMEOUT_SECONDS}s "
+                        f"Timed out after {pending_future_timeout_seconds}s "
                         f"waiting for {concurrent_queue.qsize()} pending "
                         f"Cassandra write future(s) on {fqtable}. The cluster "
                         f"or driver is likely unresponsive."

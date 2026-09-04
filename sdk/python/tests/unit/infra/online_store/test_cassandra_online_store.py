@@ -758,6 +758,82 @@ def test_apply_batch_real_concurrent_release_across_threads(mocker):
     session.execute_async.assert_called_once_with(batch)
 
 
+def _online_write_batch_with_stalled_future(mocker, file_source, request_timeout):
+    """Helper: drive online_write_batch through a future whose callback
+    never fires, and return the raised exception."""
+    future = mocker.MagicMock()
+    future.add_callbacks = lambda ok, err: None
+
+    session = mocker.MagicMock()
+    session.execute_async.return_value = future
+    session.prepare.return_value = mocker.MagicMock()
+
+    store = CassandraOnlineStore()
+    table = FeatureView(name="test_fv", source=file_source)
+    entity_key = mocker.MagicMock()
+    feature_val = mocker.MagicMock()
+    data = [(entity_key, {"feature1": feature_val}, datetime.now(timezone.utc), None)]
+
+    mocker.patch.object(store, "_get_session", return_value=session)
+    mocker.patch.object(store, "_get_cql_statement", return_value=mocker.MagicMock())
+    mocker.patch(
+        "feast.infra.online_stores.cassandra_online_store.cassandra_online_store.serialize_entity_key",
+        return_value=b"\x00",
+    )
+
+    config = RepoConfig(
+        registry=REGISTRY,
+        project=PROJECT,
+        provider=PROVIDER,
+        online_store=CassandraOnlineStoreConfig(
+            hosts=["localhost"],
+            keyspace="test_keyspace",
+            write_concurrency=1,
+            request_timeout=request_timeout,
+        ),
+        offline_store=DaskOfflineStoreConfig(),
+        entity_key_serialization_version=2,
+    )
+
+    with pytest.raises(CassandraWriteTimeoutError) as excinfo:
+        store.online_write_batch(config=config, table=table, data=data, progress=None)
+    return excinfo.value
+
+
+def test_online_write_batch_deadline_extends_for_longer_request_timeout(
+    mocker, file_source
+):
+    """
+    The backstop deadline is derived from the existing `request_timeout`
+    config rather than a new field: a configured request_timeout longer
+    than the default backstop must not be preempted by it.
+    """
+    mocker.patch.object(
+        cassandra_online_store_module, "PENDING_FUTURE_TIMEOUT_SECONDS", 0.05
+    )
+    exc = _online_write_batch_with_stalled_future(
+        mocker, file_source, request_timeout=0.3
+    )
+    assert "Timed out after 0.3s" in str(exc)
+
+
+def test_online_write_batch_deadline_floor_not_shrunk_by_shorter_request_timeout(
+    mocker, file_source
+):
+    """
+    A request_timeout shorter than the default backstop must not shrink
+    the backstop below its default floor -- request_timeout only ever
+    extends the deadline, never tightens it.
+    """
+    mocker.patch.object(
+        cassandra_online_store_module, "PENDING_FUTURE_TIMEOUT_SECONDS", 0.1
+    )
+    exc = _online_write_batch_with_stalled_future(
+        mocker, file_source, request_timeout=0.01
+    )
+    assert "Timed out after 0.1s" in str(exc)
+
+
 def test_apply_batch_shares_one_deadline_across_multiple_calls(mocker):
     """
     _apply_batch must spend down a single shared deadline across
