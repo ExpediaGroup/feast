@@ -26,7 +26,7 @@ import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from functools import partial
-from queue import Queue
+from queue import Full, Queue
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
 
 from cassandra import Timeout
@@ -90,6 +90,15 @@ E_CASSANDRA_UNKNOWN_LB_POLICY = (
 # 32-bit int, "Unable to make int from ..."), which would otherwise abort the
 # whole batch and stall a stream on a single bad row.
 CASSANDRA_MAX_TTL = 630_720_000
+
+# Hard wall-clock deadline for the two spots in online_write_batch that
+# otherwise wait forever on the driver's async write callbacks: the bounded
+# queue.put() in _apply_batch and the final drain loop. If the Cassandra
+# cluster or driver reactor stalls, the callbacks never fire, the queue
+# never drains, and without this deadline the write blocks indefinitely --
+# which hangs the calling Spark foreachBatch and turns the stream into a
+# silent zombie (no crash, no progress, requires a manual restart).
+PENDING_FUTURE_TIMEOUT_SECONDS = 120
 
 
 def _record_materialization_drop(reason: str, n: int = 1) -> None:
@@ -341,7 +350,11 @@ class CassandraOnlineStore(OnlineStore):
             else:
                 auth_provider = None
 
-            # handling of load-balancing policy (optional)
+            # handling of load-balancing policy and/or request timeout
+            # (optional). Both are only ever applied to the driver via an
+            # ExecutionProfile, so build one whenever either is configured --
+            # not just when `load_balancing` is set -- otherwise a configured
+            # `request_timeout` is silently never passed to the driver.
             if online_store_config.load_balancing:
                 # construct a proper execution profile embedding
                 # the configured LB policy
@@ -363,6 +376,11 @@ class CassandraOnlineStore(OnlineStore):
                 exe_profile = ExecutionProfile(
                     request_timeout=online_store_config.request_timeout,
                     load_balancing_policy=lb_policy,
+                )
+                execution_profiles = {EXEC_PROFILE_DEFAULT: exe_profile}
+            elif online_store_config.request_timeout is not None:
+                exe_profile = ExecutionProfile(
+                    request_timeout=online_store_config.request_timeout,
                 )
                 execution_profiles = {EXEC_PROFILE_DEFAULT: exe_profile}
             else:
@@ -673,9 +691,17 @@ class CassandraOnlineStore(OnlineStore):
             logger.warning(
                 f"Waiting for futures. Pending are {concurrent_queue.qsize()}"
             )
+            deadline = time.monotonic() + PENDING_FUTURE_TIMEOUT_SECONDS
             while not concurrent_queue.empty():
                 if ex:
                     raise ex
+                if time.monotonic() > deadline:
+                    raise Exception(
+                        f"Timed out after {PENDING_FUTURE_TIMEOUT_SECONDS}s "
+                        f"waiting for {concurrent_queue.qsize()} pending "
+                        f"Cassandra write future(s) on {fqtable}. The cluster "
+                        f"or driver is likely unresponsive."
+                    )
                 time.sleep(0.001)
             if ex:
                 raise ex
@@ -1132,8 +1158,27 @@ class CassandraOnlineStore(OnlineStore):
         on_success,
         on_failure,
     ):
-        future = session.execute_async(batch)
-        concurrent_queue.put(future)
+        # Reserve a queue slot *before* submitting the write. on_success/
+        # on_failure only ever call get_nowait() to free a slot -- they never
+        # look at the queued value -- so the queue is really just a bounded
+        # semaphore. Reserving the slot first means a saturated queue (the
+        # cluster/driver isn't draining in-flight writes) blocks/times out
+        # here without ever calling execute_async, instead of submitting a
+        # write that then has no callback attached to track it.
+        try:
+            concurrent_queue.put(True, timeout=PENDING_FUTURE_TIMEOUT_SECONDS)
+        except Full:
+            raise Exception(
+                f"Timed out after {PENDING_FUTURE_TIMEOUT_SECONDS}s enqueuing "
+                f"a Cassandra write future ({concurrent_queue.maxsize} "
+                "in-flight writes not completing). The cluster or driver is "
+                "likely unresponsive."
+            )
+        try:
+            future = session.execute_async(batch)
+        except Exception:
+            concurrent_queue.get_nowait()
+            raise
         future.add_callbacks(
             partial(
                 on_success,

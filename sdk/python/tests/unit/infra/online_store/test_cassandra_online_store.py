@@ -1,4 +1,7 @@
 import textwrap
+import time
+from datetime import datetime
+from queue import Queue
 
 import pytest
 
@@ -7,6 +10,9 @@ from feast.entity import Entity
 from feast.field import Field
 from feast.infra.offline_stores.dask import DaskOfflineStoreConfig
 from feast.infra.offline_stores.file_source import FileSource
+from feast.infra.online_stores.cassandra_online_store import (
+    cassandra_online_store as cassandra_online_store_module,
+)
 from feast.infra.online_stores.cassandra_online_store.cassandra_online_store import (
     CassandraOnlineStore,
     CassandraOnlineStoreConfig,
@@ -294,3 +300,184 @@ def test_check_no_case_collisions_passes(file_source):
         ],
     )
     CassandraOnlineStore._check_no_case_collisions(fv)
+
+
+def test_apply_batch_full_queue_times_out_without_submitting_write(mocker):
+    """
+    If the bounded queue is already saturated (the driver isn't draining
+    in-flight writes), _apply_batch must time out enqueuing rather than
+    submit the write. This is what prevents an orphaned, untracked write
+    from being issued when the cluster/driver is unresponsive.
+    """
+    mocker.patch.object(
+        cassandra_online_store_module, "PENDING_FUTURE_TIMEOUT_SECONDS", 0.05
+    )
+    full_queue: Queue = Queue(maxsize=1)
+    full_queue.put(True)
+
+    session = mocker.MagicMock()
+    batch = mocker.MagicMock()
+
+    with pytest.raises(Exception) as excinfo:
+        CassandraOnlineStore._apply_batch(
+            batch,
+            None,
+            session,
+            full_queue,
+            on_success=mocker.MagicMock(),
+            on_failure=mocker.MagicMock(),
+        )
+
+    assert "Timed out after 0.05s enqueuing" in str(excinfo.value)
+    session.execute_async.assert_not_called()
+
+
+def test_apply_batch_happy_path_submits_and_tracks_write(mocker):
+    """Regression guard: the reordered put()-before-execute_async still
+    submits the write and attaches callbacks on the normal (non-saturated)
+    path."""
+    queue: Queue = Queue(maxsize=10)
+    future = mocker.MagicMock()
+    session = mocker.MagicMock()
+    session.execute_async.return_value = future
+    batch = mocker.MagicMock()
+    progress = mocker.MagicMock()
+
+    CassandraOnlineStore._apply_batch(
+        batch,
+        progress,
+        session,
+        queue,
+        on_success=mocker.MagicMock(),
+        on_failure=mocker.MagicMock(),
+    )
+
+    session.execute_async.assert_called_once_with(batch)
+    future.add_callbacks.assert_called_once()
+    progress.assert_called_once_with(1)
+    # the reserved slot is only freed by the success/failure callback,
+    # which the mock future never invokes here.
+    assert queue.qsize() == 1
+
+
+def test_apply_batch_releases_slot_if_execute_async_raises(mocker):
+    """If execute_async raises synchronously (e.g. a connection error), the
+    reserved queue slot must be released so it doesn't leak."""
+    queue: Queue = Queue(maxsize=1)
+    session = mocker.MagicMock()
+    session.execute_async.side_effect = RuntimeError("boom")
+    batch = mocker.MagicMock()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        CassandraOnlineStore._apply_batch(
+            batch,
+            None,
+            session,
+            queue,
+            on_success=mocker.MagicMock(),
+            on_failure=mocker.MagicMock(),
+        )
+
+    assert queue.empty()
+
+
+def test_online_write_batch_drain_deadline_raises(mocker, file_source):
+    """
+    If a write future's callback never fires (the driver/cluster is
+    unresponsive), the final drain loop in online_write_batch must raise
+    after PENDING_FUTURE_TIMEOUT_SECONDS instead of spinning forever.
+    """
+    mocker.patch.object(
+        cassandra_online_store_module, "PENDING_FUTURE_TIMEOUT_SECONDS", 0.05
+    )
+
+    # A future whose callback is never invoked, so the queue never drains.
+    future = mocker.MagicMock()
+    future.add_callbacks = lambda ok, err: None
+
+    session = mocker.MagicMock()
+    session.execute_async.return_value = future
+    session.prepare.return_value = mocker.MagicMock()
+
+    store = CassandraOnlineStore()
+    table = FeatureView(name="test_fv", source=file_source)
+
+    entity_key = mocker.MagicMock()
+    feature_val = mocker.MagicMock()
+    data = [(entity_key, {"feature1": feature_val}, datetime.utcnow(), None)]
+
+    mocker.patch.object(store, "_get_session", return_value=session)
+    mocker.patch.object(store, "_get_cql_statement", return_value=mocker.MagicMock())
+    mocker.patch(
+        "feast.infra.online_stores.cassandra_online_store.cassandra_online_store.serialize_entity_key",
+        return_value=b"\x00",
+    )
+
+    config = RepoConfig(
+        registry=REGISTRY,
+        project=PROJECT,
+        provider=PROVIDER,
+        online_store=CassandraOnlineStoreConfig(
+            hosts=["localhost"],
+            keyspace="test_keyspace",
+            write_concurrency=1,
+        ),
+        offline_store=DaskOfflineStoreConfig(),
+        entity_key_serialization_version=2,
+    )
+
+    start = time.monotonic()
+    with pytest.raises(Exception) as excinfo:
+        store.online_write_batch(
+            config=config,
+            table=table,
+            data=data,
+            progress=None,
+        )
+    elapsed = time.monotonic() - start
+
+    assert "Timed out after 0.05s waiting for" in str(excinfo.value)
+    assert "pending Cassandra write future" in str(excinfo.value)
+    # Should raise close to the deadline, not hang.
+    assert elapsed < 5
+
+
+def test_get_session_applies_request_timeout_without_load_balancing(mocker):
+    """
+    request_timeout must be applied via an ExecutionProfile even when
+    `load_balancing` isn't configured -- otherwise it's silently dropped
+    and never enforced by the driver.
+    """
+    captured_kwargs = {}
+
+    def fake_cluster(hosts, **kwargs):
+        captured_kwargs.update(kwargs)
+        cluster = mocker.MagicMock()
+        cluster.connect.return_value = mocker.MagicMock()
+        return cluster
+
+    mocker.patch(
+        "feast.infra.online_stores.cassandra_online_store.cassandra_online_store.Cluster",
+        side_effect=fake_cluster,
+    )
+
+    config = RepoConfig(
+        registry=REGISTRY,
+        project=PROJECT,
+        provider=PROVIDER,
+        online_store=CassandraOnlineStoreConfig(
+            hosts=["localhost"],
+            keyspace="test_keyspace",
+            request_timeout=30,
+        ),
+        offline_store=DaskOfflineStoreConfig(),
+        entity_key_serialization_version=2,
+    )
+
+    store = CassandraOnlineStore()
+    store._get_session(config)
+
+    assert "execution_profiles" in captured_kwargs
+    profiles = captured_kwargs["execution_profiles"]
+    default_profile = next(iter(profiles.values()))
+    assert default_profile.request_timeout == 30
