@@ -537,3 +537,21 @@ class FeastPermissionError(FeastError, PermissionError):
 
     def http_status_code(self) -> int:
         return HttpStatusCode.HTTP_403_FORBIDDEN
+
+
+class IngestWorkerHungError(FeastError):
+    """Raised when ingest_df gives up waiting for its worker processes.
+
+    A worker that never returns is not a transient online-store error, so this
+    class deliberately neither subclasses nor mentions the driver timeout
+    errors that stream-processor retry logic treats as retryable.
+    """
+
+    def __init__(
+        self, feature_view_name: str, num_processes: int, timeout_seconds: float
+    ):
+        super().__init__(
+            f"ingest_df worker pool for feature view '{feature_view_name}' did not "
+            f"finish within {timeout_seconds:g}s ({num_processes} worker process(es)); "
+            "the pool was terminated. A worker most likely deadlocked after fork."
+        )
