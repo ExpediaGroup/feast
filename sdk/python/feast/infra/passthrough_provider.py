@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from multiprocessing import Pool
+from multiprocessing import TimeoutError as PoolTimeoutError
 from typing import (
     Any,
     Callable,
@@ -24,6 +25,7 @@ from feast.base_feature_view import BaseFeatureView
 from feast.batch_feature_view import BatchFeatureView
 from feast.data_source import DataSource
 from feast.entity import Entity
+from feast.errors import IngestWorkerHungError
 from feast.feature_logging import FeatureServiceLoggingSource
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
@@ -60,6 +62,31 @@ from feast.utils import (
 logger = logging.getLogger(__name__)
 
 DEFAULT_BATCH_SIZE = 10_000
+
+# --- Parallel online-store ingest (ingest_df) knobs ---------------------------
+#
+# ingest_df fans a write out across forked worker processes. Two environment
+# variables control that path.
+#
+# FEAST_INGEST_WORKERS
+#     Explicit number of worker processes. 0 or 1 writes in-process, with no
+#     fork at all. When unset, the legacy sizing applies: SPARK_DRIVER_CORES - 1
+#     workers when the Spark driver has more than two cores, otherwise
+#     in-process. The Spark stream processor exports SPARK_DRIVER_CORES from
+#     spark.driver.cores, so without this override the worker count is tied to
+#     the driver's CPU allocation.
+INGEST_WORKERS_ENV = "FEAST_INGEST_WORKERS"
+#
+# FEAST_INGEST_POOL_TIMEOUT_SECONDS
+#     Upper bound on how long ingest_df waits for its worker pool. A worker
+#     that never returns -- typically a child that deadlocked on a lock
+#     inherited across fork from a parent with live driver threads -- would
+#     otherwise block the caller forever with no error at all: the Spark
+#     foreachBatch never returns and the stream becomes a silent zombie. On
+#     expiry the pool is terminated and IngestWorkerHungError is raised so the
+#     caller can fail and restart. A value <= 0 disables the bound.
+INGEST_POOL_TIMEOUT_ENV = "FEAST_INGEST_POOL_TIMEOUT_SECONDS"
+DEFAULT_INGEST_POOL_TIMEOUT_SECONDS = 600.0
 
 
 class PassthroughProvider(Provider):
@@ -519,27 +546,95 @@ class PassthroughProvider(Provider):
             field_mapping=field_mapping,
         )
 
-        num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
-        if num_spark_driver_cores > 2:
-            # Leaving one core for operating system and other background processes
-            num_processes = num_spark_driver_cores - 1
+        num_processes = self._ingest_worker_count(table.num_rows)
+        # Online stores (e.g. Redis, Valkey) read NUM_PROCESSES to size their
+        # own per-process concurrency, so keep exporting it on every path.
+        os.environ["NUM_PROCESSES"] = str(num_processes)
 
-            if table.num_rows < num_processes:
-                num_processes = table.num_rows
-
-            os.environ["NUM_PROCESSES"] = str(num_processes)
-
+        if num_processes > 1:
             # Input table is split into smaller chunks and processed in parallel
             chunks = self.split_table(num_processes, table)
             chunks_to_parallelize = [
                 (chunk, feature_view, join_keys) for chunk in chunks
             ]
-
-            with Pool(processes=num_processes) as pool:
-                pool.starmap(self.process, chunks_to_parallelize)
+            self._run_ingest_workers(feature_view, num_processes, chunks_to_parallelize)
         else:
-            os.environ["NUM_PROCESSES"] = "1"
             self.process(table, feature_view, join_keys)
+
+    @staticmethod
+    def _ingest_worker_count(num_rows: int) -> int:
+        """Number of worker processes ingest_df should use for ``num_rows`` rows.
+
+        FEAST_INGEST_WORKERS wins when set to a valid integer; otherwise the
+        legacy SPARK_DRIVER_CORES sizing applies (see the module constants).
+        The result is never larger than the row count, since there is no point
+        forking more workers than there are rows, and never smaller than 1,
+        where 1 means "write in-process, no fork".
+        """
+        requested: Optional[int] = None
+        override = os.environ.get(INGEST_WORKERS_ENV)
+        if override is not None and override.strip():
+            try:
+                requested = int(override)
+            except ValueError:
+                logger.warning(
+                    f"Ignoring {INGEST_WORKERS_ENV}={override!r}: not an integer; "
+                    "falling back to SPARK_DRIVER_CORES-based sizing."
+                )
+        if requested is None:
+            num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
+            if num_spark_driver_cores > 2:
+                # Leaving one core for operating system and other background processes
+                requested = num_spark_driver_cores - 1
+            else:
+                requested = 1
+        return max(1, min(requested, num_rows))
+
+    @staticmethod
+    def _ingest_pool_timeout_seconds() -> Optional[float]:
+        """Wait bound for the ingest worker pool, or None when disabled."""
+        raw = os.environ.get(INGEST_POOL_TIMEOUT_ENV)
+        if raw is None or not raw.strip():
+            return DEFAULT_INGEST_POOL_TIMEOUT_SECONDS
+        try:
+            timeout = float(raw)
+        except ValueError:
+            logger.warning(
+                f"Ignoring {INGEST_POOL_TIMEOUT_ENV}={raw!r}: not a number; using "
+                f"the default of {DEFAULT_INGEST_POOL_TIMEOUT_SECONDS:g}s."
+            )
+            return DEFAULT_INGEST_POOL_TIMEOUT_SECONDS
+        return timeout if timeout > 0 else None
+
+    def _run_ingest_workers(
+        self,
+        feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView],
+        num_processes: int,
+        chunks_to_parallelize: List[Tuple[Any, Any, Any]],
+    ) -> None:
+        """Write the chunks across a pool of forked workers, bounded in time.
+
+        The pool wait is the one place in the ingest path with no natural
+        deadline: the online store's own timeouts only run inside the workers,
+        so a worker that never returns hangs the caller indefinitely. Waiting on
+        the async result with a timeout and then terminating the pool turns
+        that hang into an IngestWorkerHungError the caller can act on. Worker
+        exceptions still propagate unchanged, exactly as with ``starmap``.
+        """
+        timeout = self._ingest_pool_timeout_seconds()
+        with Pool(processes=num_processes) as pool:
+            async_result = pool.starmap_async(self.process, chunks_to_parallelize)
+            try:
+                async_result.get(timeout=timeout)
+            except PoolTimeoutError:
+                # The context manager terminates on exit anyway; do it here so
+                # nothing runs between the deadline and the kill.
+                pool.terminate()
+                raise IngestWorkerHungError(
+                    feature_view_name=feature_view.name,
+                    num_processes=num_processes,
+                    timeout_seconds=timeout if timeout is not None else 0.0,
+                ) from None
 
     @staticmethod
     def split_table(num_processes, table):
