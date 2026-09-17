@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from feast.errors import CassandraWriteTimeoutError, IngestWorkerHungError
 from feast.infra.contrib.spark_kafka_processor import (
     TRANSIENT_ERROR_PATTERNS,
     _is_transient_error,
@@ -109,6 +110,21 @@ class TestWriteWithRetry:
         )
 
         mock_write_fn.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            CassandraWriteTimeoutError("Cassandra write deadline expired"),
+            IngestWorkerHungError("overloaded_features", 4, 600),
+        ],
+    )
+    def test_deadline_failure_aborts_batch_without_local_replay(self, error):
+        write = MagicMock(side_effect=error)
+        with patch("feast.infra.contrib.spark_kafka_processor.time.sleep") as sleep:
+            with pytest.raises(type(error)):
+                _write_with_retry(write, "write", max_retries=3)
+        write.assert_called_once()
+        sleep.assert_not_called()
 
     def test_transient_error_triggers_retry(self):
         """Transient errors should trigger retries."""

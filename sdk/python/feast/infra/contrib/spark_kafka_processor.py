@@ -16,6 +16,7 @@ from pyspark.sql.streaming import StreamingQuery
 from feast import FeatureView
 from feast.data_format import AvroFormat, ConfluentAvroFormat, JsonFormat, StreamFormat
 from feast.data_source import KafkaSource, PushMode
+from feast.errors import CassandraWriteTimeoutError, IngestWorkerHungError
 from feast.feature_store import FeatureStore
 from feast.infra.contrib.stream_processor import (
     ProcessorConfig,
@@ -44,6 +45,10 @@ TRANSIENT_ERROR_PATTERNS = [
 
 def _is_transient_error(exc: Exception) -> bool:
     """Check if an exception is a transient error that should be retried."""
+    # A write deadline means completion is unknown. Let the query fail and
+    # recover from its checkpoint instead of replaying inside the same call.
+    if isinstance(exc, (CassandraWriteTimeoutError, IngestWorkerHungError)):
+        return False
     exc_str = str(exc).lower()
     exc_type = type(exc).__name__.lower()
 

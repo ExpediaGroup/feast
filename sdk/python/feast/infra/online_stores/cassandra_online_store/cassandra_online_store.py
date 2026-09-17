@@ -21,13 +21,25 @@ Cassandra/Astra DB online store for Feast.
 import hashlib
 import logging
 import math
+import os
 import string
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from functools import partial
-from queue import Queue
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple, Union
+from threading import Condition
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+)
 
 from cassandra import Timeout
 from cassandra.auth import PlainTextAuthProvider
@@ -37,14 +49,16 @@ from cassandra.cluster import (
     ExecutionProfile,
     ResultSet,
     Session,
+    default_lbp_factory,
 )
 from cassandra.concurrent import execute_concurrent_with_args
 from cassandra.policies import DCAwareRoundRobinPolicy, TokenAwarePolicy
 from cassandra.query import BatchStatement, BatchType, PreparedStatement
-from pydantic import StrictFloat, StrictInt, StrictStr
+from pydantic import Field, StrictFloat, StrictInt, StrictStr
 
 from feast import Entity, FeatureView, RepoConfig, utils
 from feast._materialization_metrics import get_active_aggregator
+from feast.errors import CassandraWriteTimeoutError
 from feast.infra.key_encoding_utils import serialize_entity_key
 from feast.infra.online_stores.online_store import OnlineStore
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
@@ -169,6 +183,75 @@ class CassandraInvalidConfig(Exception):
         super().__init__(msg)
 
 
+class _PendingWrites:
+    """Bound write submission and completion with one shared deadline.
+
+    Each submission owns a token, registered before calling the driver. A
+    callback can therefore run inline, out of order, or more than once without
+    releasing another write's capacity or losing a failure.
+    """
+
+    def __init__(self, concurrency: int, timeout_seconds: float, table_name: str):
+        self._condition = Condition()
+        self._pending: Set[object] = set()
+        self._error: Optional[Exception] = None
+        self._concurrency = concurrency
+        self._timeout_seconds = timeout_seconds
+        self._deadline = time.monotonic() + timeout_seconds
+        self._table_name = table_name
+
+    def _remaining(self) -> float:
+        # Called while holding the condition lock, so a published driver
+        # failure always takes precedence over the generic deadline error.
+        if self._error is not None:
+            raise self._error
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise CassandraWriteTimeoutError(
+                f"Timed out after {self._timeout_seconds:g}s waiting for Cassandra "
+                f"writes on {self._table_name} ({len(self._pending)} pending). "
+                "Some writes may already have completed."
+            )
+        return remaining
+
+    def reserve(self) -> object:
+        with self._condition:
+            while len(self._pending) >= self._concurrency:
+                self._condition.wait(self._remaining())
+            self._remaining()
+            token = object()
+            self._pending.add(token)
+            return token
+
+    def complete(self, token: object, error: Optional[Exception] = None) -> None:
+        with self._condition:
+            if token not in self._pending:
+                return
+            if error is not None and self._error is None:
+                # Cassandra Timeout subclasses do not reliably survive the
+                # driver's pickle round trip. Retain the type in the message
+                # for transient-error classification, as in the existing path.
+                self._error = (
+                    Exception(
+                        f"Error writing batch to Cassandra: {type(error).__name__}: {error}"
+                    )
+                    if isinstance(error, Timeout)
+                    else error
+                )
+            self._pending.remove(token)
+            self._condition.notify_all()
+
+    def check(self) -> None:
+        with self._condition:
+            self._remaining()
+
+    def wait(self) -> None:
+        with self._condition:
+            while self._pending:
+                self._condition.wait(self._remaining())
+            self._remaining()
+
+
 class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     """
     Configuration for the Cassandra/Astra DB online store.
@@ -207,8 +290,17 @@ class CassandraOnlineStoreConfig(FeastConfigBaseModel):
     protocol_version: Optional[StrictInt] = None
     """Explicit specification of the CQL protocol version used."""
 
-    request_timeout: Optional[StrictFloat] = None
-    """Request timeout in seconds. Defaults to no operation timeout."""
+    request_timeout: Optional[StrictFloat] = Field(
+        default=None, gt=0, allow_inf_nan=False
+    )
+    """Per-request timeout in seconds. None preserves the driver's finite default."""
+
+    write_timeout_seconds: StrictFloat = Field(default=120.0, gt=0, allow_inf_nan=False)
+    """Shared deadline for write backpressure and completion, in seconds.
+
+    Set this above request_timeout to leave time for all concurrent batches.
+    The deadline still applies if the driver's request callbacks stop firing.
+    """
 
     lazy_table_creation: Optional[bool] = False
     """
@@ -293,10 +385,12 @@ class CassandraOnlineStore(OnlineStore):
         _prepared_statements: cache of statements prepared by the driver.
     """
 
-    _cluster: Cluster = None
-    _session: Session = None
-    _keyspace: str = "feast_keyspace"
-    _prepared_statements: Dict[str, PreparedStatement] = {}
+    def __init__(self) -> None:
+        self._cluster: Optional[Cluster] = None
+        self._session: Optional[Session] = None
+        self._keyspace = "feast_keyspace"
+        self._prepared_statements: Dict[str, PreparedStatement] = {}
+        self._session_pid = os.getpid()
 
     def _get_session(self, config: RepoConfig):
         """
@@ -310,11 +404,20 @@ class CassandraOnlineStore(OnlineStore):
         if not isinstance(online_store_config, CassandraOnlineStoreConfig):
             raise CassandraInvalidConfig(E_CASSANDRA_UNEXPECTED_CONFIGURATION_CLASS)
 
+        if self._session_pid != os.getpid():
+            if self._session is not None or self._cluster is not None:
+                raise CassandraInvalidConfig(
+                    "Cassandra sessions cannot be shared across processes; "
+                    "create the online store inside the worker process."
+                )
+            self._session_pid = os.getpid()
+
         if self._session:
             if not self._session.is_shutdown:
                 return self._session
             else:
                 self._session = None
+                self._prepared_statements.clear()
         if not self._session:
             # configuration consistency checks
             hosts = online_store_config.hosts
@@ -359,10 +462,19 @@ class CassandraOnlineStore(OnlineStore):
                 else:
                     raise CassandraInvalidConfig(E_CASSANDRA_UNKNOWN_LB_POLICY)
 
-                # wrap it up in a map of ex.profiles with a default
+                # Passing None disables the driver's request timeout; omit it
+                # to preserve the finite default when none was configured.
+                profile_kwargs: Dict[str, Any] = {"load_balancing_policy": lb_policy}
+                if online_store_config.request_timeout is not None:
+                    profile_kwargs["request_timeout"] = (
+                        online_store_config.request_timeout
+                    )
+                exe_profile = ExecutionProfile(**profile_kwargs)
+                execution_profiles = {EXEC_PROFILE_DEFAULT: exe_profile}
+            elif online_store_config.request_timeout is not None:
                 exe_profile = ExecutionProfile(
                     request_timeout=online_store_config.request_timeout,
-                    load_balancing_policy=lb_policy,
+                    load_balancing_policy=default_lbp_factory(),
                 )
                 execution_profiles = {EXEC_PROFILE_DEFAULT: exe_profile}
             else:
@@ -407,6 +519,10 @@ class CassandraOnlineStore(OnlineStore):
         you can't use the session object anymore.
         You'd get a RuntimeError "cannot schedule new futures after shutdown".
         """
+        # A forked child must not touch the parent's driver locks or sockets,
+        # including during garbage collection after the ownership check fails.
+        if getattr(self, "_session_pid", None) != os.getpid():
+            return
         if self._session:
             if not self._session.is_shutdown:
                 self._session.shutdown()
@@ -438,29 +554,6 @@ class CassandraOnlineStore(OnlineStore):
                       rows is written to the online store. Can be used to
                       display progress.
         """
-        ex: Optional[Exception] = None
-
-        def on_success(result, concurrent_queue):
-            concurrent_queue.get_nowait()
-
-        def on_failure(exc, concurrent_queue):
-            nonlocal ex
-            # The cassandra-driver's Timeout subclasses (WriteTimeout,
-            # ReadTimeout) fail to unpickle because __init__ re-translates
-            # write_type via WriteType.value_to_name, but pickle only
-            # preserves the formatted message string — so write_type
-            # defaults to None on reconstruction, causing KeyError.
-            # Wrap them in a plain Exception so they survive pickle
-            # round-trip across Spark's multiprocessing boundaries.
-            if isinstance(exc, Timeout):
-                ex = Exception(
-                    f"Error writing batch to Cassandra: {type(exc).__name__}: {exc}"
-                )
-            else:
-                ex = exc
-            concurrent_queue.get_nowait()
-            logger.exception(f"Error writing a batch: {exc}")
-
         online_store_config = config.online_store
 
         project = config.project
@@ -468,7 +561,17 @@ class CassandraOnlineStore(OnlineStore):
         ttl_feature_view = table.ttl or timedelta(seconds=0)
         ttl_online_store_config = online_store_config.key_ttl_seconds or 0
         write_concurrency = online_store_config.write_concurrency
-        concurrent_queue: Queue = Queue(maxsize=write_concurrency)
+        if not write_concurrency or write_concurrency < 1:
+            logger.warning(
+                "write_concurrency=%r is not positive; using 1 to keep writes bounded.",
+                write_concurrency,
+            )
+            write_concurrency = 1
+        pending = _PendingWrites(
+            write_concurrency,
+            online_store_config.write_timeout_seconds,
+            f"{online_store_config.keyspace}.{project}.{table.name}",
+        )
         feast_array_types = [
             "bytes_list_val",
             "string_list_val",
@@ -599,9 +702,7 @@ class CassandraOnlineStore(OnlineStore):
                             batch,
                             progress,
                             session,
-                            concurrent_queue,
-                            on_success,
-                            on_failure,
+                            pending,
                         )
                         batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                         batch_count = 0
@@ -611,9 +712,7 @@ class CassandraOnlineStore(OnlineStore):
                         batch,
                         progress,
                         session,
-                        concurrent_queue,
-                        on_success,
-                        on_failure,
+                        pending,
                     )
         else:
             insert_cql = self._get_cql_statement(
@@ -649,9 +748,7 @@ class CassandraOnlineStore(OnlineStore):
                             batch,
                             progress,
                             session,
-                            concurrent_queue,
-                            on_success,
-                            on_failure,
+                            pending,
                         )
                         batch = BatchStatement(batch_type=BatchType.UNLOGGED)
                         batch_count = 0
@@ -661,29 +758,14 @@ class CassandraOnlineStore(OnlineStore):
                         batch,
                         progress,
                         session,
-                        concurrent_queue,
-                        on_success,
-                        on_failure,
+                        pending,
                     )
 
-        if ex:
-            raise ex
+        pending.wait()
+        # Spark materialization engine doesn't log info messages.
+        print("Completed writing all futures.")
 
-        if not concurrent_queue.empty():
-            logger.warning(
-                f"Waiting for futures. Pending are {concurrent_queue.qsize()}"
-            )
-            while not concurrent_queue.empty():
-                if ex:
-                    raise ex
-                time.sleep(0.001)
-            if ex:
-                raise ex
-            # Spark materialization engine doesn't log info messages
-            # so we print the message to stdout
-            print("Completed writing all futures.")
-
-            # correction for the last missing call to `progress`:
+        # correction for the last missing call to `progress`:
         if progress:
             progress(1)
 
@@ -992,6 +1074,7 @@ class CassandraOnlineStore(OnlineStore):
     ) -> bool:
         self._get_session(config)
         _, plain_table_name = self._resolve_table_names(config, project, table)
+        assert self._cluster is not None
         ks_meta = self._cluster.metadata.keyspaces[self._keyspace]
         return plain_table_name in ks_meta.tables
 
@@ -1000,6 +1083,7 @@ class CassandraOnlineStore(OnlineStore):
         session = self._get_session(config)
         fqtable, plain_table_name = self._resolve_table_names(config, project, table)
 
+        assert self._cluster is not None
         ks_meta = self._cluster.metadata.keyspaces[self._keyspace]
         # Cassandra/Scylla lowercase unquoted identifiers at storage time. The
         # plugin emits column references unquoted (see _build_sorted_table_cql
@@ -1128,22 +1212,29 @@ class CassandraOnlineStore(OnlineStore):
         batch: BatchStatement,
         progress: Optional[Callable[[int], Any]],
         session: Session,
-        concurrent_queue: Queue,
-        on_success,
-        on_failure,
+        pending: _PendingWrites,
     ):
-        future = session.execute_async(batch)
-        concurrent_queue.put(future)
-        future.add_callbacks(
-            partial(
+        token = pending.reserve()
+
+        def on_success(_result):
+            pending.complete(token)
+
+        try:
+            future = session.execute_async(batch)
+            future.add_callbacks(
                 on_success,
-                concurrent_queue=concurrent_queue,
-            ),
-            partial(
-                on_failure,
-                concurrent_queue=concurrent_queue,
-            ),
-        )
+                partial(pending.complete, token),
+            )
+        except Exception as exc:
+            # Covers synchronous submission and callback-registration errors.
+            # Completion is idempotent if an inline callback already ran.
+            pending.complete(token, exc)
+            pending.check()
+            raise
+
+        # Inline failures must not look successful just because the pending
+        # set has already drained, or because no further batch is submitted.
+        pending.check()
 
         # this happens N-1 times, will be corrected outside:
         if progress:

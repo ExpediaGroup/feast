@@ -539,19 +539,33 @@ class FeastPermissionError(FeastError, PermissionError):
         return HttpStatusCode.HTTP_403_FORBIDDEN
 
 
-class IngestWorkerHungError(FeastError):
-    """Raised when ingest_df gives up waiting for its worker processes.
+class CassandraWriteTimeoutError(FeastError):
+    """The overall Cassandra write deadline expired before all writes completed."""
 
-    A worker that never returns is not a transient online-store error, so this
-    class deliberately neither subclasses nor mentions the driver timeout
-    errors that stream-processor retry logic treats as retryable.
-    """
+
+class IngestWorkerFailedError(FeastError):
+    """An ingest worker exited without a result or could not serialize its error."""
+
+
+class IngestWorkerHungError(FeastError):
+    """The overall ingest worker deadline expired before all chunks completed."""
 
     def __init__(
         self, feature_view_name: str, num_processes: int, timeout_seconds: float
     ):
+        self.feature_view_name = feature_view_name
+        self.num_processes = num_processes
+        self.timeout_seconds = timeout_seconds
         super().__init__(
-            f"ingest_df worker pool for feature view '{feature_view_name}' did not "
+            f"ingest_df workers for feature view '{feature_view_name}' did not "
             f"finish within {timeout_seconds:g}s ({num_processes} worker process(es)); "
-            "the pool was terminated. A worker most likely deadlocked after fork."
+            "the batch failed and worker cleanup was requested. "
+            "Inspect worker logs for slow writes, a stalled worker, or startup failures."
+        )
+
+    def __reduce__(self):
+        return type(self), (
+            self.feature_view_name,
+            self.num_processes,
+            self.timeout_seconds,
         )
