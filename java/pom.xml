@@ -163,14 +163,14 @@
             <id>eg-release-dev</id>
             <distributionManagement>
                 <repository>
-                    <id>eg-artylab-releases</id>
-                    <name>EG Artylab Releases Repository</name>
-                    <url>https://artylab.expedia.biz/eg-maven-release-local</url>
+                    <id>artifactory-cloud-releases</id>
+                    <name>EG Artifactory Cloud Releases Repository</name>
+                    <url>https://artifactory.expedia.biz/artifactory/eg-internal-maven</url>
                 </repository>
                 <snapshotRepository>
-                    <id>eg-artylab-snapshots</id>
-                    <name>EG Artifactory Snapshot Repository</name>
-                    <url>https://artylab.expedia.biz/eg-maven-snapshot-local</url>
+                    <id>artifactory-cloud-snapshots</id>
+                    <name>EG Artifactory Cloud Snapshot Repository</name>
+                    <url>https://artifactory.expedia.biz/artifactory/dev-maven</url>
                 </snapshotRepository>
             </distributionManagement>
 
