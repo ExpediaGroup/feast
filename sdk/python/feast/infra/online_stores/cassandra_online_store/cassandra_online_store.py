@@ -119,13 +119,15 @@ def _record_materialization_drop(reason: str, n: int = 1) -> None:
 
 
 # CQL command templates (that is, before replacing schema names)
+# The TTL is a bind marker, bound last: sorted feature views compute it per row,
+# and a TTL literal in the text made every value a separate prepared statement.
 INSERT_CQL_4_TEMPLATE = (
     "INSERT INTO {fqtable} (feature_name,"
     " value, entity_key, event_ts) VALUES"
-    " (?, ?, ?, ?) USING TTL {ttl};"
+    " (?, ?, ?, ?) USING TTL ?;"
 )
 
-INSERT_SORTED_FEATURES_TEMPLATE = "INSERT INTO {fqtable} ({feature_names}, entity_key, event_ts) VALUES ({parameters}) USING TTL {ttl};"
+INSERT_SORTED_FEATURES_TEMPLATE = "INSERT INTO {fqtable} ({feature_names}, entity_key, event_ts) VALUES ({parameters}) USING TTL ?;"
 
 SELECT_CQL_TEMPLATE = "SELECT {columns} FROM {fqtable} WHERE entity_key = ?;"
 
@@ -626,6 +628,15 @@ class CassandraOnlineStore(OnlineStore):
             feature_names_str = ", ".join(feature_names)
             params_str = ", ".join(["?"] * (len(feature_names) + 2))
 
+            insert_cql = self._get_cql_statement(
+                config,
+                "insert_sorted_features",
+                fqtable=fqtable,
+                session=session,
+                feature_names_str=feature_names_str,
+                params_str=params_str,
+            )
+
             # Write each batch with same entity key in to the online store
             sort_key_names = [sort_key.name for sort_key in table.sort_keys]
 
@@ -681,15 +692,7 @@ class CassandraOnlineStore(OnlineStore):
                     feature_values = feature_values + (
                         entity_key_bin,
                         timestamp,
-                    )
-                    insert_cql = self._get_cql_statement(
-                        config,
-                        "insert_sorted_features",
-                        fqtable=fqtable,
-                        ttl=ttl,
-                        session=session,
-                        feature_names_str=feature_names_str,
-                        params_str=params_str,
+                        ttl,
                     )
                     batch.add(insert_cql, feature_values)
                     batch_count += 1
@@ -719,7 +722,6 @@ class CassandraOnlineStore(OnlineStore):
                 config,
                 "insert4",
                 fqtable=fqtable,
-                ttl=ttl_online_store_config,
                 session=session,
             )
 
@@ -731,11 +733,12 @@ class CassandraOnlineStore(OnlineStore):
                     entity_key_serialization_version=config.entity_key_serialization_version,
                 ).hex()
                 for feature_name, val in values.items():
-                    params: Tuple[str, bytes, str, datetime] = (
+                    params: Tuple[str, bytes, str, datetime, int] = (
                         feature_name,
                         val.SerializeToString(),
                         entity_key_bin,
                         timestamp,
+                        ttl_online_store_config,
                     )
                     batch.add(insert_cql, params)
                     batch_count += 1

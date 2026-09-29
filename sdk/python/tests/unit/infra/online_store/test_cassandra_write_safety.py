@@ -96,6 +96,7 @@ def write_case(request, monkeypatch):
         "_get_cql_statement",
         lambda *_args, **_kwargs: (
             "INSERT INTO test_keyspace.test_fv (a, b, c, d) VALUES (%s, %s, %s, %s)"
+            " USING TTL %s"
         ),
     )
     data = [
