@@ -25,9 +25,11 @@ class SecurityManager:
         self,
         project: str,
         registry: BaseRegistry,
+        write_auth_only: bool = False,
     ):
         self._project = project
         self._registry = registry
+        self._write_auth_only = write_auth_only
         self._current_user: ContextVar[Optional[User]] = ContextVar(
             "current_user", default=None
         )
@@ -37,6 +39,14 @@ class SecurityManager:
         Init the user for the current context.
         """
         self._current_user.set(current_user)
+
+    @property
+    def write_auth_only(self) -> bool:
+        """
+        When true, JWT validation still runs on write RPCs but Permission RBAC is
+        skipped so Apply/Delete succeed without Permission rows.
+        """
+        return self._write_auth_only
 
     @property
     def current_user(self) -> Optional[User]:
@@ -190,6 +200,9 @@ def permitted_resources(
             # NoAuthConfig: allow all resources
             logger.debug("NoAuthConfig enabled - allowing access to all resources")
             return resources
+        if sm.write_auth_only:
+            # Write-path OIDC: reads are unauthenticated; skip Permission filtering.
+            return resources
         elif sm.current_user is not None:
             # Intra-communication user: allow all resources
             logger.debug("Intra-communication user - allowing access to all resources")
@@ -240,6 +253,11 @@ def is_auth_necessary(sm: Optional[SecurityManager]) -> bool:
 
     # If no security manager, no auth is necessary
     if sm is None:
+        return False
+
+    # Write-path OIDC: JWT is validated on write RPCs; skip Permission RBAC so
+    # Apply succeeds with a valid token and no Permission rows.
+    if sm.write_auth_only:
         return False
 
     # If security manager exists but no user context, auth is necessary (security-first approach)
