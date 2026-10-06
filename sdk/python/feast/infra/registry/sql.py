@@ -276,9 +276,8 @@ Index(
     unique=True,
 )
 
-# Append-only audit of registry object create/update/delete. Ticket 3 is schema
-# only (create_all); inserts land in Ticket 4 inside the same write_engine.begin()
-# as the object mutation. Do not queue, outbox, or write after commit — audit
+# Append-only audit of registry object create/update/delete.
+# Do not queue, outbox, or write after commit — audit
 # failure must fail the gRPC write.
 #
 # before_proto / after_proto are gzip of proto3 wire bytes (null on create /
