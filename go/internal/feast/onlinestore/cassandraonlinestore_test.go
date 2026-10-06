@@ -5,6 +5,8 @@ package onlinestore
 import (
 	"encoding/hex"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -33,7 +35,7 @@ func TestExtractCassandraConfig_CorrectDefaults(t *testing.T) {
 	assert.Equal(t, 4, cassandraConfig.protocolVersion)
 	assert.True(t, reflect.TypeOf(gocql.RoundRobinHostPolicy()) == reflect.TypeOf(cassandraConfig.loadBalancingPolicy))
 	assert.Equal(t, int64(0), cassandraConfig.connectionTimeoutMillis)
-	assert.Equal(t, int64(0), cassandraConfig.requestTimeoutMillis)
+	assert.Equal(t, time.Duration(0), cassandraConfig.requestTimeout)
 }
 
 func TestExtractCassandraConfig_CorrectSettings(t *testing.T) {
@@ -59,7 +61,101 @@ func TestExtractCassandraConfig_CorrectSettings(t *testing.T) {
 	assert.Equal(t, 271, cassandraConfig.protocolVersion)
 	assert.True(t, reflect.TypeOf(gocql.DCAwareRoundRobinPolicy("aws-us-west-2")) == reflect.TypeOf(cassandraConfig.loadBalancingPolicy))
 	assert.Equal(t, int64(271), cassandraConfig.connectionTimeoutMillis)
-	assert.Equal(t, int64(271), cassandraConfig.requestTimeoutMillis)
+	assert.Equal(t, 271*time.Millisecond, cassandraConfig.requestTimeout)
+}
+
+func TestExtractCassandraConfig_RequestTimeout(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   map[string]any
+		expected time.Duration
+	}{
+		{"neither key uses the gocql default", map[string]any{}, 0},
+		{"request_timeout is in seconds", map[string]any{"request_timeout": 0.03}, 30 * time.Millisecond},
+		{"whole-number request_timeout is still seconds", map[string]any{"request_timeout": 30.0}, 30 * time.Second},
+		{"request_timeout keeps sub-millisecond precision", map[string]any{"request_timeout": 0.0005}, 500 * time.Microsecond},
+		{"request_timeout rounds to the nearest nanosecond", map[string]any{"request_timeout": 1.001}, 1001 * time.Millisecond},
+		{"request_timeout_millis is in milliseconds", map[string]any{"request_timeout_millis": 30.0}, 30 * time.Millisecond},
+		{"request_timeout_millis keeps fractions", map[string]any{"request_timeout_millis": 0.5}, 500 * time.Microsecond},
+		{"request_timeout_millis wins over request_timeout", map[string]any{"request_timeout_millis": 50.0, "request_timeout": 0.03}, 50 * time.Millisecond},
+		{"null request_timeout uses the gocql default", map[string]any{"request_timeout": nil}, 0},
+		{"null request_timeout_millis falls back to request_timeout", map[string]any{"request_timeout_millis": nil, "request_timeout": 0.03}, 30 * time.Millisecond},
+		{"zero request_timeout_millis falls back to request_timeout", map[string]any{"request_timeout_millis": 0.0, "request_timeout": 0.03}, 30 * time.Millisecond},
+		{"zero request_timeout uses the gocql default", map[string]any{"request_timeout": 0.0}, 0},
+		{"negative request_timeout uses the gocql default", map[string]any{"request_timeout": -1.0}, 0},
+		{"negative request_timeout_millis uses the gocql default", map[string]any{"request_timeout_millis": -1.0}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cassandraConfig, err := extractCassandraConfig(tt.config)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, cassandraConfig.requestTimeout)
+		})
+	}
+}
+
+func TestExtractCassandraConfig_RequestTimeoutNotANumber(t *testing.T) {
+	for _, key := range []string{"request_timeout", "request_timeout_millis"} {
+		t.Run(key, func(t *testing.T) {
+			_, err := extractCassandraConfig(map[string]any{key: "0.03"})
+			assert.ErrorContains(t, err, key)
+		})
+	}
+
+	// request_timeout is not read when request_timeout_millis already set the timeout.
+	cassandraConfig, err := extractCassandraConfig(map[string]any{"request_timeout_millis": 30.0, "request_timeout": "0.03"})
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Millisecond, cassandraConfig.requestTimeout)
+}
+
+func TestApplyRequestTimeout(t *testing.T) {
+	clusterConfigs := gocql.NewCluster("127.0.0.1")
+	defaultTimeout := clusterConfigs.Timeout
+
+	applyRequestTimeout(clusterConfigs, 30*time.Millisecond)
+	assert.Equal(t, 30*time.Millisecond, clusterConfigs.Timeout)
+	// A short request timeout must not become the socket write deadline.
+	assert.Equal(t, defaultTimeout, clusterConfigs.WriteTimeout)
+
+	untouched := gocql.NewCluster("127.0.0.1")
+	applyRequestTimeout(untouched, 0)
+	assert.Equal(t, defaultTimeout, untouched.Timeout)
+	assert.Equal(t, time.Duration(0), untouched.WriteTimeout)
+}
+
+// The Go server reads feature_store.yaml itself, so check the YAML-to-map path the server uses:
+// YAML integers and floats must both arrive as seconds.
+func TestExtractCassandraConfig_RequestTimeoutFromFeatureStoreYaml(t *testing.T) {
+	tests := []struct {
+		yamlValue string
+		expected  time.Duration
+	}{
+		{"0.03", 30 * time.Millisecond},
+		{"30", 30 * time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.yamlValue, func(t *testing.T) {
+			repoPath := t.TempDir()
+			featureStoreYaml := fmt.Sprintf(`project: test_project
+provider: expedia
+online_store:
+    type: cassandra
+    hosts:
+        - 127.0.0.1
+    load_balancing:
+        load_balancing_policy: 'TokenAwarePolicy(DCAwareRoundRobinPolicy)'
+        local_dc: aws-us-east-1
+    request_timeout: %s
+`, tt.yamlValue)
+			require.NoError(t, os.WriteFile(filepath.Join(repoPath, "feature_store.yaml"), []byte(featureStoreYaml), 0o644))
+
+			repoConfig, err := registry.NewRepoConfigFromFile(repoPath)
+			require.NoError(t, err)
+			cassandraConfig, err := extractCassandraConfig(repoConfig.OnlineStore)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, cassandraConfig.requestTimeout)
+		})
+	}
 }
 
 func TestGetFqTableName(t *testing.T) {
