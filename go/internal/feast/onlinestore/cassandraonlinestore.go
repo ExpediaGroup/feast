@@ -58,7 +58,7 @@ type CassandraConfig struct {
 	protocolVersion         int
 	loadBalancingPolicy     gocql.HostSelectionPolicy
 	connectionTimeoutMillis int64
-	requestTimeoutMillis    int64
+	requestTimeout          time.Duration
 	readBatchSize           int
 }
 
@@ -116,6 +116,57 @@ func parseStringField(config map[string]any, fieldName string, defaultValue stri
 		return "", fmt.Errorf("failed to convert field %s to string: %v", fieldName, rawValue)
 	}
 	return stringValue, nil
+}
+
+// returns the value of a numeric field and whether it was set.
+func parseOptionalFloatField(config map[string]any, fieldName string) (float64, bool, error) {
+	rawValue, ok := config[fieldName]
+	if !ok || rawValue == nil {
+		return 0, false, nil
+	}
+	floatValue, ok := rawValue.(float64)
+	if !ok {
+		return 0, false, fmt.Errorf("failed to convert field %s to a number: %v", fieldName, rawValue)
+	}
+	return floatValue, true, nil
+}
+
+// returns the per-attempt request timeout, or 0 to keep the gocql default.
+func parseRequestTimeout(onlineStoreConfig map[string]any) (time.Duration, error) {
+	keys := []struct {
+		name string
+		unit time.Duration
+	}{
+		{"request_timeout_millis", time.Millisecond},
+		{"request_timeout", time.Second},
+	}
+	for _, key := range keys {
+		value, ok, err := parseOptionalFloatField(onlineStoreConfig, key.name)
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			continue
+		}
+		if value <= 0 {
+			log.Warn().Msgf("%s must be greater than 0, got %v: ignoring it", key.name, value)
+			continue
+		}
+		return time.Duration(math.Round(value * float64(key.unit))), nil
+	}
+	log.Warn().Msg("request_timeout not specified, using gocql default")
+	return 0, nil
+}
+
+// sets the per-attempt request timeout, keeping the gocql default when it is 0.
+func applyRequestTimeout(clusterConfigs *gocql.ClusterConfig, requestTimeout time.Duration) {
+	if requestTimeout == 0 {
+		return
+	}
+	// gocql also uses Timeout as the socket write deadline unless WriteTimeout is set, and a missed
+	// write deadline closes the connection and fails every query on it. Keep writes on the default.
+	clusterConfigs.WriteTimeout = clusterConfigs.Timeout
+	clusterConfigs.Timeout = requestTimeout
 }
 
 func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig, error) {
@@ -216,14 +267,11 @@ func extractCassandraConfig(onlineStoreConfig map[string]any) (*CassandraConfig,
 		log.Warn().Msg("connection_timeout_millis not specified, using gocql default")
 	}
 	cassandraConfig.connectionTimeoutMillis = int64(connectionTimeoutMillis.(float64))
-
-	// parse requestTimeoutMillis
-	requestTimeoutMillis, ok := onlineStoreConfig["request_timeout_millis"]
-	if !ok {
-		requestTimeoutMillis = 0.0
-		log.Warn().Msg("request_timeout_millis not specified, using gocql default")
+	requestTimeout, err := parseRequestTimeout(onlineStoreConfig)
+	if err != nil {
+		return nil, err
 	}
-	cassandraConfig.requestTimeoutMillis = int64(requestTimeoutMillis.(float64))
+	cassandraConfig.requestTimeout = requestTimeout
 
 	readBatchSize, ok := onlineStoreConfig["read_batch_size"]
 	if !ok {
@@ -269,12 +317,12 @@ func NewCassandraOnlineStore(project string, config *registry.RepoConfig, online
 	if cassandraConfig.connectionTimeoutMillis != 0 {
 		store.clusterConfigs.ConnectTimeout = time.Millisecond * time.Duration(cassandraConfig.connectionTimeoutMillis)
 	}
-	if cassandraConfig.requestTimeoutMillis != 0 {
-		store.clusterConfigs.Timeout = time.Millisecond * time.Duration(cassandraConfig.requestTimeoutMillis)
-	}
+	applyRequestTimeout(store.clusterConfigs, cassandraConfig.requestTimeout)
 
-	store.clusterConfigs.RetryPolicy = &gocql.SimpleRetryPolicy{NumRetries: 3}
+	retryPolicy := &gocql.SimpleRetryPolicy{NumRetries: 3}
+	store.clusterConfigs.RetryPolicy = retryPolicy
 	store.clusterConfigs.Consistency = gocql.LocalOne
+	log.Info().Msgf("Cassandra request timeout is %s per attempt, with up to %d retries", store.clusterConfigs.Timeout, retryPolicy.NumRetries)
 
 	cassandraTraceServiceName := os.Getenv("DD_SERVICE") + "-cassandra"
 	if cassandraTraceServiceName == "" {
