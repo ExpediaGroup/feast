@@ -276,6 +276,39 @@ Index(
     unique=True,
 )
 
+# Append-only audit of registry object create/update/delete. Ticket 3 is schema
+# only (create_all); inserts land in Ticket 4 inside the same write_engine.begin()
+# as the object mutation. Do not queue, outbox, or write after commit — audit
+# failure must fail the gRPC write.
+#
+# before_proto / after_proto are gzip of proto3 wire bytes (null on create /
+# delete respectively). Future Feast proto changes must stay additive (new field
+# numbers; reserved on deletes; no type/number reuse) so historical rows remain
+# FromString-readable. object_type is a kind discriminator (table/kind name), not
+# the protobuf message type name and not a schema version. Forensic reads should
+# gzip.decompress + FromString, not from_proto().
+object_audit_log = Table(
+    "object_audit_log",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("project_id", String(255), nullable=False),
+    Column("object_type", String(50), nullable=False),
+    Column("object_name", String(255), nullable=False),
+    Column("operation", String(20), nullable=False),  # create | update | delete
+    Column("actor", String(255), nullable=True),
+    Column("before_proto", LargeBinary, nullable=True),  # gzip(proto); null on create
+    Column("after_proto", LargeBinary, nullable=True),  # gzip(proto); null on delete
+    Column("request_id", String(64), nullable=True),
+    Column("recorded_at", BigInteger, nullable=False),
+)
+Index(
+    "idx_object_audit_log_project_object_recorded",
+    object_audit_log.c.project_id,
+    object_audit_log.c.object_type,
+    object_audit_log.c.object_name,
+    object_audit_log.c.recorded_at,
+)
+
 
 class FeastMetadataKeys(Enum):
     LAST_UPDATED_TIMESTAMP = "last_updated_timestamp"

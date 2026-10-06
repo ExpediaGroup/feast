@@ -17,12 +17,13 @@ import threading
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import func, inspect, select
 
 from feast.entity import Entity
 from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN, FeatureView
 from feast.field import Field
 from feast.infra.offline_stores.file_source import FileSource
-from feast.infra.registry.sql import SqlRegistry, SqlRegistryConfig
+from feast.infra.registry.sql import SqlRegistry, SqlRegistryConfig, object_audit_log
 from feast.types import Float32
 from feast.utils import _utc_now
 
@@ -361,3 +362,58 @@ class TestSqlRegistryMaterializationIntervalHistory:
             "driver_stats", "test_project"
         )
         assert len(history) == 1
+
+
+_OBJECT_AUDIT_LOG_COLUMNS = {
+    "id",
+    "project_id",
+    "object_type",
+    "object_name",
+    "operation",
+    "actor",
+    "before_proto",
+    "after_proto",
+    "request_id",
+    "recorded_at",
+}
+_OBJECT_AUDIT_LOG_NULLABLE = {
+    "actor",
+    "before_proto",
+    "after_proto",
+    "request_id",
+}
+
+
+def _object_audit_log_row_count(registry: SqlRegistry) -> int:
+    with registry.write_engine.begin() as conn:
+        return conn.execute(
+            select(func.count()).select_from(object_audit_log)
+        ).scalar_one()
+
+
+class TestObjectAuditLogSchema:
+    """Ticket 3: create_all creates an empty object_audit_log; no inserts yet."""
+
+    def test_create_all_creates_object_audit_log_columns_and_index(
+        self, sqlite_registry
+    ):
+        inspector = inspect(sqlite_registry.write_engine)
+        assert inspector.has_table("object_audit_log")
+
+        columns = {col["name"]: col for col in inspector.get_columns("object_audit_log")}
+        assert set(columns) == _OBJECT_AUDIT_LOG_COLUMNS
+        for name, col in columns.items():
+            assert col["nullable"] is (name in _OBJECT_AUDIT_LOG_NULLABLE)
+
+        index_names = {idx["name"] for idx in inspector.get_indexes("object_audit_log")}
+        assert "idx_object_audit_log_project_object_recorded" in index_names
+
+    def test_apply_and_delete_entity_leave_object_audit_log_empty(self, sqlite_registry):
+        entity = Entity(name="test_entity", description="Test entity")
+        sqlite_registry.apply_entity(entity, "test_project")
+        sqlite_registry.delete_entity("test_entity", "test_project")
+
+        with pytest.raises(Exception):
+            sqlite_registry.get_entity("test_entity", "test_project")
+
+        assert _object_audit_log_row_count(sqlite_registry) == 0
