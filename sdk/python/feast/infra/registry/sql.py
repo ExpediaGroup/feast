@@ -289,7 +289,7 @@ Index(
 object_audit_log = Table(
     "object_audit_log",
     metadata,
-    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("id", BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True),
     Column("project_id", String(255), nullable=False),
     Column("object_type", String(50), nullable=False),
     Column("object_name", String(255), nullable=False),
