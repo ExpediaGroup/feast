@@ -295,8 +295,8 @@ object_audit_log = Table(
     Column("object_name", String(255), nullable=False),
     Column("operation", String(20), nullable=False),  # create | update | delete
     Column("actor", String(255), nullable=True),
-    Column("before_proto", LargeBinary, nullable=True),  # gzip(proto); null on create
-    Column("after_proto", LargeBinary, nullable=True),  # gzip(proto); null on delete
+    Column("before_proto", LargeBinary().with_variant(mysql.LONGBLOB, "mysql"), nullable=True),  # gzip(proto); null on create
+    Column("after_proto", LargeBinary().with_variant(mysql.LONGBLOB, "mysql"), nullable=True),  # gzip(proto); null on delete
     Column("request_id", String(64), nullable=True),
     Column("recorded_at", BigInteger, nullable=False),
 )
