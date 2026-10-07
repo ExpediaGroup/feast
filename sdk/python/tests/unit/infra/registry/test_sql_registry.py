@@ -400,7 +400,9 @@ class TestObjectAuditLogSchema:
         inspector = inspect(sqlite_registry.write_engine)
         assert inspector.has_table("object_audit_log")
 
-        columns = {col["name"]: col for col in inspector.get_columns("object_audit_log")}
+        columns = {
+            col["name"]: col for col in inspector.get_columns("object_audit_log")
+        }
         assert set(columns) == _OBJECT_AUDIT_LOG_COLUMNS
         for name, col in columns.items():
             assert col["nullable"] is (name in _OBJECT_AUDIT_LOG_NULLABLE)
@@ -408,7 +410,9 @@ class TestObjectAuditLogSchema:
         index_names = {idx["name"] for idx in inspector.get_indexes("object_audit_log")}
         assert "idx_object_audit_log_project_object_recorded" in index_names
 
-    def test_apply_and_delete_entity_leave_object_audit_log_empty(self, sqlite_registry):
+    def test_apply_and_delete_entity_leave_object_audit_log_empty(
+        self, sqlite_registry
+    ):
         entity = Entity(name="test_entity", description="Test entity")
         sqlite_registry.apply_entity(entity, "test_project")
         sqlite_registry.delete_entity("test_entity", "test_project")
