@@ -17,12 +17,22 @@ import threading
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import func, inspect, select
+from sqlalchemy.exc import IntegrityError
 
 from feast.entity import Entity
+from feast.errors import EntityNotFoundException
 from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN, FeatureView
 from feast.field import Field
 from feast.infra.offline_stores.file_source import FileSource
-from feast.infra.registry.sql import SqlRegistry, SqlRegistryConfig
+from feast.infra.registry.sql import (
+    ObjectAuditLogObjectType,
+    ObjectAuditLogOperation,
+    SqlRegistry,
+    SqlRegistryConfig,
+    object_audit_log,
+)
+from feast.project import Project
 from feast.types import Float32
 from feast.utils import _utc_now
 
@@ -84,7 +94,7 @@ class TestSqlRegistry:
 
         sqlite_registry.delete_entity("test_entity", "test_project")
 
-        with pytest.raises(Exception):
+        with pytest.raises(EntityNotFoundException):
             sqlite_registry.get_entity("test_entity", "test_project")
 
     def test_get_project_metadata_model_returns_initialized_metadata(
@@ -361,3 +371,124 @@ class TestSqlRegistryMaterializationIntervalHistory:
             "driver_stats", "test_project"
         )
         assert len(history) == 1
+
+
+_OBJECT_AUDIT_LOG_COLUMNS = {
+    "id",
+    "project_id",
+    "project_uuid",
+    "object_type",
+    "object_name",
+    "operation",
+    "actor",
+    "before_proto",
+    "after_proto",
+    "request_id",
+    "recorded_at",
+}
+
+_AUDIT_PROJECT_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+_OBJECT_AUDIT_LOG_NULLABLE = {
+    "actor",
+    "before_proto",
+    "after_proto",
+    "request_id",
+}
+
+
+def _object_audit_log_row_count(registry: SqlRegistry) -> int:
+    with registry.write_engine.begin() as conn:
+        return conn.execute(
+            select(func.count()).select_from(object_audit_log)
+        ).scalar_one()
+
+
+class TestObjectAuditLogSchema:
+    """Ticket 3: create_all creates an empty object_audit_log; no inserts yet."""
+
+    def test_create_all_creates_object_audit_log_columns_and_index(
+        self, sqlite_registry
+    ):
+        inspector = inspect(sqlite_registry.write_engine)
+        assert inspector.has_table("object_audit_log")
+
+        columns = {
+            col["name"]: col for col in inspector.get_columns("object_audit_log")
+        }
+        assert set(columns) == _OBJECT_AUDIT_LOG_COLUMNS
+        for name, col in columns.items():
+            assert col["nullable"] is (name in _OBJECT_AUDIT_LOG_NULLABLE)
+
+        index_names = {idx["name"] for idx in inspector.get_indexes("object_audit_log")}
+        assert "idx_object_audit_log_project_object_recorded" in index_names
+        assert "idx_object_audit_log_recorded_at" in index_names
+
+        check_names = {
+            ck["name"] for ck in inspector.get_check_constraints("object_audit_log")
+        }
+        assert "ck_object_audit_log_operation" in check_names
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            ObjectAuditLogOperation.CREATE,
+            ObjectAuditLogOperation.UPDATE,
+            ObjectAuditLogOperation.DELETE,
+        ],
+    )
+    def test_operation_check_allows_enum_values(self, sqlite_registry, operation):
+        with sqlite_registry.write_engine.begin() as conn:
+            conn.execute(
+                object_audit_log.insert().values(
+                    project_id="p",
+                    project_uuid=_AUDIT_PROJECT_UUID,
+                    object_type=ObjectAuditLogObjectType.ENTITIES.value,
+                    object_name="e",
+                    operation=operation.value,
+                    recorded_at=0,
+                )
+            )
+
+    @pytest.mark.parametrize("operation", ["CREATE", "upsert", "delete ", ""])
+    def test_operation_check_rejects_unknown_values(self, sqlite_registry, operation):
+        with sqlite_registry.write_engine.begin() as conn:
+            with pytest.raises(IntegrityError):
+                conn.execute(
+                    object_audit_log.insert().values(
+                        project_id="p",
+                        project_uuid=_AUDIT_PROJECT_UUID,
+                        object_type=ObjectAuditLogObjectType.ENTITIES.value,
+                        object_name="e",
+                        operation=operation,
+                        recorded_at=0,
+                    )
+                )
+
+    def test_delete_project_leaves_object_audit_log_rows(self, sqlite_registry):
+        sqlite_registry.apply_project(Project(name="reused"))
+        with sqlite_registry.write_engine.begin() as conn:
+            conn.execute(
+                object_audit_log.insert().values(
+                    project_id="reused",
+                    project_uuid=_AUDIT_PROJECT_UUID,
+                    object_type=ObjectAuditLogObjectType.ENTITIES.value,
+                    object_name="e",
+                    operation=ObjectAuditLogOperation.CREATE.value,
+                    recorded_at=0,
+                )
+            )
+
+        sqlite_registry.delete_project("reused")
+        assert _object_audit_log_row_count(sqlite_registry) == 1
+
+    def test_apply_and_delete_entity_leave_object_audit_log_empty(
+        self, sqlite_registry
+    ):
+        entity = Entity(name="test_entity", description="Test entity")
+        sqlite_registry.apply_entity(entity, "test_project")
+        sqlite_registry.delete_entity("test_entity", "test_project")
+
+        with pytest.raises(EntityNotFoundException):
+            sqlite_registry.get_entity("test_entity", "test_project")
+
+        assert _object_audit_log_row_count(sqlite_registry) == 0

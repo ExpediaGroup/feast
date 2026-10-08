@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, cast
 from pydantic import StrictInt, StrictStr
 from sqlalchemy import (  # type: ignore
     BigInteger,
+    CheckConstraint,
     Column,
     Index,
     Integer,
@@ -26,6 +27,7 @@ from sqlalchemy import (  # type: ignore
     select,
     update,
 )
+from sqlalchemy.dialects import mysql
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
@@ -274,6 +276,98 @@ Index(
     materialization_interval_history.c.start_time,
     materialization_interval_history.c.end_time,
     unique=True,
+)
+
+
+class ObjectAuditLogOperation(str, Enum):
+    """Closed set for object_audit_log.operation."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
+class ObjectAuditLogObjectType(str, Enum):
+    """SQL table names for object_audit_log.object_type. Not proto class names,
+    not FeastObjectType ('feature view'), not lineage camelCase ('featureView').
+    Not CHECKed: the set grows with new registry tables and we have no Alembic."""
+
+    PROJECTS = "projects"
+    ENTITIES = "entities"
+    DATA_SOURCES = "data_sources"
+    FEATURE_VIEWS = "feature_views"
+    STREAM_FEATURE_VIEWS = "stream_feature_views"
+    SORTED_FEATURE_VIEWS = "sorted_feature_views"
+    ON_DEMAND_FEATURE_VIEWS = "on_demand_feature_views"
+    FEATURE_SERVICES = "feature_services"
+    SAVED_DATASETS = "saved_datasets"
+    VALIDATION_REFERENCES = "validation_references"
+    MANAGED_INFRA = "managed_infra"
+    PERMISSIONS = "permissions"
+
+
+# Append-only audit of registry object create/update/delete.
+# Do not queue, outbox, or write after commit — audit
+# failure must fail the gRPC write.
+#
+# before_proto / after_proto are gzip of proto3 wire bytes (null on create /
+# delete respectively). Future Feast proto changes must stay additive (new field
+# numbers; reserved on deletes; no type/number reuse) so historical rows remain
+# FromString-readable. object_type is a kind discriminator (table/kind name), not
+# the protobuf message type name and not a schema version. Forensic reads should
+# gzip.decompress + FromString, not from_proto().
+object_audit_log = Table(
+    "object_audit_log",
+    metadata,
+    Column(
+        "id",
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    ),
+    # project_id is the project name (same as sibling tables). Survives
+    # delete_project so forensic reads still show the name; a reused name
+    # gets a new feast_metadata PROJECT_UUID, so incarnation identity is
+    # project_uuid, not project_id.
+    Column("project_id", String(255), nullable=False),
+    Column("project_uuid", String(36), nullable=False),
+    Column("object_type", String(50), nullable=False),
+    Column("object_name", String(255), nullable=False),
+    Column("operation", String(20), nullable=False),
+    CheckConstraint(
+        "operation IN ("
+        + ", ".join(repr(op.value) for op in ObjectAuditLogOperation)
+        + ")",
+        name="ck_object_audit_log_operation",
+    ),
+    Column("actor", String(255), nullable=True),
+    Column(
+        "before_proto",
+        LargeBinary().with_variant(mysql.LONGBLOB, "mysql"),
+        nullable=True,
+    ),  # gzip(proto); null on create
+    Column(
+        "after_proto",
+        LargeBinary().with_variant(mysql.LONGBLOB, "mysql"),
+        nullable=True,
+    ),  # gzip(proto); null on delete
+    Column("request_id", String(64), nullable=True),
+    # UTC epoch seconds, same as last_updated_timestamp and
+    # materialization_interval_history.recorded_at (int(datetime.timestamp())).
+    Column("recorded_at", BigInteger, nullable=False),
+)
+Index(
+    "idx_object_audit_log_project_object_recorded",
+    object_audit_log.c.project_uuid,
+    object_audit_log.c.object_type,
+    object_audit_log.c.object_name,
+    object_audit_log.c.recorded_at,
+)
+# Time-range / retention queries ("last N hours", DELETE WHERE recorded_at < …).
+# Actor and request_id lookups are follow-up indexes if those filters show up.
+Index(
+    "idx_object_audit_log_recorded_at",
+    object_audit_log.c.recorded_at,
 )
 
 
