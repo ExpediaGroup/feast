@@ -8,7 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
-from pydantic import StrictInt, StrictStr
+from pydantic import StrictBool, StrictInt, StrictStr
 from sqlalchemy import (  # type: ignore
     BigInteger,
     CheckConstraint,
@@ -412,6 +412,17 @@ class SqlRegistryConfig(RegistryConfig):
     exempt_projects: Optional[List[str]] = None
     """ List[str]: List of projects to exempt from caching. All associated objects under the project will only be accessible with allow_cache=False. """
 
+    enable_object_audit_log: StrictBool = False
+    """ bool: When true, apply/delete writes a row to object_audit_log in the same
+        DB transaction as the mutation. The table is still created by create_all
+        either way. feature_store.yaml:
+
+            registry:
+              registry_type: sql
+              path: postgresql://...
+              enable_object_audit_log: true
+    """
+
 
 class SqlRegistry(CachingRegistry):
     def __init__(
@@ -441,6 +452,7 @@ class SqlRegistry(CachingRegistry):
             registry_config.thread_pool_executor_worker_count
         )
         self.purge_feast_metadata = registry_config.purge_feast_metadata
+        self.enable_object_audit_log = registry_config.enable_object_audit_log
         super().__init__(
             project=project,
             cache_ttl_seconds=registry_config.cache_ttl_seconds,
@@ -1332,6 +1344,8 @@ class SqlRegistry(CachingRegistry):
         before_proto: Optional[bytes],
         after_proto: Optional[bytes],
     ) -> None:
+        if not self.enable_object_audit_log:
+            return
         actor, request_id = self._audit_actor_and_request_id()
         conn.execute(
             insert(object_audit_log).values(

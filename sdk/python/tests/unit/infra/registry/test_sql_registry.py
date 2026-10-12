@@ -64,6 +64,21 @@ def sqlite_registry():
 
 
 @pytest.fixture
+def sqlite_registry_audit():
+    """SQL registry with object_audit_log inserts enabled."""
+    fd, registry_path = tempfile.mkstemp()
+    registry_config = SqlRegistryConfig(
+        registry_type="sql",
+        path=f"sqlite:///{registry_path}",
+        purge_feast_metadata=False,
+        enable_object_audit_log=True,
+    )
+    registry = SqlRegistry(registry_config, "test_project", None)
+    yield registry
+    registry.teardown()
+
+
+@pytest.fixture
 def sqlite_registry_custom_max_intervals():
     """Create a temporary SQLite registry with a custom materialization
     intervals cap, to verify apply_materialization honors it end-to-end."""
@@ -539,9 +554,16 @@ class TestObjectAuditLogSchema:
 class TestObjectAuditLogWrites:
     """Ticket 4: apply/delete insert forensic rows in the same transaction."""
 
-    def test_apply_entity_inserts_create_row_with_after_proto(self, sqlite_registry):
+    def test_flag_off_skips_inserts(self, sqlite_registry):
         sqlite_registry.apply_entity(_entity(), "test_project")
-        rows = _audit_rows(sqlite_registry, "test_entity")
+        sqlite_registry.delete_entity("test_entity", "test_project")
+        assert _object_audit_log_row_count(sqlite_registry) == 0
+
+    def test_apply_entity_inserts_create_row_with_after_proto(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
         assert len(rows) == 1
         row = rows[0]
         assert row.operation == ObjectAuditLogOperation.CREATE.value
@@ -555,10 +577,14 @@ class TestObjectAuditLogWrites:
         assert abs(row.recorded_at - now) < 60
         assert row.recorded_at < 10**11
 
-    def test_apply_entity_change_inserts_update_with_both_blobs(self, sqlite_registry):
-        sqlite_registry.apply_entity(_entity(description="first"), "test_project")
-        sqlite_registry.apply_entity(_entity(description="second"), "test_project")
-        rows = _audit_rows(sqlite_registry, "test_entity")
+    def test_apply_entity_change_inserts_update_with_both_blobs(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(description="first"), "test_project")
+        sqlite_registry_audit.apply_entity(
+            _entity(description="second"), "test_project"
+        )
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
         assert [row.operation for row in rows] == [
             ObjectAuditLogOperation.CREATE.value,
             ObjectAuditLogOperation.UPDATE.value,
@@ -569,19 +595,21 @@ class TestObjectAuditLogWrites:
         assert before.spec.description == "first"
         assert after.spec.description == "second"
 
-    def test_apply_entity_noop_does_not_insert(self, sqlite_registry):
-        sqlite_registry.apply_entity(_entity(), "test_project")
-        sqlite_registry.apply_entity(_entity(), "test_project")
-        rows = _audit_rows(sqlite_registry, "test_entity")
+    def test_apply_entity_noop_does_not_insert(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
         assert len(rows) == 1
         assert rows[0].operation == ObjectAuditLogOperation.CREATE.value
 
-    def test_delete_entity_inserts_delete_row_with_before_proto(self, sqlite_registry):
-        sqlite_registry.apply_entity(_entity(), "test_project")
-        sqlite_registry.delete_entity("test_entity", "test_project")
+    def test_delete_entity_inserts_delete_row_with_before_proto(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.delete_entity("test_entity", "test_project")
         with pytest.raises(EntityNotFoundException):
-            sqlite_registry.get_entity("test_entity", "test_project")
-        rows = _audit_rows(sqlite_registry, "test_entity")
+            sqlite_registry_audit.get_entity("test_entity", "test_project")
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
         assert [row.operation for row in rows] == [
             ObjectAuditLogOperation.CREATE.value,
             ObjectAuditLogOperation.DELETE.value,
@@ -591,60 +619,60 @@ class TestObjectAuditLogWrites:
         proto = _from_gzip_entity_proto(delete.before_proto)
         assert proto.spec.name == "test_entity"
 
-    def test_failed_audit_insert_rolls_back_apply(self, sqlite_registry):
-        sqlite_registry.apply_project(Project(name="test_project"))
+    def test_failed_audit_insert_rolls_back_apply(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
         with patch.object(
-            sqlite_registry,
+            sqlite_registry_audit,
             "_record_object_audit",
             side_effect=RuntimeError("audit failed"),
         ):
             with pytest.raises(RuntimeError, match="audit failed"):
-                sqlite_registry.apply_entity(_entity(), "test_project")
+                sqlite_registry_audit.apply_entity(_entity(), "test_project")
         with pytest.raises(EntityNotFoundException):
-            sqlite_registry.get_entity("test_entity", "test_project")
-        assert _audit_rows(sqlite_registry, "test_entity") == []
+            sqlite_registry_audit.get_entity("test_entity", "test_project")
+        assert _audit_rows(sqlite_registry_audit, "test_entity") == []
 
-    def test_failed_audit_insert_rolls_back_delete(self, sqlite_registry):
-        sqlite_registry.apply_entity(_entity(), "test_project")
+    def test_failed_audit_insert_rolls_back_delete(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
         with patch.object(
-            sqlite_registry,
+            sqlite_registry_audit,
             "_record_object_audit",
             side_effect=RuntimeError("audit failed"),
         ):
             with pytest.raises(RuntimeError, match="audit failed"):
-                sqlite_registry.delete_entity("test_entity", "test_project")
-        assert sqlite_registry.get_entity("test_entity", "test_project").name == (
+                sqlite_registry_audit.delete_entity("test_entity", "test_project")
+        assert sqlite_registry_audit.get_entity("test_entity", "test_project").name == (
             "test_entity"
         )
-        rows = _audit_rows(sqlite_registry, "test_entity")
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
         assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
 
-    def test_actor_and_request_id_from_security_manager(self, sqlite_registry):
+    def test_actor_and_request_id_from_security_manager(self, sqlite_registry_audit):
         sm = SecurityManager(
             project="test_project",
-            registry=sqlite_registry,
+            registry=sqlite_registry_audit,
             write_auth_only=True,
         )
         set_security_manager(sm)
         sm.set_current_user(User("alice", []))
         sm.set_request_id("bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
         try:
-            sqlite_registry.apply_entity(_entity(), "test_project")
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
         finally:
             no_security_manager()
-        row = _audit_rows(sqlite_registry, "test_entity")[0]
+        row = _audit_rows(sqlite_registry_audit, "test_entity")[0]
         assert row.actor == "alice"
         assert row.request_id == "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
 
     def test_delete_project_keeps_prior_rows_and_adds_project_delete(
-        self, sqlite_registry
+        self, sqlite_registry_audit
     ):
-        sqlite_registry.apply_entity(_entity(), "test_project")
-        sqlite_registry.delete_project("test_project")
-        entity_rows = _audit_rows(sqlite_registry, "test_entity")
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.delete_project("test_project")
+        entity_rows = _audit_rows(sqlite_registry_audit, "test_entity")
         assert entity_rows[0].operation == ObjectAuditLogOperation.CREATE.value
         project_rows = _audit_rows(
-            sqlite_registry,
+            sqlite_registry_audit,
             "test_project",
             object_type=ObjectAuditLogObjectType.PROJECTS.value,
         )
