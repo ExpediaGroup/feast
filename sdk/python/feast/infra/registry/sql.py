@@ -539,7 +539,7 @@ class SqlRegistry(CachingRegistry):
                 python_class=StreamFeatureView,
                 id_field_name="feature_view_name",
                 proto_field_name="feature_view_proto",
-                not_found_exception=FeatureViewNotFoundException,
+                not_found_exception=None,
             )
 
         if not fv:
@@ -1066,12 +1066,15 @@ class SqlRegistry(CachingRegistry):
         return table
 
     def _infer_fv_classes(self, feature_view):
+        # Subclasses before FeatureView: SortedFeatureView (like StreamFeatureView) is a
+        # FeatureView subclass, so checking FeatureView first would decode its row with
+        # FeatureViewProto.
         if isinstance(feature_view, StreamFeatureView):
             python_class, proto_class = StreamFeatureView, StreamFeatureViewProto
-        elif isinstance(feature_view, FeatureView):
-            python_class, proto_class = FeatureView, FeatureViewProto
         elif isinstance(feature_view, SortedFeatureView):
             python_class, proto_class = SortedFeatureView, SortedFeatureViewProto
+        elif isinstance(feature_view, FeatureView):
+            python_class, proto_class = FeatureView, FeatureViewProto
         elif isinstance(feature_view, OnDemandFeatureView):
             python_class, proto_class = OnDemandFeatureView, OnDemandFeatureViewProto
         else:

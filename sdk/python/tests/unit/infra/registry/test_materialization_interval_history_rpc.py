@@ -30,13 +30,18 @@ from feast.field import Field
 from feast.infra.offline_stores.file_source import FileSource
 from feast.infra.registry.remote import RemoteRegistry
 from feast.infra.registry.sql import SqlRegistry, SqlRegistryConfig
+from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
 from feast.protos.feast.registry.RegistryServer_pb2 import (
+    GetAnyFeatureViewRequest,
     GetMaterializationIntervalHistoryRequest,
     GetMaterializationIntervalHistoryResponse,
 )
 from feast.registry_server import RegistryServer
-from feast.types import Float32
+from feast.sort_key import SortKey
+from feast.sorted_feature_view import SortedFeatureView
+from feast.types import Float32, Int64
 from feast.utils import _utc_now
+from feast.value_type import ValueType
 
 
 @pytest.fixture
@@ -121,6 +126,77 @@ class TestGetMaterializationIntervalHistoryServerHandler:
         # surfaces as a not-found error rather than an empty result.
         with pytest.raises(FeatureViewNotFoundException):
             server.GetMaterializationIntervalHistory(request, None)
+
+
+class TestSortedFeatureViewServerHandlers:
+    """RPCs that resolve the feature view via get_any_feature_view must find a
+    SortedFeatureView, which lives in its own registry table."""
+
+    @pytest.fixture
+    def registry_with_sorted_feature_view(self, sql_registry_with_history):
+        registry = sql_registry_with_history
+        entity = registry.get_entity("driver", "test_project")
+        sorted_feature_view = SortedFeatureView(
+            name="driver_sorted",
+            source=FileSource(path="some path", timestamp_field="event_timestamp"),
+            entities=[entity],
+            schema=[
+                Field(name="sort_key1", dtype=Int64),
+                Field(name="conv_rate", dtype=Float32),
+            ],
+            sort_keys=[
+                SortKey(
+                    name="sort_key1",
+                    value_type=ValueType.INT64,
+                    default_sort_order=SortOrder.ASC,
+                )
+            ],
+            online=True,
+        )
+        registry.apply_feature_view(sorted_feature_view, "test_project")
+
+        now = _utc_now()
+        for i in range(4):
+            registry.apply_materialization(
+                sorted_feature_view,
+                "test_project",
+                now - timedelta(days=4 - i, hours=1),
+                now - timedelta(days=4 - i),
+            )
+        return registry
+
+    def test_history_handler_returns_sorted_feature_view_history(
+        self, registry_with_sorted_feature_view
+    ):
+        server = RegistryServer(registry_with_sorted_feature_view)
+        request = GetMaterializationIntervalHistoryRequest(
+            feature_view_name="driver_sorted", project="test_project"
+        )
+
+        response = server.GetMaterializationIntervalHistory(request, None)
+
+        assert len(response.entries) == 4
+        assert all(
+            entry.feature_view_name == "driver_sorted" for entry in response.entries
+        )
+
+    def test_get_any_feature_view_handler_returns_sorted_feature_view(
+        self, registry_with_sorted_feature_view
+    ):
+        server = RegistryServer(registry_with_sorted_feature_view)
+        request = GetAnyFeatureViewRequest(
+            name="driver_sorted", project="test_project", allow_cache=False
+        )
+
+        response = server.GetAnyFeatureView(request, None)
+
+        assert response.any_feature_view.WhichOneof("any_feature_view") == (
+            "sorted_feature_view"
+        )
+        assert [
+            sort_key.name
+            for sort_key in response.any_feature_view.sorted_feature_view.spec.sort_keys
+        ] == ["sort_key1"]
 
 
 class TestRemoteRegistryGetMaterializationIntervalHistory:
