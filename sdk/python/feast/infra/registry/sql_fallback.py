@@ -316,7 +316,7 @@ class SqlFallbackRegistry(SqlRegistry):
             return feature_view
 
         if isinstance(feature_view, SortedFeatureView):
-            self.cached_feature_views.set(project, name, feature_view)
+            self.cached_sorted_feature_views.set(project, name, feature_view)
         elif isinstance(feature_view, StreamFeatureView):
             self.cached_stream_feature_views.set(project, name, feature_view)
         elif isinstance(feature_view, OnDemandFeatureView):
