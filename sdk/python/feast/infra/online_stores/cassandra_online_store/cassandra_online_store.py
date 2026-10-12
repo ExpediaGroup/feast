@@ -26,7 +26,6 @@ import string
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from functools import partial
 from threading import Condition
 from typing import (
     Any,
@@ -242,6 +241,10 @@ class _PendingWrites:
                 )
             self._pending.remove(token)
             self._condition.notify_all()
+
+    @property
+    def table_name(self) -> str:
+        return self._table_name
 
     def check(self) -> None:
         with self._condition:
@@ -1222,12 +1225,19 @@ class CassandraOnlineStore(OnlineStore):
         def on_success(_result):
             pending.complete(token)
 
+        def on_failure(exc):
+            # Only the first failure is raised, so log each one.
+            logger.error(
+                "Error writing a batch to %s: %s",
+                pending.table_name,
+                exc,
+                exc_info=exc,
+            )
+            pending.complete(token, exc)
+
         try:
             future = session.execute_async(batch)
-            future.add_callbacks(
-                on_success,
-                partial(pending.complete, token),
-            )
+            future.add_callbacks(on_success, on_failure)
         except Exception as exc:
             # Covers synchronous submission and callback-registration errors.
             # Completion is idempotent if an inline callback already ran.

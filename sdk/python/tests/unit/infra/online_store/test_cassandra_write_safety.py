@@ -166,6 +166,34 @@ def test_final_async_failure_wakes_waiter_and_is_not_reported_as_success(write_c
             result.result(timeout=1)
 
 
+def test_each_async_failure_is_logged(write_case, monkeypatch):
+    store, session, table, data = write_case
+    log = Mock()
+    monkeypatch.setattr(cassandra_module, "logger", log)
+    errors = [ValueError("first write failed"), ValueError("second write failed")]
+    futures = [ControlledFuture(error=error) for error in errors]
+    session.execute_async.side_effect = futures
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        result = executor.submit(
+            store.online_write_batch,
+            repo_config(
+                write_concurrency=2, write_batch_size=2, write_timeout_seconds=1.0
+            ),
+            table,
+            data * 2,
+            None,
+        )
+        for future in futures:
+            assert future.attached.wait(1)
+        for future in futures:
+            future.finish()
+        with pytest.raises(ValueError, match="first write failed"):
+            result.result(timeout=1)
+    logged = [call.args for call in log.error.call_args_list]
+    assert [args[2] for args in logged] == errors
+    assert all("test_fv" in args[1] for args in logged)
+
+
 @pytest.mark.parametrize("write_concurrency", [None, 0, -1])
 def test_nonpositive_concurrency_still_applies_backpressure(
     write_concurrency, write_case
