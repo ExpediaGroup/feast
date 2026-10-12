@@ -1,4 +1,6 @@
+import uuid
 from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock
 
 import grpc
 import pytest
@@ -7,14 +9,22 @@ from grpc_health.v1 import health_pb2, health_pb2_grpc
 from feast.entity import Entity
 from feast.feature_store import FeatureStore
 from feast.grpc_error_interceptor import ErrorInterceptor
+from feast.infra.registry.base_registry import BaseRegistry
 from feast.permissions.auth_model import AuthConfig, OidcAuthConfig
+from feast.permissions.security_manager import (
+    SecurityManager,
+    no_security_manager,
+    set_security_manager,
+)
 from feast.permissions.server.grpc import (
     WRITE_RPC_METHODS,
     AuthInterceptor,
     WritePathAuthInterceptor,
+    _set_user_from_metadata,
     is_write_rpc,
 )
 from feast.permissions.server.utils import AuthManagerType
+from feast.permissions.user import User
 from feast.protos.feast.registry import RegistryServer_pb2, RegistryServer_pb2_grpc
 from feast.registry_server import _grpc_interceptors, start_server
 from feast.repo_config import RepoConfig
@@ -276,3 +286,29 @@ def test_write_auth_reads_and_health_without_metadata(
     finally:
         channel.close()
         server.stop(grace=None)
+
+
+def test_set_user_from_metadata_mints_request_id(monkeypatch):
+    user = User("alice", [])
+    parser = Mock()
+    parser.user_details_from_access_token_sync = Mock(return_value=user)
+    auth_manager = Mock()
+    auth_manager.token_extractor.extract_access_token = Mock(return_value="tok")
+    auth_manager.token_parser = parser
+    monkeypatch.setattr(
+        "feast.permissions.server.grpc.get_auth_manager", lambda: auth_manager
+    )
+
+    sm = SecurityManager(project=PROJECT, registry=Mock(spec=BaseRegistry))
+    set_security_manager(sm)
+    try:
+        assert sm.request_id is None
+        _set_user_from_metadata({"authorization": "Bearer tok"})
+        assert sm.current_user is user
+        first = sm.request_id
+        uuid.UUID(first)
+        _set_user_from_metadata({"authorization": "Bearer tok"})
+        assert sm.request_id != first
+        uuid.UUID(sm.request_id)
+    finally:
+        no_security_manager()

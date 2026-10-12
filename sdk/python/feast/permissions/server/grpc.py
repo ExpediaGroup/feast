@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import uuid
 from typing import Any, Callable, Optional
 
 import grpc
@@ -70,8 +71,9 @@ class AuthInterceptor(grpc.ServerInterceptor):
 
 class WritePathAuthInterceptor(grpc.ServerInterceptor):
     """
-    Authenticate write RPCs only. JWT parse and set_current_user run on the
-    ThreadPoolExecutor worker via handler wrap, not in intercept_service.
+    Authenticate write RPCs only. JWT parse, set_current_user, and request_id
+    minting run on the ThreadPoolExecutor worker via handler wrap, not in
+    intercept_service.
 
     Non-write methods (Get/List/Health/reflection/Refresh/Expedia search) pass
     through with no token and no RBAC.
@@ -151,3 +153,4 @@ def _set_user_from_metadata(metadata: dict) -> None:
     sm = get_security_manager()
     if sm is not None:
         sm.set_current_user(current_user)
+        sm.set_request_id(str(uuid.uuid4()))

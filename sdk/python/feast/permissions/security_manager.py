@@ -33,12 +33,21 @@ class SecurityManager:
         self._current_user: ContextVar[Optional[User]] = ContextVar(
             "current_user", default=None
         )
+        self._request_id: ContextVar[Optional[str]] = ContextVar(
+            "request_id", default=None
+        )
 
     def set_current_user(self, current_user: User):
         """
         Init the user for the current context.
         """
         self._current_user.set(current_user)
+
+    def set_request_id(self, request_id: Optional[str]) -> None:
+        """
+        Bind a per-RPC request id for the current context (audit log).
+        """
+        self._request_id.set(request_id)
 
     @property
     def write_auth_only(self) -> bool:
@@ -56,6 +65,14 @@ class SecurityManager:
             individual user.
         """
         return self._current_user.get()
+
+    @property
+    def request_id(self) -> Optional[str]:
+        """
+        UUID minted by WritePathAuthInterceptor for this write RPC, or None
+        when the caller is not on that path (direct SqlRegistry, reads).
+        """
+        return self._request_id.get()
 
     @property
     def permissions(self) -> list[Permission]:

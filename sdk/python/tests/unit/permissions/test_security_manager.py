@@ -348,3 +348,13 @@ def test_write_auth_only_skips_permission_rbac():
         assert permitted_resources([entity], actions=AuthzedAction.DESCRIBE) == [entity]
     finally:
         no_security_manager()
+
+
+def test_request_id_contextvar_defaults_none_and_round_trips():
+    registry = Mock(spec=BaseRegistry)
+    sm = SecurityManager(project="any", registry=registry)
+    assert sm.request_id is None
+    sm.set_request_id("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    assert sm.request_id == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    sm.set_request_id(None)
+    assert sm.request_id is None
