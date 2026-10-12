@@ -240,10 +240,11 @@ class SqlFallbackRegistry(SqlRegistry):
         name: str,
         project: str,
         id_field_name: str,
+        proto_field_name: str,
         not_found_exception: Optional[Callable],
     ):
         deleted_rows = super()._delete_object(
-            table, name, project, id_field_name, not_found_exception
+            table, name, project, id_field_name, proto_field_name, not_found_exception
         )
         cache_map: Optional[SqlFallbackCacheMap] = None
         for cache in self.cache_process_list:

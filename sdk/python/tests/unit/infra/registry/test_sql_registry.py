@@ -862,3 +862,14 @@ class TestSqlFallbackRegistrySortedFeatureViewCache:
         )
 
         assert isinstance(feature_view, SortedFeatureView)
+
+    def test_delete_entity_forwards_proto_field_name(self, sqlite_fallback_registry):
+        entity = Entity(
+            name="test_entity",
+            join_keys=["id"],
+            value_type=ValueType.STRING,
+        )
+        sqlite_fallback_registry.apply_entity(entity, "test_project")
+        sqlite_fallback_registry.delete_entity("test_entity", "test_project")
+        with pytest.raises(EntityNotFoundException):
+            sqlite_fallback_registry.get_entity("test_entity", "test_project")
