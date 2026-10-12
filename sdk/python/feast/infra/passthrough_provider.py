@@ -1,7 +1,7 @@
 import logging
+import math
 import os
 from datetime import datetime, timedelta
-from multiprocessing import Pool
 from typing import (
     Any,
     Callable,
@@ -35,6 +35,7 @@ from feast.infra.compute_engines.base import (
     ComputeEngine,
 )
 from feast.infra.infra_object import Infra, InfraObject
+from feast.infra.ingest_worker import run_ingest_workers
 from feast.infra.offline_stores.offline_store import RetrievalJob
 from feast.infra.offline_stores.offline_utils import get_offline_store_from_config
 from feast.infra.online_stores.helpers import get_online_store_from_config
@@ -61,6 +62,14 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BATCH_SIZE = 10_000
 
+# Ingest concurrency is independent of the Spark driver's CPU allocation.
+# Default to one persistent writer; explicit parallelism uses fresh interpreters.
+INGEST_WORKERS_ENV = "FEAST_INGEST_WORKERS"
+# The deadline covers parallel worker completion, followed by bounded cleanup.
+# It does not interrupt in-process ingestion or the caller's data preparation.
+INGEST_POOL_TIMEOUT_ENV = "FEAST_INGEST_POOL_TIMEOUT_SECONDS"
+DEFAULT_INGEST_POOL_TIMEOUT_SECONDS = 600.0
+
 
 class PassthroughProvider(Provider):
     """The passthrough provider delegates all operations to the underlying online and offline stores."""
@@ -71,6 +80,7 @@ class PassthroughProvider(Provider):
         self._online_store = None
         self._batch_engine: Optional[ComputeEngine] = None
         self._write_token_limiters: Dict[str, TokenBucketRateLimiter] = {}
+        self._logged_ingest_workers: Optional[int] = None
 
     @property
     def online_store(self):
@@ -216,12 +226,11 @@ class PassthroughProvider(Provider):
             return
 
         # Create or reuse per-feature-view limiter
-        # Calculate percent_usage based on available CPU cores
+        # Calculate percent_usage based on actual ingest concurrency.
         # More processes = lower percent_usage to reduce token contention
-        num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
+        num_processes = int(os.environ.get("NUM_PROCESSES", 1))
 
-        if num_spark_driver_cores > 2:
-            num_processes = num_spark_driver_cores - 1
+        if num_processes > 1:
             # Decrease percent_usage as processes increase to allow fair sharing
             # 2 processes -> 0.50, 4 processes -> 0.40, 8 processes -> 0.30
             percent_usage = max(0.6 / (num_processes / 2), 0.25)
@@ -519,27 +528,81 @@ class PassthroughProvider(Provider):
             field_mapping=field_mapping,
         )
 
-        num_spark_driver_cores = int(os.environ.get("SPARK_DRIVER_CORES", 1))
-        if num_spark_driver_cores > 2:
-            # Leaving one core for operating system and other background processes
-            num_processes = num_spark_driver_cores - 1
+        requested_workers = self._ingest_worker_count()
+        num_processes = max(1, min(requested_workers, table.num_rows))
+        # Online stores (e.g. Redis, Valkey) read NUM_PROCESSES to size their
+        # own per-process concurrency, so keep exporting it on every path.
+        os.environ["NUM_PROCESSES"] = str(num_processes)
 
-            if table.num_rows < num_processes:
-                num_processes = table.num_rows
+        if table.num_rows == 0:
+            return
+        if self._logged_ingest_workers != requested_workers:
+            logger.info(
+                "Online ingestion configured for %s worker(s), mode=%s; "
+                "Spark driver cores do not control ingest concurrency",
+                requested_workers,
+                "in-process" if requested_workers == 1 else "spawn",
+            )
+            self._logged_ingest_workers = requested_workers
 
-            os.environ["NUM_PROCESSES"] = str(num_processes)
-
+        # Keep explicitly parallel writes isolated even for a single-row batch.
+        # Otherwise a small batch initializes sessions/locks in the parent.
+        if requested_workers > 1:
             # Input table is split into smaller chunks and processed in parallel
             chunks = self.split_table(num_processes, table)
             chunks_to_parallelize = [
                 (chunk, feature_view, join_keys) for chunk in chunks
             ]
-
-            with Pool(processes=num_processes) as pool:
-                pool.starmap(self.process, chunks_to_parallelize)
+            self._run_ingest_workers(feature_view, num_processes, chunks_to_parallelize)
         else:
-            os.environ["NUM_PROCESSES"] = "1"
             self.process(table, feature_view, join_keys)
+
+    @staticmethod
+    def _ingest_worker_count() -> int:
+        """Configured concurrency: 0/1 means in-process; default is 1."""
+        override = os.environ.get(INGEST_WORKERS_ENV)
+        if override is None or not override.strip():
+            return 1
+        try:
+            requested = int(override)
+        except ValueError as exc:
+            raise ValueError(
+                f"{INGEST_WORKERS_ENV} must be a nonnegative integer"
+            ) from exc
+        if requested < 0:
+            raise ValueError(f"{INGEST_WORKERS_ENV} must be a nonnegative integer")
+        return max(1, requested)
+
+    @staticmethod
+    def _ingest_pool_timeout_seconds() -> float:
+        """Finite positive deadline for explicitly parallel ingestion."""
+        raw = os.environ.get(INGEST_POOL_TIMEOUT_ENV)
+        if raw is None or not raw.strip():
+            return DEFAULT_INGEST_POOL_TIMEOUT_SECONDS
+        try:
+            timeout = float(raw)
+        except ValueError as exc:
+            raise ValueError(
+                f"{INGEST_POOL_TIMEOUT_ENV} must be finite and positive"
+            ) from exc
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError(f"{INGEST_POOL_TIMEOUT_ENV} must be finite and positive")
+        return timeout
+
+    def _run_ingest_workers(
+        self,
+        feature_view: Union[BaseFeatureView, FeatureView, OnDemandFeatureView],
+        num_processes: int,
+        chunks_to_parallelize: List[Tuple[Any, Any, Any]],
+    ) -> None:
+        """Pass configuration and data, never the parent's live provider state."""
+        run_ingest_workers(
+            self.repo_config,
+            feature_view,
+            chunks_to_parallelize,
+            num_processes,
+            self._ingest_pool_timeout_seconds(),
+        )
 
     @staticmethod
     def split_table(num_processes, table):

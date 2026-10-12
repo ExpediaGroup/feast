@@ -34,6 +34,8 @@ online_store:
         load_balancing_policy: 'TokenAwarePolicy(DCAwareRoundRobinPolicy)'  # optional
     read_concurrency: 100                                                   # optional
     write_concurrency: 100                                                  # optional
+    request_timeout: 30.0                                                   # optional, per request
+    write_timeout_seconds: 120.0                                            # optional, write deadline
 ```
 {% endcode %}
 
@@ -64,6 +66,29 @@ For a full explanation of configuration options please look at file
 `sdk/python/feast/infra/online_stores/contrib/cassandra_online_store/README.md`.
 
 Storage specifications can be found at `docs/specs/online_store_format.md`.
+
+## Write timeouts and streaming ingestion
+
+`request_timeout` limits individual Cassandra requests. When omitted, the
+driver's finite default is preserved, including with custom load balancing.
+`write_timeout_seconds` defaults to `120.0` and bounds waiting for write capacity
+and completion of outstanding requests across one `online_write_batch` call.
+Both configured timeouts must be finite and positive. Choose a write deadline
+larger than the request timeout and the expected healthy batch duration.
+
+If callbacks stop completing, Feast raises `CassandraWriteTimeoutError` instead
+of waiting indefinitely. This deadline does not interrupt synchronous driver
+connection, preparation or submission calls. Already submitted writes may still
+complete; a timeout does not roll them back. The Spark processor fails the query
+on this error, allowing the materialization application to recover from its
+checkpoint, rather than retrying the write inside the same callback.
+
+`ingest_df` uses one persistent writer by default, independently of Spark driver
+cores. Cassandra's asynchronous `write_concurrency` still applies. Explicit
+`FEAST_INGEST_WORKERS` values above one use fresh spawned processes with their
+own clients, and `FEAST_INGEST_POOL_TIMEOUT_SECONDS` (default `600`) bounds their
+completion with additional bounded cleanup. The worker deadline is inactive
+for in-process ingestion.
 
 ## Functionality Matrix
 
