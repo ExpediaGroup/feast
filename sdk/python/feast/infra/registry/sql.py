@@ -1356,6 +1356,11 @@ class SqlRegistry(CachingRegistry):
             )
         return str(row._mapping["metadata_value"])
 
+    def _project_uuid_if_auditing(self, conn: Any, project_id: str) -> Optional[str]:
+        if not self.enable_object_audit_log:
+            return None
+        return self._project_uuid_for_audit(conn, project_id)
+
     def _record_object_audit(
         self,
         conn: Any,
@@ -1365,14 +1370,20 @@ class SqlRegistry(CachingRegistry):
         operation: ObjectAuditLogOperation,
         before_proto: Optional[bytes],
         after_proto: Optional[bytes],
+        project_uuid: Optional[str],
     ) -> None:
         if not self.enable_object_audit_log:
             return
+        if not project_uuid:
+            raise RuntimeError(
+                f"Cannot write object_audit_log for project {project_id}: "
+                "project_uuid was not provided"
+            )
         actor, request_id = self._audit_actor_and_request_id()
         conn.execute(
             insert(object_audit_log).values(
                 project_id=project_id,
-                project_uuid=self._project_uuid_for_audit(conn, project_id),
+                project_uuid=project_uuid,
                 object_type=ObjectAuditLogObjectType(table.name).value,
                 object_name=object_name,
                 operation=operation.value,
@@ -1524,6 +1535,7 @@ class SqlRegistry(CachingRegistry):
                     operation,
                     before_bytes,
                     after_bytes,
+                    self._project_uuid_if_auditing(conn, project),
                 )
 
             # After applying child objects (not Project itself), update the parent project's timestamp
@@ -1634,6 +1646,7 @@ class SqlRegistry(CachingRegistry):
                     ObjectAuditLogOperation.DELETE,
                     before_bytes,
                     None,
+                    self._project_uuid_if_auditing(conn, project),
                 )
                 deleted = rows.rowcount
 
@@ -1834,49 +1847,40 @@ class SqlRegistry(CachingRegistry):
         name: str,
         commit: bool = True,
     ):
-        project = self.get_project(name, allow_cache=False)
-        if project:
-            with self.write_engine.begin() as conn:
-                proto_row = conn.execute(
-                    select(projects.c.project_proto).where(
-                        projects.c.project_id == name
-                    )
-                ).first()
-                before_bytes = (
-                    proto_row._mapping["project_proto"]
-                    if proto_row is not None
-                    else project.to_proto().SerializeToString()
-                )
-                self._record_object_audit(
-                    conn,
-                    projects,
-                    name,
-                    name,
-                    ObjectAuditLogOperation.DELETE,
-                    before_bytes,
-                    None,
-                )
-                for t in {
-                    managed_infra,
-                    saved_datasets,
-                    validation_references,
-                    feature_services,
-                    feature_views,
-                    on_demand_feature_views,
-                    stream_feature_views,
-                    sorted_feature_views,
-                    data_sources,
-                    entities,
-                    permissions,
-                    feast_metadata,
-                    projects,
-                    feast_metadata,
-                }:
-                    stmt = delete(t).where(t.c.project_id == name)
-                    conn.execute(stmt)
-            return
-
-        raise ProjectNotFoundException(name)
+        with self.write_engine.begin() as conn:
+            proto_row = conn.execute(
+                select(projects.c.project_proto).where(projects.c.project_id == name)
+            ).first()
+            if proto_row is None:
+                raise ProjectNotFoundException(name)
+            self._record_object_audit(
+                conn,
+                projects,
+                name,
+                name,
+                ObjectAuditLogOperation.DELETE,
+                proto_row._mapping["project_proto"],
+                None,
+                self._project_uuid_if_auditing(conn, name),
+            )
+            for t in {
+                managed_infra,
+                saved_datasets,
+                validation_references,
+                feature_services,
+                feature_views,
+                on_demand_feature_views,
+                stream_feature_views,
+                sorted_feature_views,
+                data_sources,
+                entities,
+                permissions,
+                feast_metadata,
+                projects,
+                feast_metadata,
+            }:
+                stmt = delete(t).where(t.c.project_id == name)
+                conn.execute(stmt)
 
     def set_project_metadata(self, project: str, key: str, value: str, conn=None):
         """Set a custom project metadata key-value pair in the feast_metadata table."""

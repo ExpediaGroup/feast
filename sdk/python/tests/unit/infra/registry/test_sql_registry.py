@@ -24,7 +24,11 @@ from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import IntegrityError
 
 from feast.entity import Entity
-from feast.errors import EntityNotFoundException, FeatureViewNotFoundException
+from feast.errors import (
+    EntityNotFoundException,
+    FeatureViewNotFoundException,
+    ProjectNotFoundException,
+)
 from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN, FeatureView
 from feast.field import Field
 from feast.infra.offline_stores.file_source import FileSource
@@ -617,6 +621,10 @@ class TestObjectAuditLogSchema:
             ).scalar_one()
         assert planted == 1
 
+    def test_delete_project_raises_when_missing(self, sqlite_registry):
+        with pytest.raises(ProjectNotFoundException):
+            sqlite_registry.delete_project("does_not_exist")
+
     def test_apply_and_delete_entity_leave_object_gone(self, sqlite_registry):
         entity = Entity(name="test_entity", description="Test entity")
         sqlite_registry.apply_entity(entity, "test_project")
@@ -824,6 +832,28 @@ class TestObjectAuditLogWrites:
             gzip.decompress(bytes(project_rows[-1].before_proto))
         )
         assert project_proto.spec.name == "test_project"
+
+    def test_project_uuid_fetched_once_per_audited_write(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with patch.object(
+            sqlite_registry_audit,
+            "_project_uuid_for_audit",
+            wraps=sqlite_registry_audit._project_uuid_for_audit,
+        ) as fetch_uuid:
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
+            assert fetch_uuid.call_count == 1
+            sqlite_registry_audit.delete_entity("test_entity", "test_project")
+            assert fetch_uuid.call_count == 2
+
+    def test_noop_apply_does_not_fetch_project_uuid(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with patch.object(
+            sqlite_registry_audit,
+            "_project_uuid_for_audit",
+            wraps=sqlite_registry_audit._project_uuid_for_audit,
+        ) as fetch_uuid:
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        assert fetch_uuid.call_count == 0
 
 
 class TestSqlRegistrySortedFeatureView:
