@@ -1708,8 +1708,6 @@ class SqlRegistry(CachingRegistry):
         not_found_exception: Optional[Callable],
     ):
         with self.write_engine.begin() as conn:
-            update_datetime = _utc_now()
-            update_time = int(update_datetime.timestamp())
             stmt = select(table).where(
                 getattr(table.c, id_field_name) == name, table.c.project_id == project
             )
@@ -1717,25 +1715,27 @@ class SqlRegistry(CachingRegistry):
             if not row:
                 if not_found_exception:
                     raise not_found_exception(name, project)
-                deleted = 0
-            else:
-                before_bytes = row._mapping[proto_field_name]
-                del_stmt = delete(table).where(
-                    getattr(table.c, id_field_name) == name,
-                    table.c.project_id == project,
-                )
-                rows = conn.execute(del_stmt)
-                self._record_object_audit(
-                    conn,
-                    table,
-                    project,
-                    name,
-                    ObjectAuditLogOperation.DELETE,
-                    before_bytes,
-                    None,
-                    self._project_uuid_if_auditing(conn, project),
-                )
-                deleted = rows.rowcount
+                return 0
+
+            update_datetime = _utc_now()
+            update_time = int(update_datetime.timestamp())
+            before_bytes = row._mapping[proto_field_name]
+            del_stmt = delete(table).where(
+                getattr(table.c, id_field_name) == name,
+                table.c.project_id == project,
+            )
+            rows = conn.execute(del_stmt)
+            self._record_object_audit(
+                conn,
+                table,
+                project,
+                name,
+                ObjectAuditLogOperation.DELETE,
+                before_bytes,
+                None,
+                self._project_uuid_if_auditing(conn, project),
+            )
+            deleted = rows.rowcount
 
             self._update_project_timestamp(project, update_datetime, update_time, conn)
             if not self.purge_feast_metadata:

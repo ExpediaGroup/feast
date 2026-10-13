@@ -582,6 +582,17 @@ def _from_gzip_entity_proto(blob) -> EntityProto:
     return EntityProto.FromString(gzip.decompress(bytes(blob)))
 
 
+def _project_last_updated(
+    registry: SqlRegistry, project: str = "test_project"
+) -> int:
+    with registry.write_engine.begin() as conn:
+        return conn.execute(
+            select(projects.c.last_updated_timestamp).where(
+                projects.c.project_id == project
+            )
+        ).scalar_one()
+
+
 def _delete_project_uuid(registry: SqlRegistry, project: str = "test_project") -> None:
     with registry.write_engine.begin() as conn:
         conn.execute(
@@ -1148,6 +1159,39 @@ class TestSqlRegistrySortedFeatureView:
     def test_get_any_feature_view_unknown_name_raises(self, sqlite_registry):
         with pytest.raises(FeatureViewNotFoundException):
             sqlite_registry.get_any_feature_view("does_not_exist", "test_project")
+
+    def test_delete_feature_view_updates_project_timestamp_once(self, sqlite_registry):
+        entity = Entity(name="driver", join_keys=["driver_id"])
+        sqlite_registry.apply_entity(entity, "test_project")
+        sqlite_registry.apply_feature_view(
+            _sorted_feature_view("driver_sorted", entity), "test_project"
+        )
+        with patch.object(
+            sqlite_registry,
+            "_update_project_timestamp",
+            wraps=sqlite_registry._update_project_timestamp,
+        ) as update_ts:
+            sqlite_registry.delete_feature_view("driver_sorted", "test_project")
+        assert update_ts.call_count == 1
+        with pytest.raises(FeatureViewNotFoundException):
+            sqlite_registry.get_any_feature_view("driver_sorted", "test_project")
+
+    def test_delete_missing_feature_view_does_not_update_project_timestamp(
+        self, sqlite_registry
+    ):
+        sqlite_registry.apply_entity(
+            Entity(name="driver", join_keys=["driver_id"]), "test_project"
+        )
+        before = _project_last_updated(sqlite_registry)
+        with patch.object(
+            sqlite_registry,
+            "_update_project_timestamp",
+            wraps=sqlite_registry._update_project_timestamp,
+        ) as update_ts:
+            with pytest.raises(FeatureViewNotFoundException):
+                sqlite_registry.delete_feature_view("does_not_exist", "test_project")
+        assert update_ts.call_count == 0
+        assert _project_last_updated(sqlite_registry) == before
 
     def test_apply_materialization_on_sorted_feature_view_preserves_sort_keys(
         self, sqlite_registry_custom_max_intervals
