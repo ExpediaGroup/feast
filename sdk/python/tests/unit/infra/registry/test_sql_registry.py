@@ -33,12 +33,15 @@ from feast.errors import (
 )
 from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN, FeatureView
 from feast.field import Field
+from feast.infra.infra_object import Infra
 from feast.infra.offline_stores.file_source import FileSource
+from feast.infra.online_stores.sqlite import SqliteTable
 from feast.infra.registry.sql import (
     ObjectAuditLogObjectType,
     ObjectAuditLogOperation,
     SqlRegistry,
     SqlRegistryConfig,
+    managed_infra,
     object_audit_log,
     projects,
 )
@@ -59,6 +62,7 @@ from feast.project import Project
 from feast.protos.feast.core.Entity_pb2 import Entity as EntityProto
 from feast.protos.feast.core.Project_pb2 import Project as ProjectProto
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
+from feast.saved_dataset import ValidationReference
 from feast.sort_key import SortKey
 from feast.sorted_feature_view import SortedFeatureView
 from feast.types import Float32, Int64
@@ -739,6 +743,61 @@ class TestObjectAuditLogWrites:
         rows = _audit_rows(sqlite_registry_audit, "test_entity")
         assert len(rows) == 1
         assert rows[0].operation == ObjectAuditLogOperation.CREATE.value
+
+    def test_update_infra_noop_skips_update_and_audit(self, sqlite_registry_audit):
+        sqlite_registry_audit.update_infra(Infra(), "test_project")
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            ts = conn.execute(
+                select(managed_infra.c.last_updated_timestamp)
+            ).scalar_one()
+        sqlite_registry_audit.update_infra(Infra(), "test_project")
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            ts_after = conn.execute(
+                select(managed_infra.c.last_updated_timestamp)
+            ).scalar_one()
+        assert ts_after == ts
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "infra_obj",
+            ObjectAuditLogObjectType.MANAGED_INFRA.value,
+        )
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_update_infra_change_inserts_update(self, sqlite_registry_audit, tmp_path):
+        sqlite_registry_audit.update_infra(Infra(), "test_project")
+        changed = Infra()
+        changed.infra_objects.append(
+            SqliteTable(path=str(tmp_path / "online.db"), name="my_table")
+        )
+        sqlite_registry_audit.update_infra(changed, "test_project")
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "infra_obj",
+            ObjectAuditLogObjectType.MANAGED_INFRA.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+        assert rows[1].after_proto != rows[1].before_proto
+
+    def test_apply_validation_reference_noop_skips_audit(self, sqlite_registry_audit):
+        ref = ValidationReference(
+            name="vr",
+            dataset_name="ds",
+            profiler=object(),
+        )
+        sqlite_registry_audit.apply_validation_reference(ref, "test_project")
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(name="vr", dataset_name="ds", profiler=object()),
+            "test_project",
+        )
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
 
     def test_apply_materialization_does_not_write_object_audit_log(
         self, sqlite_registry_audit

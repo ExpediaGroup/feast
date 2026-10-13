@@ -1562,11 +1562,13 @@ class SqlRegistry(CachingRegistry):
                                 previously_stored_intervals,
                                 conn=conn,
                             )
+                after_bytes = obj.to_proto().SerializeToString()
+                if bytes(before_bytes) == after_bytes:
+                    return
                 values = {
-                    proto_field_name: obj.to_proto().SerializeToString(),
+                    proto_field_name: after_bytes,
                     "last_updated_timestamp": update_time,
                 }
-                after_bytes = values[proto_field_name]
                 update_stmt = (
                     update(table)
                     .where(
