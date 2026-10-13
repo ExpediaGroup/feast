@@ -8,7 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
-from pydantic import StrictBool, StrictInt, StrictStr, model_validator
+from pydantic import ConfigDict, StrictBool, StrictInt, StrictStr, model_validator
 from sqlalchemy import (  # type: ignore
     BigInteger,
     CheckConstraint,
@@ -408,8 +408,27 @@ Index("idx_feast_metadata_project_id", feast_metadata.c.project_id)
 
 logger = logging.getLogger(__name__)
 
+_AUDIT_PURGE_INCOMPATIBLE = (
+    "enable_object_audit_log cannot be used with purge_feast_metadata: "
+    "audit rows require feast_metadata PROJECT_UUID, which purge mode "
+    "does not keep"
+)
+
+
+def _reject_audit_log_with_purged_feast_metadata(
+    enable_object_audit_log: bool, purge_feast_metadata: bool
+) -> None:
+    if enable_object_audit_log and purge_feast_metadata:
+        raise ValueError(_AUDIT_PURGE_INCOMPATIBLE)
+
 
 class SqlRegistryConfig(RegistryConfig):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="allow",
+        validate_assignment=True,
+    )
+
     registry_type: StrictStr = "sql"
     """ str: Provider name or a class name that implements Registry."""
 
@@ -444,12 +463,9 @@ class SqlRegistryConfig(RegistryConfig):
 
     @model_validator(mode="after")
     def reject_audit_log_with_purged_feast_metadata(self):
-        if self.enable_object_audit_log and self.purge_feast_metadata:
-            raise ValueError(
-                "enable_object_audit_log cannot be used with purge_feast_metadata: "
-                "audit rows require feast_metadata PROJECT_UUID, which purge mode "
-                "does not keep"
-            )
+        _reject_audit_log_with_purged_feast_metadata(
+            self.enable_object_audit_log, self.purge_feast_metadata
+        )
         return self
 
 
@@ -463,6 +479,10 @@ class SqlRegistry(CachingRegistry):
         assert registry_config is not None and isinstance(
             registry_config, SqlRegistryConfig
         ), "SqlRegistry needs a valid registry_config"
+        _reject_audit_log_with_purged_feast_metadata(
+            registry_config.enable_object_audit_log,
+            registry_config.purge_feast_metadata,
+        )
 
         self.registry_config = registry_config
 
@@ -1377,6 +1397,7 @@ class SqlRegistry(CachingRegistry):
     def _project_uuid_if_auditing(self, conn: Any, project_id: str) -> Optional[str]:
         if not self.enable_object_audit_log:
             return None
+        _reject_audit_log_with_purged_feast_metadata(True, self.purge_feast_metadata)
         return self._project_uuid_for_audit(conn, project_id)
 
     def _record_object_audit(

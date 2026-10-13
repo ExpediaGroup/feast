@@ -196,6 +196,33 @@ class TestSqlRegistryConfig:
                 enable_object_audit_log=True,
             )
 
+    def test_assignment_rejects_enabling_audit_when_purge_is_on(self):
+        config = SqlRegistryConfig(
+            registry_type="sql",
+            path="sqlite:///:memory:",
+            purge_feast_metadata=True,
+        )
+        with pytest.raises(ValidationError, match="enable_object_audit_log"):
+            config.enable_object_audit_log = True
+
+    def test_assignment_rejects_enabling_purge_when_audit_is_on(self):
+        config = SqlRegistryConfig(
+            registry_type="sql",
+            path="sqlite:///:memory:",
+            enable_object_audit_log=True,
+        )
+        with pytest.raises(ValidationError, match="enable_object_audit_log"):
+            config.purge_feast_metadata = True
+
+    def test_sql_registry_init_rejects_model_construct_both_true(self):
+        config = SqlRegistryConfig.model_construct(
+            path="sqlite:///:memory:",
+            purge_feast_metadata=True,
+            enable_object_audit_log=True,
+        )
+        with pytest.raises(ValueError, match="enable_object_audit_log"):
+            SqlRegistry(config, "test_project", None)
+
 
 class TestSqlRegistry:
     """Test class for SqlRegistry"""
@@ -662,6 +689,13 @@ class TestObjectAuditLogWrites:
         sqlite_registry.apply_entity(_entity(), "test_project")
         sqlite_registry.delete_entity("test_entity", "test_project")
         assert _object_audit_log_row_count(sqlite_registry) == 0
+
+    def test_live_purge_flag_rejects_audited_write(self, sqlite_registry_audit):
+        sqlite_registry_audit.purge_feast_metadata = True
+        with pytest.raises(ValueError, match="enable_object_audit_log"):
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with pytest.raises(EntityNotFoundException):
+            sqlite_registry_audit.get_entity("test_entity", "test_project")
 
     def test_apply_entity_inserts_create_row_with_after_proto(
         self, sqlite_registry_audit
