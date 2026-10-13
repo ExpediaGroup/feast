@@ -98,7 +98,7 @@ def _wrap_authenticated_handler(handler, metadata: dict):
         )
     if handler.unary_stream:
         return grpc.unary_stream_rpc_method_handler(
-            lambda req, ctx: _authenticate_and_call(
+            lambda req, ctx: _authenticate_and_stream(
                 handler.unary_stream, req, ctx, metadata
             ),
             request_deserializer=handler.request_deserializer,
@@ -114,7 +114,7 @@ def _wrap_authenticated_handler(handler, metadata: dict):
         )
     if handler.stream_stream:
         return grpc.stream_stream_rpc_method_handler(
-            lambda req, ctx: _authenticate_and_call(
+            lambda req, ctx: _authenticate_and_stream(
                 handler.stream_stream, req, ctx, metadata
             ),
             request_deserializer=handler.request_deserializer,
@@ -135,6 +135,23 @@ def _authenticate_and_call(
         except AuthenticationError as e:
             context.abort(grpc.StatusCode.UNAUTHENTICATED, str(e))
         return behavior(request, context)
+    finally:
+        if sm is not None:
+            sm.reset_request_context(user_token, request_id_token)
+
+
+def _authenticate_and_stream(
+    behavior: Callable[..., Any], request, context, metadata: dict
+):
+    sm = get_security_manager()
+    user_token: Optional[Token] = None
+    request_id_token: Optional[Token] = None
+    try:
+        try:
+            user_token, request_id_token = _set_user_from_metadata(metadata)
+        except AuthenticationError as e:
+            context.abort(grpc.StatusCode.UNAUTHENTICATED, str(e))
+        yield from behavior(request, context)
     finally:
         if sm is not None:
             sm.reset_request_context(user_token, request_id_token)

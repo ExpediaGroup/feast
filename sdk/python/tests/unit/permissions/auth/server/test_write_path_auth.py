@@ -21,6 +21,7 @@ from feast.permissions.server.grpc import (
     AuthInterceptor,
     WritePathAuthInterceptor,
     _authenticate_and_call,
+    _authenticate_and_stream,
     _set_user_from_metadata,
     is_write_rpc,
 )
@@ -326,6 +327,43 @@ def _call_details(method: str, metadata=()):
     return details
 
 
+def test_auth_interceptor_wraps_unary_stream_with_stream_wrapper(monkeypatch):
+    user = User("alice", [])
+    parser = Mock()
+    parser.user_details_from_access_token_sync = Mock(return_value=user)
+    auth_manager = Mock()
+    auth_manager.token_extractor.extract_access_token = Mock(return_value="tok")
+    auth_manager.token_parser = parser
+    monkeypatch.setattr(
+        "feast.permissions.server.grpc.get_auth_manager", lambda: auth_manager
+    )
+
+    sm = SecurityManager(project=PROJECT, registry=Mock(spec=BaseRegistry))
+    set_security_manager(sm)
+    seen: list = []
+
+    def stream_behavior(req, ctx):
+        seen.append(sm.current_user)
+        yield "chunk"
+
+    handler = grpc.unary_stream_rpc_method_handler(stream_behavior)
+    try:
+        wrapped = AuthInterceptor().intercept_service(
+            lambda d: handler,
+            _call_details(
+                "/grpc.health.v1.Health/Watch",
+                (("authorization", "Bearer tok"),),
+            ),
+        )
+        assert wrapped is not handler
+        chunks = list(wrapped.unary_stream("req", Mock()))
+        assert chunks == ["chunk"]
+        assert seen == [user]
+        assert sm.current_user is None
+    finally:
+        no_security_manager()
+
+
 def test_auth_interceptor_wraps_reads_when_security_manager_set():
     sm = SecurityManager(project=PROJECT, registry=Mock(spec=BaseRegistry))
     set_security_manager(sm)
@@ -401,6 +439,50 @@ def test_authenticate_and_call_sets_context_during_handler_then_clears(monkeypat
         assert seen["user"] is user
         uuid.UUID(seen["request_id"])
         assert seen["request_id"] != "prior-request-id"
+        assert sm.current_user is prior_user
+        assert sm.request_id == "prior-request-id"
+    finally:
+        no_security_manager()
+
+
+def test_authenticate_and_stream_holds_context_until_exhausted(monkeypatch):
+    user = User("alice", [])
+    parser = Mock()
+    parser.user_details_from_access_token_sync = Mock(return_value=user)
+    auth_manager = Mock()
+    auth_manager.token_extractor.extract_access_token = Mock(return_value="tok")
+    auth_manager.token_parser = parser
+    monkeypatch.setattr(
+        "feast.permissions.server.grpc.get_auth_manager", lambda: auth_manager
+    )
+
+    sm = SecurityManager(project=PROJECT, registry=Mock(spec=BaseRegistry))
+    set_security_manager(sm)
+    prior_user = User("prior", [])
+    sm.set_current_user(prior_user)
+    sm.set_request_id("prior-request-id")
+    seen: list = []
+
+    def behavior(req, ctx):
+        seen.append((sm.current_user, sm.request_id))
+        yield "a"
+        seen.append((sm.current_user, sm.request_id))
+        yield "b"
+
+    try:
+        gen = _authenticate_and_stream(
+            behavior, "req", Mock(), {"authorization": "Bearer tok"}
+        )
+        assert sm.current_user is prior_user
+        assert sm.request_id == "prior-request-id"
+        assert next(gen) == "a"
+        assert seen[0][0] is user
+        uuid.UUID(seen[0][1])
+        assert next(gen) == "b"
+        assert seen[1][0] is user
+        assert seen[1][1] == seen[0][1]
+        with pytest.raises(StopIteration):
+            next(gen)
         assert sm.current_user is prior_user
         assert sm.request_id == "prior-request-id"
     finally:
