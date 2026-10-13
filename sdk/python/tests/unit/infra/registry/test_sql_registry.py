@@ -37,10 +37,12 @@ from feast.infra.infra_object import Infra
 from feast.infra.offline_stores.file_source import FileSource
 from feast.infra.online_stores.sqlite import SqliteTable
 from feast.infra.registry.sql import (
+    FeastMetadataKeys,
     ObjectAuditLogObjectType,
     ObjectAuditLogOperation,
     SqlRegistry,
     SqlRegistryConfig,
+    feast_metadata,
     managed_infra,
     object_audit_log,
     projects,
@@ -580,6 +582,16 @@ def _from_gzip_entity_proto(blob) -> EntityProto:
     return EntityProto.FromString(gzip.decompress(bytes(blob)))
 
 
+def _delete_project_uuid(registry: SqlRegistry, project: str = "test_project") -> None:
+    with registry.write_engine.begin() as conn:
+        conn.execute(
+            feast_metadata.delete().where(
+                feast_metadata.c.project_id == project,
+                feast_metadata.c.metadata_key == FeastMetadataKeys.PROJECT_UUID.value,
+            )
+        )
+
+
 def _entity(name: str = "test_entity", description: str = "Test entity") -> Entity:
     return Entity(
         name=name,
@@ -695,11 +707,16 @@ class TestObjectAuditLogWrites:
         assert _object_audit_log_row_count(sqlite_registry) == 0
 
     def test_live_purge_flag_rejects_audited_write(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
         sqlite_registry_audit.purge_feast_metadata = True
         with pytest.raises(ValueError, match="enable_object_audit_log"):
-            sqlite_registry_audit.apply_entity(_entity(), "test_project")
-        with pytest.raises(EntityNotFoundException):
-            sqlite_registry_audit.get_entity("test_entity", "test_project")
+            sqlite_registry_audit.apply_entity(_entity(name="other"), "test_project")
+        with pytest.raises(ValueError, match="enable_object_audit_log"):
+            sqlite_registry_audit.delete_entity("test_entity", "test_project")
+        sqlite_registry_audit.purge_feast_metadata = False
+        assert sqlite_registry_audit.get_entity("test_entity", "test_project").name == (
+            "test_entity"
+        )
 
     def test_apply_entity_inserts_create_row_with_after_proto(
         self, sqlite_registry_audit
@@ -1012,23 +1029,24 @@ class TestObjectAuditLogWrites:
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
         with patch.object(
             sqlite_registry_audit,
-            "_project_uuid_for_audit",
-            wraps=sqlite_registry_audit._project_uuid_for_audit,
-        ) as fetch_uuid:
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry_audit._maybe_init_project_metadata,
+        ) as maybe_init:
             sqlite_registry_audit.delete_project("test_project")
-        assert fetch_uuid.call_count == 1
+        assert maybe_init.call_count == 1
+        assert maybe_init.call_args.args[1] is not None
 
     def test_project_uuid_fetched_once_per_audited_write(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_project(Project(name="test_project"))
         with patch.object(
             sqlite_registry_audit,
-            "_project_uuid_for_audit",
-            wraps=sqlite_registry_audit._project_uuid_for_audit,
-        ) as fetch_uuid:
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry_audit._maybe_init_project_metadata,
+        ) as maybe_init:
             sqlite_registry_audit.apply_entity(_entity(), "test_project")
-            assert fetch_uuid.call_count == 0
+            assert maybe_init.call_count == 1
             sqlite_registry_audit.delete_entity("test_entity", "test_project")
-            assert fetch_uuid.call_count == 1
+            assert maybe_init.call_count == 2
 
     def test_apply_reuses_project_uuid_from_maybe_init_in_same_txn(
         self, sqlite_registry_audit
@@ -1047,11 +1065,46 @@ class TestObjectAuditLogWrites:
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
         with patch.object(
             sqlite_registry_audit,
-            "_project_uuid_for_audit",
-            wraps=sqlite_registry_audit._project_uuid_for_audit,
+            "_project_uuid_if_auditing",
+            wraps=sqlite_registry_audit._project_uuid_if_auditing,
         ) as fetch_uuid:
             sqlite_registry_audit.apply_entity(_entity(), "test_project")
         assert fetch_uuid.call_count == 0
+
+    def test_delete_entity_mints_project_uuid_when_missing(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        _delete_project_uuid(sqlite_registry_audit)
+        sqlite_registry_audit.delete_entity("test_entity", "test_project")
+        delete = _audit_rows(sqlite_registry_audit, "test_entity")[-1]
+        assert delete.operation == ObjectAuditLogOperation.DELETE.value
+        assert delete.project_uuid
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            row = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == "test_project",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            ).first()
+        assert row is not None
+        assert str(row._mapping["metadata_value"]) == delete.project_uuid
+
+    def test_delete_project_mints_project_uuid_when_missing(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        _delete_project_uuid(sqlite_registry_audit)
+        sqlite_registry_audit.delete_project("test_project")
+        entity_delete = _audit_rows(sqlite_registry_audit, "test_entity")[-1]
+        project_delete = _audit_rows(
+            sqlite_registry_audit,
+            "test_project",
+            ObjectAuditLogObjectType.PROJECTS.value,
+        )[-1]
+        assert entity_delete.operation == ObjectAuditLogOperation.DELETE.value
+        assert project_delete.operation == ObjectAuditLogOperation.DELETE.value
+        assert entity_delete.project_uuid
+        assert entity_delete.project_uuid == project_delete.project_uuid
 
 
 class TestSqlRegistrySortedFeatureView:

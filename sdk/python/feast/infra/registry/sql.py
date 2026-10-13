@@ -1381,24 +1381,11 @@ class SqlRegistry(CachingRegistry):
         actor = user.username if user is not None else None
         return actor, sm.request_id
 
-    def _project_uuid_for_audit(self, conn: Any, project_id: str) -> str:
-        stmt = select(feast_metadata.c.metadata_value).where(
-            feast_metadata.c.metadata_key == FeastMetadataKeys.PROJECT_UUID.value,
-            feast_metadata.c.project_id == project_id,
-        )
-        row = conn.execute(stmt).first()
-        if not row:
-            raise RuntimeError(
-                f"Cannot write object_audit_log for project {project_id}: "
-                "feast_metadata PROJECT_UUID is missing"
-            )
-        return str(row._mapping["metadata_value"])
-
     def _project_uuid_if_auditing(self, conn: Any, project_id: str) -> Optional[str]:
         if not self.enable_object_audit_log:
             return None
         _reject_audit_log_with_purged_feast_metadata(True, self.purge_feast_metadata)
-        return self._project_uuid_for_audit(conn, project_id)
+        return self._maybe_init_project_metadata(project_id, conn)
 
     def _record_object_audit(
         self,
