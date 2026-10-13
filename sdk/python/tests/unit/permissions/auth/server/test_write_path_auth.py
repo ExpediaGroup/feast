@@ -383,6 +383,9 @@ def test_authenticate_and_call_sets_context_during_handler_then_clears(monkeypat
 
     sm = SecurityManager(project=PROJECT, registry=Mock(spec=BaseRegistry))
     set_security_manager(sm)
+    prior_user = User("prior", [])
+    sm.set_current_user(prior_user)
+    sm.set_request_id("prior-request-id")
     seen: dict = {}
 
     def behavior(req, ctx):
@@ -397,7 +400,8 @@ def test_authenticate_and_call_sets_context_during_handler_then_clears(monkeypat
         assert result == "ok"
         assert seen["user"] is user
         uuid.UUID(seen["request_id"])
-        assert sm.current_user is None
-        assert sm.request_id is None
+        assert seen["request_id"] != "prior-request-id"
+        assert sm.current_user is prior_user
+        assert sm.request_id == "prior-request-id"
     finally:
         no_security_manager()

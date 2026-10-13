@@ -358,3 +358,18 @@ def test_request_id_contextvar_defaults_none_and_round_trips():
     assert sm.request_id == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     sm.set_request_id(None)
     assert sm.request_id is None
+
+
+def test_reset_request_context_restores_previous_values():
+    registry = Mock(spec=BaseRegistry)
+    sm = SecurityManager(project="any", registry=registry)
+    prior_user = User("prior", ["reader"])
+    sm.set_current_user(prior_user)
+    sm.set_request_id("prior-id")
+    user_token = sm.set_current_user(User("alice", []))
+    request_id_token = sm.set_request_id("new-id")
+    assert sm.current_user.username == "alice"
+    assert sm.request_id == "new-id"
+    sm.reset_request_context(user_token, request_id_token)
+    assert sm.current_user is prior_user
+    assert sm.request_id == "prior-id"

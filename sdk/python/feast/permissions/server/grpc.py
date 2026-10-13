@@ -1,7 +1,8 @@
 import asyncio
 import logging
 import uuid
-from typing import Any, Callable, Optional
+from contextvars import Token
+from typing import Any, Callable, Optional, Tuple
 
 import grpc
 from starlette.authentication import AuthenticationError
@@ -126,18 +127,22 @@ def _authenticate_and_call(
     behavior: Callable[..., Any], request, context, metadata: dict
 ):
     sm = get_security_manager()
+    user_token: Optional[Token] = None
+    request_id_token: Optional[Token] = None
     try:
         try:
-            _set_user_from_metadata(metadata)
+            user_token, request_id_token = _set_user_from_metadata(metadata)
         except AuthenticationError as e:
             context.abort(grpc.StatusCode.UNAUTHENTICATED, str(e))
         return behavior(request, context)
     finally:
         if sm is not None:
-            sm.clear_request_context()
+            sm.reset_request_context(user_token, request_id_token)
 
 
-def _set_user_from_metadata(metadata: dict) -> None:
+def _set_user_from_metadata(
+    metadata: dict,
+) -> Tuple[Optional[Token], Optional[Token]]:
     auth_manager = get_auth_manager()
     access_token = auth_manager.token_extractor.extract_access_token(metadata=metadata)
     logger.debug(f"Fetching user details for token of length: {len(access_token)}")
@@ -151,6 +156,8 @@ def _set_user_from_metadata(metadata: dict) -> None:
 
     logger.debug(f"User is: {current_user}")
     sm = get_security_manager()
-    if sm is not None:
-        sm.set_current_user(current_user)
-        sm.set_request_id(str(uuid.uuid4()))
+    if sm is None:
+        return None, None
+    user_token = sm.set_current_user(current_user)
+    request_id_token = sm.set_request_id(str(uuid.uuid4()))
+    return user_token, request_id_token
