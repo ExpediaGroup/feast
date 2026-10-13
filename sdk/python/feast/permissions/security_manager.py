@@ -49,6 +49,11 @@ class SecurityManager:
         """
         self._request_id.set(request_id)
 
+    def clear_request_context(self) -> None:
+        """Drop current_user and request_id so pooled workers cannot leak them."""
+        self._current_user.set(None)
+        self._request_id.set(None)
+
     @property
     def write_auth_only(self) -> bool:
         """
@@ -69,8 +74,8 @@ class SecurityManager:
     @property
     def request_id(self) -> Optional[str]:
         """
-        UUID minted by WritePathAuthInterceptor for this write RPC, or None
-        when the caller is not on that path (direct SqlRegistry, reads).
+        UUID minted by the gRPC auth interceptor for this RPC, or None
+        when the caller is not on that path (direct SqlRegistry, unauthenticated reads).
         """
         return self._request_id.get()
 

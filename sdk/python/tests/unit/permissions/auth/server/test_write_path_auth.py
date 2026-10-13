@@ -20,6 +20,7 @@ from feast.permissions.server.grpc import (
     WRITE_RPC_METHODS,
     AuthInterceptor,
     WritePathAuthInterceptor,
+    _authenticate_and_call,
     _set_user_from_metadata,
     is_write_rpc,
 )
@@ -310,5 +311,93 @@ def test_set_user_from_metadata_mints_request_id(monkeypatch):
         _set_user_from_metadata({"authorization": "Bearer tok"})
         assert sm.request_id != first
         uuid.UUID(sm.request_id)
+    finally:
+        no_security_manager()
+
+
+def _unary_handler():
+    return grpc.unary_unary_rpc_method_handler(lambda req, ctx: "ok")
+
+
+def _call_details(method: str, metadata=()):
+    details = Mock()
+    details.method = method
+    details.invocation_metadata = metadata
+    return details
+
+
+def test_auth_interceptor_wraps_reads_when_security_manager_set():
+    sm = SecurityManager(project=PROJECT, registry=Mock(spec=BaseRegistry))
+    set_security_manager(sm)
+    try:
+        handler = _unary_handler()
+        wrapped = AuthInterceptor().intercept_service(
+            lambda d: handler,
+            _call_details("/feast.registry.RegistryServer/GetEntity"),
+        )
+        assert wrapped is not handler
+        assert wrapped.unary_unary is not handler.unary_unary
+    finally:
+        no_security_manager()
+
+
+def test_auth_interceptor_skips_wrap_without_security_manager():
+    no_security_manager()
+    handler = _unary_handler()
+    assert (
+        AuthInterceptor().intercept_service(
+            lambda d: handler,
+            _call_details("/feast.registry.RegistryServer/ApplyEntity"),
+        )
+        is handler
+    )
+
+
+def test_write_path_interceptor_wraps_writes_only():
+    handler = _unary_handler()
+    interceptor = WritePathAuthInterceptor()
+    assert (
+        interceptor.intercept_service(
+            lambda d: handler,
+            _call_details("/feast.registry.RegistryServer/GetEntity"),
+        )
+        is handler
+    )
+    wrapped = interceptor.intercept_service(
+        lambda d: handler,
+        _call_details("/feast.registry.RegistryServer/ApplyEntity"),
+    )
+    assert wrapped is not handler
+
+
+def test_authenticate_and_call_sets_context_during_handler_then_clears(monkeypatch):
+    user = User("alice", [])
+    parser = Mock()
+    parser.user_details_from_access_token_sync = Mock(return_value=user)
+    auth_manager = Mock()
+    auth_manager.token_extractor.extract_access_token = Mock(return_value="tok")
+    auth_manager.token_parser = parser
+    monkeypatch.setattr(
+        "feast.permissions.server.grpc.get_auth_manager", lambda: auth_manager
+    )
+
+    sm = SecurityManager(project=PROJECT, registry=Mock(spec=BaseRegistry))
+    set_security_manager(sm)
+    seen: dict = {}
+
+    def behavior(req, ctx):
+        seen["user"] = sm.current_user
+        seen["request_id"] = sm.request_id
+        return "ok"
+
+    try:
+        result = _authenticate_and_call(
+            behavior, "req", Mock(), {"authorization": "Bearer tok"}
+        )
+        assert result == "ok"
+        assert seen["user"] is user
+        uuid.UUID(seen["request_id"])
+        assert sm.current_user is None
+        assert sm.request_id is None
     finally:
         no_security_manager()
