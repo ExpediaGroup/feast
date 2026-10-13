@@ -1439,6 +1439,14 @@ class SqlRegistry(CachingRegistry):
     ) -> None:
         if not self.enable_object_audit_log:
             return
+        if not project_uuid:
+            raise RuntimeError(
+                f"Cannot write object_audit_log for project {project_id}: "
+                "project_uuid was not provided"
+            )
+        actor, request_id = self._audit_actor_and_request_id()
+        recorded_at = int(_utc_now().timestamp())
+        values = []
         for table, name_col, proto_col in _PROJECT_CHILD_AUDIT_TABLES:
             rows = conn.execute(
                 select(
@@ -1446,18 +1454,25 @@ class SqlRegistry(CachingRegistry):
                     getattr(table.c, proto_col),
                 ).where(table.c.project_id == project_id)
             ).all()
+            object_type = ObjectAuditLogObjectType(table.name).value
             for row in rows:
                 mapping = row._mapping
-                self._record_object_audit(
-                    conn,
-                    table,
-                    project_id,
-                    mapping[name_col],
-                    ObjectAuditLogOperation.DELETE,
-                    mapping[proto_col],
-                    None,
-                    project_uuid,
+                values.append(
+                    {
+                        "project_id": project_id,
+                        "project_uuid": project_uuid,
+                        "object_type": object_type,
+                        "object_name": mapping[name_col],
+                        "operation": ObjectAuditLogOperation.DELETE.value,
+                        "actor": actor,
+                        "before_proto": self._gzip_proto(mapping[proto_col]),
+                        "after_proto": None,
+                        "request_id": request_id,
+                        "recorded_at": recorded_at,
+                    }
                 )
+        if values:
+            conn.execute(insert(object_audit_log), values)
 
     def _apply_object(
         self,

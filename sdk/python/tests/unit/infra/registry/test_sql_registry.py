@@ -916,15 +916,10 @@ class TestObjectAuditLogWrites:
 
     def test_failed_child_audit_rolls_back_delete_project(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
-        original = sqlite_registry_audit._record_object_audit
-
-        def boom(conn, table, *args, **kwargs):
-            if table.name == ObjectAuditLogObjectType.ENTITIES.value:
-                raise RuntimeError("audit failed")
-            return original(conn, table, *args, **kwargs)
-
         with patch.object(
-            sqlite_registry_audit, "_record_object_audit", side_effect=boom
+            sqlite_registry_audit,
+            "_record_delete_project_child_audits",
+            side_effect=RuntimeError("audit failed"),
         ):
             with pytest.raises(RuntimeError, match="audit failed"):
                 sqlite_registry_audit.delete_project("test_project")
@@ -933,6 +928,26 @@ class TestObjectAuditLogWrites:
         )
         rows = _audit_rows(sqlite_registry_audit, "test_entity")
         assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_delete_project_looks_up_actor_once_for_all_children(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.apply_data_source(
+            FileSource(
+                name="test_source",
+                path="some path",
+                timestamp_field="event_timestamp",
+            ),
+            "test_project",
+        )
+        with patch.object(
+            SqlRegistry,
+            "_audit_actor_and_request_id",
+            wraps=SqlRegistry._audit_actor_and_request_id,
+        ) as lookup:
+            sqlite_registry_audit.delete_project("test_project")
+        assert lookup.call_count == 2
 
     def test_delete_project_fetches_project_uuid_once(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
