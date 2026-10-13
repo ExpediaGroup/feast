@@ -25,8 +25,10 @@ from sqlalchemy.exc import IntegrityError
 
 from feast.entity import Entity
 from feast.errors import (
+    DataSourceObjectNotFoundException,
     EntityNotFoundException,
     FeatureViewNotFoundException,
+    PermissionNotFoundException,
     ProjectNotFoundException,
 )
 from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN, FeatureView
@@ -44,6 +46,9 @@ from feast.infra.registry.sql_fallback import (
     SqlFallbackRegistry,
     SqlFallbackRegistryConfig,
 )
+from feast.permissions.action import AuthzedAction
+from feast.permissions.permission import Permission
+from feast.permissions.policy import RoleBasedPolicy
 from feast.permissions.security_manager import (
     SecurityManager,
     no_security_manager,
@@ -122,6 +127,22 @@ def sqlite_fallback_registry():
         cache_ttl_seconds=600,
     )
 
+    registry = SqlFallbackRegistry(registry_config, "test_project", None)
+    yield registry
+    registry.teardown()
+
+
+@pytest.fixture
+def sqlite_fallback_registry_audit():
+    """SqlFallbackRegistry with object_audit_log inserts enabled."""
+    fd, registry_path = tempfile.mkstemp()
+    registry_config = SqlFallbackRegistryConfig(
+        registry_type="sql-fallback",
+        path=f"sqlite:///{registry_path}",
+        purge_feast_metadata=False,
+        cache_ttl_seconds=600,
+        enable_object_audit_log=True,
+    )
     registry = SqlFallbackRegistry(registry_config, "test_project", None)
     yield registry
     registry.teardown()
@@ -538,7 +559,7 @@ def _entity(name: str = "test_entity", description: str = "Test entity") -> Enti
 
 
 class TestObjectAuditLogSchema:
-    """Ticket 3: create_all creates an empty object_audit_log; no inserts yet."""
+    """Ticket 3: create_all, CHECK constraint, and delete_project leaving audit rows."""
 
     def test_create_all_creates_object_audit_log_columns_and_index(
         self, sqlite_registry
@@ -1047,13 +1068,87 @@ class TestSqlFallbackRegistrySortedFeatureViewCache:
 
         assert isinstance(feature_view, SortedFeatureView)
 
-    def test_delete_entity_forwards_proto_field_name(self, sqlite_fallback_registry):
-        entity = Entity(
-            name="test_entity",
-            join_keys=["id"],
-            value_type=ValueType.STRING,
-        )
-        sqlite_fallback_registry.apply_entity(entity, "test_project")
-        sqlite_fallback_registry.delete_entity("test_entity", "test_project")
+
+class TestSqlFallbackRegistryObjectAuditLog:
+    """SqlFallbackRegistry _delete_object forwards proto_field_name, writes
+    audit rows, and evicts the per-table cache."""
+
+    def test_delete_entity_writes_audit_and_evicts_cache(
+        self, sqlite_fallback_registry_audit
+    ):
+        registry = sqlite_fallback_registry_audit
+        registry.apply_entity(_entity(), "test_project")
+        assert registry.get_entity("test_entity", "test_project").name == "test_entity"
+        registry.delete_entity("test_entity", "test_project")
+        rows = _audit_rows(registry, "test_entity")
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert rows[1].after_proto is None
+        proto = _from_gzip_entity_proto(rows[1].before_proto)
+        assert proto.spec.name == "test_entity"
+        assert registry.cached_entities.get("test_project", "test_entity") is None
         with pytest.raises(EntityNotFoundException):
-            sqlite_fallback_registry.get_entity("test_entity", "test_project")
+            registry.get_entity("test_entity", "test_project", allow_cache=True)
+
+    def test_delete_data_source_writes_audit_and_evicts_cache(
+        self, sqlite_fallback_registry_audit
+    ):
+        registry = sqlite_fallback_registry_audit
+        source = FileSource(
+            name="test_source",
+            path="some path",
+            timestamp_field="event_timestamp",
+        )
+        registry.apply_data_source(source, "test_project")
+        assert registry.get_data_source("test_source", "test_project").name == (
+            "test_source"
+        )
+        registry.delete_data_source("test_source", "test_project")
+        rows = _audit_rows(
+            registry,
+            "test_source",
+            ObjectAuditLogObjectType.DATA_SOURCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert rows[1].after_proto is None
+        assert rows[1].before_proto is not None
+        assert registry.cached_data_sources.get("test_project", "test_source") is None
+        with pytest.raises(DataSourceObjectNotFoundException):
+            registry.get_data_source("test_source", "test_project", allow_cache=True)
+
+    def test_delete_permission_writes_audit_and_evicts_cache(
+        self, sqlite_fallback_registry_audit
+    ):
+        registry = sqlite_fallback_registry_audit
+        permission = Permission(
+            name="read_permission",
+            actions=AuthzedAction.DESCRIBE,
+            policy=RoleBasedPolicy(roles=["reader"]),
+            types=FeatureView,
+        )
+        registry.apply_permission(permission, "test_project")
+        assert registry.get_permission("read_permission", "test_project").name == (
+            "read_permission"
+        )
+        registry.delete_permission("read_permission", "test_project")
+        rows = _audit_rows(
+            registry,
+            "read_permission",
+            ObjectAuditLogObjectType.PERMISSIONS.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert rows[1].after_proto is None
+        assert rows[1].before_proto is not None
+        assert (
+            registry.cached_permissions.get("test_project", "read_permission") is None
+        )
+        with pytest.raises(PermissionNotFoundException):
+            registry.get_permission("read_permission", "test_project", allow_cache=True)
