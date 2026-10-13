@@ -1485,8 +1485,6 @@ class SqlRegistry(CachingRegistry):
         *,
         audit: bool = True,
     ):
-        if not self.purge_feast_metadata:
-            self._maybe_init_project_metadata(project)
         # Initialize project is necessary because FeatureStore object can apply objects individually without "feast apply" cli option
         if not isinstance(obj, Project):
             self._initialize_project_if_not_exists(project_name=project)
@@ -1496,6 +1494,12 @@ class SqlRegistry(CachingRegistry):
         with self.write_engine.begin() as conn:
             update_datetime = _utc_now()
             update_time = int(update_datetime.timestamp())
+            _reject_audit_log_with_purged_feast_metadata(
+                self.enable_object_audit_log, self.purge_feast_metadata
+            )
+            project_uuid = None
+            if not self.purge_feast_metadata:
+                project_uuid = self._maybe_init_project_metadata(project, conn)
             stmt = select(table).where(
                 getattr(table.c, id_field_name) == name, table.c.project_id == project
             )
@@ -1616,7 +1620,7 @@ class SqlRegistry(CachingRegistry):
                     operation,
                     before_bytes,
                     after_bytes,
-                    self._project_uuid_if_auditing(conn, project),
+                    project_uuid,
                 )
 
             # After applying child objects (not Project itself), update the parent project's timestamp
@@ -1631,26 +1635,41 @@ class SqlRegistry(CachingRegistry):
         if self.cache_mode == "sync":
             self.refresh()
 
-    def _maybe_init_project_metadata(self, project):
-        # Initialize project metadata if needed
-        with self.write_engine.begin() as conn:
-            update_datetime = _utc_now()
-            update_time = int(update_datetime.timestamp())
-            stmt = select(feast_metadata).where(
+    def _maybe_init_project_metadata(self, project, conn=None) -> str:
+        if conn is None:
+            with self.write_engine.begin() as conn:
+                return self._maybe_init_project_metadata(project, conn)
+
+        stmt = (
+            select(feast_metadata.c.metadata_value)
+            .where(
                 feast_metadata.c.metadata_key == FeastMetadataKeys.PROJECT_UUID.value,
                 feast_metadata.c.project_id == project,
             )
+            .with_for_update()
+        )
+        row = conn.execute(stmt).first()
+        if row:
+            return str(row._mapping["metadata_value"])
+
+        new_project_uuid = f"{uuid.uuid4()}"
+        values = {
+            "metadata_key": FeastMetadataKeys.PROJECT_UUID.value,
+            "metadata_value": new_project_uuid,
+            "last_updated_timestamp": int(_utc_now().timestamp()),
+            "project_id": project,
+        }
+        try:
+            conn.execute(insert(feast_metadata).values(values))
+        except IntegrityError:
             row = conn.execute(stmt).first()
             if not row:
-                new_project_uuid = f"{uuid.uuid4()}"
-                values = {
-                    "metadata_key": FeastMetadataKeys.PROJECT_UUID.value,
-                    "metadata_value": new_project_uuid,
-                    "last_updated_timestamp": update_time,
-                    "project_id": project,
-                }
-                insert_stmt = insert(feast_metadata).values(values)
-                conn.execute(insert_stmt)
+                raise RuntimeError(
+                    f"Cannot initialize PROJECT_UUID for project {project}: "
+                    "insert raced and the row is still missing"
+                )
+            return str(row._mapping["metadata_value"])
+        return new_project_uuid
 
     def _update_project_timestamp(
         self, project_name: str, update_datetime: datetime, update_time: int, conn
