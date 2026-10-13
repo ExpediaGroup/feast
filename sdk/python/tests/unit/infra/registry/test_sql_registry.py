@@ -818,9 +818,33 @@ class TestObjectAuditLogWrites:
         self, sqlite_registry_audit
     ):
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.apply_data_source(
+            FileSource(
+                name="test_source",
+                path="some path",
+                timestamp_field="event_timestamp",
+            ),
+            "test_project",
+        )
         sqlite_registry_audit.delete_project("test_project")
         entity_rows = _audit_rows(sqlite_registry_audit, "test_entity")
-        assert entity_rows[0].operation == ObjectAuditLogOperation.CREATE.value
+        assert [row.operation for row in entity_rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert entity_rows[1].after_proto is None
+        proto = _from_gzip_entity_proto(entity_rows[1].before_proto)
+        assert proto.spec.name == "test_entity"
+        source_rows = _audit_rows(
+            sqlite_registry_audit,
+            "test_source",
+            object_type=ObjectAuditLogObjectType.DATA_SOURCES.value,
+        )
+        assert [row.operation for row in source_rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert source_rows[1].after_proto is None
         project_rows = _audit_rows(
             sqlite_registry_audit,
             "test_project",
@@ -832,6 +856,38 @@ class TestObjectAuditLogWrites:
             gzip.decompress(bytes(project_rows[-1].before_proto))
         )
         assert project_proto.spec.name == "test_project"
+        assert entity_rows[1].project_uuid == project_rows[-1].project_uuid
+        assert entity_rows[1].id < project_rows[-1].id
+
+    def test_failed_child_audit_rolls_back_delete_project(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        original = sqlite_registry_audit._record_object_audit
+
+        def boom(conn, table, *args, **kwargs):
+            if table.name == ObjectAuditLogObjectType.ENTITIES.value:
+                raise RuntimeError("audit failed")
+            return original(conn, table, *args, **kwargs)
+
+        with patch.object(
+            sqlite_registry_audit, "_record_object_audit", side_effect=boom
+        ):
+            with pytest.raises(RuntimeError, match="audit failed"):
+                sqlite_registry_audit.delete_project("test_project")
+        assert sqlite_registry_audit.get_entity("test_entity", "test_project").name == (
+            "test_entity"
+        )
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_delete_project_fetches_project_uuid_once(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with patch.object(
+            sqlite_registry_audit,
+            "_project_uuid_for_audit",
+            wraps=sqlite_registry_audit._project_uuid_for_audit,
+        ) as fetch_uuid:
+            sqlite_registry_audit.delete_project("test_project")
+        assert fetch_uuid.call_count == 1
 
     def test_project_uuid_fetched_once_per_audited_write(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_project(Project(name="test_project"))

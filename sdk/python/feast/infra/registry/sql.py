@@ -307,6 +307,24 @@ class ObjectAuditLogObjectType(str, Enum):
     PERMISSIONS = "permissions"
 
 
+# Child tables snapshotted as DELETE rows when delete_project bulk-wipes a
+# project. feast_metadata is not an object type and is not listed here.
+# (table, object name column, stored proto column)
+_PROJECT_CHILD_AUDIT_TABLES: tuple[tuple[Table, str, str], ...] = (
+    (entities, "entity_name", "entity_proto"),
+    (data_sources, "data_source_name", "data_source_proto"),
+    (feature_views, "feature_view_name", "feature_view_proto"),
+    (stream_feature_views, "feature_view_name", "feature_view_proto"),
+    (sorted_feature_views, "feature_view_name", "feature_view_proto"),
+    (on_demand_feature_views, "feature_view_name", "feature_view_proto"),
+    (feature_services, "feature_service_name", "feature_service_proto"),
+    (saved_datasets, "saved_dataset_name", "saved_dataset_proto"),
+    (validation_references, "validation_reference_name", "validation_reference_proto"),
+    (managed_infra, "infra_name", "infra_proto"),
+    (permissions, "permission_name", "permission_proto"),
+)
+
+
 # Append-only audit of registry object create/update/delete.
 # Do not queue, outbox, or write after commit — audit
 # failure must fail the gRPC write.
@@ -1395,6 +1413,31 @@ class SqlRegistry(CachingRegistry):
             )
         )
 
+    def _record_delete_project_child_audits(
+        self, conn: Any, project_id: str, project_uuid: Optional[str]
+    ) -> None:
+        if not self.enable_object_audit_log:
+            return
+        for table, name_col, proto_col in _PROJECT_CHILD_AUDIT_TABLES:
+            rows = conn.execute(
+                select(
+                    getattr(table.c, name_col),
+                    getattr(table.c, proto_col),
+                ).where(table.c.project_id == project_id)
+            ).all()
+            for row in rows:
+                mapping = row._mapping
+                self._record_object_audit(
+                    conn,
+                    table,
+                    project_id,
+                    mapping[name_col],
+                    ObjectAuditLogOperation.DELETE,
+                    mapping[proto_col],
+                    None,
+                    project_uuid,
+                )
+
     def _apply_object(
         self,
         table: Table,
@@ -1853,6 +1896,8 @@ class SqlRegistry(CachingRegistry):
             ).first()
             if proto_row is None:
                 raise ProjectNotFoundException(name)
+            project_uuid = self._project_uuid_if_auditing(conn, name)
+            self._record_delete_project_child_audits(conn, name, project_uuid)
             self._record_object_audit(
                 conn,
                 projects,
@@ -1861,7 +1906,7 @@ class SqlRegistry(CachingRegistry):
                 ObjectAuditLogOperation.DELETE,
                 proto_row._mapping["project_proto"],
                 None,
-                self._project_uuid_if_auditing(conn, name),
+                project_uuid,
             )
             for t in {
                 managed_infra,
