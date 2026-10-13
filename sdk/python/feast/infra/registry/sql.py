@@ -1009,8 +1009,16 @@ class SqlRegistry(CachingRegistry):
         self._record_materialization_interval_history(
             fv.name, project, dropped + [(start_date, end_date)]
         )
+        # Interval progress is recorded in materialization_interval_history.
+        # Do not write object_audit_log: a 15-minute job would store two full
+        # gzip feature-view protos per run and drown definition create/update/delete.
         self._apply_object(
-            table, project, "feature_view_name", fv, "feature_view_proto"
+            table,
+            project,
+            "feature_view_name",
+            fv,
+            "feature_view_proto",
+            audit=False,
         )
 
     def _record_materialization_interval_history(

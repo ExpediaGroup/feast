@@ -676,6 +676,45 @@ class TestObjectAuditLogWrites:
         assert len(rows) == 1
         assert rows[0].operation == ObjectAuditLogOperation.CREATE.value
 
+    def test_apply_materialization_does_not_write_object_audit_log(
+        self, sqlite_registry_audit
+    ):
+        entity = _entity(name="driver")
+        sqlite_registry_audit.apply_entity(entity, "test_project")
+        feature_view = FeatureView(
+            name="driver_stats",
+            entities=[entity],
+            schema=[Field(name="conv_rate", dtype=Float32)],
+            source=FileSource(path="some path", timestamp_field="event_timestamp"),
+            online=True,
+        )
+        sqlite_registry_audit.apply_feature_view(feature_view, "test_project")
+        create_rows = _audit_rows(
+            sqlite_registry_audit,
+            "driver_stats",
+            object_type=ObjectAuditLogObjectType.FEATURE_VIEWS.value,
+        )
+        now = _utc_now()
+        sqlite_registry_audit.apply_materialization(
+            feature_view,
+            "test_project",
+            now - timedelta(hours=1),
+            now,
+        )
+        after_rows = _audit_rows(
+            sqlite_registry_audit,
+            "driver_stats",
+            object_type=ObjectAuditLogObjectType.FEATURE_VIEWS.value,
+        )
+        assert after_rows == create_rows
+        assert [row.operation for row in after_rows] == [
+            ObjectAuditLogOperation.CREATE.value
+        ]
+        history = sqlite_registry_audit.get_materialization_interval_history(
+            "driver_stats", "test_project"
+        )
+        assert len(history) == 1
+
     def test_delete_entity_inserts_delete_row_with_before_proto(
         self, sqlite_registry_audit
     ):
