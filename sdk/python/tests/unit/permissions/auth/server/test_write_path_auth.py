@@ -5,6 +5,7 @@ from unittest.mock import Mock
 import grpc
 import pytest
 from grpc_health.v1 import health_pb2, health_pb2_grpc
+from starlette.authentication import AuthenticationError
 
 from feast.entity import Entity
 from feast.feature_store import FeatureStore
@@ -439,6 +440,73 @@ def test_authenticate_and_call_sets_context_during_handler_then_clears(monkeypat
         assert seen["user"] is user
         uuid.UUID(seen["request_id"])
         assert seen["request_id"] != "prior-request-id"
+        assert sm.current_user is prior_user
+        assert sm.request_id == "prior-request-id"
+    finally:
+        no_security_manager()
+
+
+def test_authenticate_and_call_restores_context_when_auth_fails(monkeypatch):
+    auth_manager = Mock()
+    auth_manager.token_extractor.extract_access_token = Mock(
+        side_effect=AuthenticationError("missing token")
+    )
+    monkeypatch.setattr(
+        "feast.permissions.server.grpc.get_auth_manager", lambda: auth_manager
+    )
+
+    sm = SecurityManager(project=PROJECT, registry=Mock(spec=BaseRegistry))
+    set_security_manager(sm)
+    prior_user = User("prior", [])
+    sm.set_current_user(prior_user)
+    sm.set_request_id("prior-request-id")
+    behavior = Mock(return_value="ok")
+    context = Mock()
+    context.abort.side_effect = RuntimeError("aborted")
+
+    try:
+        with pytest.raises(RuntimeError, match="aborted"):
+            _authenticate_and_call(
+                behavior, "req", context, {"authorization": "Bearer tok"}
+            )
+        behavior.assert_not_called()
+        context.abort.assert_called_once_with(
+            grpc.StatusCode.UNAUTHENTICATED, "missing token"
+        )
+        assert sm.current_user is prior_user
+        assert sm.request_id == "prior-request-id"
+    finally:
+        no_security_manager()
+
+
+def test_authenticate_and_stream_restores_context_when_auth_fails(monkeypatch):
+    auth_manager = Mock()
+    auth_manager.token_extractor.extract_access_token = Mock(
+        side_effect=AuthenticationError("missing token")
+    )
+    monkeypatch.setattr(
+        "feast.permissions.server.grpc.get_auth_manager", lambda: auth_manager
+    )
+
+    sm = SecurityManager(project=PROJECT, registry=Mock(spec=BaseRegistry))
+    set_security_manager(sm)
+    prior_user = User("prior", [])
+    sm.set_current_user(prior_user)
+    sm.set_request_id("prior-request-id")
+    behavior = Mock()
+    context = Mock()
+    context.abort.side_effect = RuntimeError("aborted")
+
+    try:
+        gen = _authenticate_and_stream(
+            behavior, "req", context, {"authorization": "Bearer tok"}
+        )
+        with pytest.raises(RuntimeError, match="aborted"):
+            next(gen)
+        behavior.assert_not_called()
+        context.abort.assert_called_once_with(
+            grpc.StatusCode.UNAUTHENTICATED, "missing token"
+        )
         assert sm.current_user is prior_user
         assert sm.request_id == "prior-request-id"
     finally:

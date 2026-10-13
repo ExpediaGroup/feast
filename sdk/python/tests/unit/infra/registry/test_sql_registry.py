@@ -15,12 +15,13 @@
 import gzip
 import tempfile
 import threading
+from contextlib import contextmanager
 from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import func, inspect, select
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
 from feast.entity import Entity
@@ -593,6 +594,24 @@ def _project_last_updated(
         ).scalar_one()
 
 
+@contextmanager
+def _audit_inserts_fail(registry: SqlRegistry):
+    """Make the next object_audit_log INSERT fail inside the mutation transaction."""
+    with registry.write_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TRIGGER fail_object_audit_log_insert "
+                "BEFORE INSERT ON object_audit_log "
+                "BEGIN SELECT RAISE(ABORT, 'audit insert failed'); END"
+            )
+        )
+    try:
+        yield
+    finally:
+        with registry.write_engine.begin() as conn:
+            conn.execute(text("DROP TRIGGER IF EXISTS fail_object_audit_log_insert"))
+
+
 def _delete_project_uuid(registry: SqlRegistry, project: str = "test_project") -> None:
     with registry.write_engine.begin() as conn:
         conn.execute(
@@ -913,12 +932,8 @@ class TestObjectAuditLogWrites:
 
     def test_failed_audit_insert_rolls_back_apply(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_project(Project(name="test_project"))
-        with patch.object(
-            sqlite_registry_audit,
-            "_record_object_audit",
-            side_effect=RuntimeError("audit failed"),
-        ):
-            with pytest.raises(RuntimeError, match="audit failed"):
+        with _audit_inserts_fail(sqlite_registry_audit):
+            with pytest.raises(IntegrityError):
                 sqlite_registry_audit.apply_entity(_entity(), "test_project")
         with pytest.raises(EntityNotFoundException):
             sqlite_registry_audit.get_entity("test_entity", "test_project")
@@ -926,12 +941,8 @@ class TestObjectAuditLogWrites:
 
     def test_failed_audit_insert_rolls_back_delete(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
-        with patch.object(
-            sqlite_registry_audit,
-            "_record_object_audit",
-            side_effect=RuntimeError("audit failed"),
-        ):
-            with pytest.raises(RuntimeError, match="audit failed"):
+        with _audit_inserts_fail(sqlite_registry_audit):
+            with pytest.raises(IntegrityError):
                 sqlite_registry_audit.delete_entity("test_entity", "test_project")
         assert sqlite_registry_audit.get_entity("test_entity", "test_project").name == (
             "test_entity"
@@ -1003,12 +1014,8 @@ class TestObjectAuditLogWrites:
 
     def test_failed_child_audit_rolls_back_delete_project(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
-        with patch.object(
-            sqlite_registry_audit,
-            "_record_delete_project_child_audits",
-            side_effect=RuntimeError("audit failed"),
-        ):
-            with pytest.raises(RuntimeError, match="audit failed"):
+        with _audit_inserts_fail(sqlite_registry_audit):
+            with pytest.raises(IntegrityError):
                 sqlite_registry_audit.delete_project("test_project")
         assert sqlite_registry_audit.get_entity("test_entity", "test_project").name == (
             "test_entity"
