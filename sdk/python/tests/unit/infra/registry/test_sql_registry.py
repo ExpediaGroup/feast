@@ -19,6 +19,7 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import func, inspect, select
 from sqlalchemy.exc import IntegrityError
 
@@ -139,6 +140,35 @@ def _sorted_feature_view(name: str, entity: Entity) -> SortedFeatureView:
         ],
         online=True,
     )
+
+
+class TestSqlRegistryConfig:
+    def test_enable_object_audit_log_rejects_purge_feast_metadata(self):
+        with pytest.raises(ValidationError, match="enable_object_audit_log"):
+            SqlRegistryConfig(
+                registry_type="sql",
+                path="sqlite:///:memory:",
+                purge_feast_metadata=True,
+                enable_object_audit_log=True,
+            )
+
+    def test_enable_object_audit_log_without_purge_is_allowed(self):
+        config = SqlRegistryConfig(
+            registry_type="sql",
+            path="sqlite:///:memory:",
+            purge_feast_metadata=False,
+            enable_object_audit_log=True,
+        )
+        assert config.enable_object_audit_log is True
+
+    def test_sql_fallback_config_inherits_the_same_rejection(self):
+        with pytest.raises(ValidationError, match="enable_object_audit_log"):
+            SqlFallbackRegistryConfig(
+                registry_type="sql-fallback",
+                path="sqlite:///:memory:",
+                purge_feast_metadata=True,
+                enable_object_audit_log=True,
+            )
 
 
 class TestSqlRegistry:

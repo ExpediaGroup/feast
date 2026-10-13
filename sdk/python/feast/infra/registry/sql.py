@@ -8,7 +8,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
-from pydantic import StrictBool, StrictInt, StrictStr
+from pydantic import StrictBool, StrictInt, StrictStr, model_validator
 from sqlalchemy import (  # type: ignore
     BigInteger,
     CheckConstraint,
@@ -415,13 +415,24 @@ class SqlRegistryConfig(RegistryConfig):
     enable_object_audit_log: StrictBool = False
     """ bool: When true, apply/delete writes a row to object_audit_log in the same
         DB transaction as the mutation. The table is still created by create_all
-        either way. feature_store.yaml:
+        either way. Incompatible with purge_feast_metadata: audit rows need
+        feast_metadata PROJECT_UUID. feature_store.yaml:
 
             registry:
               registry_type: sql
               path: postgresql://...
               enable_object_audit_log: true
     """
+
+    @model_validator(mode="after")
+    def reject_audit_log_with_purged_feast_metadata(self):
+        if self.enable_object_audit_log and self.purge_feast_metadata:
+            raise ValueError(
+                "enable_object_audit_log cannot be used with purge_feast_metadata: "
+                "audit rows require feast_metadata PROJECT_UUID, which purge mode "
+                "does not keep"
+            )
+        return self
 
 
 class SqlRegistry(CachingRegistry):
