@@ -42,7 +42,6 @@ from feast.errors import (
     FeatureServiceNotFoundException,
     FeatureViewNotFoundException,
     PermissionNotFoundException,
-    ProjectNotFoundException,
     ProjectObjectNotFoundException,
     SavedDatasetNotFound,
     SortedFeatureViewNotFoundException,
@@ -1939,7 +1938,7 @@ class SqlRegistry(CachingRegistry):
                 select(projects.c.project_proto).where(projects.c.project_id == name)
             ).first()
             if proto_row is None:
-                raise ProjectNotFoundException(name)
+                raise ProjectObjectNotFoundException(name)
             project_uuid = self._project_uuid_if_auditing(conn, name)
             self._record_delete_project_child_audits(conn, name, project_uuid)
             self._record_object_audit(

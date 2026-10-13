@@ -29,7 +29,7 @@ from feast.errors import (
     EntityNotFoundException,
     FeatureViewNotFoundException,
     PermissionNotFoundException,
-    ProjectNotFoundException,
+    ProjectObjectNotFoundException,
 )
 from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN, FeatureView
 from feast.field import Field
@@ -697,7 +697,7 @@ class TestObjectAuditLogSchema:
         assert planted == 1
 
     def test_delete_project_raises_when_missing(self, sqlite_registry):
-        with pytest.raises(ProjectNotFoundException):
+        with pytest.raises(ProjectObjectNotFoundException):
             sqlite_registry.delete_project("does_not_exist")
 
     def test_apply_and_delete_entity_leave_object_gone(self, sqlite_registry):
