@@ -1951,22 +1951,10 @@ class SqlRegistry(CachingRegistry):
                 None,
                 project_uuid,
             )
-            for t in {
-                managed_infra,
-                saved_datasets,
-                validation_references,
-                feature_services,
-                feature_views,
-                on_demand_feature_views,
-                stream_feature_views,
-                sorted_feature_views,
-                data_sources,
-                entities,
-                permissions,
+            for t in [t for t, _, _ in _PROJECT_CHILD_AUDIT_TABLES] + [
                 feast_metadata,
                 projects,
-                feast_metadata,
-            }:
+            ]:
                 stmt = delete(t).where(t.c.project_id == name)
                 conn.execute(stmt)
 
