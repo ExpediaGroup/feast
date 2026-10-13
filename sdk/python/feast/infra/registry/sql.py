@@ -1609,6 +1609,8 @@ class SqlRegistry(CachingRegistry):
         not_found_exception: Optional[Callable],
     ):
         with self.write_engine.begin() as conn:
+            update_datetime = _utc_now()
+            update_time = int(update_datetime.timestamp())
             stmt = select(table).where(
                 getattr(table.c, id_field_name) == name, table.c.project_id == project
             )
@@ -1635,16 +1637,9 @@ class SqlRegistry(CachingRegistry):
                 )
                 deleted = rows.rowcount
 
-            self._apply_object(
-                projects,
-                project,
-                "project_name",
-                self.get_project(name=project, allow_cache=False),
-                "project_proto",
-                audit=False,
-            )
+            self._update_project_timestamp(project, update_datetime, update_time, conn)
             if not self.purge_feast_metadata:
-                self._set_last_updated_metadata(_utc_now(), project, conn)
+                self._set_last_updated_metadata(update_datetime, project, conn)
 
             if self.cache_mode == "sync":
                 self.refresh()

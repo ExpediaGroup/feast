@@ -34,6 +34,7 @@ from feast.infra.registry.sql import (
     SqlRegistry,
     SqlRegistryConfig,
     object_audit_log,
+    projects,
 )
 from feast.infra.registry.sql_fallback import (
     SqlFallbackRegistry,
@@ -731,6 +732,34 @@ class TestObjectAuditLogWrites:
         assert delete.after_proto is None
         proto = _from_gzip_entity_proto(delete.before_proto)
         assert proto.spec.name == "test_entity"
+
+    def test_delete_entity_succeeds_when_project_row_missing(self, sqlite_registry):
+        sqlite_registry.apply_entity(_entity(), "test_project")
+        with sqlite_registry.write_engine.begin() as conn:
+            conn.execute(
+                projects.delete().where(projects.c.project_id == "test_project")
+            )
+        sqlite_registry.delete_entity("test_entity", "test_project")
+        with pytest.raises(EntityNotFoundException):
+            sqlite_registry.get_entity("test_entity", "test_project")
+
+    def test_delete_data_source_uses_same_connection(self, sqlite_registry_audit):
+        source = FileSource(
+            name="test_source",
+            path="some path",
+            timestamp_field="event_timestamp",
+        )
+        sqlite_registry_audit.apply_data_source(source, "test_project")
+        sqlite_registry_audit.delete_data_source("test_source", "test_project")
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "test_source",
+            ObjectAuditLogObjectType.DATA_SOURCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
 
     def test_failed_audit_insert_rolls_back_apply(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_project(Project(name="test_project"))
