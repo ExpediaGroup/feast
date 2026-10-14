@@ -1396,6 +1396,33 @@ class SqlRegistry(CachingRegistry):
         _reject_audit_log_with_purged_feast_metadata(True, self.purge_feast_metadata)
         return self._maybe_init_project_metadata(project_id, conn)
 
+    def _build_audit_row(
+        self,
+        *,
+        project_id: str,
+        project_uuid: str,
+        object_type: str,
+        object_name: str,
+        operation: ObjectAuditLogOperation,
+        before_proto: Optional[bytes],
+        after_proto: Optional[bytes],
+        actor: Optional[str],
+        request_id: Optional[str],
+        recorded_at: int,
+    ) -> dict:
+        return {
+            "project_id": project_id,
+            "project_uuid": project_uuid,
+            "object_type": object_type,
+            "object_name": object_name,
+            "operation": operation.value,
+            "actor": actor,
+            "before_proto": self._gzip_proto(before_proto),
+            "after_proto": self._gzip_proto(after_proto),
+            "request_id": request_id,
+            "recorded_at": recorded_at,
+        }
+
     def _record_object_audit(
         self,
         conn: Any,
@@ -1416,18 +1443,21 @@ class SqlRegistry(CachingRegistry):
             )
         actor, request_id = self._audit_actor_and_request_id()
         conn.execute(
-            insert(object_audit_log).values(
-                project_id=project_id,
-                project_uuid=project_uuid,
-                object_type=ObjectAuditLogObjectType(table.name).value,
-                object_name=object_name,
-                operation=operation.value,
-                actor=actor,
-                before_proto=self._gzip_proto(before_proto),
-                after_proto=self._gzip_proto(after_proto),
-                request_id=request_id,
-                recorded_at=int(_utc_now().timestamp()),
-            )
+            insert(object_audit_log),
+            [
+                self._build_audit_row(
+                    project_id=project_id,
+                    project_uuid=project_uuid,
+                    object_type=ObjectAuditLogObjectType(table.name).value,
+                    object_name=object_name,
+                    operation=operation,
+                    before_proto=before_proto,
+                    after_proto=after_proto,
+                    actor=actor,
+                    request_id=request_id,
+                    recorded_at=int(_utc_now().timestamp()),
+                )
+            ],
         )
 
     def _record_delete_project_child_audits(
@@ -1454,18 +1484,18 @@ class SqlRegistry(CachingRegistry):
             for row in rows:
                 mapping = row._mapping
                 values.append(
-                    {
-                        "project_id": project_id,
-                        "project_uuid": project_uuid,
-                        "object_type": object_type,
-                        "object_name": mapping[name_col],
-                        "operation": ObjectAuditLogOperation.DELETE.value,
-                        "actor": actor,
-                        "before_proto": self._gzip_proto(mapping[proto_col]),
-                        "after_proto": None,
-                        "request_id": request_id,
-                        "recorded_at": recorded_at,
-                    }
+                    self._build_audit_row(
+                        project_id=project_id,
+                        project_uuid=project_uuid,
+                        object_type=object_type,
+                        object_name=mapping[name_col],
+                        operation=ObjectAuditLogOperation.DELETE,
+                        before_proto=mapping[proto_col],
+                        after_proto=None,
+                        actor=actor,
+                        request_id=request_id,
+                        recorded_at=recorded_at,
+                    )
                 )
         if values:
             conn.execute(insert(object_audit_log), values)
