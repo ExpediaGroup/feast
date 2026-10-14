@@ -211,6 +211,8 @@ class TestSqlRegistryConfig:
         )
         with pytest.raises(ValidationError, match="enable_object_audit_log"):
             config.enable_object_audit_log = True
+        assert config.enable_object_audit_log is False
+        assert config.purge_feast_metadata is True
 
     def test_assignment_rejects_enabling_purge_when_audit_is_on(self):
         config = SqlRegistryConfig(
@@ -220,6 +222,8 @@ class TestSqlRegistryConfig:
         )
         with pytest.raises(ValidationError, match="enable_object_audit_log"):
             config.purge_feast_metadata = True
+        assert config.purge_feast_metadata is False
+        assert config.enable_object_audit_log is True
 
     def test_sql_registry_init_rejects_model_construct_both_true(self):
         config = SqlRegistryConfig.model_construct(

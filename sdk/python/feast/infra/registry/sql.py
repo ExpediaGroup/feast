@@ -8,7 +8,14 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
-from pydantic import ConfigDict, StrictBool, StrictInt, StrictStr, model_validator
+from pydantic import (
+    ConfigDict,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    ValidationInfo,
+    field_validator,
+)
 from sqlalchemy import (  # type: ignore
     BigInteger,
     CheckConstraint,
@@ -460,12 +467,15 @@ class SqlRegistryConfig(RegistryConfig):
               enable_object_audit_log: true
     """
 
-    @model_validator(mode="after")
-    def reject_audit_log_with_purged_feast_metadata(self):
-        _reject_audit_log_with_purged_feast_metadata(
-            self.enable_object_audit_log, self.purge_feast_metadata
-        )
-        return self
+    @field_validator("enable_object_audit_log", "purge_feast_metadata")
+    @classmethod
+    def reject_audit_log_with_purged_feast_metadata(cls, v, info: ValidationInfo):
+        if info.field_name == "enable_object_audit_log":
+            enable, purge = v, info.data.get("purge_feast_metadata", False)
+        else:
+            enable, purge = info.data.get("enable_object_audit_log", False), v
+        _reject_audit_log_with_purged_feast_metadata(enable, purge)
+        return v
 
 
 class SqlRegistry(CachingRegistry):
