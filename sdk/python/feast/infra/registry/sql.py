@@ -1750,7 +1750,12 @@ class SqlRegistry(CachingRegistry):
                 "project_id": project,
             },
         )
-        row = _select_uuid(lock=for_update)
+        # Always a locking read: on MySQL REPEATABLE READ a snapshot
+        # SELECT cannot see a PROJECT_UUID another txn committed after
+        # our first read (INSERT IGNORE is a no-op; the winner's row is
+        # invisible). SELECT FOR UPDATE is a current read of the
+        # existing PK, not the empty-PK gap lock.
+        row = _select_uuid(lock=True)
         if not row:
             raise RuntimeError(
                 f"Cannot initialize PROJECT_UUID for project {project}: "
