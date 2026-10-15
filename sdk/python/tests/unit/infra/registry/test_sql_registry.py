@@ -12,23 +12,63 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gzip
 import tempfile
 import threading
+from contextlib import contextmanager
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
+from sqlalchemy import delete, func, inspect, select, text
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql import Select
 
 from feast.entity import Entity
-from feast.errors import FeatureViewNotFoundException
+from feast.errors import (
+    DataSourceObjectNotFoundException,
+    EntityNotFoundException,
+    FeatureViewNotFoundException,
+    PermissionNotFoundException,
+    ProjectObjectNotFoundException,
+)
 from feast.feature_view import MATERIALIZATION_INTERVALS_MAX_LEN, FeatureView
 from feast.field import Field
+from feast.infra.infra_object import Infra
 from feast.infra.offline_stores.file_source import FileSource
-from feast.infra.registry.sql import SqlRegistry, SqlRegistryConfig
+from feast.infra.online_stores.sqlite import SqliteTable
+from feast.infra.registry.sql import (
+    FeastMetadataKeys,
+    ObjectAuditLogObjectType,
+    ObjectAuditLogOperation,
+    SqlRegistry,
+    SqlRegistryConfig,
+    _insert_feast_metadata_do_nothing,
+    entities,
+    feast_metadata,
+    managed_infra,
+    object_audit_log,
+    projects,
+)
 from feast.infra.registry.sql_fallback import (
     SqlFallbackRegistry,
     SqlFallbackRegistryConfig,
 )
+from feast.permissions.action import AuthzedAction
+from feast.permissions.permission import Permission
+from feast.permissions.policy import RoleBasedPolicy
+from feast.permissions.security_manager import (
+    SecurityManager,
+    no_security_manager,
+    set_security_manager,
+)
+from feast.permissions.user import User
+from feast.project import Project
+from feast.protos.feast.core.Entity_pb2 import Entity as EntityProto
+from feast.protos.feast.core.Project_pb2 import Project as ProjectProto
 from feast.protos.feast.core.SortedFeatureView_pb2 import SortOrder
+from feast.saved_dataset import ValidationReference
 from feast.sort_key import SortKey
 from feast.sorted_feature_view import SortedFeatureView
 from feast.types import Float32, Int64
@@ -46,6 +86,21 @@ def sqlite_registry():
         purge_feast_metadata=False,
     )
 
+    registry = SqlRegistry(registry_config, "test_project", None)
+    yield registry
+    registry.teardown()
+
+
+@pytest.fixture
+def sqlite_registry_audit():
+    """SQL registry with object_audit_log inserts enabled."""
+    fd, registry_path = tempfile.mkstemp()
+    registry_config = SqlRegistryConfig(
+        registry_type="sql",
+        path=f"sqlite:///{registry_path}",
+        purge_feast_metadata=False,
+        enable_object_audit_log=True,
+    )
     registry = SqlRegistry(registry_config, "test_project", None)
     yield registry
     registry.teardown()
@@ -87,6 +142,22 @@ def sqlite_fallback_registry():
     registry.teardown()
 
 
+@pytest.fixture
+def sqlite_fallback_registry_audit():
+    """SqlFallbackRegistry with object_audit_log inserts enabled."""
+    fd, registry_path = tempfile.mkstemp()
+    registry_config = SqlFallbackRegistryConfig(
+        registry_type="sql-fallback",
+        path=f"sqlite:///{registry_path}",
+        purge_feast_metadata=False,
+        cache_ttl_seconds=600,
+        enable_object_audit_log=True,
+    )
+    registry = SqlFallbackRegistry(registry_config, "test_project", None)
+    yield registry
+    registry.teardown()
+
+
 def _sorted_feature_view(name: str, entity: Entity) -> SortedFeatureView:
     return SortedFeatureView(
         name=name,
@@ -105,6 +176,66 @@ def _sorted_feature_view(name: str, entity: Entity) -> SortedFeatureView:
         ],
         online=True,
     )
+
+
+class TestSqlRegistryConfig:
+    def test_enable_object_audit_log_rejects_purge_feast_metadata(self):
+        with pytest.raises(ValidationError, match="enable_object_audit_log"):
+            SqlRegistryConfig(
+                registry_type="sql",
+                path="sqlite:///:memory:",
+                purge_feast_metadata=True,
+                enable_object_audit_log=True,
+            )
+
+    def test_enable_object_audit_log_without_purge_is_allowed(self):
+        config = SqlRegistryConfig(
+            registry_type="sql",
+            path="sqlite:///:memory:",
+            purge_feast_metadata=False,
+            enable_object_audit_log=True,
+        )
+        assert config.enable_object_audit_log is True
+
+    def test_sql_fallback_config_inherits_the_same_rejection(self):
+        with pytest.raises(ValidationError, match="enable_object_audit_log"):
+            SqlFallbackRegistryConfig(
+                registry_type="sql-fallback",
+                path="sqlite:///:memory:",
+                purge_feast_metadata=True,
+                enable_object_audit_log=True,
+            )
+
+    def test_assignment_rejects_enabling_audit_when_purge_is_on(self):
+        config = SqlRegistryConfig(
+            registry_type="sql",
+            path="sqlite:///:memory:",
+            purge_feast_metadata=True,
+        )
+        with pytest.raises(ValidationError, match="enable_object_audit_log"):
+            config.enable_object_audit_log = True
+        assert config.enable_object_audit_log is False
+        assert config.purge_feast_metadata is True
+
+    def test_assignment_rejects_enabling_purge_when_audit_is_on(self):
+        config = SqlRegistryConfig(
+            registry_type="sql",
+            path="sqlite:///:memory:",
+            enable_object_audit_log=True,
+        )
+        with pytest.raises(ValidationError, match="enable_object_audit_log"):
+            config.purge_feast_metadata = True
+        assert config.purge_feast_metadata is False
+        assert config.enable_object_audit_log is True
+
+    def test_sql_registry_init_rejects_model_construct_both_true(self):
+        config = SqlRegistryConfig.model_construct(
+            path="sqlite:///:memory:",
+            purge_feast_metadata=True,
+            enable_object_audit_log=True,
+        )
+        with pytest.raises(ValueError, match="enable_object_audit_log"):
+            SqlRegistry(config, "test_project", None)
 
 
 class TestSqlRegistry:
@@ -130,7 +261,7 @@ class TestSqlRegistry:
 
         sqlite_registry.delete_entity("test_entity", "test_project")
 
-        with pytest.raises(Exception):
+        with pytest.raises(EntityNotFoundException):
             sqlite_registry.get_entity("test_entity", "test_project")
 
     def test_get_project_metadata_model_returns_initialized_metadata(
@@ -409,6 +540,955 @@ class TestSqlRegistryMaterializationIntervalHistory:
         assert len(history) == 1
 
 
+_OBJECT_AUDIT_LOG_COLUMNS = {
+    "id",
+    "project_id",
+    "project_uuid",
+    "object_type",
+    "object_name",
+    "operation",
+    "actor",
+    "before_proto",
+    "after_proto",
+    "request_id",
+    "recorded_at",
+}
+
+_AUDIT_PROJECT_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+_OBJECT_AUDIT_LOG_NULLABLE = {
+    "actor",
+    "before_proto",
+    "after_proto",
+    "request_id",
+}
+
+
+def _object_audit_log_row_count(registry: SqlRegistry) -> int:
+    with registry.write_engine.begin() as conn:
+        return conn.execute(
+            select(func.count()).select_from(object_audit_log)
+        ).scalar_one()
+
+
+def _audit_rows(
+    registry: SqlRegistry,
+    object_name: str,
+    object_type: str = ObjectAuditLogObjectType.ENTITIES.value,
+):
+    with registry.write_engine.begin() as conn:
+        return conn.execute(
+            select(object_audit_log)
+            .where(
+                object_audit_log.c.object_name == object_name,
+                object_audit_log.c.object_type == object_type,
+            )
+            .order_by(object_audit_log.c.id)
+        ).all()
+
+
+def _from_gzip_entity_proto(blob) -> EntityProto:
+    return EntityProto.FromString(gzip.decompress(bytes(blob)))
+
+
+def _project_last_updated(registry: SqlRegistry, project: str = "test_project") -> int:
+    with registry.write_engine.begin() as conn:
+        return conn.execute(
+            select(projects.c.last_updated_timestamp).where(
+                projects.c.project_id == project
+            )
+        ).scalar_one()
+
+
+@contextmanager
+def _audit_inserts_fail(registry: SqlRegistry):
+    """Make the next object_audit_log INSERT fail inside the mutation transaction."""
+    with registry.write_engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TRIGGER fail_object_audit_log_insert "
+                "BEFORE INSERT ON object_audit_log "
+                "BEGIN SELECT RAISE(ABORT, 'audit insert failed'); END"
+            )
+        )
+    try:
+        yield
+    finally:
+        with registry.write_engine.begin() as conn:
+            conn.execute(text("DROP TRIGGER IF EXISTS fail_object_audit_log_insert"))
+
+
+def _delete_project_uuid(registry: SqlRegistry, project: str = "test_project") -> None:
+    with registry.write_engine.begin() as conn:
+        conn.execute(
+            feast_metadata.delete().where(
+                feast_metadata.c.project_id == project,
+                feast_metadata.c.metadata_key == FeastMetadataKeys.PROJECT_UUID.value,
+            )
+        )
+
+
+def _entity(name: str = "test_entity", description: str = "Test entity") -> Entity:
+    return Entity(
+        name=name,
+        description=description,
+        join_keys=["id"],
+        value_type=ValueType.STRING,
+    )
+
+
+class TestObjectAuditLogSchema:
+    """Ticket 3: create_all, CHECK constraint, and delete_project leaving audit rows."""
+
+    def test_create_all_creates_object_audit_log_columns_and_index(
+        self, sqlite_registry
+    ):
+        inspector = inspect(sqlite_registry.write_engine)
+        assert inspector.has_table("object_audit_log")
+
+        columns = {
+            col["name"]: col for col in inspector.get_columns("object_audit_log")
+        }
+        assert set(columns) == _OBJECT_AUDIT_LOG_COLUMNS
+        for name, col in columns.items():
+            assert col["nullable"] is (name in _OBJECT_AUDIT_LOG_NULLABLE)
+
+        index_names = {idx["name"] for idx in inspector.get_indexes("object_audit_log")}
+        assert "idx_object_audit_log_project_object_recorded" in index_names
+        assert "idx_object_audit_log_recorded_at" in index_names
+
+        check_names = {
+            ck["name"] for ck in inspector.get_check_constraints("object_audit_log")
+        }
+        assert "ck_object_audit_log_operation" in check_names
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            ObjectAuditLogOperation.CREATE,
+            ObjectAuditLogOperation.UPDATE,
+            ObjectAuditLogOperation.DELETE,
+        ],
+    )
+    def test_operation_check_allows_enum_values(self, sqlite_registry, operation):
+        with sqlite_registry.write_engine.begin() as conn:
+            conn.execute(
+                object_audit_log.insert().values(
+                    project_id="p",
+                    project_uuid=_AUDIT_PROJECT_UUID,
+                    object_type=ObjectAuditLogObjectType.ENTITIES.value,
+                    object_name="e",
+                    operation=operation.value,
+                    recorded_at=0,
+                )
+            )
+
+    @pytest.mark.parametrize("operation", ["CREATE", "upsert", "delete ", ""])
+    def test_operation_check_rejects_unknown_values(self, sqlite_registry, operation):
+        with sqlite_registry.write_engine.begin() as conn:
+            with pytest.raises(IntegrityError):
+                conn.execute(
+                    object_audit_log.insert().values(
+                        project_id="p",
+                        project_uuid=_AUDIT_PROJECT_UUID,
+                        object_type=ObjectAuditLogObjectType.ENTITIES.value,
+                        object_name="e",
+                        operation=operation,
+                        recorded_at=0,
+                    )
+                )
+
+    def test_delete_project_leaves_object_audit_log_rows(self, sqlite_registry):
+        sqlite_registry.apply_project(Project(name="reused"))
+        with sqlite_registry.write_engine.begin() as conn:
+            conn.execute(
+                object_audit_log.insert().values(
+                    project_id="reused",
+                    project_uuid=_AUDIT_PROJECT_UUID,
+                    object_type=ObjectAuditLogObjectType.ENTITIES.value,
+                    object_name="e",
+                    operation=ObjectAuditLogOperation.CREATE.value,
+                    recorded_at=0,
+                )
+            )
+
+        sqlite_registry.delete_project("reused")
+        with sqlite_registry.write_engine.begin() as conn:
+            planted = conn.execute(
+                select(func.count())
+                .select_from(object_audit_log)
+                .where(object_audit_log.c.object_name == "e")
+            ).scalar_one()
+        assert planted == 1
+
+    def test_delete_project_raises_when_missing(self, sqlite_registry):
+        with pytest.raises(ProjectObjectNotFoundException):
+            sqlite_registry.delete_project("does_not_exist")
+
+    def test_apply_and_delete_entity_leave_object_gone(self, sqlite_registry):
+        entity = Entity(name="test_entity", description="Test entity")
+        sqlite_registry.apply_entity(entity, "test_project")
+        sqlite_registry.delete_entity("test_entity", "test_project")
+
+        with pytest.raises(EntityNotFoundException):
+            sqlite_registry.get_entity("test_entity", "test_project")
+
+
+class TestObjectAuditLogWrites:
+    """Ticket 4: apply/delete insert forensic rows in the same transaction."""
+
+    def test_flag_off_skips_inserts(self, sqlite_registry):
+        sqlite_registry.apply_entity(_entity(), "test_project")
+        sqlite_registry.delete_entity("test_entity", "test_project")
+        assert _object_audit_log_row_count(sqlite_registry) == 0
+
+    def test_registry_audit_flags_are_read_only(self, sqlite_registry_audit):
+        with pytest.raises(AttributeError):
+            sqlite_registry_audit.purge_feast_metadata = True
+        with pytest.raises(AttributeError):
+            sqlite_registry_audit.enable_object_audit_log = False
+        assert sqlite_registry_audit.purge_feast_metadata is False
+        assert sqlite_registry_audit.enable_object_audit_log is True
+
+    def test_apply_entity_inserts_create_row_with_after_proto(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.operation == ObjectAuditLogOperation.CREATE.value
+        assert row.object_type == ObjectAuditLogObjectType.ENTITIES.value
+        assert row.project_id == "test_project"
+        assert row.project_uuid
+        assert row.before_proto is None
+        proto = _from_gzip_entity_proto(row.after_proto)
+        assert proto.spec.name == "test_entity"
+        now = int(_utc_now().timestamp())
+        assert abs(row.recorded_at - now) < 60
+        assert row.recorded_at < 10**11
+
+    def test_apply_entity_change_inserts_update_with_both_blobs(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(description="first"), "test_project")
+        sqlite_registry_audit.apply_entity(
+            _entity(description="second"), "test_project"
+        )
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+        update = rows[1]
+        before = _from_gzip_entity_proto(update.before_proto)
+        after = _from_gzip_entity_proto(update.after_proto)
+        assert before.spec.description == "first"
+        assert after.spec.description == "second"
+
+    def test_apply_entity_noop_does_not_insert(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert len(rows) == 1
+        assert rows[0].operation == ObjectAuditLogOperation.CREATE.value
+
+    def test_update_infra_noop_skips_update_and_audit(self, sqlite_registry_audit):
+        sqlite_registry_audit.update_infra(Infra(), "test_project")
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            ts = conn.execute(
+                select(managed_infra.c.last_updated_timestamp)
+            ).scalar_one()
+        sqlite_registry_audit.update_infra(Infra(), "test_project")
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            ts_after = conn.execute(
+                select(managed_infra.c.last_updated_timestamp)
+            ).scalar_one()
+        assert ts_after == ts
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "infra_obj",
+            ObjectAuditLogObjectType.MANAGED_INFRA.value,
+        )
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_update_infra_change_inserts_update(self, sqlite_registry_audit, tmp_path):
+        sqlite_registry_audit.update_infra(Infra(), "test_project")
+        changed = Infra()
+        changed.infra_objects.append(
+            SqliteTable(path=str(tmp_path / "online.db"), name="my_table")
+        )
+        sqlite_registry_audit.update_infra(changed, "test_project")
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "infra_obj",
+            ObjectAuditLogObjectType.MANAGED_INFRA.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+        assert rows[1].after_proto != rows[1].before_proto
+
+    def test_apply_validation_reference_noop_skips_audit(self, sqlite_registry_audit):
+        ref = ValidationReference(
+            name="vr",
+            dataset_name="ds",
+            profiler=object(),
+        )
+        sqlite_registry_audit.apply_validation_reference(ref, "test_project")
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(name="vr", dataset_name="ds", profiler=object()),
+            "test_project",
+        )
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_apply_validation_reference_equal_across_tag_order(
+        self, sqlite_registry_audit
+    ):
+        from feast.dqm.profilers.ge_profiler import GEProfiler
+
+        def _udp(df):
+            from great_expectations.core import ExpectationSuite
+
+            return ExpectationSuite(name="test")
+
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(
+                name="vr",
+                dataset_name="ds",
+                profiler=GEProfiler(user_defined_profiler=_udp),
+                tags={"b": "2", "a": "1"},
+            ),
+            "test_project",
+        )
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(
+                name="vr",
+                dataset_name="ds",
+                profiler=GEProfiler(user_defined_profiler=_udp),
+                tags={"a": "1", "b": "2"},
+            ),
+            "test_project",
+        )
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_apply_validation_reference_change_inserts_update(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(name="vr", dataset_name="ds", profiler=object()),
+            "test_project",
+        )
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(
+                name="vr",
+                dataset_name="ds",
+                profiler=object(),
+                description="changed",
+            ),
+            "test_project",
+        )
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+
+    def test_apply_validation_reference_cached_profile_inserts_update(
+        self, sqlite_registry_audit
+    ):
+        from great_expectations.core import ExpectationSuite
+
+        from feast.dqm.profilers.ge_profiler import GEProfile, GEProfiler
+        from feast.protos.feast.core.ValidationProfile_pb2 import (
+            ValidationReference as ValidationReferenceProto,
+        )
+
+        def _udp(df):
+            from great_expectations.core import ExpectationSuite
+
+            return ExpectationSuite(name="test")
+
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(
+                name="vr",
+                dataset_name="ds",
+                profiler=GEProfiler(user_defined_profiler=_udp),
+            ),
+            "test_project",
+        )
+        with_profile = ValidationReference(
+            name="vr",
+            dataset_name="ds",
+            profiler=GEProfiler(user_defined_profiler=_udp),
+        )
+        with_profile._profile = GEProfile(expectation_suite=ExpectationSuite("cached"))
+        sqlite_registry_audit.apply_validation_reference(with_profile, "test_project")
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+        after = ValidationReferenceProto.FromString(
+            gzip.decompress(bytes(rows[1].after_proto))
+        )
+        assert after.HasField("ge_profile")
+
+        same_profile = ValidationReference(
+            name="vr",
+            dataset_name="ds",
+            profiler=GEProfiler(user_defined_profiler=_udp),
+        )
+        same_profile._profile = GEProfile(expectation_suite=ExpectationSuite("cached"))
+        sqlite_registry_audit.apply_validation_reference(same_profile, "test_project")
+        refreshed = ValidationReference(
+            name="vr",
+            dataset_name="ds",
+            profiler=GEProfiler(user_defined_profiler=_udp),
+        )
+        refreshed._profile = GEProfile(expectation_suite=ExpectationSuite("refreshed"))
+        sqlite_registry_audit.apply_validation_reference(refreshed, "test_project")
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+
+    def test_apply_materialization_does_not_write_object_audit_log(
+        self, sqlite_registry_audit
+    ):
+        entity = _entity(name="driver")
+        sqlite_registry_audit.apply_entity(entity, "test_project")
+        feature_view = FeatureView(
+            name="driver_stats",
+            entities=[entity],
+            schema=[Field(name="conv_rate", dtype=Float32)],
+            source=FileSource(path="some path", timestamp_field="event_timestamp"),
+            online=True,
+        )
+        sqlite_registry_audit.apply_feature_view(feature_view, "test_project")
+        create_rows = _audit_rows(
+            sqlite_registry_audit,
+            "driver_stats",
+            object_type=ObjectAuditLogObjectType.FEATURE_VIEWS.value,
+        )
+        now = _utc_now()
+        sqlite_registry_audit.apply_materialization(
+            feature_view,
+            "test_project",
+            now - timedelta(hours=1),
+            now,
+        )
+        after_rows = _audit_rows(
+            sqlite_registry_audit,
+            "driver_stats",
+            object_type=ObjectAuditLogObjectType.FEATURE_VIEWS.value,
+        )
+        assert after_rows == create_rows
+        assert [row.operation for row in after_rows] == [
+            ObjectAuditLogOperation.CREATE.value
+        ]
+        history = sqlite_registry_audit.get_materialization_interval_history(
+            "driver_stats", "test_project"
+        )
+        assert len(history) == 1
+
+    def test_delete_entity_inserts_delete_row_with_before_proto(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.delete_entity("test_entity", "test_project")
+        with pytest.raises(EntityNotFoundException):
+            sqlite_registry_audit.get_entity("test_entity", "test_project")
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        delete = rows[1]
+        assert delete.after_proto is None
+        proto = _from_gzip_entity_proto(delete.before_proto)
+        assert proto.spec.name == "test_entity"
+
+    def test_delete_entity_succeeds_when_project_row_missing(self, sqlite_registry):
+        sqlite_registry.apply_entity(_entity(), "test_project")
+        with sqlite_registry.write_engine.begin() as conn:
+            conn.execute(
+                projects.delete().where(projects.c.project_id == "test_project")
+            )
+        sqlite_registry.delete_entity("test_entity", "test_project")
+        with pytest.raises(EntityNotFoundException):
+            sqlite_registry.get_entity("test_entity", "test_project")
+
+    def test_delete_data_source_uses_same_connection(self, sqlite_registry_audit):
+        source = FileSource(
+            name="test_source",
+            path="some path",
+            timestamp_field="event_timestamp",
+        )
+        sqlite_registry_audit.apply_data_source(source, "test_project")
+        sqlite_registry_audit.delete_data_source("test_source", "test_project")
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "test_source",
+            ObjectAuditLogObjectType.DATA_SOURCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+
+    def test_failed_audit_insert_rolls_back_apply(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with _audit_inserts_fail(sqlite_registry_audit):
+            with pytest.raises(IntegrityError):
+                sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with pytest.raises(EntityNotFoundException):
+            sqlite_registry_audit.get_entity("test_entity", "test_project")
+        assert _audit_rows(sqlite_registry_audit, "test_entity") == []
+
+    def test_failed_audit_insert_rolls_back_delete(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with _audit_inserts_fail(sqlite_registry_audit):
+            with pytest.raises(IntegrityError):
+                sqlite_registry_audit.delete_entity("test_entity", "test_project")
+        assert sqlite_registry_audit.get_entity("test_entity", "test_project").name == (
+            "test_entity"
+        )
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_actor_and_request_id_from_security_manager(self, sqlite_registry_audit):
+        sm = SecurityManager(
+            project="test_project",
+            registry=sqlite_registry_audit,
+            write_auth_only=True,
+        )
+        set_security_manager(sm)
+        sm.set_current_user(User("alice", []))
+        sm.set_request_id("bbbbbbbb-cccc-dddd-eeee-ffffffffffff")
+        try:
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        finally:
+            no_security_manager()
+        row = _audit_rows(sqlite_registry_audit, "test_entity")[0]
+        assert row.actor == "alice"
+        assert row.request_id == "bbbbbbbb-cccc-dddd-eeee-ffffffffffff"
+
+    def test_delete_project_keeps_prior_rows_and_adds_project_delete(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.apply_data_source(
+            FileSource(
+                name="test_source",
+                path="some path",
+                timestamp_field="event_timestamp",
+            ),
+            "test_project",
+        )
+        sqlite_registry_audit.delete_project("test_project")
+        entity_rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in entity_rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert entity_rows[1].after_proto is None
+        proto = _from_gzip_entity_proto(entity_rows[1].before_proto)
+        assert proto.spec.name == "test_entity"
+        source_rows = _audit_rows(
+            sqlite_registry_audit,
+            "test_source",
+            object_type=ObjectAuditLogObjectType.DATA_SOURCES.value,
+        )
+        assert [row.operation for row in source_rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert source_rows[1].after_proto is None
+        project_rows = _audit_rows(
+            sqlite_registry_audit,
+            "test_project",
+            object_type=ObjectAuditLogObjectType.PROJECTS.value,
+        )
+        assert project_rows[-1].operation == ObjectAuditLogOperation.DELETE.value
+        assert project_rows[-1].after_proto is None
+        project_proto = ProjectProto.FromString(
+            gzip.decompress(bytes(project_rows[-1].before_proto))
+        )
+        assert project_proto.spec.name == "test_project"
+        assert entity_rows[1].project_uuid == project_rows[-1].project_uuid
+        assert entity_rows[1].id < project_rows[-1].id
+
+    def test_failed_child_audit_rolls_back_delete_project(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with _audit_inserts_fail(sqlite_registry_audit):
+            with pytest.raises(IntegrityError):
+                sqlite_registry_audit.delete_project("test_project")
+        assert sqlite_registry_audit.get_entity("test_entity", "test_project").name == (
+            "test_entity"
+        )
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_delete_project_looks_up_actor_once_for_all_children(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.apply_data_source(
+            FileSource(
+                name="test_source",
+                path="some path",
+                timestamp_field="event_timestamp",
+            ),
+            "test_project",
+        )
+        with patch.object(
+            SqlRegistry,
+            "_audit_actor_and_request_id",
+            wraps=SqlRegistry._audit_actor_and_request_id,
+        ) as lookup:
+            sqlite_registry_audit.delete_project("test_project")
+        assert lookup.call_count == 2
+
+    def test_delete_project_fetches_project_uuid_once(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with patch.object(
+            sqlite_registry_audit,
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry_audit._maybe_init_project_metadata,
+        ) as maybe_init:
+            sqlite_registry_audit.delete_project("test_project")
+        assert maybe_init.call_count == 1
+        assert maybe_init.call_args.args[1] is not None
+
+    def test_project_uuid_fetched_once_per_audited_write(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with patch.object(
+            sqlite_registry_audit,
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry_audit._maybe_init_project_metadata,
+        ) as maybe_init:
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
+            assert maybe_init.call_count == 1
+            sqlite_registry_audit.delete_entity("test_entity", "test_project")
+            assert maybe_init.call_count == 2
+
+    def test_delete_miss_does_not_fetch_project_uuid(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with patch.object(
+            sqlite_registry_audit,
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry_audit._maybe_init_project_metadata,
+        ) as maybe_init:
+            with pytest.raises(EntityNotFoundException):
+                sqlite_registry_audit.delete_entity("missing", "test_project")
+        assert maybe_init.call_count == 0
+
+    def test_apply_reuses_project_uuid_from_maybe_init_in_same_txn(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with patch.object(
+            sqlite_registry_audit,
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry_audit._maybe_init_project_metadata,
+        ) as maybe_init:
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        maybe_init.assert_called_once()
+        assert maybe_init.call_args.args[1] is not None
+        assert maybe_init.call_args.kwargs.get("for_update") is True
+
+    def test_noop_apply_does_not_fetch_project_uuid(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with patch.object(
+            sqlite_registry_audit,
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry_audit._maybe_init_project_metadata,
+        ) as maybe_init:
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        assert maybe_init.call_count == 0
+
+    def test_audited_mutating_apply_rereads_object_row_for_update(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with patch.object(
+            sqlite_registry_audit,
+            "_fetch_object_row",
+            wraps=sqlite_registry_audit._fetch_object_row,
+        ) as fetch:
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        assert [c.kwargs.get("lock") for c in fetch.call_args_list] == [False, True]
+
+    def test_apply_locked_reread_turns_stale_create_into_update(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        real = sqlite_registry_audit._fetch_object_row
+
+        def fetch(conn, table, id_field_name, name, project, *, lock):
+            if table is entities and lock:
+                conn.execute(
+                    entities.insert().values(
+                        entity_name=name,
+                        project_id=project,
+                        last_updated_timestamp=0,
+                        entity_proto=_entity(description="first")
+                        .to_proto()
+                        .SerializeToString(),
+                    )
+                )
+            return real(conn, table, id_field_name, name, project, lock=lock)
+
+        with patch.object(
+            sqlite_registry_audit, "_fetch_object_row", side_effect=fetch
+        ):
+            sqlite_registry_audit.apply_entity(
+                _entity(description="second"), "test_project"
+            )
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.UPDATE.value]
+        assert _from_gzip_entity_proto(rows[0].before_proto).spec.description == "first"
+        assert _from_gzip_entity_proto(rows[0].after_proto).spec.description == "second"
+
+    def test_apply_locked_reread_audits_from_latest_before_bytes(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(description="v0"), "test_project")
+        real = sqlite_registry_audit._fetch_object_row
+
+        def fetch(conn, table, id_field_name, name, project, *, lock):
+            if table is entities and lock:
+                conn.execute(
+                    entities.update()
+                    .where(
+                        entities.c.entity_name == name,
+                        entities.c.project_id == project,
+                    )
+                    .values(
+                        entity_proto=_entity(description="v1")
+                        .to_proto()
+                        .SerializeToString()
+                    )
+                )
+            return real(conn, table, id_field_name, name, project, lock=lock)
+
+        with patch.object(
+            sqlite_registry_audit, "_fetch_object_row", side_effect=fetch
+        ):
+            sqlite_registry_audit.apply_entity(
+                _entity(description="v2"), "test_project"
+            )
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+        assert _from_gzip_entity_proto(rows[1].before_proto).spec.description == "v1"
+        assert _from_gzip_entity_proto(rows[1].after_proto).spec.description == "v2"
+
+    def test_delete_skips_audit_if_row_gone_after_uuid_lock(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        real = sqlite_registry_audit._fetch_object_row
+
+        def fetch(conn, table, id_field_name, name, project, *, lock):
+            if table is entities and lock:
+                conn.execute(
+                    entities.delete().where(
+                        entities.c.entity_name == name,
+                        entities.c.project_id == project,
+                    )
+                )
+            return real(conn, table, id_field_name, name, project, lock=lock)
+
+        with patch.object(
+            sqlite_registry_audit, "_fetch_object_row", side_effect=fetch
+        ):
+            with pytest.raises(EntityNotFoundException):
+                sqlite_registry_audit.delete_entity("test_entity", "test_project")
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_unaudited_apply_inits_project_uuid_without_for_update(
+        self, sqlite_registry
+    ):
+        sqlite_registry.apply_project(Project(name="test_project"))
+        with patch.object(
+            sqlite_registry,
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry._maybe_init_project_metadata,
+        ) as maybe_init:
+            sqlite_registry.apply_entity(_entity(), "test_project")
+        maybe_init.assert_called_once()
+        assert maybe_init.call_args.args[1] is not None
+        assert maybe_init.call_args.kwargs.get("for_update") is False
+
+    def test_insert_feast_metadata_do_nothing_keeps_existing_uuid(
+        self, sqlite_registry
+    ):
+        existing = sqlite_registry._maybe_init_project_metadata("test_project")
+        with sqlite_registry.write_engine.begin() as conn:
+            _insert_feast_metadata_do_nothing(
+                conn,
+                {
+                    "metadata_key": FeastMetadataKeys.PROJECT_UUID.value,
+                    "metadata_value": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                    "last_updated_timestamp": 0,
+                    "project_id": "test_project",
+                },
+            )
+        assert sqlite_registry._maybe_init_project_metadata("test_project") == existing
+
+    def test_maybe_init_raises_when_uuid_vanishes_under_lock(self, sqlite_registry):
+        existing = sqlite_registry._maybe_init_project_metadata("test_project")
+        with patch(
+            "feast.infra.registry.sql._insert_feast_metadata_do_nothing"
+        ) as insert_ignore:
+            with pytest.raises(ProjectObjectNotFoundException):
+                with sqlite_registry.write_engine.begin() as conn:
+                    orig_execute = conn.execute
+                    uuid_selects = {"n": 0}
+
+                    def execute(statement, *args, **kwargs):
+                        if isinstance(statement, Select):
+                            uuid_selects["n"] += 1
+                            if uuid_selects["n"] == 2:
+                                orig_execute(
+                                    delete(feast_metadata).where(
+                                        feast_metadata.c.project_id == "test_project",
+                                        feast_metadata.c.metadata_key
+                                        == FeastMetadataKeys.PROJECT_UUID.value,
+                                    )
+                                )
+                        return orig_execute(statement, *args, **kwargs)
+
+                    with patch.object(conn, "execute", side_effect=execute):
+                        sqlite_registry._maybe_init_project_metadata(
+                            "test_project", conn, for_update=True
+                        )
+            insert_ignore.assert_not_called()
+        assert sqlite_registry._maybe_init_project_metadata("test_project") == existing
+
+    def test_maybe_init_mints_uuid_when_project_row_missing_unless_required(
+        self, sqlite_registry
+    ):
+        minted = sqlite_registry._maybe_init_project_metadata(
+            "ghost_ok", require_project=False
+        )
+        assert minted
+        with sqlite_registry.write_engine.begin() as conn:
+            row = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == "ghost_ok",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            ).first()
+        assert row is not None
+        assert str(row._mapping["metadata_value"]) == minted
+
+        with pytest.raises(ProjectObjectNotFoundException):
+            sqlite_registry._maybe_init_project_metadata(
+                "gone_project", require_project=True
+            )
+        with sqlite_registry.write_engine.begin() as conn:
+            gone = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == "gone_project",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            ).first()
+        assert gone is None
+
+    def test_apply_entity_raises_when_project_row_missing(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            conn.execute(
+                delete(projects).where(projects.c.project_id == "test_project")
+            )
+            conn.execute(
+                feast_metadata.delete().where(
+                    feast_metadata.c.project_id == "test_project",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            )
+        with patch.object(sqlite_registry_audit, "_initialize_project_if_not_exists"):
+            with pytest.raises(ProjectObjectNotFoundException):
+                sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            row = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == "test_project",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            ).first()
+        assert row is None
+
+    def test_delete_entity_mints_project_uuid_when_missing(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        _delete_project_uuid(sqlite_registry_audit)
+        sqlite_registry_audit.delete_entity("test_entity", "test_project")
+        delete = _audit_rows(sqlite_registry_audit, "test_entity")[-1]
+        assert delete.operation == ObjectAuditLogOperation.DELETE.value
+        assert delete.project_uuid
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            row = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == "test_project",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            ).first()
+        assert row is not None
+        assert str(row._mapping["metadata_value"]) == delete.project_uuid
+
+    def test_delete_project_mints_project_uuid_when_missing(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        _delete_project_uuid(sqlite_registry_audit)
+        sqlite_registry_audit.delete_project("test_project")
+        entity_delete = _audit_rows(sqlite_registry_audit, "test_entity")[-1]
+        project_delete = _audit_rows(
+            sqlite_registry_audit,
+            "test_project",
+            ObjectAuditLogObjectType.PROJECTS.value,
+        )[-1]
+        assert entity_delete.operation == ObjectAuditLogOperation.DELETE.value
+        assert project_delete.operation == ObjectAuditLogOperation.DELETE.value
+        assert entity_delete.project_uuid
+        assert entity_delete.project_uuid == project_delete.project_uuid
+
+
 class TestSqlRegistrySortedFeatureView:
     """SortedFeatureView lookups and materialization through SqlRegistry. A
     SortedFeatureView is a FeatureView subclass persisted in its own table, so
@@ -450,6 +1530,39 @@ class TestSqlRegistrySortedFeatureView:
     def test_get_any_feature_view_unknown_name_raises(self, sqlite_registry):
         with pytest.raises(FeatureViewNotFoundException):
             sqlite_registry.get_any_feature_view("does_not_exist", "test_project")
+
+    def test_delete_feature_view_updates_project_timestamp_once(self, sqlite_registry):
+        entity = Entity(name="driver", join_keys=["driver_id"])
+        sqlite_registry.apply_entity(entity, "test_project")
+        sqlite_registry.apply_feature_view(
+            _sorted_feature_view("driver_sorted", entity), "test_project"
+        )
+        with patch.object(
+            sqlite_registry,
+            "_update_project_timestamp",
+            wraps=sqlite_registry._update_project_timestamp,
+        ) as update_ts:
+            sqlite_registry.delete_feature_view("driver_sorted", "test_project")
+        assert update_ts.call_count == 1
+        with pytest.raises(FeatureViewNotFoundException):
+            sqlite_registry.get_any_feature_view("driver_sorted", "test_project")
+
+    def test_delete_missing_feature_view_does_not_update_project_timestamp(
+        self, sqlite_registry
+    ):
+        sqlite_registry.apply_entity(
+            Entity(name="driver", join_keys=["driver_id"]), "test_project"
+        )
+        before = _project_last_updated(sqlite_registry)
+        with patch.object(
+            sqlite_registry,
+            "_update_project_timestamp",
+            wraps=sqlite_registry._update_project_timestamp,
+        ) as update_ts:
+            with pytest.raises(FeatureViewNotFoundException):
+                sqlite_registry.delete_feature_view("does_not_exist", "test_project")
+        assert update_ts.call_count == 0
+        assert _project_last_updated(sqlite_registry) == before
 
     def test_apply_materialization_on_sorted_feature_view_preserves_sort_keys(
         self, sqlite_registry_custom_max_intervals
@@ -543,3 +1656,88 @@ class TestSqlFallbackRegistrySortedFeatureViewCache:
         )
 
         assert isinstance(feature_view, SortedFeatureView)
+
+
+class TestSqlFallbackRegistryObjectAuditLog:
+    """SqlFallbackRegistry _delete_object forwards proto_field_name, writes
+    audit rows, and evicts the per-table cache."""
+
+    def test_delete_entity_writes_audit_and_evicts_cache(
+        self, sqlite_fallback_registry_audit
+    ):
+        registry = sqlite_fallback_registry_audit
+        registry.apply_entity(_entity(), "test_project")
+        assert registry.get_entity("test_entity", "test_project").name == "test_entity"
+        registry.delete_entity("test_entity", "test_project")
+        rows = _audit_rows(registry, "test_entity")
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert rows[1].after_proto is None
+        proto = _from_gzip_entity_proto(rows[1].before_proto)
+        assert proto.spec.name == "test_entity"
+        assert registry.cached_entities.get("test_project", "test_entity") is None
+        with pytest.raises(EntityNotFoundException):
+            registry.get_entity("test_entity", "test_project", allow_cache=True)
+
+    def test_delete_data_source_writes_audit_and_evicts_cache(
+        self, sqlite_fallback_registry_audit
+    ):
+        registry = sqlite_fallback_registry_audit
+        source = FileSource(
+            name="test_source",
+            path="some path",
+            timestamp_field="event_timestamp",
+        )
+        registry.apply_data_source(source, "test_project")
+        assert registry.get_data_source("test_source", "test_project").name == (
+            "test_source"
+        )
+        registry.delete_data_source("test_source", "test_project")
+        rows = _audit_rows(
+            registry,
+            "test_source",
+            ObjectAuditLogObjectType.DATA_SOURCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert rows[1].after_proto is None
+        assert rows[1].before_proto is not None
+        assert registry.cached_data_sources.get("test_project", "test_source") is None
+        with pytest.raises(DataSourceObjectNotFoundException):
+            registry.get_data_source("test_source", "test_project", allow_cache=True)
+
+    def test_delete_permission_writes_audit_and_evicts_cache(
+        self, sqlite_fallback_registry_audit
+    ):
+        registry = sqlite_fallback_registry_audit
+        permission = Permission(
+            name="read_permission",
+            actions=AuthzedAction.DESCRIBE,
+            policy=RoleBasedPolicy(roles=["reader"]),
+            types=FeatureView,
+        )
+        registry.apply_permission(permission, "test_project")
+        assert registry.get_permission("read_permission", "test_project").name == (
+            "read_permission"
+        )
+        registry.delete_permission("read_permission", "test_project")
+        rows = _audit_rows(
+            registry,
+            "read_permission",
+            ObjectAuditLogObjectType.PERMISSIONS.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.DELETE.value,
+        ]
+        assert rows[1].after_proto is None
+        assert rows[1].before_proto is not None
+        assert (
+            registry.cached_permissions.get("test_project", "read_permission") is None
+        )
+        with pytest.raises(PermissionNotFoundException):
+            registry.get_permission("read_permission", "test_project", allow_cache=True)

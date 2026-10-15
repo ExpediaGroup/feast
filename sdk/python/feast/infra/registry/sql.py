@@ -1,3 +1,4 @@
+import gzip
 import logging
 import time
 import uuid
@@ -7,9 +8,17 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 
-from pydantic import StrictInt, StrictStr
+from pydantic import (
+    ConfigDict,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    ValidationInfo,
+    field_validator,
+)
 from sqlalchemy import (  # type: ignore
     BigInteger,
+    CheckConstraint,
     Column,
     Index,
     Integer,
@@ -26,6 +35,7 @@ from sqlalchemy import (  # type: ignore
     select,
     update,
 )
+from sqlalchemy.dialects import mysql
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
@@ -39,7 +49,6 @@ from feast.errors import (
     FeatureServiceNotFoundException,
     FeatureViewNotFoundException,
     PermissionNotFoundException,
-    ProjectNotFoundException,
     ProjectObjectNotFoundException,
     SavedDatasetNotFound,
     SortedFeatureViewNotFoundException,
@@ -277,6 +286,131 @@ Index(
 )
 
 
+class ObjectAuditLogOperation(str, Enum):
+    """Closed set for object_audit_log.operation."""
+
+    CREATE = "create"
+    UPDATE = "update"
+    DELETE = "delete"
+
+
+class ObjectAuditLogObjectType(str, Enum):
+    """SQL table names for object_audit_log.object_type. Not proto class names,
+    not FeastObjectType ('feature view'), not lineage camelCase ('featureView').
+    Not CHECKed: the set grows with new registry tables and we have no Alembic."""
+
+    PROJECTS = "projects"
+    ENTITIES = "entities"
+    DATA_SOURCES = "data_sources"
+    FEATURE_VIEWS = "feature_views"
+    STREAM_FEATURE_VIEWS = "stream_feature_views"
+    SORTED_FEATURE_VIEWS = "sorted_feature_views"
+    ON_DEMAND_FEATURE_VIEWS = "on_demand_feature_views"
+    FEATURE_SERVICES = "feature_services"
+    SAVED_DATASETS = "saved_datasets"
+    VALIDATION_REFERENCES = "validation_references"
+    MANAGED_INFRA = "managed_infra"
+    PERMISSIONS = "permissions"
+
+
+# Child tables snapshotted as DELETE rows when delete_project bulk-wipes a
+# project. feast_metadata is not an object type and is not listed here.
+# (table, object name column, stored proto column)
+_PROJECT_CHILD_AUDIT_TABLES: tuple[tuple[Table, str, str], ...] = (
+    (entities, "entity_name", "entity_proto"),
+    (data_sources, "data_source_name", "data_source_proto"),
+    (feature_views, "feature_view_name", "feature_view_proto"),
+    (stream_feature_views, "feature_view_name", "feature_view_proto"),
+    (sorted_feature_views, "feature_view_name", "feature_view_proto"),
+    (on_demand_feature_views, "feature_view_name", "feature_view_proto"),
+    (feature_services, "feature_service_name", "feature_service_proto"),
+    (saved_datasets, "saved_dataset_name", "saved_dataset_proto"),
+    (validation_references, "validation_reference_name", "validation_reference_proto"),
+    (managed_infra, "infra_name", "infra_proto"),
+    (permissions, "permission_name", "permission_proto"),
+)
+
+# Proto blob columns that use from_proto / __eq__ for no-op detection.
+_APPLY_OBJECT_EQ_PROTO_FIELDS = frozenset(
+    {
+        "entity_proto",
+        "saved_dataset_proto",
+        "feature_view_proto",
+        "feature_service_proto",
+        "permission_proto",
+        "project_proto",
+        "data_source_proto",
+        "validation_reference_proto",
+        "infra_proto",
+    }
+)
+
+
+# Append-only audit of registry object create/update/delete.
+# Do not queue, outbox, or write after commit — audit
+# failure must fail the gRPC write.
+#
+# before_proto / after_proto are gzip of proto3 wire bytes (null on create /
+# delete respectively). Future Feast proto changes must stay additive (new field
+# numbers; reserved on deletes; no type/number reuse) so historical rows remain
+# FromString-readable. object_type is a kind discriminator (table/kind name), not
+# the protobuf message type name and not a schema version. Forensic reads should
+# gzip.decompress + FromString, not from_proto().
+object_audit_log = Table(
+    "object_audit_log",
+    metadata,
+    Column(
+        "id",
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    ),
+    # project_id is the project name (same as sibling tables). Survives
+    # delete_project so forensic reads still show the name; a reused name
+    # gets a new feast_metadata PROJECT_UUID, so incarnation identity is
+    # project_uuid, not project_id.
+    Column("project_id", String(255), nullable=False),
+    Column("project_uuid", String(36), nullable=False),
+    Column("object_type", String(50), nullable=False),
+    Column("object_name", String(255), nullable=False),
+    Column("operation", String(20), nullable=False),
+    CheckConstraint(
+        "operation IN ("
+        + ", ".join(repr(op.value) for op in ObjectAuditLogOperation)
+        + ")",
+        name="ck_object_audit_log_operation",
+    ),
+    Column("actor", String(255), nullable=True),
+    Column(
+        "before_proto",
+        LargeBinary().with_variant(mysql.LONGBLOB, "mysql"),
+        nullable=True,
+    ),  # gzip(proto); null on create
+    Column(
+        "after_proto",
+        LargeBinary().with_variant(mysql.LONGBLOB, "mysql"),
+        nullable=True,
+    ),  # gzip(proto); null on delete
+    Column("request_id", String(64), nullable=True),
+    # UTC epoch seconds, same as last_updated_timestamp and
+    # materialization_interval_history.recorded_at (int(datetime.timestamp())).
+    Column("recorded_at", BigInteger, nullable=False),
+)
+Index(
+    "idx_object_audit_log_project_object_recorded",
+    object_audit_log.c.project_uuid,
+    object_audit_log.c.object_type,
+    object_audit_log.c.object_name,
+    object_audit_log.c.recorded_at,
+)
+# Time-range / retention queries ("last N hours", DELETE WHERE recorded_at < …).
+# Actor and request_id lookups are follow-up indexes if those filters show up.
+Index(
+    "idx_object_audit_log_recorded_at",
+    object_audit_log.c.recorded_at,
+)
+
+
 class FeastMetadataKeys(Enum):
     LAST_UPDATED_TIMESTAMP = "last_updated_timestamp"
     PROJECT_UUID = "project_uuid"
@@ -295,8 +429,55 @@ Index("idx_feast_metadata_project_id", feast_metadata.c.project_id)
 
 logger = logging.getLogger(__name__)
 
+_AUDIT_PURGE_INCOMPATIBLE = (
+    "enable_object_audit_log cannot be used with purge_feast_metadata: "
+    "audit rows require feast_metadata PROJECT_UUID, which purge mode "
+    "does not keep"
+)
+
+
+def _reject_audit_log_with_purged_feast_metadata(
+    enable_object_audit_log: bool, purge_feast_metadata: bool
+) -> None:
+    if enable_object_audit_log and purge_feast_metadata:
+        raise ValueError(_AUDIT_PURGE_INCOMPATIBLE)
+
+
+def _insert_feast_metadata_do_nothing(conn: Any, values: dict) -> None:
+    """Insert a feast_metadata row; no-op if the PK already exists.
+
+    Does not raise on conflict, so the surrounding mutation transaction
+    stays usable on Postgres. Avoids MySQL gap-lock deadlock that comes
+    from INSERT after SELECT FOR UPDATE of a missing PK.
+    """
+    dialect = conn.dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        conn.execute(pg_insert(feast_metadata).values(values).on_conflict_do_nothing())
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        conn.execute(
+            sqlite_insert(feast_metadata).values(values).on_conflict_do_nothing()
+        )
+    elif dialect in ("mysql", "mariadb"):
+        conn.execute(mysql.insert(feast_metadata).values(values).prefix_with("IGNORE"))
+    else:
+        try:
+            with conn.begin_nested():
+                conn.execute(insert(feast_metadata).values(values))
+        except IntegrityError:
+            pass
+
 
 class SqlRegistryConfig(RegistryConfig):
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        extra="allow",
+        validate_assignment=True,
+    )
+
     registry_type: StrictStr = "sql"
     """ str: Provider name or a class name that implements Registry."""
 
@@ -317,6 +498,28 @@ class SqlRegistryConfig(RegistryConfig):
     exempt_projects: Optional[List[str]] = None
     """ List[str]: List of projects to exempt from caching. All associated objects under the project will only be accessible with allow_cache=False. """
 
+    enable_object_audit_log: StrictBool = False
+    """ bool: When true, apply/delete writes a row to object_audit_log in the same
+        DB transaction as the mutation. The table is still created by create_all
+        either way. Incompatible with purge_feast_metadata: audit rows need
+        feast_metadata PROJECT_UUID. feature_store.yaml:
+
+            registry:
+              registry_type: sql
+              path: postgresql://...
+              enable_object_audit_log: true
+    """
+
+    @field_validator("enable_object_audit_log", "purge_feast_metadata")
+    @classmethod
+    def reject_audit_log_with_purged_feast_metadata(cls, v, info: ValidationInfo):
+        if info.field_name == "enable_object_audit_log":
+            enable, purge = v, info.data.get("purge_feast_metadata", False)
+        else:
+            enable, purge = info.data.get("enable_object_audit_log", False), v
+        _reject_audit_log_with_purged_feast_metadata(enable, purge)
+        return v
+
 
 class SqlRegistry(CachingRegistry):
     def __init__(
@@ -328,6 +531,10 @@ class SqlRegistry(CachingRegistry):
         assert registry_config is not None and isinstance(
             registry_config, SqlRegistryConfig
         ), "SqlRegistry needs a valid registry_config"
+        _reject_audit_log_with_purged_feast_metadata(
+            registry_config.enable_object_audit_log,
+            registry_config.purge_feast_metadata,
+        )
 
         self.registry_config = registry_config
 
@@ -345,7 +552,8 @@ class SqlRegistry(CachingRegistry):
         self.thread_pool_executor_worker_count = (
             registry_config.thread_pool_executor_worker_count
         )
-        self.purge_feast_metadata = registry_config.purge_feast_metadata
+        self._purge_feast_metadata = registry_config.purge_feast_metadata
+        self._enable_object_audit_log = registry_config.enable_object_audit_log
         super().__init__(
             project=project,
             cache_ttl_seconds=registry_config.cache_ttl_seconds,
@@ -358,6 +566,14 @@ class SqlRegistry(CachingRegistry):
         self._sync_feast_metadata_to_projects_table()
         if not self.purge_feast_metadata:
             self._maybe_init_project_metadata(project)
+
+    @property
+    def purge_feast_metadata(self) -> bool:
+        return self._purge_feast_metadata
+
+    @property
+    def enable_object_audit_log(self) -> bool:
+        return self._enable_object_audit_log
 
     def _sync_feast_metadata_to_projects_table(self):
         feast_metadata_projects: dict = {}
@@ -660,7 +876,12 @@ class SqlRegistry(CachingRegistry):
 
     def delete_entity(self, name: str, project: str, commit: bool = True):
         return self._delete_object(
-            entities, name, project, "entity_name", EntityNotFoundException
+            entities,
+            name,
+            project,
+            "entity_name",
+            "entity_proto",
+            EntityNotFoundException,
         )
 
     def delete_feature_view(self, name: str, project: str, commit: bool = True):
@@ -672,7 +893,7 @@ class SqlRegistry(CachingRegistry):
             sorted_feature_views,
         }:
             deleted_count += self._delete_object(
-                table, name, project, "feature_view_name", None
+                table, name, project, "feature_view_name", "feature_view_proto", None
             )
         if deleted_count == 0:
             raise FeatureViewNotFoundException(name, project)
@@ -683,6 +904,7 @@ class SqlRegistry(CachingRegistry):
             name,
             project,
             "feature_service_name",
+            "feature_service_proto",
             FeatureServiceNotFoundException,
         )
 
@@ -738,14 +960,14 @@ class SqlRegistry(CachingRegistry):
         )
 
     def delete_data_source(self, name: str, project: str, commit: bool = True):
-        with self.write_engine.begin() as conn:
-            stmt = delete(data_sources).where(
-                data_sources.c.data_source_name == name,
-                data_sources.c.project_id == project,
-            )
-            rows = conn.execute(stmt)
-            if rows.rowcount < 1:
-                raise DataSourceObjectNotFoundException(name, project)
+        return self._delete_object(
+            data_sources,
+            name,
+            project,
+            "data_source_name",
+            "data_source_proto",
+            DataSourceObjectNotFoundException,
+        )
 
     def _list_feature_services(
         self, project: str, tags: Optional[dict[str, str]]
@@ -885,8 +1107,16 @@ class SqlRegistry(CachingRegistry):
         self._record_materialization_interval_history(
             fv.name, project, dropped + [(start_date, end_date)]
         )
+        # Interval progress is recorded in materialization_interval_history.
+        # Do not write object_audit_log: a 15-minute job would store two full
+        # gzip feature-view protos per run and drown definition create/update/delete.
         self._apply_object(
-            table, project, "feature_view_name", fv, "feature_view_proto"
+            table,
+            project,
+            "feature_view_name",
+            fv,
+            "feature_view_proto",
+            audit=False,
         )
 
     def _record_materialization_interval_history(
@@ -988,6 +1218,7 @@ class SqlRegistry(CachingRegistry):
             name,
             project,
             "validation_reference_name",
+            "validation_reference_proto",
             ValidationReferenceNotFound,
         )
 
@@ -1193,6 +1424,216 @@ class SqlRegistry(CachingRegistry):
             except ProjectObjectNotFoundException:
                 self.apply_project(Project(name=project_name), commit=True)
 
+    @staticmethod
+    def _gzip_proto(data: Optional[bytes]) -> Optional[bytes]:
+        if data is None:
+            return None
+        return gzip.compress(bytes(data))
+
+    @staticmethod
+    def _audit_actor_and_request_id() -> tuple[Optional[str], Optional[str]]:
+        from feast.permissions.security_manager import get_security_manager
+
+        sm = get_security_manager()
+        if sm is None:
+            return None, None
+        user = sm.current_user
+        actor = user.username if user is not None else None
+        return actor, sm.request_id
+
+    def _project_uuid_if_auditing(self, conn: Any, project_id: str) -> Optional[str]:
+        if not self.enable_object_audit_log:
+            return None
+        return self._maybe_init_project_metadata(project_id, conn, require_project=True)
+
+    def _build_audit_row(
+        self,
+        *,
+        project_id: str,
+        project_uuid: str,
+        object_type: str,
+        object_name: str,
+        operation: ObjectAuditLogOperation,
+        before_proto: Optional[bytes],
+        after_proto: Optional[bytes],
+        actor: Optional[str],
+        request_id: Optional[str],
+        recorded_at: int,
+    ) -> dict:
+        return {
+            "project_id": project_id,
+            "project_uuid": project_uuid,
+            "object_type": object_type,
+            "object_name": object_name,
+            "operation": operation.value,
+            "actor": actor,
+            "before_proto": self._gzip_proto(before_proto),
+            "after_proto": self._gzip_proto(after_proto),
+            "request_id": request_id,
+            "recorded_at": recorded_at,
+        }
+
+    def _record_object_audit(
+        self,
+        conn: Any,
+        table: Table,
+        project_id: str,
+        object_name: str,
+        operation: ObjectAuditLogOperation,
+        before_proto: Optional[bytes],
+        after_proto: Optional[bytes],
+        project_uuid: Optional[str],
+    ) -> None:
+        if not self.enable_object_audit_log:
+            return
+        if not project_uuid:
+            raise RuntimeError(
+                f"Cannot write object_audit_log for project {project_id}: "
+                "project_uuid was not provided"
+            )
+        actor, request_id = self._audit_actor_and_request_id()
+        conn.execute(
+            insert(object_audit_log),
+            [
+                self._build_audit_row(
+                    project_id=project_id,
+                    project_uuid=project_uuid,
+                    object_type=ObjectAuditLogObjectType(table.name).value,
+                    object_name=object_name,
+                    operation=operation,
+                    before_proto=before_proto,
+                    after_proto=after_proto,
+                    actor=actor,
+                    request_id=request_id,
+                    recorded_at=int(_utc_now().timestamp()),
+                )
+            ],
+        )
+
+    def _record_delete_project_child_audits(
+        self, conn: Any, project_id: str, project_uuid: Optional[str]
+    ) -> None:
+        if not self.enable_object_audit_log:
+            return
+        if not project_uuid:
+            raise RuntimeError(
+                f"Cannot write object_audit_log for project {project_id}: "
+                "project_uuid was not provided"
+            )
+        actor, request_id = self._audit_actor_and_request_id()
+        recorded_at = int(_utc_now().timestamp())
+        values = []
+        for table, name_col, proto_col in _PROJECT_CHILD_AUDIT_TABLES:
+            rows = conn.execute(
+                select(
+                    getattr(table.c, name_col),
+                    getattr(table.c, proto_col),
+                ).where(table.c.project_id == project_id)
+            ).all()
+            object_type = ObjectAuditLogObjectType(table.name).value
+            for row in rows:
+                mapping = row._mapping
+                values.append(
+                    self._build_audit_row(
+                        project_id=project_id,
+                        project_uuid=project_uuid,
+                        object_type=object_type,
+                        object_name=mapping[name_col],
+                        operation=ObjectAuditLogOperation.DELETE,
+                        before_proto=mapping[proto_col],
+                        after_proto=None,
+                        actor=actor,
+                        request_id=request_id,
+                        recorded_at=recorded_at,
+                    )
+                )
+        if values:
+            conn.execute(insert(object_audit_log), values)
+
+    def _fetch_object_row(
+        self,
+        conn: Any,
+        table: Table,
+        id_field_name: str,
+        name: str,
+        project: str,
+        *,
+        lock: bool,
+    ):
+        stmt = select(table).where(
+            getattr(table.c, id_field_name) == name, table.c.project_id == project
+        )
+        if lock:
+            stmt = stmt.with_for_update()
+        return conn.execute(stmt).first()
+
+    def _stored_object_is_noop(self, row: Any, obj: Any, proto_field_name: str) -> bool:
+        before_bytes = row._mapping[proto_field_name]
+        if proto_field_name in _APPLY_OBJECT_EQ_PROTO_FIELDS:
+            deserialized_proto = self.deserialize_registry_values(
+                before_bytes, type(obj)
+            )
+            if deserialized_proto is not None:
+                return type(obj).from_proto(deserialized_proto) == obj
+        return bytes(before_bytes) == obj.to_proto().SerializeToString()
+
+    def _prepare_update_from_stored_row(
+        self,
+        row: Any,
+        obj: Any,
+        proto_field_name: str,
+        update_datetime: datetime,
+        project: str,
+        conn: Any,
+    ) -> tuple[bytes, bytes]:
+        before_bytes = row._mapping[proto_field_name]
+        if proto_field_name in _APPLY_OBJECT_EQ_PROTO_FIELDS:
+            deserialized_proto = self.deserialize_registry_values(
+                before_bytes, type(obj)
+            )
+            if deserialized_proto is not None:
+                if hasattr(obj, "created_timestamp") and hasattr(
+                    deserialized_proto, "meta"
+                ):
+                    obj.created_timestamp = (
+                        deserialized_proto.meta.created_timestamp.ToDatetime().replace(
+                            tzinfo=timezone.utc
+                        )
+                    )
+                if hasattr(obj, "last_updated_timestamp"):
+                    obj.last_updated_timestamp = update_datetime
+                if isinstance(obj, (FeatureView, StreamFeatureView, SortedFeatureView)):
+                    previously_stored_intervals = (
+                        type(obj)
+                        .from_proto(deserialized_proto)
+                        .materialization_intervals
+                    )
+                    obj.update_materialization_intervals(
+                        previously_stored_intervals,
+                        max_intervals=self.registry_config.materialization_intervals_max_len,
+                    )
+                    # This is the moment a feature view persisted
+                    # before a cap (tightening) was ever enforced --
+                    # e.g. by a backend/config that historically
+                    # didn't cap -- first gets trimmed here. Archive
+                    # the *entire* previously-stored list, not just
+                    # what the cap drops: entries that survive the
+                    # cap here were never individually archived
+                    # either (unlike apply_materialization's new-entry
+                    # path, nothing "new" is being added on this
+                    # path). _record_materialization_interval_history
+                    # is idempotent, so re-archiving entries already
+                    # recorded by an earlier apply_materialization
+                    # call is a no-op, not a duplicate.
+                    self._record_materialization_interval_history(
+                        obj.name,
+                        project,
+                        previously_stored_intervals,
+                        conn=conn,
+                    )
+        after_bytes = obj.to_proto().SerializeToString()
+        return before_bytes, after_bytes
+
     def _apply_object(
         self,
         table: Table,
@@ -1201,9 +1642,9 @@ class SqlRegistry(CachingRegistry):
         obj: Any,
         proto_field_name: str,
         name: Optional[str] = None,
+        *,
+        audit: bool = True,
     ):
-        if not self.purge_feast_metadata:
-            self._maybe_init_project_metadata(project)
         # Initialize project is necessary because FeatureStore object can apply objects individually without "feast apply" cli option
         if not isinstance(obj, Project):
             self._initialize_project_if_not_exists(project_name=project)
@@ -1213,84 +1654,56 @@ class SqlRegistry(CachingRegistry):
         with self.write_engine.begin() as conn:
             update_datetime = _utc_now()
             update_time = int(update_datetime.timestamp())
-            stmt = select(table).where(
-                getattr(table.c, id_field_name) == name, table.c.project_id == project
+            row = self._fetch_object_row(
+                conn, table, id_field_name, name, project, lock=False
             )
-            row = conn.execute(stmt).first()
+            if row and self._stored_object_is_noop(row, obj, proto_field_name):
+                return
+
+            # UUID then object row: serializes audited writers so CREATE/UPDATE
+            # and before_bytes come from a current read, not the unlocked snapshot.
+            # Unlocked SELECT above stays the fast no-op (no UUID lock).
+            # Do not FOR UPDATE a missing object PK unless the UUID lock is
+            # already held (MySQL gap-lock deadlock).
+            lock_object = bool(audit and self.enable_object_audit_log)
+            project_uuid = self._project_uuid_for_mutating_apply(
+                conn,
+                project,
+                audit=audit,
+                require_project=not isinstance(obj, Project),
+            )
+            if lock_object:
+                row = self._fetch_object_row(
+                    conn, table, id_field_name, name, project, lock=True
+                )
+                if row and self._stored_object_is_noop(row, obj, proto_field_name):
+                    return
+
+            operation = ObjectAuditLogOperation.CREATE
+            before_bytes: Optional[bytes] = None
+            after_bytes: Optional[bytes] = None
 
             if row:
-                if proto_field_name in [
-                    "entity_proto",
-                    "saved_dataset_proto",
-                    "feature_view_proto",
-                    "feature_service_proto",
-                    "permission_proto",
-                    "project_proto",
-                    "data_source_proto",
-                ]:
-                    deserialized_proto = self.deserialize_registry_values(
-                        row._mapping[proto_field_name], type(obj)
-                    )
-                    if deserialized_proto is not None:
-                        # Check if the object has actually changed (same as feature views)
-                        existing_obj = type(obj).from_proto(deserialized_proto)
-                        if existing_obj == obj:
-                            return  # No changes, exit early
-
-                        # Object has changed, preserve created_timestamp, update last_updated_timestamp
-                        obj.created_timestamp = deserialized_proto.meta.created_timestamp.ToDatetime().replace(
-                            tzinfo=timezone.utc
-                        )
-                        if hasattr(obj, "last_updated_timestamp"):
-                            obj.last_updated_timestamp = update_datetime
-                        if isinstance(
-                            obj, (FeatureView, StreamFeatureView, SortedFeatureView)
-                        ):
-                            previously_stored_intervals = (
-                                type(obj)
-                                .from_proto(deserialized_proto)
-                                .materialization_intervals
-                            )
-                            obj.update_materialization_intervals(
-                                previously_stored_intervals,
-                                max_intervals=self.registry_config.materialization_intervals_max_len,
-                            )
-                            # This is the moment a feature view persisted
-                            # before a cap (tightening) was ever enforced --
-                            # e.g. by a backend/config that historically
-                            # didn't cap -- first gets trimmed here. Archive
-                            # the *entire* previously-stored list, not just
-                            # what the cap drops: entries that survive the
-                            # cap here were never individually archived
-                            # either (unlike apply_materialization's new-entry
-                            # path, nothing "new" is being added on this
-                            # path). _record_materialization_interval_history
-                            # is idempotent, so re-archiving entries already
-                            # recorded by an earlier apply_materialization
-                            # call is a no-op, not a duplicate.
-                            self._record_materialization_interval_history(
-                                obj.name,
-                                project,
-                                previously_stored_intervals,
-                                conn=conn,
-                            )
-                values = {
-                    proto_field_name: obj.to_proto().SerializeToString(),
-                    "last_updated_timestamp": update_time,
-                }
-                update_stmt = (
+                operation = ObjectAuditLogOperation.UPDATE
+                before_bytes, after_bytes = self._prepare_update_from_stored_row(
+                    row, obj, proto_field_name, update_datetime, project, conn
+                )
+                if bytes(before_bytes) == after_bytes:
+                    return
+                conn.execute(
                     update(table)
                     .where(
                         getattr(table.c, id_field_name) == name,
                         table.c.project_id == project,
                     )
                     .values(
-                        values,
+                        {
+                            proto_field_name: after_bytes,
+                            "last_updated_timestamp": update_time,
+                        }
                     )
                 )
-                conn.execute(update_stmt)
             else:
-                # Creating new object - set timestamps consistently for all objects
                 if hasattr(obj, "created_timestamp"):
                     obj.created_timestamp = update_datetime
                 if hasattr(obj, "last_updated_timestamp"):
@@ -1304,16 +1717,29 @@ class SqlRegistry(CachingRegistry):
                     if not obj_proto.meta.HasField("created_timestamp"):
                         obj_proto.meta.created_timestamp.FromDatetime(update_datetime)
 
-                values = {
-                    id_field_name: name,
-                    proto_field_name: obj_proto.SerializeToString(),
-                    "last_updated_timestamp": update_time,
-                    "project_id": project,
-                }
-                insert_stmt = insert(table).values(
-                    values,
+                after_bytes = obj_proto.SerializeToString()
+                conn.execute(
+                    insert(table).values(
+                        {
+                            id_field_name: name,
+                            proto_field_name: after_bytes,
+                            "last_updated_timestamp": update_time,
+                            "project_id": project,
+                        }
+                    )
                 )
-                conn.execute(insert_stmt)
+
+            if audit:
+                self._record_object_audit(
+                    conn,
+                    table,
+                    project,
+                    name,
+                    operation,
+                    before_bytes,
+                    after_bytes,
+                    project_uuid,
+                )
 
             # After applying child objects (not Project itself), update the parent project's timestamp
             if not isinstance(obj, Project):
@@ -1327,26 +1753,94 @@ class SqlRegistry(CachingRegistry):
         if self.cache_mode == "sync":
             self.refresh()
 
-    def _maybe_init_project_metadata(self, project):
-        # Initialize project metadata if needed
-        with self.write_engine.begin() as conn:
-            update_datetime = _utc_now()
-            update_time = int(update_datetime.timestamp())
-            stmt = select(feast_metadata).where(
+    def _project_uuid_for_mutating_apply(
+        self, conn: Any, project: str, *, audit: bool, require_project: bool
+    ) -> Optional[str]:
+        if self.purge_feast_metadata:
+            return None
+        return self._maybe_init_project_metadata(
+            project,
+            conn,
+            for_update=audit and self.enable_object_audit_log,
+            require_project=require_project,
+        )
+
+    def _maybe_init_project_metadata(
+        self,
+        project,
+        conn=None,
+        *,
+        for_update: bool = True,
+        require_project: bool = False,
+    ) -> str:
+        if conn is None:
+            with self.write_engine.begin() as conn:
+                return self._maybe_init_project_metadata(
+                    project,
+                    conn,
+                    for_update=for_update,
+                    require_project=require_project,
+                )
+
+        def _select_uuid(*, lock: bool):
+            stmt = select(feast_metadata.c.metadata_value).where(
                 feast_metadata.c.metadata_key == FeastMetadataKeys.PROJECT_UUID.value,
                 feast_metadata.c.project_id == project,
             )
-            row = conn.execute(stmt).first()
-            if not row:
-                new_project_uuid = f"{uuid.uuid4()}"
-                values = {
-                    "metadata_key": FeastMetadataKeys.PROJECT_UUID.value,
-                    "metadata_value": new_project_uuid,
-                    "last_updated_timestamp": update_time,
-                    "project_id": project,
-                }
-                insert_stmt = insert(feast_metadata).values(values)
-                conn.execute(insert_stmt)
+            if lock:
+                stmt = stmt.with_for_update()
+            return conn.execute(stmt).first()
+
+        # Peek then FOR UPDATE: an empty-PK FOR UPDATE on MySQL is a
+        # gap lock and deadlocks concurrent first-mint (1213). Postgres
+        # could start with FOR UPDATE; keep one path so a hit-then-miss
+        # still raises instead of minting a replacement UUID.
+        existing = _select_uuid(lock=False)
+        if existing:
+            if not for_update:
+                return str(existing._mapping["metadata_value"])
+            locked = _select_uuid(lock=True)
+            if not locked:
+                # Unlocked read hit, then FOR UPDATE missed: delete_project
+                # committed while we waited. Do not mint a replacement UUID.
+                raise ProjectObjectNotFoundException(project)
+            return str(locked._mapping["metadata_value"])
+
+        # Unlocked miss. Child apply/delete must not mint a ghost UUID
+        # after delete_project removed the projects row. apply_project
+        # and SqlRegistry __init__ pass require_project=False because
+        # they mint UUID before INSERT into projects.
+        # Unlocked projects check only: FOR UPDATE of a missing projects
+        # PK is the same MySQL gap-lock; locking projects before UUID
+        # inverts delete_project (UUID then projects DELETE).
+        if require_project:
+            project_row = conn.execute(
+                select(projects.c.project_id).where(projects.c.project_id == project)
+            ).first()
+            if project_row is None:
+                raise ProjectObjectNotFoundException(project)
+
+        _insert_feast_metadata_do_nothing(
+            conn,
+            {
+                "metadata_key": FeastMetadataKeys.PROJECT_UUID.value,
+                "metadata_value": f"{uuid.uuid4()}",
+                "last_updated_timestamp": int(_utc_now().timestamp()),
+                "project_id": project,
+            },
+        )
+        # Always a locking read: on MySQL REPEATABLE READ a snapshot
+        # SELECT cannot see a PROJECT_UUID another txn committed after
+        # our first read (INSERT IGNORE is a no-op; the winner's row is
+        # invisible). SELECT FOR UPDATE is a current read of the
+        # existing PK, not the empty-PK gap lock.
+        row = _select_uuid(lock=True)
+        if not row:
+            raise RuntimeError(
+                f"Cannot initialize PROJECT_UUID for project {project}: "
+                "insert raced and the row is still missing"
+            )
+        return str(row._mapping["metadata_value"])
 
     def _update_project_timestamp(
         self, project_name: str, update_datetime: datetime, update_time: int, conn
@@ -1394,24 +1888,56 @@ class SqlRegistry(CachingRegistry):
         name: str,
         project: str,
         id_field_name: str,
+        proto_field_name: str,
         not_found_exception: Optional[Callable],
     ):
         with self.write_engine.begin() as conn:
-            stmt = delete(table).where(
-                getattr(table.c, id_field_name) == name, table.c.project_id == project
+            row = self._fetch_object_row(
+                conn, table, id_field_name, name, project, lock=False
             )
-            rows = conn.execute(stmt)
-            if rows.rowcount < 1 and not_found_exception:
-                raise not_found_exception(name, project)
-            self.apply_project(
-                self.get_project(name=project, allow_cache=False), commit=True
+            if not row:
+                if not_found_exception:
+                    raise not_found_exception(name, project)
+                return 0
+
+            # UUID then object row: matches _apply_object so an apply holding
+            # the UUID lock cannot deadlock against this DELETE.
+            project_uuid = self._project_uuid_if_auditing(conn, project)
+            if self.enable_object_audit_log:
+                row = self._fetch_object_row(
+                    conn, table, id_field_name, name, project, lock=True
+                )
+                if not row:
+                    if not_found_exception:
+                        raise not_found_exception(name, project)
+                    return 0
+            update_datetime = _utc_now()
+            update_time = int(update_datetime.timestamp())
+            before_bytes = row._mapping[proto_field_name]
+            del_stmt = delete(table).where(
+                getattr(table.c, id_field_name) == name,
+                table.c.project_id == project,
             )
+            rows = conn.execute(del_stmt)
+            self._record_object_audit(
+                conn,
+                table,
+                project,
+                name,
+                ObjectAuditLogOperation.DELETE,
+                before_bytes,
+                None,
+                project_uuid,
+            )
+            deleted = rows.rowcount
+
+            self._update_project_timestamp(project, update_datetime, update_time, conn)
             if not self.purge_feast_metadata:
-                self._set_last_updated_metadata(_utc_now(), project, conn)
+                self._set_last_updated_metadata(update_datetime, project, conn)
 
             if self.cache_mode == "sync":
                 self.refresh()
-            return rows.rowcount
+            return deleted
 
     def _get_object(
         self,
@@ -1546,14 +2072,14 @@ class SqlRegistry(CachingRegistry):
         )
 
     def delete_permission(self, name: str, project: str, commit: bool = True):
-        with self.write_engine.begin() as conn:
-            stmt = delete(permissions).where(
-                permissions.c.permission_name == name,
-                permissions.c.project_id == project,
-            )
-            rows = conn.execute(stmt)
-            if rows.rowcount < 1:
-                raise PermissionNotFoundException(name, project)
+        return self._delete_object(
+            permissions,
+            name,
+            project,
+            "permission_name",
+            "permission_proto",
+            PermissionNotFoundException,
+        )
 
     def _list_projects(
         self,
@@ -1602,30 +2128,34 @@ class SqlRegistry(CachingRegistry):
         name: str,
         commit: bool = True,
     ):
-        project = self.get_project(name, allow_cache=False)
-        if project:
-            with self.write_engine.begin() as conn:
-                for t in {
-                    managed_infra,
-                    saved_datasets,
-                    validation_references,
-                    feature_services,
-                    feature_views,
-                    on_demand_feature_views,
-                    stream_feature_views,
-                    sorted_feature_views,
-                    data_sources,
-                    entities,
-                    permissions,
-                    feast_metadata,
-                    projects,
-                    feast_metadata,
-                }:
-                    stmt = delete(t).where(t.c.project_id == name)
-                    conn.execute(stmt)
-            return
-
-        raise ProjectNotFoundException(name)
+        with self.write_engine.begin() as conn:
+            proto_row = conn.execute(
+                select(projects.c.project_proto).where(projects.c.project_id == name)
+            ).first()
+            if proto_row is None:
+                raise ProjectObjectNotFoundException(name)
+            project_uuid = self._project_uuid_if_auditing(conn, name)
+            self._record_delete_project_child_audits(conn, name, project_uuid)
+            self._record_object_audit(
+                conn,
+                projects,
+                name,
+                name,
+                ObjectAuditLogOperation.DELETE,
+                proto_row._mapping["project_proto"],
+                None,
+                project_uuid,
+            )
+            # Children then projects then feast_metadata: same lock order as
+            # _apply_object / _delete_object (child, _update_project_timestamp,
+            # _set_last_updated_metadata). feast_metadata before projects
+            # deadlocks unaudited apply on Postgres.
+            for t in [t for t, _, _ in _PROJECT_CHILD_AUDIT_TABLES] + [
+                projects,
+                feast_metadata,
+            ]:
+                stmt = delete(t).where(t.c.project_id == name)
+                conn.execute(stmt)
 
     def set_project_metadata(self, project: str, key: str, value: str, conn=None):
         """Set a custom project metadata key-value pair in the feast_metadata table."""
