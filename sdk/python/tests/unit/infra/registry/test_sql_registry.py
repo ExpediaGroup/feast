@@ -740,17 +740,13 @@ class TestObjectAuditLogWrites:
         sqlite_registry.delete_entity("test_entity", "test_project")
         assert _object_audit_log_row_count(sqlite_registry) == 0
 
-    def test_live_purge_flag_rejects_audited_write(self, sqlite_registry_audit):
-        sqlite_registry_audit.apply_entity(_entity(), "test_project")
-        sqlite_registry_audit.purge_feast_metadata = True
-        with pytest.raises(ValueError, match="enable_object_audit_log"):
-            sqlite_registry_audit.apply_entity(_entity(name="other"), "test_project")
-        with pytest.raises(ValueError, match="enable_object_audit_log"):
-            sqlite_registry_audit.delete_entity("test_entity", "test_project")
-        sqlite_registry_audit.purge_feast_metadata = False
-        assert sqlite_registry_audit.get_entity("test_entity", "test_project").name == (
-            "test_entity"
-        )
+    def test_registry_audit_flags_are_read_only(self, sqlite_registry_audit):
+        with pytest.raises(AttributeError):
+            sqlite_registry_audit.purge_feast_metadata = True
+        with pytest.raises(AttributeError):
+            sqlite_registry_audit.enable_object_audit_log = False
+        assert sqlite_registry_audit.purge_feast_metadata is False
+        assert sqlite_registry_audit.enable_object_audit_log is True
 
     def test_apply_entity_inserts_create_row_with_after_proto(
         self, sqlite_registry_audit

@@ -509,8 +509,8 @@ class SqlRegistry(CachingRegistry):
         self.thread_pool_executor_worker_count = (
             registry_config.thread_pool_executor_worker_count
         )
-        self.purge_feast_metadata = registry_config.purge_feast_metadata
-        self.enable_object_audit_log = registry_config.enable_object_audit_log
+        self._purge_feast_metadata = registry_config.purge_feast_metadata
+        self._enable_object_audit_log = registry_config.enable_object_audit_log
         super().__init__(
             project=project,
             cache_ttl_seconds=registry_config.cache_ttl_seconds,
@@ -523,6 +523,14 @@ class SqlRegistry(CachingRegistry):
         self._sync_feast_metadata_to_projects_table()
         if not self.purge_feast_metadata:
             self._maybe_init_project_metadata(project)
+
+    @property
+    def purge_feast_metadata(self) -> bool:
+        return self._purge_feast_metadata
+
+    @property
+    def enable_object_audit_log(self) -> bool:
+        return self._enable_object_audit_log
 
     def _sync_feast_metadata_to_projects_table(self):
         feast_metadata_projects: dict = {}
@@ -1393,7 +1401,6 @@ class SqlRegistry(CachingRegistry):
     def _project_uuid_if_auditing(self, conn: Any, project_id: str) -> Optional[str]:
         if not self.enable_object_audit_log:
             return None
-        _reject_audit_log_with_purged_feast_metadata(True, self.purge_feast_metadata)
         return self._maybe_init_project_metadata(project_id, conn)
 
     def _build_audit_row(
@@ -1520,9 +1527,6 @@ class SqlRegistry(CachingRegistry):
         with self.write_engine.begin() as conn:
             update_datetime = _utc_now()
             update_time = int(update_datetime.timestamp())
-            _reject_audit_log_with_purged_feast_metadata(
-                self.enable_object_audit_log, self.purge_feast_metadata
-            )
             project_uuid = None
             if not self.purge_feast_metadata:
                 project_uuid = self._maybe_init_project_metadata(project, conn)
