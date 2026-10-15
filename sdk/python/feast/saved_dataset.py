@@ -279,6 +279,29 @@ class ValidationReference:
         self.description = description
         self.tags = tags or {}
 
+    def __eq__(self, other):
+        if not isinstance(other, ValidationReference):
+            raise TypeError(
+                "Comparisons should only involve ValidationReference class objects."
+            )
+        return (
+            self.name == other.name
+            and self.dataset_name == other.dataset_name
+            and self.description == other.description
+            and self.tags == other.tags
+            and self._profilers_equal(self.profiler, other.profiler)
+        )
+
+    @staticmethod
+    def _profilers_equal(left, right) -> bool:
+        from feast.dqm.profilers.ge_profiler import GEProfiler
+
+        left_ge = isinstance(left, GEProfiler)
+        right_ge = isinstance(right, GEProfiler)
+        if left_ge or right_ge:
+            return left == right
+        return True
+
     @classmethod
     def from_saved_dataset(cls, name: str, dataset: SavedDataset, profiler: Profiler):
         """
@@ -309,6 +332,8 @@ class ValidationReference:
             from feast.dqm.profilers.ge_profiler import GEProfiler
 
             profiler = GEProfiler.from_proto(proto.ge_profiler)
+        elif not profiler_attr:
+            profiler = None
         else:
             raise RuntimeError("Unrecognized profiler")
 

@@ -40,6 +40,7 @@ from feast.protos.feast.core.FeatureView_pb2 import FeatureView as FeatureViewPr
 from feast.protos.feast.core.FeatureView_pb2 import (
     MaterializationIntervalHistoryEntry as MaterializationIntervalHistoryEntryProto,
 )
+from feast.protos.feast.core.InfraObject_pb2 import Infra as InfraProto
 from feast.protos.feast.core.OnDemandFeatureView_pb2 import (
     OnDemandFeatureView as OnDemandFeatureViewProto,
 )
@@ -52,6 +53,9 @@ from feast.protos.feast.core.SortedFeatureView_pb2 import (
 )
 from feast.protos.feast.core.StreamFeatureView_pb2 import (
     StreamFeatureView as StreamFeatureViewProto,
+)
+from feast.protos.feast.core.ValidationProfile_pb2 import (
+    ValidationReference as ValidationReferenceProto,
 )
 from feast.saved_dataset import SavedDataset, ValidationReference
 from feast.sorted_feature_view import SortedFeatureView
@@ -1145,6 +1149,10 @@ class BaseRegistry(ABC):
             return PermissionProto.FromString(serialized_proto)
         if feast_obj_type == Project:
             return ProjectProto.FromString(serialized_proto)
+        if feast_obj_type == ValidationReference:
+            return ValidationReferenceProto.FromString(serialized_proto)
+        if feast_obj_type == Infra:
+            return InfraProto.FromString(serialized_proto)
         if issubclass(feast_obj_type, DataSource):
             return DataSourceProto.FromString(serialized_proto)
         return None

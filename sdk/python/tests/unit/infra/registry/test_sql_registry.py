@@ -846,6 +846,67 @@ class TestObjectAuditLogWrites:
         )
         assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
 
+    def test_apply_validation_reference_equal_across_tag_order(
+        self, sqlite_registry_audit
+    ):
+        from feast.dqm.profilers.ge_profiler import GEProfiler
+
+        def _udp(df):
+            from great_expectations.core import ExpectationSuite
+
+            return ExpectationSuite(name="test")
+
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(
+                name="vr",
+                dataset_name="ds",
+                profiler=GEProfiler(user_defined_profiler=_udp),
+                tags={"b": "2", "a": "1"},
+            ),
+            "test_project",
+        )
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(
+                name="vr",
+                dataset_name="ds",
+                profiler=GEProfiler(user_defined_profiler=_udp),
+                tags={"a": "1", "b": "2"},
+            ),
+            "test_project",
+        )
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
+
+    def test_apply_validation_reference_change_inserts_update(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(name="vr", dataset_name="ds", profiler=object()),
+            "test_project",
+        )
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(
+                name="vr",
+                dataset_name="ds",
+                profiler=object(),
+                description="changed",
+            ),
+            "test_project",
+        )
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+
     def test_apply_materialization_does_not_write_object_audit_log(
         self, sqlite_registry_audit
     ):

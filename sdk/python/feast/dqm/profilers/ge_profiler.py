@@ -157,6 +157,23 @@ class GEProfiler(Profiler):
     def from_proto(cls, proto: GEValidationProfilerProto) -> "GEProfiler":
         return GEProfiler(user_defined_profiler=dill.loads(proto.profiler.body))
 
+    def __eq__(self, other):
+        if not isinstance(other, GEProfiler):
+            return NotImplemented
+        if self.with_feature_metadata != other.with_feature_metadata:
+            return False
+        left = getattr(self.user_defined_profiler, "__code__", None)
+        right = getattr(other.user_defined_profiler, "__code__", None)
+        if left is None or right is None:
+            return self.user_defined_profiler == other.user_defined_profiler
+        return (
+            left.co_code == right.co_code
+            and left.co_consts == right.co_consts
+            and left.co_names == right.co_names
+            and left.co_varnames == right.co_varnames
+            and left.co_flags == right.co_flags
+        )
+
 
 class GEValidationReport(ValidationReport):
     def __init__(self, validation_result: Dict[Any, Any]):

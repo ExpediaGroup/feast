@@ -1546,6 +1546,8 @@ class SqlRegistry(CachingRegistry):
                     "permission_proto",
                     "project_proto",
                     "data_source_proto",
+                    "validation_reference_proto",
+                    "infra_proto",
                 ]:
                     deserialized_proto = self.deserialize_registry_values(
                         row._mapping[proto_field_name], type(obj)
@@ -1557,9 +1559,12 @@ class SqlRegistry(CachingRegistry):
                             return  # No changes, exit early
 
                         # Object has changed, preserve created_timestamp, update last_updated_timestamp
-                        obj.created_timestamp = deserialized_proto.meta.created_timestamp.ToDatetime().replace(
-                            tzinfo=timezone.utc
-                        )
+                        if hasattr(obj, "created_timestamp") and hasattr(
+                            deserialized_proto, "meta"
+                        ):
+                            obj.created_timestamp = deserialized_proto.meta.created_timestamp.ToDatetime().replace(
+                                tzinfo=timezone.utc
+                            )
                         if hasattr(obj, "last_updated_timestamp"):
                             obj.last_updated_timestamp = update_datetime
                         if isinstance(
