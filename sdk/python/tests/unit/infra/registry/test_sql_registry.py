@@ -1078,16 +1078,29 @@ class TestObjectAuditLogWrites:
             sqlite_registry_audit.apply_entity(_entity(), "test_project")
         maybe_init.assert_called_once()
         assert maybe_init.call_args.args[1] is not None
+        assert maybe_init.call_args.kwargs.get("for_update") is True
 
     def test_noop_apply_does_not_fetch_project_uuid(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
         with patch.object(
             sqlite_registry_audit,
-            "_project_uuid_if_auditing",
-            wraps=sqlite_registry_audit._project_uuid_if_auditing,
-        ) as fetch_uuid:
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry_audit._maybe_init_project_metadata,
+        ) as maybe_init:
             sqlite_registry_audit.apply_entity(_entity(), "test_project")
-        assert fetch_uuid.call_count == 0
+        assert maybe_init.call_count == 0
+
+    def test_unaudited_apply_inits_project_uuid_without_for_update(self, sqlite_registry):
+        sqlite_registry.apply_project(Project(name="test_project"))
+        with patch.object(
+            sqlite_registry,
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry._maybe_init_project_metadata,
+        ) as maybe_init:
+            sqlite_registry.apply_entity(_entity(), "test_project")
+        maybe_init.assert_called_once()
+        assert maybe_init.call_args.args[1] is not None
+        assert maybe_init.call_args.kwargs.get("for_update") is False
 
     def test_delete_entity_mints_project_uuid_when_missing(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_entity(_entity(), "test_project")

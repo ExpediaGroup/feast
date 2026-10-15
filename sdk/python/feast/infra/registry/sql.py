@@ -1527,9 +1527,6 @@ class SqlRegistry(CachingRegistry):
         with self.write_engine.begin() as conn:
             update_datetime = _utc_now()
             update_time = int(update_datetime.timestamp())
-            project_uuid = None
-            if not self.purge_feast_metadata:
-                project_uuid = self._maybe_init_project_metadata(project, conn)
             stmt = select(table).where(
                 getattr(table.c, id_field_name) == name, table.c.project_id == project
             )
@@ -1599,6 +1596,9 @@ class SqlRegistry(CachingRegistry):
                 after_bytes = obj.to_proto().SerializeToString()
                 if bytes(before_bytes) == after_bytes:
                     return
+                project_uuid = self._project_uuid_for_mutating_apply(
+                    conn, project, audit=audit
+                )
                 values = {
                     proto_field_name: after_bytes,
                     "last_updated_timestamp": update_time,
@@ -1636,6 +1636,9 @@ class SqlRegistry(CachingRegistry):
                     "project_id": project,
                 }
                 after_bytes = values[proto_field_name]
+                project_uuid = self._project_uuid_for_mutating_apply(
+                    conn, project, audit=audit
+                )
                 insert_stmt = insert(table).values(
                     values,
                 )
@@ -1665,19 +1668,32 @@ class SqlRegistry(CachingRegistry):
         if self.cache_mode == "sync":
             self.refresh()
 
-    def _maybe_init_project_metadata(self, project, conn=None) -> str:
+    def _project_uuid_for_mutating_apply(
+        self, conn: Any, project: str, *, audit: bool
+    ) -> Optional[str]:
+        if self.purge_feast_metadata:
+            return None
+        return self._maybe_init_project_metadata(
+            project,
+            conn,
+            for_update=audit and self.enable_object_audit_log,
+        )
+
+    def _maybe_init_project_metadata(
+        self, project, conn=None, *, for_update: bool = True
+    ) -> str:
         if conn is None:
             with self.write_engine.begin() as conn:
-                return self._maybe_init_project_metadata(project, conn)
+                return self._maybe_init_project_metadata(
+                    project, conn, for_update=for_update
+                )
 
-        stmt = (
-            select(feast_metadata.c.metadata_value)
-            .where(
-                feast_metadata.c.metadata_key == FeastMetadataKeys.PROJECT_UUID.value,
-                feast_metadata.c.project_id == project,
-            )
-            .with_for_update()
+        stmt = select(feast_metadata.c.metadata_value).where(
+            feast_metadata.c.metadata_key == FeastMetadataKeys.PROJECT_UUID.value,
+            feast_metadata.c.project_id == project,
         )
+        if for_update:
+            stmt = stmt.with_for_update()
         row = conn.execute(stmt).first()
         if row:
             return str(row._mapping["metadata_value"])
