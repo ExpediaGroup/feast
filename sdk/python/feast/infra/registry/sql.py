@@ -1812,6 +1812,10 @@ class SqlRegistry(CachingRegistry):
                     raise not_found_exception(name, project)
                 return 0
 
+            # Lock PROJECT_UUID before DELETE so lock order matches
+            # _apply_object (UUID then object row) and cannot deadlock
+            # against an apply holding the UUID lock.
+            project_uuid = self._project_uuid_if_auditing(conn, project)
             update_datetime = _utc_now()
             update_time = int(update_datetime.timestamp())
             before_bytes = row._mapping[proto_field_name]
@@ -1828,7 +1832,7 @@ class SqlRegistry(CachingRegistry):
                 ObjectAuditLogOperation.DELETE,
                 before_bytes,
                 None,
-                self._project_uuid_if_auditing(conn, project),
+                project_uuid,
             )
             deleted = rows.rowcount
 

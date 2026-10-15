@@ -1126,6 +1126,17 @@ class TestObjectAuditLogWrites:
             sqlite_registry_audit.delete_entity("test_entity", "test_project")
             assert maybe_init.call_count == 2
 
+    def test_delete_miss_does_not_fetch_project_uuid(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with patch.object(
+            sqlite_registry_audit,
+            "_maybe_init_project_metadata",
+            wraps=sqlite_registry_audit._maybe_init_project_metadata,
+        ) as maybe_init:
+            with pytest.raises(EntityNotFoundException):
+                sqlite_registry_audit.delete_entity("missing", "test_project")
+        assert maybe_init.call_count == 0
+
     def test_apply_reuses_project_uuid_from_maybe_init_in_same_txn(
         self, sqlite_registry_audit
     ):
