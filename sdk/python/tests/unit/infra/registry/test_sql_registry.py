@@ -21,8 +21,9 @@ from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import func, inspect, select, text
+from sqlalchemy import delete, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql import Select
 
 from feast.entity import Entity
 from feast.errors import (
@@ -962,9 +963,7 @@ class TestObjectAuditLogWrites:
             dataset_name="ds",
             profiler=GEProfiler(user_defined_profiler=_udp),
         )
-        refreshed._profile = GEProfile(
-            expectation_suite=ExpectationSuite("refreshed")
-        )
+        refreshed._profile = GEProfile(expectation_suite=ExpectationSuite("refreshed"))
         sqlite_registry_audit.apply_validation_reference(refreshed, "test_project")
         rows = _audit_rows(
             sqlite_registry_audit,
@@ -1260,6 +1259,36 @@ class TestObjectAuditLogWrites:
                     "project_id": "test_project",
                 },
             )
+        assert sqlite_registry._maybe_init_project_metadata("test_project") == existing
+
+    def test_maybe_init_raises_when_uuid_vanishes_under_lock(self, sqlite_registry):
+        existing = sqlite_registry._maybe_init_project_metadata("test_project")
+        with patch(
+            "feast.infra.registry.sql._insert_feast_metadata_do_nothing"
+        ) as insert_ignore:
+            with pytest.raises(ProjectObjectNotFoundException):
+                with sqlite_registry.write_engine.begin() as conn:
+                    orig_execute = conn.execute
+                    uuid_selects = {"n": 0}
+
+                    def execute(statement, *args, **kwargs):
+                        if isinstance(statement, Select):
+                            uuid_selects["n"] += 1
+                            if uuid_selects["n"] == 2:
+                                orig_execute(
+                                    delete(feast_metadata).where(
+                                        feast_metadata.c.project_id == "test_project",
+                                        feast_metadata.c.metadata_key
+                                        == FeastMetadataKeys.PROJECT_UUID.value,
+                                    )
+                                )
+                        return orig_execute(statement, *args, **kwargs)
+
+                    with patch.object(conn, "execute", side_effect=execute):
+                        sqlite_registry._maybe_init_project_metadata(
+                            "test_project", conn, for_update=True
+                        )
+            insert_ignore.assert_not_called()
         assert sqlite_registry._maybe_init_project_metadata("test_project") == existing
 
     def test_delete_entity_mints_project_uuid_when_missing(self, sqlite_registry_audit):

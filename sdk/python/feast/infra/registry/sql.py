@@ -1730,11 +1730,16 @@ class SqlRegistry(CachingRegistry):
                 stmt = stmt.with_for_update()
             return conn.execute(stmt).first()
 
-        row = _select_uuid(lock=False)
-        if row and for_update:
-            row = _select_uuid(lock=True)
-        if row:
-            return str(row._mapping["metadata_value"])
+        existing = _select_uuid(lock=False)
+        if existing:
+            if not for_update:
+                return str(existing._mapping["metadata_value"])
+            locked = _select_uuid(lock=True)
+            if not locked:
+                # Unlocked read hit, then FOR UPDATE missed: delete_project
+                # committed while we waited. Do not mint a replacement UUID.
+                raise ProjectObjectNotFoundException(project)
+            return str(locked._mapping["metadata_value"])
 
         _insert_feast_metadata_do_nothing(
             conn,
