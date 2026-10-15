@@ -330,6 +330,21 @@ _PROJECT_CHILD_AUDIT_TABLES: tuple[tuple[Table, str, str], ...] = (
     (permissions, "permission_name", "permission_proto"),
 )
 
+# Proto blob columns that use from_proto / __eq__ for no-op detection.
+_APPLY_OBJECT_EQ_PROTO_FIELDS = frozenset(
+    {
+        "entity_proto",
+        "saved_dataset_proto",
+        "feature_view_proto",
+        "feature_service_proto",
+        "permission_proto",
+        "project_proto",
+        "data_source_proto",
+        "validation_reference_proto",
+        "infra_proto",
+    }
+)
+
 
 # Append-only audit of registry object create/update/delete.
 # Do not queue, outbox, or write after commit — audit
@@ -1535,6 +1550,90 @@ class SqlRegistry(CachingRegistry):
         if values:
             conn.execute(insert(object_audit_log), values)
 
+    def _fetch_object_row(
+        self,
+        conn: Any,
+        table: Table,
+        id_field_name: str,
+        name: str,
+        project: str,
+        *,
+        lock: bool,
+    ):
+        stmt = select(table).where(
+            getattr(table.c, id_field_name) == name, table.c.project_id == project
+        )
+        if lock:
+            stmt = stmt.with_for_update()
+        return conn.execute(stmt).first()
+
+    def _stored_object_is_noop(self, row: Any, obj: Any, proto_field_name: str) -> bool:
+        before_bytes = row._mapping[proto_field_name]
+        if proto_field_name in _APPLY_OBJECT_EQ_PROTO_FIELDS:
+            deserialized_proto = self.deserialize_registry_values(
+                before_bytes, type(obj)
+            )
+            if deserialized_proto is not None:
+                return type(obj).from_proto(deserialized_proto) == obj
+        return bytes(before_bytes) == obj.to_proto().SerializeToString()
+
+    def _prepare_update_from_stored_row(
+        self,
+        row: Any,
+        obj: Any,
+        proto_field_name: str,
+        update_datetime: datetime,
+        project: str,
+        conn: Any,
+    ) -> tuple[bytes, bytes]:
+        before_bytes = row._mapping[proto_field_name]
+        if proto_field_name in _APPLY_OBJECT_EQ_PROTO_FIELDS:
+            deserialized_proto = self.deserialize_registry_values(
+                before_bytes, type(obj)
+            )
+            if deserialized_proto is not None:
+                if hasattr(obj, "created_timestamp") and hasattr(
+                    deserialized_proto, "meta"
+                ):
+                    obj.created_timestamp = (
+                        deserialized_proto.meta.created_timestamp.ToDatetime().replace(
+                            tzinfo=timezone.utc
+                        )
+                    )
+                if hasattr(obj, "last_updated_timestamp"):
+                    obj.last_updated_timestamp = update_datetime
+                if isinstance(obj, (FeatureView, StreamFeatureView, SortedFeatureView)):
+                    previously_stored_intervals = (
+                        type(obj)
+                        .from_proto(deserialized_proto)
+                        .materialization_intervals
+                    )
+                    obj.update_materialization_intervals(
+                        previously_stored_intervals,
+                        max_intervals=self.registry_config.materialization_intervals_max_len,
+                    )
+                    # This is the moment a feature view persisted
+                    # before a cap (tightening) was ever enforced --
+                    # e.g. by a backend/config that historically
+                    # didn't cap -- first gets trimmed here. Archive
+                    # the *entire* previously-stored list, not just
+                    # what the cap drops: entries that survive the
+                    # cap here were never individually archived
+                    # either (unlike apply_materialization's new-entry
+                    # path, nothing "new" is being added on this
+                    # path). _record_materialization_interval_history
+                    # is idempotent, so re-archiving entries already
+                    # recorded by an earlier apply_materialization
+                    # call is a no-op, not a duplicate.
+                    self._record_materialization_interval_history(
+                        obj.name,
+                        project,
+                        previously_stored_intervals,
+                        conn=conn,
+                    )
+        after_bytes = obj.to_proto().SerializeToString()
+        return before_bytes, after_bytes
+
     def _apply_object(
         self,
         table: Table,
@@ -1555,100 +1654,53 @@ class SqlRegistry(CachingRegistry):
         with self.write_engine.begin() as conn:
             update_datetime = _utc_now()
             update_time = int(update_datetime.timestamp())
-            stmt = select(table).where(
-                getattr(table.c, id_field_name) == name, table.c.project_id == project
+            row = self._fetch_object_row(
+                conn, table, id_field_name, name, project, lock=False
             )
-            row = conn.execute(stmt).first()
+            if row and self._stored_object_is_noop(row, obj, proto_field_name):
+                return
+
+            # UUID then object row: serializes audited writers so CREATE/UPDATE
+            # and before_bytes come from a current read, not the unlocked snapshot.
+            # Unlocked SELECT above stays the fast no-op (no UUID lock).
+            # Do not FOR UPDATE a missing object PK unless the UUID lock is
+            # already held (MySQL gap-lock deadlock).
+            lock_object = bool(audit and self.enable_object_audit_log)
+            project_uuid = self._project_uuid_for_mutating_apply(
+                conn, project, audit=audit
+            )
+            if lock_object:
+                row = self._fetch_object_row(
+                    conn, table, id_field_name, name, project, lock=True
+                )
+                if row and self._stored_object_is_noop(row, obj, proto_field_name):
+                    return
+
             operation = ObjectAuditLogOperation.CREATE
             before_bytes: Optional[bytes] = None
             after_bytes: Optional[bytes] = None
 
             if row:
-                before_bytes = row._mapping[proto_field_name]
                 operation = ObjectAuditLogOperation.UPDATE
-                if proto_field_name in [
-                    "entity_proto",
-                    "saved_dataset_proto",
-                    "feature_view_proto",
-                    "feature_service_proto",
-                    "permission_proto",
-                    "project_proto",
-                    "data_source_proto",
-                    "validation_reference_proto",
-                    "infra_proto",
-                ]:
-                    deserialized_proto = self.deserialize_registry_values(
-                        row._mapping[proto_field_name], type(obj)
-                    )
-                    if deserialized_proto is not None:
-                        # Check if the object has actually changed (same as feature views)
-                        existing_obj = type(obj).from_proto(deserialized_proto)
-                        if existing_obj == obj:
-                            return  # No changes, exit early
-
-                        # Object has changed, preserve created_timestamp, update last_updated_timestamp
-                        if hasattr(obj, "created_timestamp") and hasattr(
-                            deserialized_proto, "meta"
-                        ):
-                            obj.created_timestamp = deserialized_proto.meta.created_timestamp.ToDatetime().replace(
-                                tzinfo=timezone.utc
-                            )
-                        if hasattr(obj, "last_updated_timestamp"):
-                            obj.last_updated_timestamp = update_datetime
-                        if isinstance(
-                            obj, (FeatureView, StreamFeatureView, SortedFeatureView)
-                        ):
-                            previously_stored_intervals = (
-                                type(obj)
-                                .from_proto(deserialized_proto)
-                                .materialization_intervals
-                            )
-                            obj.update_materialization_intervals(
-                                previously_stored_intervals,
-                                max_intervals=self.registry_config.materialization_intervals_max_len,
-                            )
-                            # This is the moment a feature view persisted
-                            # before a cap (tightening) was ever enforced --
-                            # e.g. by a backend/config that historically
-                            # didn't cap -- first gets trimmed here. Archive
-                            # the *entire* previously-stored list, not just
-                            # what the cap drops: entries that survive the
-                            # cap here were never individually archived
-                            # either (unlike apply_materialization's new-entry
-                            # path, nothing "new" is being added on this
-                            # path). _record_materialization_interval_history
-                            # is idempotent, so re-archiving entries already
-                            # recorded by an earlier apply_materialization
-                            # call is a no-op, not a duplicate.
-                            self._record_materialization_interval_history(
-                                obj.name,
-                                project,
-                                previously_stored_intervals,
-                                conn=conn,
-                            )
-                after_bytes = obj.to_proto().SerializeToString()
+                before_bytes, after_bytes = self._prepare_update_from_stored_row(
+                    row, obj, proto_field_name, update_datetime, project, conn
+                )
                 if bytes(before_bytes) == after_bytes:
                     return
-                project_uuid = self._project_uuid_for_mutating_apply(
-                    conn, project, audit=audit
-                )
-                values = {
-                    proto_field_name: after_bytes,
-                    "last_updated_timestamp": update_time,
-                }
-                update_stmt = (
+                conn.execute(
                     update(table)
                     .where(
                         getattr(table.c, id_field_name) == name,
                         table.c.project_id == project,
                     )
                     .values(
-                        values,
+                        {
+                            proto_field_name: after_bytes,
+                            "last_updated_timestamp": update_time,
+                        }
                     )
                 )
-                conn.execute(update_stmt)
             else:
-                # Creating new object - set timestamps consistently for all objects
                 if hasattr(obj, "created_timestamp"):
                     obj.created_timestamp = update_datetime
                 if hasattr(obj, "last_updated_timestamp"):
@@ -1662,20 +1714,17 @@ class SqlRegistry(CachingRegistry):
                     if not obj_proto.meta.HasField("created_timestamp"):
                         obj_proto.meta.created_timestamp.FromDatetime(update_datetime)
 
-                values = {
-                    id_field_name: name,
-                    proto_field_name: obj_proto.SerializeToString(),
-                    "last_updated_timestamp": update_time,
-                    "project_id": project,
-                }
-                after_bytes = values[proto_field_name]
-                project_uuid = self._project_uuid_for_mutating_apply(
-                    conn, project, audit=audit
+                after_bytes = obj_proto.SerializeToString()
+                conn.execute(
+                    insert(table).values(
+                        {
+                            id_field_name: name,
+                            proto_field_name: after_bytes,
+                            "last_updated_timestamp": update_time,
+                            "project_id": project,
+                        }
+                    )
                 )
-                insert_stmt = insert(table).values(
-                    values,
-                )
-                conn.execute(insert_stmt)
 
             if audit:
                 self._record_object_audit(
@@ -1813,19 +1862,25 @@ class SqlRegistry(CachingRegistry):
         not_found_exception: Optional[Callable],
     ):
         with self.write_engine.begin() as conn:
-            stmt = select(table).where(
-                getattr(table.c, id_field_name) == name, table.c.project_id == project
+            row = self._fetch_object_row(
+                conn, table, id_field_name, name, project, lock=False
             )
-            row = conn.execute(stmt).first()
             if not row:
                 if not_found_exception:
                     raise not_found_exception(name, project)
                 return 0
 
-            # Lock PROJECT_UUID before DELETE so lock order matches
-            # _apply_object (UUID then object row) and cannot deadlock
-            # against an apply holding the UUID lock.
+            # UUID then object row: matches _apply_object so an apply holding
+            # the UUID lock cannot deadlock against this DELETE.
             project_uuid = self._project_uuid_if_auditing(conn, project)
+            if self.enable_object_audit_log:
+                row = self._fetch_object_row(
+                    conn, table, id_field_name, name, project, lock=True
+                )
+                if not row:
+                    if not_found_exception:
+                        raise not_found_exception(name, project)
+                    return 0
             update_datetime = _utc_now()
             update_time = int(update_datetime.timestamp())
             before_bytes = row._mapping[proto_field_name]

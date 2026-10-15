@@ -45,6 +45,7 @@ from feast.infra.registry.sql import (
     SqlRegistry,
     SqlRegistryConfig,
     _insert_feast_metadata_do_nothing,
+    entities,
     feast_metadata,
     managed_infra,
     object_audit_log,
@@ -1230,6 +1231,109 @@ class TestObjectAuditLogWrites:
         ) as maybe_init:
             sqlite_registry_audit.apply_entity(_entity(), "test_project")
         assert maybe_init.call_count == 0
+
+    def test_audited_mutating_apply_rereads_object_row_for_update(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with patch.object(
+            sqlite_registry_audit,
+            "_fetch_object_row",
+            wraps=sqlite_registry_audit._fetch_object_row,
+        ) as fetch:
+            sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        assert [c.kwargs.get("lock") for c in fetch.call_args_list] == [False, True]
+
+    def test_apply_locked_reread_turns_stale_create_into_update(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        real = sqlite_registry_audit._fetch_object_row
+
+        def fetch(conn, table, id_field_name, name, project, *, lock):
+            if table is entities and lock:
+                conn.execute(
+                    entities.insert().values(
+                        entity_name=name,
+                        project_id=project,
+                        last_updated_timestamp=0,
+                        entity_proto=_entity(description="first")
+                        .to_proto()
+                        .SerializeToString(),
+                    )
+                )
+            return real(conn, table, id_field_name, name, project, lock=lock)
+
+        with patch.object(
+            sqlite_registry_audit, "_fetch_object_row", side_effect=fetch
+        ):
+            sqlite_registry_audit.apply_entity(
+                _entity(description="second"), "test_project"
+            )
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.UPDATE.value]
+        assert _from_gzip_entity_proto(rows[0].before_proto).spec.description == "first"
+        assert _from_gzip_entity_proto(rows[0].after_proto).spec.description == "second"
+
+    def test_apply_locked_reread_audits_from_latest_before_bytes(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(description="v0"), "test_project")
+        real = sqlite_registry_audit._fetch_object_row
+
+        def fetch(conn, table, id_field_name, name, project, *, lock):
+            if table is entities and lock:
+                conn.execute(
+                    entities.update()
+                    .where(
+                        entities.c.entity_name == name,
+                        entities.c.project_id == project,
+                    )
+                    .values(
+                        entity_proto=_entity(description="v1")
+                        .to_proto()
+                        .SerializeToString()
+                    )
+                )
+            return real(conn, table, id_field_name, name, project, lock=lock)
+
+        with patch.object(
+            sqlite_registry_audit, "_fetch_object_row", side_effect=fetch
+        ):
+            sqlite_registry_audit.apply_entity(
+                _entity(description="v2"), "test_project"
+            )
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+        assert _from_gzip_entity_proto(rows[1].before_proto).spec.description == "v1"
+        assert _from_gzip_entity_proto(rows[1].after_proto).spec.description == "v2"
+
+    def test_delete_skips_audit_if_row_gone_after_uuid_lock(
+        self, sqlite_registry_audit
+    ):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        real = sqlite_registry_audit._fetch_object_row
+
+        def fetch(conn, table, id_field_name, name, project, *, lock):
+            if table is entities and lock:
+                conn.execute(
+                    entities.delete().where(
+                        entities.c.entity_name == name,
+                        entities.c.project_id == project,
+                    )
+                )
+            return real(conn, table, id_field_name, name, project, lock=lock)
+
+        with patch.object(
+            sqlite_registry_audit, "_fetch_object_row", side_effect=fetch
+        ):
+            with pytest.raises(EntityNotFoundException):
+                sqlite_registry_audit.delete_entity("test_entity", "test_project")
+        rows = _audit_rows(sqlite_registry_audit, "test_entity")
+        assert [row.operation for row in rows] == [ObjectAuditLogOperation.CREATE.value]
 
     def test_unaudited_apply_inits_project_uuid_without_for_update(
         self, sqlite_registry
