@@ -1444,7 +1444,7 @@ class SqlRegistry(CachingRegistry):
     def _project_uuid_if_auditing(self, conn: Any, project_id: str) -> Optional[str]:
         if not self.enable_object_audit_log:
             return None
-        return self._maybe_init_project_metadata(project_id, conn)
+        return self._maybe_init_project_metadata(project_id, conn, require_project=True)
 
     def _build_audit_row(
         self,
@@ -1667,7 +1667,10 @@ class SqlRegistry(CachingRegistry):
             # already held (MySQL gap-lock deadlock).
             lock_object = bool(audit and self.enable_object_audit_log)
             project_uuid = self._project_uuid_for_mutating_apply(
-                conn, project, audit=audit
+                conn,
+                project,
+                audit=audit,
+                require_project=not isinstance(obj, Project),
             )
             if lock_object:
                 row = self._fetch_object_row(
@@ -1751,7 +1754,7 @@ class SqlRegistry(CachingRegistry):
             self.refresh()
 
     def _project_uuid_for_mutating_apply(
-        self, conn: Any, project: str, *, audit: bool
+        self, conn: Any, project: str, *, audit: bool, require_project: bool
     ) -> Optional[str]:
         if self.purge_feast_metadata:
             return None
@@ -1759,15 +1762,24 @@ class SqlRegistry(CachingRegistry):
             project,
             conn,
             for_update=audit and self.enable_object_audit_log,
+            require_project=require_project,
         )
 
     def _maybe_init_project_metadata(
-        self, project, conn=None, *, for_update: bool = True
+        self,
+        project,
+        conn=None,
+        *,
+        for_update: bool = True,
+        require_project: bool = False,
     ) -> str:
         if conn is None:
             with self.write_engine.begin() as conn:
                 return self._maybe_init_project_metadata(
-                    project, conn, for_update=for_update
+                    project,
+                    conn,
+                    for_update=for_update,
+                    require_project=require_project,
                 )
 
         def _select_uuid(*, lock: bool):
@@ -1779,6 +1791,10 @@ class SqlRegistry(CachingRegistry):
                 stmt = stmt.with_for_update()
             return conn.execute(stmt).first()
 
+        # Peek then FOR UPDATE: an empty-PK FOR UPDATE on MySQL is a
+        # gap lock and deadlocks concurrent first-mint (1213). Postgres
+        # could start with FOR UPDATE; keep one path so a hit-then-miss
+        # still raises instead of minting a replacement UUID.
         existing = _select_uuid(lock=False)
         if existing:
             if not for_update:
@@ -1789,6 +1805,20 @@ class SqlRegistry(CachingRegistry):
                 # committed while we waited. Do not mint a replacement UUID.
                 raise ProjectObjectNotFoundException(project)
             return str(locked._mapping["metadata_value"])
+
+        # Unlocked miss. Child apply/delete must not mint a ghost UUID
+        # after delete_project removed the projects row. apply_project
+        # and SqlRegistry __init__ pass require_project=False because
+        # they mint UUID before INSERT into projects.
+        # Unlocked projects check only: FOR UPDATE of a missing projects
+        # PK is the same MySQL gap-lock; locking projects before UUID
+        # inverts delete_project (UUID then projects DELETE).
+        if require_project:
+            project_row = conn.execute(
+                select(projects.c.project_id).where(projects.c.project_id == project)
+            ).first()
+            if project_row is None:
+                raise ProjectObjectNotFoundException(project)
 
         _insert_feast_metadata_do_nothing(
             conn,

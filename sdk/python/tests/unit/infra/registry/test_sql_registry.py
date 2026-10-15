@@ -1395,6 +1395,64 @@ class TestObjectAuditLogWrites:
             insert_ignore.assert_not_called()
         assert sqlite_registry._maybe_init_project_metadata("test_project") == existing
 
+    def test_maybe_init_mints_uuid_when_project_row_missing_unless_required(
+        self, sqlite_registry
+    ):
+        minted = sqlite_registry._maybe_init_project_metadata(
+            "ghost_ok", require_project=False
+        )
+        assert minted
+        with sqlite_registry.write_engine.begin() as conn:
+            row = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == "ghost_ok",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            ).first()
+        assert row is not None
+        assert str(row._mapping["metadata_value"]) == minted
+
+        with pytest.raises(ProjectObjectNotFoundException):
+            sqlite_registry._maybe_init_project_metadata(
+                "gone_project", require_project=True
+            )
+        with sqlite_registry.write_engine.begin() as conn:
+            gone = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == "gone_project",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            ).first()
+        assert gone is None
+
+    def test_apply_entity_raises_when_project_row_missing(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_project(Project(name="test_project"))
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            conn.execute(
+                delete(projects).where(projects.c.project_id == "test_project")
+            )
+            conn.execute(
+                feast_metadata.delete().where(
+                    feast_metadata.c.project_id == "test_project",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            )
+        with patch.object(sqlite_registry_audit, "_initialize_project_if_not_exists"):
+            with pytest.raises(ProjectObjectNotFoundException):
+                sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        with sqlite_registry_audit.write_engine.begin() as conn:
+            row = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == "test_project",
+                    feast_metadata.c.metadata_key
+                    == FeastMetadataKeys.PROJECT_UUID.value,
+                )
+            ).first()
+        assert row is None
+
     def test_delete_entity_mints_project_uuid_when_missing(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
         _delete_project_uuid(sqlite_registry_audit)
