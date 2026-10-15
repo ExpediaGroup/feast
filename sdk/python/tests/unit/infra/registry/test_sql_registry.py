@@ -906,6 +906,77 @@ class TestObjectAuditLogWrites:
             ObjectAuditLogOperation.UPDATE.value,
         ]
 
+    def test_apply_validation_reference_cached_profile_inserts_update(
+        self, sqlite_registry_audit
+    ):
+        from great_expectations.core import ExpectationSuite
+
+        from feast.dqm.profilers.ge_profiler import GEProfile, GEProfiler
+        from feast.protos.feast.core.ValidationProfile_pb2 import (
+            ValidationReference as ValidationReferenceProto,
+        )
+
+        def _udp(df):
+            from great_expectations.core import ExpectationSuite
+
+            return ExpectationSuite(name="test")
+
+        sqlite_registry_audit.apply_validation_reference(
+            ValidationReference(
+                name="vr",
+                dataset_name="ds",
+                profiler=GEProfiler(user_defined_profiler=_udp),
+            ),
+            "test_project",
+        )
+        with_profile = ValidationReference(
+            name="vr",
+            dataset_name="ds",
+            profiler=GEProfiler(user_defined_profiler=_udp),
+        )
+        with_profile._profile = GEProfile(expectation_suite=ExpectationSuite("cached"))
+        sqlite_registry_audit.apply_validation_reference(with_profile, "test_project")
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+        after = ValidationReferenceProto.FromString(
+            gzip.decompress(bytes(rows[1].after_proto))
+        )
+        assert after.HasField("ge_profile")
+
+        same_profile = ValidationReference(
+            name="vr",
+            dataset_name="ds",
+            profiler=GEProfiler(user_defined_profiler=_udp),
+        )
+        same_profile._profile = GEProfile(expectation_suite=ExpectationSuite("cached"))
+        sqlite_registry_audit.apply_validation_reference(same_profile, "test_project")
+        refreshed = ValidationReference(
+            name="vr",
+            dataset_name="ds",
+            profiler=GEProfiler(user_defined_profiler=_udp),
+        )
+        refreshed._profile = GEProfile(
+            expectation_suite=ExpectationSuite("refreshed")
+        )
+        sqlite_registry_audit.apply_validation_reference(refreshed, "test_project")
+        rows = _audit_rows(
+            sqlite_registry_audit,
+            "vr",
+            ObjectAuditLogObjectType.VALIDATION_REFERENCES.value,
+        )
+        assert [row.operation for row in rows] == [
+            ObjectAuditLogOperation.CREATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+            ObjectAuditLogOperation.UPDATE.value,
+        ]
+
     def test_apply_materialization_does_not_write_object_audit_log(
         self, sqlite_registry_audit
     ):

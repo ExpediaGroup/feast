@@ -290,6 +290,7 @@ class ValidationReference:
             and self.description == other.description
             and self.tags == other.tags
             and self._profilers_equal(self.profiler, other.profiler)
+            and self._profile == other._profile
         )
 
     @staticmethod

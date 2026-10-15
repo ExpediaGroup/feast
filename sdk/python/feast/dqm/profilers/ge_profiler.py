@@ -103,6 +103,14 @@ class GEProfile(Profile):
             expectation_suite=ExpectationSuite(**json.loads(proto.expectation_suite))
         )
 
+    def __eq__(self, other):
+        if not isinstance(other, GEProfile):
+            return NotImplemented
+        return (
+            self.expectation_suite.to_json_dict()
+            == other.expectation_suite.to_json_dict()
+        )
+
     def __repr__(self):
         expectations = json.dumps(
             [e.to_json_dict() for e in self.expectation_suite.expectations], indent=2
