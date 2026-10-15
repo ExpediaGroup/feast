@@ -428,6 +428,34 @@ def _reject_audit_log_with_purged_feast_metadata(
         raise ValueError(_AUDIT_PURGE_INCOMPATIBLE)
 
 
+def _insert_feast_metadata_do_nothing(conn: Any, values: dict) -> None:
+    """Insert a feast_metadata row; no-op if the PK already exists.
+
+    Does not raise on conflict, so the surrounding mutation transaction
+    stays usable on Postgres. Avoids MySQL gap-lock deadlock that comes
+    from INSERT after SELECT FOR UPDATE of a missing PK.
+    """
+    dialect = conn.dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+        conn.execute(pg_insert(feast_metadata).values(values).on_conflict_do_nothing())
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+        conn.execute(
+            sqlite_insert(feast_metadata).values(values).on_conflict_do_nothing()
+        )
+    elif dialect in ("mysql", "mariadb"):
+        conn.execute(mysql.insert(feast_metadata).values(values).prefix_with("IGNORE"))
+    else:
+        try:
+            with conn.begin_nested():
+                conn.execute(insert(feast_metadata).values(values))
+        except IntegrityError:
+            pass
+
+
 class SqlRegistryConfig(RegistryConfig):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -1693,34 +1721,37 @@ class SqlRegistry(CachingRegistry):
                     project, conn, for_update=for_update
                 )
 
-        stmt = select(feast_metadata.c.metadata_value).where(
-            feast_metadata.c.metadata_key == FeastMetadataKeys.PROJECT_UUID.value,
-            feast_metadata.c.project_id == project,
-        )
-        if for_update:
-            stmt = stmt.with_for_update()
-        row = conn.execute(stmt).first()
+        def _select_uuid(*, lock: bool):
+            stmt = select(feast_metadata.c.metadata_value).where(
+                feast_metadata.c.metadata_key == FeastMetadataKeys.PROJECT_UUID.value,
+                feast_metadata.c.project_id == project,
+            )
+            if lock:
+                stmt = stmt.with_for_update()
+            return conn.execute(stmt).first()
+
+        row = _select_uuid(lock=False)
+        if row and for_update:
+            row = _select_uuid(lock=True)
         if row:
             return str(row._mapping["metadata_value"])
 
-        new_project_uuid = f"{uuid.uuid4()}"
-        values = {
-            "metadata_key": FeastMetadataKeys.PROJECT_UUID.value,
-            "metadata_value": new_project_uuid,
-            "last_updated_timestamp": int(_utc_now().timestamp()),
-            "project_id": project,
-        }
-        try:
-            conn.execute(insert(feast_metadata).values(values))
-        except IntegrityError:
-            row = conn.execute(stmt).first()
-            if not row:
-                raise RuntimeError(
-                    f"Cannot initialize PROJECT_UUID for project {project}: "
-                    "insert raced and the row is still missing"
-                )
-            return str(row._mapping["metadata_value"])
-        return new_project_uuid
+        _insert_feast_metadata_do_nothing(
+            conn,
+            {
+                "metadata_key": FeastMetadataKeys.PROJECT_UUID.value,
+                "metadata_value": f"{uuid.uuid4()}",
+                "last_updated_timestamp": int(_utc_now().timestamp()),
+                "project_id": project,
+            },
+        )
+        row = _select_uuid(lock=for_update)
+        if not row:
+            raise RuntimeError(
+                f"Cannot initialize PROJECT_UUID for project {project}: "
+                "insert raced and the row is still missing"
+            )
+        return str(row._mapping["metadata_value"])
 
     def _update_project_timestamp(
         self, project_name: str, update_datetime: datetime, update_time: int, conn

@@ -43,6 +43,7 @@ from feast.infra.registry.sql import (
     ObjectAuditLogOperation,
     SqlRegistry,
     SqlRegistryConfig,
+    _insert_feast_metadata_do_nothing,
     feast_metadata,
     managed_infra,
     object_audit_log,
@@ -587,9 +588,7 @@ def _from_gzip_entity_proto(blob) -> EntityProto:
     return EntityProto.FromString(gzip.decompress(bytes(blob)))
 
 
-def _project_last_updated(
-    registry: SqlRegistry, project: str = "test_project"
-) -> int:
+def _project_last_updated(registry: SqlRegistry, project: str = "test_project") -> int:
     with registry.write_engine.begin() as conn:
         return conn.execute(
             select(projects.c.last_updated_timestamp).where(
@@ -1151,7 +1150,9 @@ class TestObjectAuditLogWrites:
             sqlite_registry_audit.apply_entity(_entity(), "test_project")
         assert maybe_init.call_count == 0
 
-    def test_unaudited_apply_inits_project_uuid_without_for_update(self, sqlite_registry):
+    def test_unaudited_apply_inits_project_uuid_without_for_update(
+        self, sqlite_registry
+    ):
         sqlite_registry.apply_project(Project(name="test_project"))
         with patch.object(
             sqlite_registry,
@@ -1162,6 +1163,22 @@ class TestObjectAuditLogWrites:
         maybe_init.assert_called_once()
         assert maybe_init.call_args.args[1] is not None
         assert maybe_init.call_args.kwargs.get("for_update") is False
+
+    def test_insert_feast_metadata_do_nothing_keeps_existing_uuid(
+        self, sqlite_registry
+    ):
+        existing = sqlite_registry._maybe_init_project_metadata("test_project")
+        with sqlite_registry.write_engine.begin() as conn:
+            _insert_feast_metadata_do_nothing(
+                conn,
+                {
+                    "metadata_key": FeastMetadataKeys.PROJECT_UUID.value,
+                    "metadata_value": "ffffffff-ffff-ffff-ffff-ffffffffffff",
+                    "last_updated_timestamp": 0,
+                    "project_id": "test_project",
+                },
+            )
+        assert sqlite_registry._maybe_init_project_metadata("test_project") == existing
 
     def test_delete_entity_mints_project_uuid_when_missing(self, sqlite_registry_audit):
         sqlite_registry_audit.apply_entity(_entity(), "test_project")
