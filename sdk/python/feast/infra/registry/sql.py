@@ -2061,9 +2061,13 @@ class SqlRegistry(CachingRegistry):
                 None,
                 project_uuid,
             )
+            # Children then projects then feast_metadata: same lock order as
+            # _apply_object / _delete_object (child, _update_project_timestamp,
+            # _set_last_updated_metadata). feast_metadata before projects
+            # deadlocks unaudited apply on Postgres.
             for t in [t for t, _, _ in _PROJECT_CHILD_AUDIT_TABLES] + [
-                feast_metadata,
                 projects,
+                feast_metadata,
             ]:
                 stmt = delete(t).where(t.c.project_id == name)
                 conn.execute(stmt)
