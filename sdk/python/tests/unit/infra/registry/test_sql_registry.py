@@ -1586,6 +1586,62 @@ class TestObjectAuditLogList:
         assert pagination.page == 1
         assert pagination.limit == 50
 
+    def test_list_filters_by_object_type_and_name(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity("first"), "test_project")
+        sqlite_registry_audit.apply_entity(_entity("second"), "test_project")
+        sqlite_registry_audit.apply_data_source(
+            FileSource(
+                name="test_source",
+                path="some path",
+                timestamp_field="event_timestamp",
+            ),
+            "test_project",
+        )
+
+        by_type, type_pagination = sqlite_registry_audit.list_object_audit_logs(
+            "test_project", object_type=ObjectAuditLogObjectType.ENTITIES.value
+        )
+        assert type_pagination.total_count == len(by_type)
+        assert {entry.object_type for entry in by_type} == {
+            ObjectAuditLogObjectType.ENTITIES.value
+        }
+        assert {entry.object_name for entry in by_type} == {"first", "second"}
+
+        by_name, name_pagination = sqlite_registry_audit.list_object_audit_logs(
+            "test_project", object_name="first"
+        )
+        assert name_pagination.total_count == len(by_name)
+        assert {entry.object_name for entry in by_name} == {"first"}
+
+        by_both, both_pagination = sqlite_registry_audit.list_object_audit_logs(
+            "test_project",
+            object_type=ObjectAuditLogObjectType.ENTITIES.value,
+            object_name="first",
+        )
+        assert both_pagination.total_count == len(by_both)
+        assert {entry.object_type for entry in by_both} == {
+            ObjectAuditLogObjectType.ENTITIES.value
+        }
+        assert {entry.object_name for entry in by_both} == {"first"}
+
+        unfiltered, unfiltered_pagination = (
+            sqlite_registry_audit.list_object_audit_logs(
+                "test_project", object_type="", object_name=""
+            )
+        )
+        assert unfiltered_pagination.total_count == len(unfiltered)
+        assert unfiltered_pagination.total_count > type_pagination.total_count
+        assert any(
+            entry.object_type == ObjectAuditLogObjectType.DATA_SOURCES.value
+            for entry in unfiltered
+        )
+
+    def test_list_rejects_unknown_object_type(self, sqlite_registry_audit):
+        with pytest.raises(FeastBadRequest, match="object_type"):
+            sqlite_registry_audit.list_object_audit_logs(
+                "test_project", object_type="entity"
+            )
+
 
 class TestSqlRegistrySortedFeatureView:
     """SortedFeatureView lookups and materialization through SqlRegistry. A

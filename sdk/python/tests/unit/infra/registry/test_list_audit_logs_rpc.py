@@ -92,6 +92,24 @@ class TestListAuditLogsServerHandler:
         with pytest.raises(FeastBadRequest, match="project is required"):
             server.ListAuditLogs(ListAuditLogsRequest(project=""), None)
 
+    def test_handler_forwards_object_type_and_name_filters(self, sql_registry_audit):
+        sql_registry_audit.apply_entity(
+            Entity(name="other", join_keys=["id"], value_type=ValueType.STRING),
+            "test_project",
+        )
+        server = RegistryServer(sql_registry_audit)
+        request = ListAuditLogsRequest(
+            project="test_project",
+            object_type="entities",
+            object_name="test_entity",
+        )
+
+        response = server.ListAuditLogs(request, None)
+
+        assert response.pagination.total_count >= 1
+        assert all(entry.object_type == "entities" for entry in response.audit_logs)
+        assert all(entry.object_name == "test_entity" for entry in response.audit_logs)
+
 
 class TestRemoteRegistryListAuditLogs:
     def test_client_builds_request_and_parses_response(self):
@@ -110,7 +128,12 @@ class TestRemoteRegistryListAuditLogs:
         remote_registry.stub = mock_stub
 
         entries, meta = remote_registry.list_object_audit_logs(
-            project="test_project", page=1, limit=50, include_proto=False
+            project="test_project",
+            page=1,
+            limit=50,
+            include_proto=False,
+            object_type="entities",
+            object_name="test_entity",
         )
 
         request = mock_stub.ListAuditLogs.call_args.args[0]
@@ -118,6 +141,8 @@ class TestRemoteRegistryListAuditLogs:
         assert request.pagination.page == 1
         assert request.pagination.limit == 50
         assert request.include_proto is False
+        assert request.object_type == "entities"
+        assert request.object_name == "test_entity"
         assert len(entries) == 1
         assert entries[0].object_name == "test_entity"
         assert meta.total_count == 1

@@ -431,10 +431,14 @@ class RemoteRegistry(BaseRegistry):
         page: int = 1,
         limit: int = 50,
         include_proto: bool = False,
+        object_type: str = "",
+        object_name: str = "",
     ):
         request = RegistryServer_pb2.ListAuditLogsRequest(
             project=project,
             include_proto=include_proto,
+            object_type=object_type,
+            object_name=object_name,
         )
         request.pagination.page = page
         request.pagination.limit = limit

@@ -657,6 +657,8 @@ message ListAuditLogsRequest {
   string project = 1;                 // project name (object_audit_log.project_id)
   PaginationParams pagination = 2;    // page (1-based), limit
   bool include_proto = 3;             // default false; gzip wire bytes if true
+  string object_type = 4;             // table/kind name, e.g. "entities"; empty = no filter
+  string object_name = 5;             // empty = no filter
 }
 
 message ObjectAuditLogEntry {

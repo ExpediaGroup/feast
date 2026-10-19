@@ -1239,6 +1239,8 @@ class SqlRegistry(CachingRegistry):
         page: int = 1,
         limit: int = 50,
         include_proto: bool = False,
+        object_type: str = "",
+        object_name: str = "",
     ) -> tuple[List[ObjectAuditLogEntry], PaginationMetadata]:
         if not project:
             raise FeastBadRequest("project is required")
@@ -1257,6 +1259,12 @@ class SqlRegistry(CachingRegistry):
                 f"Invalid limit parameter: '{resolved_limit}'. "
                 f"Must be less than or equal to {_OBJECT_AUDIT_LOG_MAX_LIMIT}"
             )
+        allowed_object_types = {member.value for member in ObjectAuditLogObjectType}
+        if object_type and object_type not in allowed_object_types:
+            raise FeastBadRequest(
+                f"Invalid object_type parameter: '{object_type}'. "
+                f"Valid options are: {sorted(allowed_object_types)}"
+            )
 
         columns = [
             object_audit_log.c.id,
@@ -1274,18 +1282,22 @@ class SqlRegistry(CachingRegistry):
                 [object_audit_log.c.before_proto, object_audit_log.c.after_proto]
             )
 
+        filters = [object_audit_log.c.project_id == project]
+        if object_type:
+            filters.append(object_audit_log.c.object_type == object_type)
+        if object_name:
+            filters.append(object_audit_log.c.object_name == object_name)
+
         offset = (resolved_page - 1) * resolved_limit
         with self.read_engine.begin() as conn:
             total_count = int(
                 conn.execute(
-                    select(func.count())
-                    .select_from(object_audit_log)
-                    .where(object_audit_log.c.project_id == project)
+                    select(func.count()).select_from(object_audit_log).where(*filters)
                 ).scalar_one()
             )
             rows = conn.execute(
                 select(*columns)
-                .where(object_audit_log.c.project_id == project)
+                .where(*filters)
                 .order_by(
                     object_audit_log.c.recorded_at.desc(),
                     object_audit_log.c.id.desc(),

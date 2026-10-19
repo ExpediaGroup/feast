@@ -536,6 +536,8 @@ class BaseRegistry(ABC):
         page: int = 1,
         limit: int = 50,
         include_proto: bool = False,
+        object_type: str = "",
+        object_name: str = "",
     ) -> Tuple[List[ObjectAuditLogEntry], PaginationMetadata]:
         """
         List object_audit_log rows for a project. SQL registries only;
@@ -547,6 +549,9 @@ class BaseRegistry(ABC):
             page: 1-based page. 0 means default (1).
             limit: Page size. 0 means default (50). Max 100.
             include_proto: If true, include gzip proto snapshots.
+            object_type: Table/kind name filter (e.g. "entities"). Empty
+                means no filter.
+            object_name: Object name filter. Empty means no filter.
 
         Returns:
             Entries newest-first and pagination metadata.

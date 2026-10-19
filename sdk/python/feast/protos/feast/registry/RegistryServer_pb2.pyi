@@ -2108,6 +2108,8 @@ class ListAuditLogsRequest(google.protobuf.message.Message):
     PROJECT_FIELD_NUMBER: builtins.int
     PAGINATION_FIELD_NUMBER: builtins.int
     INCLUDE_PROTO_FIELD_NUMBER: builtins.int
+    OBJECT_TYPE_FIELD_NUMBER: builtins.int
+    OBJECT_NAME_FIELD_NUMBER: builtins.int
     project: builtins.str
     """project name (object_audit_log.project_id)"""
     @property
@@ -2115,15 +2117,21 @@ class ListAuditLogsRequest(google.protobuf.message.Message):
         """page (1-based), limit"""
     include_proto: builtins.bool
     """default false; gzip wire bytes if true"""
+    object_type: builtins.str
+    """table/kind name, e.g. "entities"; empty = no filter"""
+    object_name: builtins.str
+    """empty = no filter"""
     def __init__(
         self,
         *,
         project: builtins.str = ...,
         pagination: global___PaginationParams | None = ...,
         include_proto: builtins.bool = ...,
+        object_type: builtins.str = ...,
+        object_name: builtins.str = ...,
     ) -> None: ...
     def HasField(self, field_name: typing_extensions.Literal["pagination", b"pagination"]) -> builtins.bool: ...
-    def ClearField(self, field_name: typing_extensions.Literal["include_proto", b"include_proto", "pagination", b"pagination", "project", b"project"]) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["include_proto", b"include_proto", "object_name", b"object_name", "object_type", b"object_type", "pagination", b"pagination", "project", b"project"]) -> None: ...
 
 global___ListAuditLogsRequest = ListAuditLogsRequest
 
