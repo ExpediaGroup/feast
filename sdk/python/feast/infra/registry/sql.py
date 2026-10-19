@@ -46,6 +46,7 @@ from feast.entity import Entity
 from feast.errors import (
     DataSourceObjectNotFoundException,
     EntityNotFoundException,
+    FeastBadRequest,
     FeatureServiceNotFoundException,
     FeatureViewNotFoundException,
     PermissionNotFoundException,
@@ -105,6 +106,10 @@ from feast.protos.feast.registry.RegistryServer_pb2 import (
 )
 from feast.protos.feast.registry.RegistryServer_pb2 import (
     ExpediaSearchProjectsResponse as ExpediaSearchProjectsResponseProto,
+)
+from feast.protos.feast.registry.RegistryServer_pb2 import (
+    ObjectAuditLogEntry,
+    PaginationMetadata,
 )
 from feast.repo_config import RegistryConfig
 from feast.saved_dataset import SavedDataset, ValidationReference
@@ -409,6 +414,19 @@ Index(
     "idx_object_audit_log_recorded_at",
     object_audit_log.c.recorded_at,
 )
+# ListAuditLogs WHERE project_id ORDER BY recorded_at, id. create_all
+# skips indexes on an existing table; SqlRegistry __init__ creates this
+# with checkfirst=True so already-deployed DBs pick it up.
+idx_object_audit_log_project_id_recorded = Index(
+    "idx_object_audit_log_project_id_recorded",
+    object_audit_log.c.project_id,
+    object_audit_log.c.recorded_at,
+    object_audit_log.c.id,
+)
+
+_OBJECT_AUDIT_LOG_DEFAULT_PAGE = 1
+_OBJECT_AUDIT_LOG_DEFAULT_LIMIT = 50
+_OBJECT_AUDIT_LOG_MAX_LIMIT = 100
 
 
 class FeastMetadataKeys(Enum):
@@ -549,6 +567,9 @@ class SqlRegistry(CachingRegistry):
         else:
             self.read_engine = self.write_engine
         metadata.create_all(self.write_engine)
+        idx_object_audit_log_project_id_recorded.create(
+            self.write_engine, checkfirst=True
+        )
         self.thread_pool_executor_worker_count = (
             registry_config.thread_pool_executor_worker_count
         )
@@ -1211,6 +1232,100 @@ class SqlRegistry(CachingRegistry):
             entry.recorded_at.FromSeconds(row.recorded_at)
             entries.append(entry)
         return entries
+
+    def list_object_audit_logs(
+        self,
+        project: str,
+        page: int = 1,
+        limit: int = 50,
+        include_proto: bool = False,
+    ) -> tuple[List[ObjectAuditLogEntry], PaginationMetadata]:
+        if not project:
+            raise FeastBadRequest("project is required")
+        if page < 0:
+            raise FeastBadRequest(
+                f"Invalid page parameter: '{page}'. Must be greater than or equal to 0"
+            )
+        if limit < 0:
+            raise FeastBadRequest(
+                f"Invalid limit parameter: '{limit}'. Must be greater than or equal to 0"
+            )
+        resolved_page = page if page > 0 else _OBJECT_AUDIT_LOG_DEFAULT_PAGE
+        resolved_limit = limit if limit > 0 else _OBJECT_AUDIT_LOG_DEFAULT_LIMIT
+        if resolved_limit > _OBJECT_AUDIT_LOG_MAX_LIMIT:
+            raise FeastBadRequest(
+                f"Invalid limit parameter: '{resolved_limit}'. "
+                f"Must be less than or equal to {_OBJECT_AUDIT_LOG_MAX_LIMIT}"
+            )
+
+        columns = [
+            object_audit_log.c.id,
+            object_audit_log.c.project_id,
+            object_audit_log.c.project_uuid,
+            object_audit_log.c.object_type,
+            object_audit_log.c.object_name,
+            object_audit_log.c.operation,
+            object_audit_log.c.actor,
+            object_audit_log.c.request_id,
+            object_audit_log.c.recorded_at,
+        ]
+        if include_proto:
+            columns.extend(
+                [object_audit_log.c.before_proto, object_audit_log.c.after_proto]
+            )
+
+        offset = (resolved_page - 1) * resolved_limit
+        with self.read_engine.begin() as conn:
+            total_count = int(
+                conn.execute(
+                    select(func.count())
+                    .select_from(object_audit_log)
+                    .where(object_audit_log.c.project_id == project)
+                ).scalar_one()
+            )
+            rows = conn.execute(
+                select(*columns)
+                .where(object_audit_log.c.project_id == project)
+                .order_by(
+                    object_audit_log.c.recorded_at.desc(),
+                    object_audit_log.c.id.desc(),
+                )
+                .limit(resolved_limit)
+                .offset(offset)
+            ).all()
+
+        entries = []
+        for row in rows:
+            mapping = row._mapping
+            entry = ObjectAuditLogEntry(
+                id=int(mapping["id"]),
+                project=str(mapping["project_id"]),
+                project_uuid=str(mapping["project_uuid"]),
+                object_type=str(mapping["object_type"]),
+                object_name=str(mapping["object_name"]),
+                operation=str(mapping["operation"]),
+                actor=str(mapping["actor"] or ""),
+                request_id=str(mapping["request_id"] or ""),
+            )
+            if include_proto:
+                if mapping["before_proto"] is not None:
+                    entry.before_proto = bytes(mapping["before_proto"])
+                if mapping["after_proto"] is not None:
+                    entry.after_proto = bytes(mapping["after_proto"])
+            entry.recorded_at.FromSeconds(int(mapping["recorded_at"]))
+            entries.append(entry)
+
+        total_pages = (
+            (total_count + resolved_limit - 1) // resolved_limit if total_count else 0
+        )
+        return entries, PaginationMetadata(
+            page=resolved_page,
+            limit=resolved_limit,
+            total_count=total_count,
+            total_pages=total_pages,
+            has_next=resolved_page < total_pages,
+            has_previous=resolved_page > 1,
+        )
 
     def delete_validation_reference(self, name: str, project: str, commit: bool = True):
         self._delete_object(

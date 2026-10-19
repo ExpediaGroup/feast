@@ -537,3 +537,16 @@ class FeastPermissionError(FeastError, PermissionError):
 
     def http_status_code(self) -> int:
         return HttpStatusCode.HTTP_403_FORBIDDEN
+
+
+class FeastBadRequest(FeastError):
+    def __init__(self, details: str):
+        super().__init__(details)
+
+    def grpc_status_code(self) -> "GrpcStatusCode":
+        from grpc import StatusCode as GrpcStatusCode
+
+        return GrpcStatusCode.INVALID_ARGUMENT
+
+    def http_status_code(self) -> int:
+        return HttpStatusCode.HTTP_400_BAD_REQUEST

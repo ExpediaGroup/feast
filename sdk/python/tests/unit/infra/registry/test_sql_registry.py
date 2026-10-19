@@ -29,6 +29,7 @@ from feast.entity import Entity
 from feast.errors import (
     DataSourceObjectNotFoundException,
     EntityNotFoundException,
+    FeastBadRequest,
     FeatureViewNotFoundException,
     PermissionNotFoundException,
     ProjectObjectNotFoundException,
@@ -655,6 +656,7 @@ class TestObjectAuditLogSchema:
         index_names = {idx["name"] for idx in inspector.get_indexes("object_audit_log")}
         assert "idx_object_audit_log_project_object_recorded" in index_names
         assert "idx_object_audit_log_recorded_at" in index_names
+        assert "idx_object_audit_log_project_id_recorded" in index_names
 
         check_names = {
             ck["name"] for ck in inspector.get_check_constraints("object_audit_log")
@@ -1487,6 +1489,102 @@ class TestObjectAuditLogWrites:
         assert project_delete.operation == ObjectAuditLogOperation.DELETE.value
         assert entity_delete.project_uuid
         assert entity_delete.project_uuid == project_delete.project_uuid
+
+
+class TestObjectAuditLogList:
+    def test_list_filters_by_project_and_newest_first(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity("first"), "test_project")
+        sqlite_registry_audit.apply_entity(_entity("second"), "test_project")
+        sqlite_registry_audit.apply_project(Project(name="other_project"))
+        sqlite_registry_audit.apply_entity(_entity("other"), "other_project")
+
+        entries, pagination = sqlite_registry_audit.list_object_audit_logs(
+            "test_project"
+        )
+        names = [entry.object_name for entry in entries]
+        assert "other" not in names
+        assert "second" in names
+        assert "first" in names
+        assert names.index("second") < names.index("first")
+        assert pagination.page == 1
+        assert pagination.limit == 50
+        assert pagination.total_count == len(entries)
+        assert pagination.has_next is False
+
+    def test_list_paginates(self, sqlite_registry_audit):
+        for name in ("a", "b", "c"):
+            sqlite_registry_audit.apply_entity(_entity(name), "test_project")
+        page1, pagination = sqlite_registry_audit.list_object_audit_logs(
+            "test_project", page=1, limit=2
+        )
+        assert len(page1) == 2
+        assert pagination.total_count >= 3
+        assert pagination.total_pages >= 2
+        assert pagination.has_next is True
+        assert pagination.has_previous is False
+
+        page2, pagination2 = sqlite_registry_audit.list_object_audit_logs(
+            "test_project", page=2, limit=2
+        )
+        assert len(page2) >= 1
+        assert pagination2.has_previous is True
+        assert {entry.id for entry in page1}.isdisjoint({entry.id for entry in page2})
+
+    def test_list_omits_proto_bytes_unless_requested(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        entries, _ = sqlite_registry_audit.list_object_audit_logs("test_project")
+        entity_rows = [
+            entry
+            for entry in entries
+            if entry.object_name == "test_entity"
+            and entry.operation == ObjectAuditLogOperation.CREATE.value
+        ]
+        assert entity_rows
+        assert entity_rows[0].before_proto == b""
+        assert entity_rows[0].after_proto == b""
+
+        with_proto, _ = sqlite_registry_audit.list_object_audit_logs(
+            "test_project", include_proto=True
+        )
+        entity_with_proto = [
+            entry
+            for entry in with_proto
+            if entry.object_name == "test_entity"
+            and entry.operation == ObjectAuditLogOperation.CREATE.value
+        ]
+        assert entity_with_proto[0].before_proto == b""
+        assert entity_with_proto[0].after_proto
+        assert (
+            _from_gzip_entity_proto(entity_with_proto[0].after_proto).spec.name
+            == "test_entity"
+        )
+
+    def test_list_survives_delete_project(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        sqlite_registry_audit.delete_project("test_project")
+        entries, pagination = sqlite_registry_audit.list_object_audit_logs(
+            "test_project"
+        )
+        assert pagination.total_count >= 1
+        assert any(
+            entry.object_name == "test_entity"
+            and entry.operation == ObjectAuditLogOperation.DELETE.value
+            for entry in entries
+        )
+
+    def test_list_rejects_empty_project_and_over_limit(self, sqlite_registry_audit):
+        with pytest.raises(FeastBadRequest, match="project is required"):
+            sqlite_registry_audit.list_object_audit_logs("")
+        with pytest.raises(FeastBadRequest, match="limit"):
+            sqlite_registry_audit.list_object_audit_logs("test_project", limit=101)
+
+    def test_list_defaults_zero_page_and_limit(self, sqlite_registry_audit):
+        sqlite_registry_audit.apply_entity(_entity(), "test_project")
+        _, pagination = sqlite_registry_audit.list_object_audit_logs(
+            "test_project", page=0, limit=0
+        )
+        assert pagination.page == 1
+        assert pagination.limit == 50
 
 
 class TestSqlRegistrySortedFeatureView:

@@ -298,6 +298,11 @@ class RegistryServerStub(object):
                 request_serializer=feast_dot_registry_dot_RegistryServer__pb2.ExpediaSearchFeatureViewsRequest.SerializeToString,
                 response_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ExpediaSearchFeatureViewsResponse.FromString,
                 )
+        self.ListAuditLogs = channel.unary_unary(
+                '/feast.registry.RegistryServer/ListAuditLogs',
+                request_serializer=feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsRequest.SerializeToString,
+                response_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsResponse.FromString,
+                )
 
 
 class RegistryServerServicer(object):
@@ -642,6 +647,13 @@ class RegistryServerServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListAuditLogs(self, request, context):
+        """Object audit log RPCs
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_RegistryServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -914,6 +926,11 @@ def add_RegistryServerServicer_to_server(servicer, server):
                     servicer.ExpediaSearchFeatureViews,
                     request_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ExpediaSearchFeatureViewsRequest.FromString,
                     response_serializer=feast_dot_registry_dot_RegistryServer__pb2.ExpediaSearchFeatureViewsResponse.SerializeToString,
+            ),
+            'ListAuditLogs': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListAuditLogs,
+                    request_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsRequest.FromString,
+                    response_serializer=feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1840,5 +1857,22 @@ class RegistryServer(object):
         return grpc.experimental.unary_unary(request, target, '/feast.registry.RegistryServer/ExpediaSearchFeatureViews',
             feast_dot_registry_dot_RegistryServer__pb2.ExpediaSearchFeatureViewsRequest.SerializeToString,
             feast_dot_registry_dot_RegistryServer__pb2.ExpediaSearchFeatureViewsResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def ListAuditLogs(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/feast.registry.RegistryServer/ListAuditLogs',
+            feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsRequest.SerializeToString,
+            feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

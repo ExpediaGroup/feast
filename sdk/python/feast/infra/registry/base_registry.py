@@ -16,7 +16,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from google.protobuf.json_format import MessageToJson
 from google.protobuf.message import Message
@@ -56,6 +56,10 @@ from feast.protos.feast.core.StreamFeatureView_pb2 import (
 )
 from feast.protos.feast.core.ValidationProfile_pb2 import (
     ValidationReference as ValidationReferenceProto,
+)
+from feast.protos.feast.registry.RegistryServer_pb2 import (
+    ObjectAuditLogEntry,
+    PaginationMetadata,
 )
 from feast.saved_dataset import SavedDataset, ValidationReference
 from feast.sorted_feature_view import SortedFeatureView
@@ -525,6 +529,31 @@ class BaseRegistry(ABC):
             start_time ascending
         """
         raise NotImplementedError
+
+    def list_object_audit_logs(
+        self,
+        project: str,
+        page: int = 1,
+        limit: int = 50,
+        include_proto: bool = False,
+    ) -> Tuple[List[ObjectAuditLogEntry], PaginationMetadata]:
+        """
+        List object_audit_log rows for a project. SQL registries only;
+        other backends raise NotImplementedError.
+
+        Args:
+            project: Project name (object_audit_log.project_id). Forensic
+                rows after delete_project still match this name.
+            page: 1-based page. 0 means default (1).
+            limit: Page size. 0 means default (50). Max 100.
+            include_proto: If true, include gzip proto snapshots.
+
+        Returns:
+            Entries newest-first and pagination metadata.
+        """
+        raise NotImplementedError(
+            "list_object_audit_logs is only implemented for SQL registries"
+        )
 
     # Saved dataset operations
     @abstractmethod

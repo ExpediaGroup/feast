@@ -134,6 +134,7 @@ def test_write_rpc_allowlist_is_registry_writes_only():
         "/feast.registry.RegistryServer/Refresh",
         "/feast.registry.RegistryServer/ExpediaSearchProjects",
         "/feast.registry.RegistryServer/ExpediaSearchFeatureViews",
+        "/feast.registry.RegistryServer/ListAuditLogs",
         "/grpc.health.v1.Health/Check",
         "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
         "/feast.serving.ServingService/GetOnlineFeatures",
@@ -255,6 +256,46 @@ def test_write_auth_invalid_jwt_is_unauthenticated(
         with pytest.raises(grpc.RpcError) as exc:
             stub.ApplyEntity(_apply_request(), metadata=_auth_metadata(token))
         assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
+    finally:
+        channel.close()
+        server.stop(grace=None)
+
+
+def _store_sql_audit(tmp_path, auth: dict) -> FeatureStore:
+    return FeatureStore(
+        config=RepoConfig(
+            registry={
+                "registry_type": "sql",
+                "path": f"sqlite:///{tmp_path / 'sql_registry.db'}",
+                "purge_feast_metadata": False,
+                "enable_object_audit_log": True,
+            },
+            project=PROJECT,
+            provider="local",
+            entity_key_serialization_version=3,
+            offline_store={"type": "file"},
+            online_store={"type": "sqlite", "path": str(tmp_path / "online.db")},
+            auth=auth,
+        )
+    )
+
+
+def test_write_auth_list_audit_logs_without_token_succeeds(
+    tmp_path, rsa_keypair, monkeypatch
+):
+    private_key, public_key = rsa_keypair
+    patch_oidc_jwks(monkeypatch, public_key)
+    store = _store_sql_audit(tmp_path, _oidc_write_auth_config())
+    server, channel, stub, _ = _start_registry(store)
+    try:
+        stub.ApplyEntity(
+            _apply_request(), metadata=_auth_metadata(encode_jwt(private_key))
+        )
+        response = stub.ListAuditLogs(
+            RegistryServer_pb2.ListAuditLogsRequest(project=PROJECT)
+        )
+        assert response.pagination.total_count >= 1
+        assert any(entry.object_name == "user" for entry in response.audit_logs)
     finally:
         channel.close()
         server.stop(grace=None)

@@ -2101,3 +2101,95 @@ class ExpediaSearchProjectsResponse(google.protobuf.message.Message):
     def ClearField(self, field_name: typing_extensions.Literal["projects_and_related_feature_views", b"projects_and_related_feature_views", "total_page_indices", b"total_page_indices", "total_projects", b"total_projects"]) -> None: ...
 
 global___ExpediaSearchProjectsResponse = ExpediaSearchProjectsResponse
+
+class ListAuditLogsRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    PROJECT_FIELD_NUMBER: builtins.int
+    PAGINATION_FIELD_NUMBER: builtins.int
+    INCLUDE_PROTO_FIELD_NUMBER: builtins.int
+    project: builtins.str
+    """project name (object_audit_log.project_id)"""
+    @property
+    def pagination(self) -> global___PaginationParams:
+        """page (1-based), limit"""
+    include_proto: builtins.bool
+    """default false; gzip wire bytes if true"""
+    def __init__(
+        self,
+        *,
+        project: builtins.str = ...,
+        pagination: global___PaginationParams | None = ...,
+        include_proto: builtins.bool = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["pagination", b"pagination"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["include_proto", b"include_proto", "pagination", b"pagination", "project", b"project"]) -> None: ...
+
+global___ListAuditLogsRequest = ListAuditLogsRequest
+
+class ObjectAuditLogEntry(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    ID_FIELD_NUMBER: builtins.int
+    PROJECT_FIELD_NUMBER: builtins.int
+    PROJECT_UUID_FIELD_NUMBER: builtins.int
+    OBJECT_TYPE_FIELD_NUMBER: builtins.int
+    OBJECT_NAME_FIELD_NUMBER: builtins.int
+    OPERATION_FIELD_NUMBER: builtins.int
+    ACTOR_FIELD_NUMBER: builtins.int
+    BEFORE_PROTO_FIELD_NUMBER: builtins.int
+    AFTER_PROTO_FIELD_NUMBER: builtins.int
+    REQUEST_ID_FIELD_NUMBER: builtins.int
+    RECORDED_AT_FIELD_NUMBER: builtins.int
+    id: builtins.int
+    project: builtins.str
+    project_uuid: builtins.str
+    object_type: builtins.str
+    object_name: builtins.str
+    operation: builtins.str
+    actor: builtins.str
+    before_proto: builtins.bytes
+    """gzip(proto); empty unless include_proto"""
+    after_proto: builtins.bytes
+    request_id: builtins.str
+    @property
+    def recorded_at(self) -> google.protobuf.timestamp_pb2.Timestamp: ...
+    def __init__(
+        self,
+        *,
+        id: builtins.int = ...,
+        project: builtins.str = ...,
+        project_uuid: builtins.str = ...,
+        object_type: builtins.str = ...,
+        object_name: builtins.str = ...,
+        operation: builtins.str = ...,
+        actor: builtins.str = ...,
+        before_proto: builtins.bytes = ...,
+        after_proto: builtins.bytes = ...,
+        request_id: builtins.str = ...,
+        recorded_at: google.protobuf.timestamp_pb2.Timestamp | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["recorded_at", b"recorded_at"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["actor", b"actor", "after_proto", b"after_proto", "before_proto", b"before_proto", "id", b"id", "object_name", b"object_name", "object_type", b"object_type", "operation", b"operation", "project", b"project", "project_uuid", b"project_uuid", "recorded_at", b"recorded_at", "request_id", b"request_id"]) -> None: ...
+
+global___ObjectAuditLogEntry = ObjectAuditLogEntry
+
+class ListAuditLogsResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    AUDIT_LOGS_FIELD_NUMBER: builtins.int
+    PAGINATION_FIELD_NUMBER: builtins.int
+    @property
+    def audit_logs(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___ObjectAuditLogEntry]: ...
+    @property
+    def pagination(self) -> global___PaginationMetadata: ...
+    def __init__(
+        self,
+        *,
+        audit_logs: collections.abc.Iterable[global___ObjectAuditLogEntry] | None = ...,
+        pagination: global___PaginationMetadata | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["pagination", b"pagination"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["audit_logs", b"audit_logs", "pagination", b"pagination"]) -> None: ...
+
+global___ListAuditLogsResponse = ListAuditLogsResponse
