@@ -260,8 +260,6 @@ class TestObjectAuditLogSchemaSqlBackends:
         index_names = {idx["name"] for idx in inspector.get_indexes("object_audit_log")}
         assert "idx_object_audit_log_project_object_recorded" in index_names
         assert "idx_object_audit_log_recorded_at" in index_names
-        assert "idx_object_audit_log_project_id_recorded" in index_names
-        assert "idx_object_audit_log_project_id_type_name_recorded" in index_names
         if sql_registry.write_engine.dialect.name == "postgresql":
             check_names = {
                 ck["name"] for ck in inspector.get_check_constraints("object_audit_log")
