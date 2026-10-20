@@ -415,11 +415,23 @@ Index(
     object_audit_log.c.recorded_at,
 )
 # ListAuditLogs WHERE project_id ORDER BY recorded_at, id. create_all
-# skips indexes on an existing table; SqlRegistry __init__ creates this
-# with checkfirst=True so already-deployed DBs pick it up.
+# skips indexes on an existing table; SqlRegistry __init__ creates these
+# with checkfirst=True so already-deployed DBs pick them up.
 idx_object_audit_log_project_id_recorded = Index(
     "idx_object_audit_log_project_id_recorded",
     object_audit_log.c.project_id,
+    object_audit_log.c.recorded_at,
+    object_audit_log.c.id,
+)
+# ListAuditLogs WHERE project_id [AND object_type] [AND object_name].
+# The uuid/type/name index cannot serve this RPC: it filters project_id
+# (name), not project_uuid, so forensic rows after delete_project still
+# match.
+idx_object_audit_log_project_id_type_name_recorded = Index(
+    "idx_object_audit_log_project_id_type_name_recorded",
+    object_audit_log.c.project_id,
+    object_audit_log.c.object_type,
+    object_audit_log.c.object_name,
     object_audit_log.c.recorded_at,
     object_audit_log.c.id,
 )
@@ -568,6 +580,9 @@ class SqlRegistry(CachingRegistry):
             self.read_engine = self.write_engine
         metadata.create_all(self.write_engine)
         idx_object_audit_log_project_id_recorded.create(
+            self.write_engine, checkfirst=True
+        )
+        idx_object_audit_log_project_id_type_name_recorded.create(
             self.write_engine, checkfirst=True
         )
         self.thread_pool_executor_worker_count = (

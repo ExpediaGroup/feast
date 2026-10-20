@@ -657,6 +657,7 @@ class TestObjectAuditLogSchema:
         assert "idx_object_audit_log_project_object_recorded" in index_names
         assert "idx_object_audit_log_recorded_at" in index_names
         assert "idx_object_audit_log_project_id_recorded" in index_names
+        assert "idx_object_audit_log_project_id_type_name_recorded" in index_names
 
         check_names = {
             ck["name"] for ck in inspector.get_check_constraints("object_audit_log")
