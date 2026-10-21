@@ -1,6 +1,6 @@
 import logging
 import os
-from contextvars import ContextVar
+from contextvars import ContextVar, Token
 from typing import Callable, List, Optional, Union
 
 from feast.errors import FeastObjectNotFoundException
@@ -33,12 +33,32 @@ class SecurityManager:
         self._current_user: ContextVar[Optional[User]] = ContextVar(
             "current_user", default=None
         )
+        self._request_id: ContextVar[Optional[str]] = ContextVar(
+            "request_id", default=None
+        )
 
-    def set_current_user(self, current_user: User):
+    def set_current_user(self, current_user: User) -> Token:
         """
         Init the user for the current context.
         """
-        self._current_user.set(current_user)
+        return self._current_user.set(current_user)
+
+    def set_request_id(self, request_id: Optional[str]) -> Token:
+        """
+        Bind a per-RPC request id for the current context (audit log).
+        """
+        return self._request_id.set(request_id)
+
+    def reset_request_context(
+        self,
+        user_token: Optional[Token] = None,
+        request_id_token: Optional[Token] = None,
+    ) -> None:
+        """Restore current_user and request_id to the values before the matching set()."""
+        if request_id_token is not None:
+            self._request_id.reset(request_id_token)
+        if user_token is not None:
+            self._current_user.reset(user_token)
 
     @property
     def write_auth_only(self) -> bool:
@@ -56,6 +76,14 @@ class SecurityManager:
             individual user.
         """
         return self._current_user.get()
+
+    @property
+    def request_id(self) -> Optional[str]:
+        """
+        UUID minted by the gRPC auth interceptor for this RPC, or None
+        when the caller is not on that path (direct SqlRegistry, unauthenticated reads).
+        """
+        return self._request_id.get()
 
     @property
     def permissions(self) -> list[Permission]:

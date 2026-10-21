@@ -425,6 +425,26 @@ class RemoteRegistry(BaseRegistry):
         response = self.stub.GetMaterializationIntervalHistory(request)
         return list(response.entries)
 
+    def list_object_audit_logs(
+        self,
+        project: str,
+        page: int = 1,
+        limit: int = 50,
+        include_proto: bool = False,
+        object_type: str = "",
+        object_name: str = "",
+    ):
+        request = RegistryServer_pb2.ListAuditLogsRequest(
+            project=project,
+            include_proto=include_proto,
+            object_type=object_type,
+            object_name=object_name,
+        )
+        request.pagination.page = page
+        request.pagination.limit = limit
+        response = self.stub.ListAuditLogs(request)
+        return list(response.audit_logs), response.pagination
+
     def apply_saved_dataset(
         self,
         saved_dataset: SavedDataset,

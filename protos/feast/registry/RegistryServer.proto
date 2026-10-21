@@ -106,6 +106,9 @@ service RegistryServer{
   // Expedia Search RPCs
   rpc ExpediaSearchProjects (ExpediaSearchProjectsRequest) returns (ExpediaSearchProjectsResponse) {}
   rpc ExpediaSearchFeatureViews (ExpediaSearchFeatureViewsRequest) returns (ExpediaSearchFeatureViewsResponse) {}
+
+  // Object audit log RPCs
+  rpc ListAuditLogs (ListAuditLogsRequest) returns (ListAuditLogsResponse) {}
 }
 
 // Common pagination and sorting messages
@@ -648,4 +651,31 @@ message ExpediaSearchProjectsResponse {
   repeated ExpediaProjectAndRelatedFeatureViews projects_and_related_feature_views = 1;
   int32 total_projects = 2;
   int32 total_page_indices = 3;
+}
+
+message ListAuditLogsRequest {
+  string project = 1;                 // project name (object_audit_log.project_id)
+  PaginationParams pagination = 2;    // page (1-based), limit
+  bool include_proto = 3;             // default false; gzip wire bytes if true
+  string object_type = 4;             // table/kind name, e.g. "entities"; empty = no filter
+  string object_name = 5;             // empty = no filter
+}
+
+message ObjectAuditLogEntry {
+  int64 id = 1;
+  string project = 2;
+  string project_uuid = 3;
+  string object_type = 4;
+  string object_name = 5;
+  string operation = 6;
+  string actor = 7;
+  bytes before_proto = 8;             // gzip(proto); empty unless include_proto
+  bytes after_proto = 9;
+  string request_id = 10;
+  google.protobuf.Timestamp recorded_at = 11;
+}
+
+message ListAuditLogsResponse {
+  repeated ObjectAuditLogEntry audit_logs = 1;
+  PaginationMetadata pagination = 2;
 }

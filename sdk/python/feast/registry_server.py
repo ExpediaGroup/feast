@@ -982,6 +982,20 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
             pagination=pagination_metadata,
         )
 
+    def ListAuditLogs(self, request: RegistryServer_pb2.ListAuditLogsRequest, context):
+        entries, pagination_metadata = self.proxied_registry.list_object_audit_logs(
+            project=request.project,
+            page=request.pagination.page,
+            limit=request.pagination.limit,
+            include_proto=request.include_proto,
+            object_type=request.object_type,
+            object_name=request.object_name,
+        )
+        return RegistryServer_pb2.ListAuditLogsResponse(
+            audit_logs=entries,
+            pagination=pagination_metadata,
+        )
+
     def UpdateInfra(self, request: RegistryServer_pb2.UpdateInfraRequest, context):
         self.proxied_registry.update_infra(
             infra=Infra.from_proto(request.infra),
