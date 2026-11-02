@@ -299,8 +299,10 @@ def merge_stats(
     null_counts.update(b.get("field_null_counts") or {})
 
     fields: List[str] = list(a.get("fields_written") or [])
+    seen = set(fields)
     for field in b.get("fields_written") or []:
-        if field not in fields:
+        if field not in seen:
+            seen.add(field)
             fields.append(field)
 
     def _identity(key: str) -> Any:
