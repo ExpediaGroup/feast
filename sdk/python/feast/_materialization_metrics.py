@@ -25,7 +25,12 @@ import logging
 import threading
 from collections import Counter
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional
+
+from feast.utils import make_tzaware
+
+if TYPE_CHECKING:
+    from feast.infra.common.materialization_job import MaterializationTask
 
 logger = logging.getLogger(__name__)
 
@@ -98,11 +103,15 @@ def drain_run_results() -> "List[Dict[str, Any]]":
 
 def _to_utc(ts: Optional[datetime]) -> Optional[datetime]:
     """Return ``ts`` as a tz-aware UTC datetime; naive values are taken as UTC."""
-    if ts is None:
-        return None
-    if ts.tzinfo is None:
-        return ts.replace(tzinfo=timezone.utc)
-    return ts.astimezone(timezone.utc)
+    return None if ts is None else make_tzaware(ts).astimezone(timezone.utc)
+
+
+def _bound(
+    pick: Callable[[List[datetime]], datetime], *values: Optional[datetime]
+) -> Optional[datetime]:
+    """Return ``pick`` (``min`` or ``max``) of the non-None ``values`` in UTC."""
+    present = [ts for ts in map(_to_utc, values) if ts is not None]
+    return pick(present) if present else None
 
 
 class MaterializationMetricsAggregator:
@@ -173,10 +182,7 @@ class MaterializationMetricsAggregator:
 
     # -- freshness ----------------------------------------------------------
     def observe_event_timestamp(self, ts: Optional[datetime]) -> None:
-        if ts is None:
-            return
-        if self.max_event_timestamp is None or ts > self.max_event_timestamp:
-            self.max_event_timestamp = ts
+        self.max_event_timestamp = _bound(max, self.max_event_timestamp, ts)
 
     def lag_seconds(self, now: datetime) -> Optional[float]:
         if self.max_event_timestamp is None:
@@ -253,6 +259,7 @@ class MaterializationMetricsAggregator:
         executors. The incoming counts are already net (store drops applied
         per partition), so they are summed directly rather than replayed through the
         ``record_*`` methods (which would double-apply the store-drop decrement).
+        The window merges as in :func:`merge_stats`.
         """
         if not stats:
             return
@@ -265,6 +272,8 @@ class MaterializationMetricsAggregator:
         self.field_null_counts.update(stats.get("field_null_counts") or {})
         self.bytes_written += int(stats.get("bytes_written", 0) or 0)
         self.observe_event_timestamp(stats.get("max_event_timestamp"))
+        self.start_date = _bound(min, self.start_date, stats.get("start_date"))
+        self.end_date = _bound(max, self.end_date, stats.get("end_date"))
 
 
 def merge_stats(
@@ -277,7 +286,8 @@ def merge_stats(
     (``merge_stats({}, x) == x``), so it can back a Spark ``AccumulatorParam`` whose
     ``zero`` is ``{}`` and whose ``addInPlace`` is this function. Row counts sum,
     ``drop_reasons`` / ``field_null_counts`` Counters add, ``fields_written`` unions
-    (order-stable), and ``max_event_timestamp`` takes the later of the two.
+    (order-stable), ``start_date`` takes the earlier of the two, and ``end_date`` /
+    ``max_event_timestamp`` take the later.
     """
     a = a or {}
     b = b or {}
@@ -293,13 +303,6 @@ def merge_stats(
         if field not in fields:
             fields.append(field)
 
-    timestamps = [
-        t
-        for t in (a.get("max_event_timestamp"), b.get("max_event_timestamp"))
-        if t is not None
-    ]
-    max_ts = max(timestamps) if timestamps else None
-
     def _identity(key: str) -> Any:
         return a.get(key) if a.get(key) is not None else b.get(key)
 
@@ -307,8 +310,8 @@ def merge_stats(
         "project": _identity("project"),
         "feature_view": _identity("feature_view"),
         "online_store_type": _identity("online_store_type"),
-        "start_date": _identity("start_date"),
-        "end_date": _identity("end_date"),
+        "start_date": _bound(min, a.get("start_date"), b.get("start_date")),
+        "end_date": _bound(max, a.get("end_date"), b.get("end_date")),
         "rows_read_offline": int(a.get("rows_read_offline", 0) or 0)
         + int(b.get("rows_read_offline", 0) or 0),
         "rows_written_online": int(a.get("rows_written_online", 0) or 0)
@@ -319,7 +322,9 @@ def merge_stats(
         "field_null_counts": dict(null_counts),
         "bytes_written": int(a.get("bytes_written", 0) or 0)
         + int(b.get("bytes_written", 0) or 0),
-        "max_event_timestamp": max_ts,
+        "max_event_timestamp": _bound(
+            max, a.get("max_event_timestamp"), b.get("max_event_timestamp")
+        ),
     }
 
 
@@ -348,6 +353,20 @@ def build_aggregator(
         online_store_type=str(online_store_type),
         start_date=start_date,
         end_date=end_date,
+    )
+
+
+def build_aggregator_for_task(
+    task: "MaterializationTask", repo_config: Any, online_store: Any
+) -> "MaterializationMetricsAggregator":
+    """Construct the driver-side collector for ``task``, carrying its window."""
+    return build_aggregator(
+        task.project,
+        task.feature_view.name,
+        repo_config,
+        online_store,
+        start_date=task.start_time,
+        end_date=task.end_time,
     )
 
 

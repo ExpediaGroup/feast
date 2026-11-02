@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 from typing import Dict, Literal, Optional, Sequence, Union, cast
 
 from pydantic import StrictStr
@@ -14,7 +13,7 @@ from feast import (
     StreamFeatureView,
 )
 from feast._materialization_metrics import (
-    build_aggregator,
+    build_aggregator_for_task,
     fold_stats_rows,
     is_materialization_metrics_enabled,
     record_run_result,
@@ -102,13 +101,7 @@ class SparkComputeEngine(ComputeEngine):
         **kwargs,
     ) -> MaterializationJob:
         if from_offline_store:
-            return self._materialize_from_offline_store(
-                registry=registry,
-                feature_view=task.feature_view,
-                start_date=task.start_time,
-                end_date=task.end_time,
-                project=task.project,
-            )
+            return self._materialize_from_offline_store(registry=registry, task=task)
 
         job_id = f"{task.feature_view.name}-{task.start_time}-{task.end_time}"
 
@@ -141,12 +134,7 @@ class SparkComputeEngine(ComputeEngine):
     def _materialize_from_offline_store(
         self,
         registry: BaseRegistry,
-        feature_view: Union[
-            BatchFeatureView, StreamFeatureView, FeatureView, SortedFeatureView
-        ],
-        start_date: datetime,
-        end_date: datetime,
-        project: str,
+        task: MaterializationTask,
     ):
         """
         Legacy materialization method for Spark Compute Engine. This method is used to materialize features from the
@@ -156,6 +144,10 @@ class SparkComputeEngine(ComputeEngine):
             "Materializing from offline store will be deprecated in the future. Please use the new "
             "materialization API."
         )
+        feature_view = task.feature_view
+        project = task.project
+        start_date = task.start_time
+        end_date = task.end_time
         entities = []
         for entity_name in feature_view.entities:
             entities.append(registry.get_entity(entity_name, project))
@@ -230,13 +222,8 @@ class SparkComputeEngine(ComputeEngine):
                 ).collect()
 
                 try:
-                    collector = build_aggregator(
-                        project,
-                        feature_view.name,
-                        self.repo_config,
-                        self.online_store,
-                        start_date=start_date,
-                        end_date=end_date,
+                    collector = build_aggregator_for_task(
+                        task, self.repo_config, self.online_store
                     )
                     collector.merge_from_dict(fold_stats_rows(stats_rows))
                     record_run_result(collector.to_dict())

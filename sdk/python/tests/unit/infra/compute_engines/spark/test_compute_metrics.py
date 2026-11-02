@@ -15,6 +15,7 @@ from feast._materialization_metrics import (  # noqa: E402
 )
 from feast.infra.common.materialization_job import (  # noqa: E402
     MaterializationJobStatus,
+    MaterializationTask,
 )
 from feast.infra.compute_engines.spark.compute import SparkComputeEngine  # noqa: E402
 
@@ -50,12 +51,15 @@ def _materialize(enabled):
         ),
         patch("feast.infra.compute_engines.spark.compute.SerializedArtifacts"),
     ):
-        job = engine._materialize_from_offline_store(
+        job = engine._materialize_one(
             registry=MagicMock(),
-            feature_view=SimpleNamespace(name="fv", entities=[], batch_source=None),
-            start_date=START,
-            end_date=END,
-            project="proj",
+            task=MaterializationTask(
+                project="proj",
+                feature_view=SimpleNamespace(name="fv", entities=[], batch_source=None),
+                start_time=START,
+                end_time=END,
+            ),
+            from_offline_store=True,
         )
     assert job.status() == MaterializationJobStatus.SUCCEEDED
     return drain_run_results()

@@ -227,3 +227,18 @@ def test_cli_materialize_disable_event_timestamp():
         assertpy.assert_that(output).contains(
             b"START_TS and END_TS are required unless --disable-event-timestamp is used"
         )
+
+
+def test_cli_materialize_disable_event_timestamp_ends_at_utc_now():
+    from click.testing import CliRunner as ClickRunner
+
+    from feast.cli.cli import cli
+    from feast.utils import _utc_now
+
+    store = mock.MagicMock()
+    before = _utc_now()
+    with mock.patch("feast.cli.cli.create_feature_store", return_value=store):
+        result = ClickRunner().invoke(cli, ["materialize", "--disable-event-timestamp"])
+    assert result.exit_code == 0, result.output
+    end_date = store.materialize.call_args.kwargs["end_date"]
+    assert before <= end_date <= _utc_now()

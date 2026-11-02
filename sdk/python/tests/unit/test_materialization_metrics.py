@@ -10,6 +10,7 @@ from feast import Entity, FeatureStore, FeatureView, Field, FileSource
 from feast._materialization_metrics import (
     MaterializationMetricsAggregator,
     build_aggregator,
+    build_aggregator_for_task,
     collecting,
     drain_run_results,
     get_active_aggregator,
@@ -17,6 +18,7 @@ from feast._materialization_metrics import (
     merge_stats,
     record_run_result,
 )
+from feast.infra.common.materialization_job import MaterializationTask
 from feast.infra.online_stores.sqlite import SqliteOnlineStoreConfig
 from feast.repo_config import RepoConfig
 from feast.types import Float32
@@ -103,6 +105,15 @@ class TestFreshness:
         assert agg.max_event_timestamp is None
         assert agg.lag_seconds(now=datetime.now(timezone.utc)) is None
 
+    def test_max_event_timestamp_is_utc(self):
+        agg = _aggregator()
+        agg.observe_event_timestamp(datetime(2026, 1, 1, 6))
+        agg.observe_event_timestamp(
+            datetime(2026, 1, 1, 0, tzinfo=timezone(timedelta(hours=-8)))
+        )
+        assert agg.max_event_timestamp == datetime(2026, 1, 1, 8, tzinfo=timezone.utc)
+        assert agg.max_event_timestamp.tzinfo == timezone.utc
+
 
 class TestArrowCapture:
     def test_observe_written_batch_records_fields_and_nulls_and_ts(self):
@@ -142,6 +153,18 @@ class TestArrowCapture:
         assert agg.fields_written == ["conv_rate"]
         assert agg.field_null_counts == {"conv_rate": 0}
         assert agg.max_event_timestamp is None
+
+    def test_observe_written_batch_naive_timestamp_is_utc(self):
+        table = pa.table(
+            {"conv_rate": [0.1, 0.2], "event_timestamp": [datetime(2026, 1, 1, 18)] * 2}
+        )
+        agg = _windowed_aggregator()
+        agg.observe_written_batch(
+            table, feature_fields=["conv_rate"], timestamp_column="event_timestamp"
+        )
+        d = agg.to_dict()
+        assert d["max_event_timestamp"] == datetime(2026, 1, 1, 18, tzinfo=timezone.utc)
+        assert d["end_date"] - d["max_event_timestamp"] == timedelta(hours=6)
 
 
 class TestToDict:
@@ -206,6 +229,19 @@ class TestWindow:
         agg = build_aggregator(
             "proj", "fv", repo_config, None, start_date=START, end_date=END
         )
+        assert agg.start_date == START
+        assert agg.end_date == END
+
+    def test_build_aggregator_for_task_records_window(self):
+        repo_config = SimpleNamespace(online_store=SimpleNamespace(type="cassandra"))
+        task = MaterializationTask(
+            project="proj",
+            feature_view=SimpleNamespace(name="fv"),
+            start_time=START,
+            end_time=END,
+        )
+        agg = build_aggregator_for_task(task, repo_config, None)
+        assert (agg.project, agg.feature_view) == ("proj", "fv")
         assert agg.start_date == START
         assert agg.end_date == END
 
@@ -331,6 +367,13 @@ class TestMergeStats:
             assert merged["start_date"] == START
             assert merged["end_date"] == END
 
+    def test_window_spans_both_inputs(self):
+        windowed = _windowed_aggregator().to_dict()
+        later = {"start_date": END, "end_date": END + timedelta(days=1)}
+        for merged in (merge_stats(windowed, later), merge_stats(later, windowed)):
+            assert merged["start_date"] == START
+            assert merged["end_date"] == END + timedelta(days=1)
+
 
 class TestBridge:
     def test_record_and_drain(self):
@@ -385,17 +428,30 @@ class TestMergeFromDict:
         partition = _aggregator()
         partition.record_read(3)
         driver.merge_from_dict(partition.to_dict())
-        driver.merge_from_dict(
-            {
-                "rows_read_offline": 2,
-                "start_date": datetime(2025, 1, 1, tzinfo=timezone.utc),
-                "end_date": datetime(2025, 1, 2, tzinfo=timezone.utc),
-            }
-        )
 
-        assert driver.rows_read_offline == 5
+        assert driver.rows_read_offline == 3
         assert driver.to_dict()["start_date"] == START
         assert driver.to_dict()["end_date"] == END
+
+    def test_merge_fills_missing_window(self):
+        driver = _aggregator()
+        driver.merge_from_dict({"start_date": datetime(2026, 1, 1), "end_date": END})
+
+        assert driver.start_date == START
+        assert driver.start_date.tzinfo == timezone.utc
+        assert driver.end_date == END
+
+    def test_merge_window_matches_merge_stats(self):
+        later = {"start_date": END, "end_date": END + timedelta(days=1)}
+        driver = _windowed_aggregator()
+        driver.merge_from_dict(later)
+
+        merged = merge_stats(_windowed_aggregator().to_dict(), later)
+        assert (driver.start_date, driver.end_date) == (START, END + timedelta(days=1))
+        assert (driver.start_date, driver.end_date) == (
+            merged["start_date"],
+            merged["end_date"],
+        )
 
 
 class TestContextVar:
