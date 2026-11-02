@@ -142,6 +142,8 @@ class ComputeEngine(ABC):
                     task.feature_view.name,
                     self.repo_config,
                     self.online_store,
+                    start_date=task.start_time,
+                    end_date=task.end_time,
                 )
         except Exception as e:  # noqa: BLE001 -- metrics must never break a run
             logger.warning("materialization metrics: collector init skipped: %s", e)

@@ -231,7 +231,12 @@ class SparkComputeEngine(ComputeEngine):
 
                 try:
                     collector = build_aggregator(
-                        project, feature_view.name, self.repo_config, self.online_store
+                        project,
+                        feature_view.name,
+                        self.repo_config,
+                        self.online_store,
+                        start_date=start_date,
+                        end_date=end_date,
                     )
                     collector.merge_from_dict(fold_stats_rows(stats_rows))
                     record_run_result(collector.to_dict())

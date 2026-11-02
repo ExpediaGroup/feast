@@ -1,11 +1,15 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import patch
 
+import pandas as pd
 import pyarrow as pa
 import pytest
 
+from feast import Entity, FeatureStore, FeatureView, Field, FileSource
 from feast._materialization_metrics import (
     MaterializationMetricsAggregator,
+    build_aggregator,
     collecting,
     drain_run_results,
     get_active_aggregator,
@@ -13,6 +17,10 @@ from feast._materialization_metrics import (
     merge_stats,
     record_run_result,
 )
+from feast.infra.online_stores.sqlite import SqliteOnlineStoreConfig
+from feast.repo_config import RepoConfig
+from feast.types import Float32
+from feast.value_type import ValueType
 
 
 def _aggregator():
@@ -155,6 +163,53 @@ class TestToDict:
         assert d["rows_read_offline"] - d["rows_written_online"] == d["rows_dropped"]
 
 
+START = datetime(2026, 1, 1, tzinfo=timezone.utc)
+END = datetime(2026, 1, 2, tzinfo=timezone.utc)
+
+
+def _windowed_aggregator():
+    return MaterializationMetricsAggregator(
+        project="proj",
+        feature_view="fv",
+        online_store_type="cassandra",
+        start_date=START,
+        end_date=END,
+    )
+
+
+class TestWindow:
+    def test_window_defaults_to_none(self):
+        d = _aggregator().to_dict()
+        assert d["start_date"] is None
+        assert d["end_date"] is None
+
+    def test_to_dict_reports_window(self):
+        d = _windowed_aggregator().to_dict()
+        assert d["start_date"] == START
+        assert d["end_date"] == END
+
+    def test_window_is_utc(self):
+        agg = MaterializationMetricsAggregator(
+            project="proj",
+            feature_view="fv",
+            online_store_type="cassandra",
+            start_date=datetime(2026, 1, 1),
+            end_date=datetime(2026, 1, 1, 16, tzinfo=timezone(timedelta(hours=-8))),
+        )
+        assert agg.start_date == START
+        assert agg.start_date.tzinfo == timezone.utc
+        assert agg.end_date == END
+        assert agg.end_date.tzinfo == timezone.utc
+
+    def test_build_aggregator_records_window(self):
+        repo_config = SimpleNamespace(online_store=SimpleNamespace(type="cassandra"))
+        agg = build_aggregator(
+            "proj", "fv", repo_config, None, start_date=START, end_date=END
+        )
+        assert agg.start_date == START
+        assert agg.end_date == END
+
+
 class TestConfigGate:
     """Declarative-only: metrics.materialization.enabled (env var removed)."""
 
@@ -266,6 +321,16 @@ class TestMergeStats:
         merged = merge_stats(a, b)
         assert merged["bytes_written"] == 350
 
+    def test_window_kept_when_merged_with_partition_stats(self):
+        windowed = _windowed_aggregator().to_dict()
+        partition = _aggregator().to_dict()
+        for merged in (
+            merge_stats(windowed, partition),
+            merge_stats(partition, windowed),
+        ):
+            assert merged["start_date"] == START
+            assert merged["end_date"] == END
+
 
 class TestBridge:
     def test_record_and_drain(self):
@@ -315,6 +380,23 @@ class TestMergeFromDict:
         assert driver.rows_read_offline == 7
         assert driver.rows_written_online == 7
 
+    def test_merge_keeps_driver_window(self):
+        driver = _windowed_aggregator()
+        partition = _aggregator()
+        partition.record_read(3)
+        driver.merge_from_dict(partition.to_dict())
+        driver.merge_from_dict(
+            {
+                "rows_read_offline": 2,
+                "start_date": datetime(2025, 1, 1, tzinfo=timezone.utc),
+                "end_date": datetime(2025, 1, 2, tzinfo=timezone.utc),
+            }
+        )
+
+        assert driver.rows_read_offline == 5
+        assert driver.to_dict()["start_date"] == START
+        assert driver.to_dict()["end_date"] == END
+
 
 class TestContextVar:
     def test_collecting_sets_and_restores(self):
@@ -336,3 +418,72 @@ class TestContextVar:
                 assert get_active_aggregator() is inner
             assert get_active_aggregator() is outer
         assert get_active_aggregator() is None
+
+
+def _feature_store(tmp_path, enabled=True):
+    path = str(tmp_path / "driver.parquet")
+    pd.DataFrame(
+        {
+            "driver_id": [1, 2],
+            "conv_rate": [0.1, 0.2],
+            "event_timestamp": [datetime(2026, 1, 1, 12, tzinfo=timezone.utc)] * 2,
+        }
+    ).to_parquet(path)
+    driver = Entity(name="driver", join_keys=["driver_id"], value_type=ValueType.INT64)
+    fv = FeatureView(
+        name="fv",
+        entities=[driver],
+        ttl=timedelta(days=1),
+        schema=[Field(name="conv_rate", dtype=Float32)],
+        source=FileSource(path=path, timestamp_field="event_timestamp"),
+    )
+    store = FeatureStore(
+        config=RepoConfig(
+            project="proj",
+            provider="local",
+            registry=str(tmp_path / "registry.db"),
+            online_store=SqliteOnlineStoreConfig(path=str(tmp_path / "online.db")),
+            batch_engine={"type": "local", "backend": "pandas"},
+            entity_key_serialization_version=3,
+            metrics={"materialization": {"enabled": enabled}},
+        )
+    )
+    store.apply([driver, fv])
+    drain_run_results()
+    return store
+
+
+class TestFeatureStoreWindow:
+    def test_materialize_reports_window(self, tmp_path):
+        store = _feature_store(tmp_path)
+        store.materialize(
+            start_date=datetime(2026, 1, 1),
+            end_date=datetime(2026, 1, 1, 16, tzinfo=timezone(timedelta(hours=-8))),
+        )
+        [stats] = drain_run_results()
+        assert stats["start_date"] == START
+        assert stats["start_date"].tzinfo == timezone.utc
+        assert stats["end_date"] == END
+        assert stats["end_date"].tzinfo == timezone.utc
+
+    def test_materialize_incremental_first_run_starts_at_ttl(self, tmp_path):
+        store = _feature_store(tmp_path)
+        with patch("feast.feature_store._utc_now", return_value=END):
+            store.materialize_incremental(end_date=END)
+        [stats] = drain_run_results()
+        assert stats["start_date"] == END - timedelta(days=1)
+        assert stats["end_date"] == END
+
+    def test_materialize_incremental_starts_at_previous_end(self, tmp_path):
+        store = _feature_store(tmp_path)
+        store.materialize(start_date=START, end_date=END)
+        drain_run_results()
+        store.materialize_incremental(end_date=datetime(2026, 1, 3))
+        [stats] = drain_run_results()
+        assert stats["start_date"] == END
+        assert stats["end_date"] == datetime(2026, 1, 3, tzinfo=timezone.utc)
+
+    def test_disabled_records_nothing(self, tmp_path):
+        store = _feature_store(tmp_path, enabled=False)
+        store.materialize(start_date=START, end_date=END)
+        assert drain_run_results() == []
