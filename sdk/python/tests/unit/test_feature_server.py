@@ -207,3 +207,12 @@ def test_materialize_request_model():
     assert req2.disable_event_timestamp is False
     assert req2.start_ts == "2021-01-01T00:00:00"
     assert req2.end_ts == "2021-01-02T00:00:00"
+
+
+def test_materialize_disable_event_timestamp_ends_at_utc_now():
+    fs = MagicMock()
+    client = TestClient(get_app(fs))
+    before = _utc_now()
+    client.post("/materialize", json={"disable_event_timestamp": True})
+    end_date = fs.materialize.call_args.args[1]
+    assert before <= end_date <= _utc_now()

@@ -437,7 +437,7 @@ def get_app(
 
         if request.disable_event_timestamp:
             # Query all available data and use current datetime as event timestamp
-            now = datetime.now()
+            now = utils._utc_now()
             start_date = datetime(
                 1970, 1, 1
             )  # Beginning of time to capture all historical data

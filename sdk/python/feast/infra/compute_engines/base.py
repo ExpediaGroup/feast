@@ -6,7 +6,7 @@ import pyarrow as pa
 
 from feast import RepoConfig
 from feast._materialization_metrics import (
-    build_aggregator,
+    build_aggregator_for_task,
     is_materialization_metrics_enabled,
 )
 from feast.batch_feature_view import BatchFeatureView
@@ -137,11 +137,8 @@ class ComputeEngine(ABC):
             if isinstance(
                 task, MaterializationTask
             ) and is_materialization_metrics_enabled(self.repo_config):
-                metrics_collector = build_aggregator(
-                    task.project,
-                    task.feature_view.name,
-                    self.repo_config,
-                    self.online_store,
+                metrics_collector = build_aggregator_for_task(
+                    task, self.repo_config, self.online_store
                 )
         except Exception as e:  # noqa: BLE001 -- metrics must never break a run
             logger.warning("materialization metrics: collector init skipped: %s", e)
