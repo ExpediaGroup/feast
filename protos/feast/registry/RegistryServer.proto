@@ -109,6 +109,13 @@ service RegistryServer{
 
   // Object audit log RPCs
   rpc ListAuditLogs (ListAuditLogsRequest) returns (ListAuditLogsResponse) {}
+
+  // Feature server report RPCs. A running feature server reports the URLs it
+  // can be reached at; readers list a project's reports. Reports are project
+  // metadata, not feature definitions, so ReportFeatureServer is governed by
+  // auth_config.feature_server_report_auth, not by the write-path allowlist.
+  rpc ReportFeatureServer (ReportFeatureServerRequest) returns (google.protobuf.Empty) {}
+  rpc ListFeatureServers (ListFeatureServersRequest) returns (ListFeatureServersResponse) {}
 }
 
 // Common pagination and sorting messages
@@ -678,4 +685,45 @@ message ObjectAuditLogEntry {
 message ListAuditLogsResponse {
   repeated ObjectAuditLogEntry audit_logs = 1;
   PaginationMetadata pagination = 2;
+}
+
+// A URL a feature server can be called at.
+message FeatureServerUrl {
+  string url = 1;    // absolute URL: http, https, grpc or grpcs; no user name or password
+  string scope = 2;  // free-form, e.g. "external", "nearest", "internal"
+}
+
+// What a feature server reports about itself (report contract version 1).
+message FeatureServerReport {
+  int32 contract = 1;                // report contract version; 1 today
+  repeated FeatureServerUrl urls = 2;
+  string version = 3;                // deployed server version, free-form
+  string registry = 4;               // registry type the server uses: "http" or "grpc"
+  map<string, string> labels = 5;    // free-form; stored without interpretation
+}
+
+message ReportFeatureServerRequest {
+  string project = 1;
+  FeatureServerReport report = 2;
+}
+
+// One stored feature server record: one per distinct URL list in a project.
+message FeatureServerRecord {
+  string key = 1;                                       // "feature_server:<16 hex>"
+  repeated FeatureServerUrl urls = 2;
+  map<string, string> labels = 3;
+  map<string, google.protobuf.Timestamp> versions = 4;  // version -> last seen
+  string registry = 5;
+  google.protobuf.Timestamp first_seen = 6;
+  google.protobuf.Timestamp last_seen = 7;
+  bool verified = 8;                                    // last report carried a valid identity
+  string identity = 9;                                  // that identity, when verified
+}
+
+message ListFeatureServersRequest {
+  string project = 1;
+}
+
+message ListFeatureServersResponse {
+  repeated FeatureServerRecord feature_servers = 1;
 }
