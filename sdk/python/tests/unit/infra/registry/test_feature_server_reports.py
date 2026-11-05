@@ -140,7 +140,7 @@ class TestValidation:
             ("https://host:70000", "invalid_url"),
             ("https://host:0", "invalid_url_port"),
             ("https://ho st", "invalid_url"),
-            ("https://host/\npath", "invalid_url"),
+            ("https://host/\npath", "control_character_in_url"),
             (" https://host", "invalid_url"),
             ("https://[::1", "invalid_url"),
         ],
@@ -149,6 +149,34 @@ class TestValidation:
         with pytest.raises(FeatureServerReportInvalid) as exc:
             fsr.validate_report(_report(urls=[FeatureServerUrl(url=url)]))
         assert exc.value.reason == reason
+
+    @pytest.mark.parametrize("char", ["\n", "\r", "\t", "\x00", "\x1b", "\x7f", "\x85"])
+    @pytest.mark.parametrize(
+        "field,make",
+        [
+            ("label_key", lambda c: _report(labels={f"k{c}": "v"})),
+            ("label_value", lambda c: _report(labels={"k": f"v{c}x"})),
+            ("version", lambda c: _report(version=f"v{c}1")),
+            ("registry", lambda c: _report(registry=f"grpc{c}")),
+            (
+                "scope",
+                lambda c: _report(
+                    urls=[FeatureServerUrl(url="https://h", scope=f"s{c}")]
+                ),
+            ),
+            ("url", lambda c: _report(urls=[FeatureServerUrl(url=f"https://h/{c}")])),
+        ],
+    )
+    def test_control_characters_rejected(self, field, make, char):
+        with pytest.raises(FeatureServerReportInvalid) as exc:
+            fsr.validate_report(make(char))
+        assert exc.value.reason == f"control_character_in_{field}"
+        assert field in str(exc.value)
+
+    def test_non_control_unicode_allowed(self):
+        fsr.validate_report(
+            _report(labels={"team": "caf\u00e9 \u2603"}, version="v\u00e9")
+        )
 
     def test_url_length_limit(self):
         base = "https://h.example.com/"
@@ -330,9 +358,10 @@ class TestMerge:
         assert record.verified is False
         assert record.identity is None
 
-    def test_unverified_drops_identity(self):
+    def test_identity_recorded_even_when_unverified(self):
         record = fsr.merge_report(None, _report(), NOW, verified=False, identity="x")
-        assert record.identity is None
+        assert record.verified is False
+        assert record.identity == "x"
         record = fsr.merge_report(None, _report(), NOW, verified=True, identity="x")
         assert record.verified is True
         assert record.identity == "x"
@@ -395,8 +424,41 @@ class TestMerge:
         )
         other = fsr.merge_report(merged, _report(), soon, verified=True, identity="b")
         assert other is not None and other.identity == "b"
-        downgraded = fsr.merge_report(merged, _report(), soon)
-        assert downgraded is not None and downgraded.verified is False
+
+    def test_unverified_report_never_downgrades_a_verified_record(self):
+        verified = fsr.merge_report(None, _report(), NOW, verified=True, identity="svc")
+        later = NOW + timedelta(hours=2)
+        hostile = _report(
+            version="v9",
+            labels={"app": "attacker"},
+            registry="http",
+            urls=[FeatureServerUrl(url=u.url, scope="spoofed") for u in _report().urls],
+        )
+        merged = fsr.merge_report(verified, hostile, later, identity="someone")
+        assert merged is not None
+        assert merged.verified is True
+        assert merged.identity == "svc"
+        assert merged.labels == verified.labels
+        assert merged.registry == verified.registry
+        assert merged.urls == verified.urls
+        assert merged.first_seen == NOW
+        assert merged.last_seen == later
+        assert merged.versions == {"v1": NOW, "v9": later}
+        # The stored record was not mutated.
+        assert verified.versions == {"v1": NOW}
+
+    def test_unverified_report_on_verified_record_is_throttled(self):
+        verified = fsr.merge_report(None, _report(), NOW, verified=True, identity="s")
+        soon = NOW + timedelta(minutes=10)
+        assert fsr.merge_report(verified, _report(labels={"app": "x"}), soon) is None
+        assert fsr.merge_report(verified, _report(version="v2"), soon) is not None
+
+    def test_unverified_record_is_replaced_by_unverified_report(self):
+        existing = fsr.merge_report(None, _report(), NOW, identity="a")
+        later = NOW + timedelta(hours=2)
+        merged = fsr.merge_report(existing, _report(labels={"app": "b"}), later)
+        assert merged.labels == {"app": "b"}
+        assert merged.identity is None
 
     def test_versions_kept_for_48_hours(self):
         existing = fsr.merge_report(None, _report(version="old"), NOW)
@@ -510,10 +572,42 @@ class TestOutcomeLog:
             "feature_server_report outcome=accepted reason=- project=proj app=app "
             "identity=svc"
         ) in caplog.text
+        # No app tag: it is caller-supplied and unbounded.
         client.increment.assert_called_once_with(
             fsr.METRIC_NAME,
-            tags=["outcome:accepted", "reason:-", "app:app"],
+            tags=["outcome:accepted", "reason:-"],
         )
+
+    @pytest.mark.parametrize(
+        "project,app,identity",
+        [
+            ("p\nfeature_server_report outcome=accepted", "a", "i"),
+            ("p", "a\r\nFAKE LINE", "i"),
+            ("p", "a", "i\nidentity=admin"),
+            ("p", "a b", "\u2028x"),
+        ],
+    )
+    def test_log_line_cannot_be_injected(self, caplog, project, app, identity):
+        with caplog.at_level(logging.INFO, logger=fsr.logger.name):
+            fsr.log_report_outcome(
+                fsr.OUTCOME_REJECTED,
+                project,
+                _report(labels={"app": app}),
+                identity=identity,
+                reason="invalid_url",
+            )
+        message = caplog.records[-1].getMessage()
+        assert "\n" not in message and "\r" not in message
+        assert "\u2028" not in message
+        assert message.startswith("feature_server_report outcome=rejected ")
+        assert message == (
+            "feature_server_report outcome=rejected reason=invalid_url "
+            f"project={fsr._log_value(project)} app={fsr._log_value(app)} "
+            f"identity={fsr._log_value(identity)}"
+        )
+        for value in (project, app, identity):
+            if not fsr._SAFE_LOG_VALUE.fullmatch(value):
+                assert fsr._log_value(value) == json.dumps(value)
 
     def test_rejection_logged_as_warning_without_app(self, caplog):
         with caplog.at_level(logging.INFO, logger=fsr.logger.name):
@@ -539,3 +633,24 @@ class TestOutcomeLog:
     def test_rejection_reason(self):
         assert fsr.rejection_reason(FeatureServerReportInvalid("x", "bad")) == "bad"
         assert fsr.rejection_reason(ValueError("x")) == "ValueError"
+
+
+class TestReporterIdentity:
+    def test_hook_fails_closed(self):
+        assert fsr.check_reporter_identity("p", _report(), "app") is False
+        assert fsr.check_reporter_identity("p", _report(), None) is False
+
+    @pytest.mark.parametrize(
+        "identity,expected",
+        [
+            (None, None),
+            ("", None),
+            ("okta-app", "okta-app"),
+            ("0oa1b2c3", "0oa1b2c3"),
+            ("a\nb", None),
+            ("x" * 257, None),
+            ("x" * 256, "x" * 256),
+        ],
+    )
+    def test_normalize_identity(self, identity, expected):
+        assert fsr.normalize_identity(identity) == expected

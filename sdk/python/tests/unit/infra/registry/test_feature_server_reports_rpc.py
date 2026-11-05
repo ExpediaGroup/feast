@@ -121,6 +121,29 @@ class TestReportFeatureServerHandler:
             sm.reset_request_context(token, None)
             no_security_manager()
         record = sql_registry_reports.list_feature_servers("test_project")[0]
+        # Identity recorded; verified stays False until the identity hook
+        # accepts it (fails closed today, EAPC-23485 OQ8).
+        assert record.verified is False
+        assert record.identity == "svc-app"
+
+    def test_verified_when_identity_hook_accepts(self, sql_registry_reports):
+        sm = SecurityManager(
+            project="test_project", registry=sql_registry_reports, write_auth_only=True
+        )
+        set_security_manager(sm)
+        token = sm.set_current_user(User(username="svc-app", roles=[]))
+        try:
+            with patch.object(fsr, "check_reporter_identity", return_value=True):
+                RegistryServer(sql_registry_reports).ReportFeatureServer(
+                    ReportFeatureServerRequest(
+                        project="test_project", report=fsr.report_to_proto(_report())
+                    ),
+                    None,
+                )
+        finally:
+            sm.reset_request_context(token, None)
+            no_security_manager()
+        record = sql_registry_reports.list_feature_servers("test_project")[0]
         assert record.verified is True
         assert record.identity == "svc-app"
 

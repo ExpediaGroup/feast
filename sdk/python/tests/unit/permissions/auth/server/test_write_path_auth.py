@@ -734,11 +734,11 @@ def _bad_token(private_key) -> str:
         ("off", "valid", "unverified"),
         ("off", "invalid", "unverified"),
         ("optional", None, "unverified"),
-        ("optional", "valid", "verified"),
+        ("optional", "valid", "identified"),
         ("optional", "invalid", "unverified"),
         ("required", None, "unauthenticated"),
         ("required", "invalid", "unauthenticated"),
-        ("required", "valid", "verified"),
+        ("required", "valid", "identified"),
     ],
 )
 def test_report_auth_settings_end_to_end(
@@ -766,9 +766,11 @@ def test_report_auth_settings_end_to_end(
         stub.ReportFeatureServer(_report_request(), metadata=metadata)
         records = _listed(stub)  # no token: listing is open
         assert len(records) == 1
-        if expected == "verified":
-            assert records[0].verified is True
+        if expected == "identified":
+            # The token's subject is recorded, never the token itself; the
+            # identity hook fails closed, so the record is not verified.
             assert records[0].identity == "okta-app"
+            assert records[0].verified is False
         else:
             assert records[0].verified is False
             assert records[0].identity == ""
@@ -788,11 +790,11 @@ def test_report_auth_optional_does_not_leak_user_between_calls(
         stub.ReportFeatureServer(
             _report_request(), metadata=_auth_metadata(encode_jwt(private_key))
         )
-        assert _listed(stub)[0].verified is True
-        # A later unverified report from the same server downgrades the record
-        # (the throttle compares verified), so no user leaked into this call.
+        assert _listed(stub)[0].identity == "okta-app"
+        # A later call without a token is written with no identity (the
+        # throttle compares identity), so no user leaked into this call.
         stub.ReportFeatureServer(_report_request())
-        assert _listed(stub)[0].verified is False
+        assert _listed(stub)[0].identity == ""
     finally:
         channel.close()
         server.stop(grace=None)
@@ -882,3 +884,33 @@ def test_report_auth_setting_through_repo_config_yaml(tmp_path):
     )
     config = load_repo_config(tmp_path, tmp_path / "feature_store.yaml")
     assert config.auth_config.feature_server_report_auth == "off"
+
+
+def test_report_verified_only_when_identity_hook_accepts(
+    tmp_path, rsa_keypair, monkeypatch
+):
+    private_key, public_key = rsa_keypair
+    patch_oidc_jwks(monkeypatch, public_key)
+    seen = {}
+
+    def accept(project, report, identity):
+        seen["identity"] = identity
+        return True
+
+    monkeypatch.setattr(
+        "feast.infra.registry.feature_server_reports.check_reporter_identity",
+        accept,
+    )
+    store = _store_sql_reports(tmp_path, _oidc_report_auth_config("required"))
+    server, channel, stub, _ = _start_registry(store)
+    try:
+        token = encode_jwt(private_key)
+        stub.ReportFeatureServer(_report_request(), metadata=_auth_metadata(token))
+        record = _listed(stub)[0]
+        assert record.verified is True
+        assert record.identity == "okta-app"
+        assert seen["identity"] == "okta-app"
+        assert token not in record.identity
+    finally:
+        channel.close()
+        server.stop(grace=None)

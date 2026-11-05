@@ -1005,7 +1005,10 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
         self, request: RegistryServer_pb2.ReportFeatureServerRequest, context
     ):
         # The auth interceptor decides whether a user is set (see
-        # feature_server_report_auth); a set user means a verified report.
+        # feature_server_report_auth). A set user means the token was valid;
+        # its name is recorded as the identity. Whether the report counts as
+        # verified is decided by the shared check_reporter_identity hook,
+        # which fails closed until EAPC-23485 open question 8 is settled.
         identity = _current_username()
         self.proxied_registry.report_feature_server(
             project=request.project,
@@ -1367,6 +1370,8 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
 
 
 def _current_username() -> Optional[str]:
+    """The authenticated user name the token parser derived (token subject
+    or client id), never the token itself."""
     sm = get_security_manager()
     user = sm.current_user if sm is not None else None
     return user.username if user is not None and user.username else None

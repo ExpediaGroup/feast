@@ -2427,12 +2427,20 @@ class SqlRegistry(CachingRegistry):
         changed within the throttle window. Never touches feature
         definitions and never writes the object audit log.
 
+        ``identity`` is the authenticated user name (token subject or client
+        id) when the caller authenticated the reporter; it is stored as is.
+        ``verified`` says the caller authenticated that identity, but the
+        stored ``verified`` flag is only set when
+        ``feature_server_reports.check_reporter_identity`` also accepts it,
+        which fails closed today (EAPC-23485, open question 8).
+
         Raises:
             FeatureServerReportsDisabled: enable_feature_server_reports is off.
             FeatureServerReportInvalid / FeatureServerReportLimitExceeded: checks failed.
             ProjectObjectNotFoundException: the project is not in this registry.
             FeatureServerReportUnavailable: the database failed.
         """
+        identity = fsr.normalize_identity(identity)
         try:
             written = self._report_feature_server(project, report, verified, identity)
         except (FeatureServerReportError, ProjectObjectNotFoundException) as e:
@@ -2473,8 +2481,11 @@ class SqlRegistry(CachingRegistry):
         if not self.registry_config.enable_feature_server_reports:
             raise FeatureServerReportsDisabled()
         fsr.validate_report(report)
-        if verified:
-            fsr.check_reporter_identity(project, report, identity)
+        verified = bool(
+            verified
+            and identity
+            and fsr.check_reporter_identity(project, report, identity)
+        )
         key = fsr.feature_server_key(report)
         now = _utc_now()
 
@@ -2525,10 +2536,23 @@ class SqlRegistry(CachingRegistry):
             value = fsr.record_to_json(merged)
             if key not in records:
                 if len(records) >= fsr.MAX_RECORDS_PER_PROJECT:
-                    raise FeatureServerReportLimitExceeded(
-                        f"Project {project} already has "
-                        f"{fsr.MAX_RECORDS_PER_PROJECT} feature server records",
-                        reason="too_many_records",
+                    evict = (
+                        self._feature_server_record_to_evict(records)
+                        if merged.verified
+                        else None
+                    )
+                    if evict is None:
+                        raise FeatureServerReportLimitExceeded(
+                            f"Project {project} already has "
+                            f"{fsr.MAX_RECORDS_PER_PROJECT} feature server records",
+                            reason="too_many_records",
+                        )
+                    self.delete_project_metadata(project, evict, conn)
+                    logger.info(
+                        "Evicted feature server record %s in project %s to make "
+                        "room for a verified report",
+                        evict,
+                        project,
                     )
                 # A concurrent first insert of the same record wins; its
                 # data is equivalent, so a conflict counts as written.
@@ -2544,6 +2568,23 @@ class SqlRegistry(CachingRegistry):
             else:
                 self.set_project_metadata(project, key, value, conn)
         return True
+
+    @staticmethod
+    def _feature_server_record_to_evict(
+        records: Dict[str, Optional["fsr.FeatureServerRecord"]],
+    ) -> Optional[str]:
+        """At the cap, a verified report may replace an unverified record:
+        an unreadable row first, else the least recently seen unverified
+        record. None when every record is verified."""
+        unreadable = sorted(k for k, record in records.items() if record is None)
+        if unreadable:
+            return unreadable[0]
+        unverified = [
+            (record.last_seen, k)
+            for k, record in records.items()
+            if record is not None and not record.verified
+        ]
+        return min(unverified)[1] if unverified else None
 
     def list_feature_servers(self, project: str) -> List["fsr.FeatureServerRecord"]:
         """List a project's stored feature server records, sorted by key.

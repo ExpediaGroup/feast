@@ -14,6 +14,8 @@ environment and DNS checks belong to readers such as Feature Hub.
 import hashlib
 import json
 import logging
+import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 from urllib.parse import urlsplit
@@ -45,6 +47,7 @@ MAX_SCOPE_LENGTH = 32
 MAX_REGISTRY_LENGTH = 32
 MAX_REPORT_BYTES = 16 * 1024
 MAX_RECORDS_PER_PROJECT = 50
+MAX_IDENTITY_LENGTH = 256
 
 THROTTLE_WINDOW = timedelta(hours=1)
 VERSION_RETENTION = timedelta(hours=48)
@@ -159,11 +162,34 @@ def _check_url(url: str) -> None:
         )
 
 
+def _has_control_character(value: str) -> bool:
+    return any(unicodedata.category(ch) == "Cc" for ch in value)
+
+
+def _check_no_control_characters(report: FeatureServerReport) -> None:
+    """Reject Unicode category Cc (incl. \\n, \\r, \\t) in every string field,
+    so a stored report can never inject lines into logs or readers."""
+    fields = [("version", report.version), ("registry", report.registry)]
+    for label_key, label_value in report.labels.items():
+        fields.append(("label_key", label_key))
+        fields.append(("label_value", label_value))
+    for entry in report.urls:
+        fields.append(("url", entry.url))
+        fields.append(("scope", entry.scope))
+    for field, value in fields:
+        if _has_control_character(value):
+            raise FeatureServerReportInvalid(
+                f"{field} contains a control character",
+                reason=f"control_character_in_{field}",
+            )
+
+
 def validate_report(report: FeatureServerReport) -> None:
     """Apply the registry's generic checks to a report.
 
     Raises:
-        FeatureServerReportInvalid: malformed URL, empty label key, contract < 1.
+        FeatureServerReportInvalid: malformed URL, empty label key, a control
+            character in any string field, contract < 1.
         FeatureServerReportLimitExceeded: a count, length or size limit is exceeded.
     """
     if report.contract < 1:
@@ -171,6 +197,8 @@ def validate_report(report: FeatureServerReport) -> None:
             f"contract must be 1 or higher, got {report.contract}",
             reason="invalid_contract",
         )
+    if len(report.urls) <= MAX_URLS and len(report.labels) <= MAX_LABELS:
+        _check_no_control_characters(report)
     if len(report.urls) > MAX_URLS:
         raise FeatureServerReportLimitExceeded(
             f"A report may carry at most {MAX_URLS} URLs, got {len(report.urls)}",
@@ -225,17 +253,29 @@ def validate_report(report: FeatureServerReport) -> None:
 
 def check_reporter_identity(
     project: str, report: FeatureServerReport, identity: Optional[str]
-) -> None:
-    """Hook for tying a verified identity to the app it reports for.
+) -> bool:
+    """Decide whether an authenticated identity may vouch for this report.
 
-    Called by the registry for verified reports only. A no-op today.
+    The stored ``verified`` flag is the result of this check, never just
+    "a valid token came with the call". It FAILS CLOSED: it returns False
+    for every identity until we know which token claim identifies the app.
 
-    TODO(EAPC-23485, open question 8): once we know which token claim
-    identifies the app, require the reporter's workload to match
-    ``report.labels["app"]`` and the project's registered client_id, and
-    raise FeatureServerReportInvalid (or an auth error) when it does not.
+    TODO(EAPC-23485, open question 8): once the claim that identifies the
+    app is decided, return True only when the reporter's workload matches
+    ``report.labels["app"]`` and the project's registered client_id.
     """
-    return None
+    return False
+
+
+def normalize_identity(identity: Optional[str]) -> Optional[str]:
+    """The identity to store: the authenticated user name (token subject or
+    client id), never the raw token. Empty, over-long or control-character
+    values are dropped."""
+    if not identity or len(identity) > MAX_IDENTITY_LENGTH:
+        return None
+    if _has_control_character(identity):
+        return None
+    return identity
 
 
 # --------------------------------------------------------------------------
@@ -267,6 +307,18 @@ def _url_set(urls: List[FeatureServerUrl]) -> List[tuple]:
     return sorted((entry.url, entry.scope) for entry in urls)
 
 
+def _versions_with(
+    existing: Optional[FeatureServerRecord], version: str, now: datetime
+) -> Dict[str, datetime]:
+    versions = {
+        seen_version: seen
+        for seen_version, seen in (existing.versions if existing else {}).items()
+        if now - seen <= VERSION_RETENTION
+    }
+    versions[version] = now
+    return versions
+
+
 def merge_report(
     existing: Optional[FeatureServerRecord],
     report: FeatureServerReport,
@@ -280,9 +332,23 @@ def merge_report(
     same URLs, labels, registry and verified/identity, and this version was
     seen less than an hour ago. Otherwise returns the record to store, with
     versions not seen for more than 48 hours dropped.
+
+    An unverified report never downgrades a verified record: the stored
+    URLs, labels, registry, verified flag and identity are kept, and the
+    report only refreshes ``last_seen`` and adds its version.
     """
     now = _as_utc(now)
-    identity = identity if verified else None
+    if existing is not None and existing.verified and not verified:
+        seen = existing.versions.get(report.version)
+        if seen is not None and now - seen < THROTTLE_WINDOW:
+            return None
+        return existing.model_copy(
+            deep=True,
+            update={
+                "versions": _versions_with(existing, report.version, now),
+                "last_seen": now,
+            },
+        )
     if existing is not None:
         seen = existing.versions.get(report.version)
         if (
@@ -295,17 +361,11 @@ def merge_report(
             and existing.identity == identity
         ):
             return None
-    versions = {
-        version: seen
-        for version, seen in (existing.versions if existing else {}).items()
-        if now - seen <= VERSION_RETENTION
-    }
-    versions[report.version] = now
     return FeatureServerRecord(
         key=existing.key if existing else feature_server_key(report),
         urls=[entry.model_copy() for entry in report.urls],
         labels=dict(report.labels),
-        versions=versions,
+        versions=_versions_with(existing, report.version, now),
         registry=report.registry,
         first_seen=existing.first_seen if existing else now,
         last_seen=now,
@@ -420,6 +480,19 @@ def record_from_proto(
 # --------------------------------------------------------------------------
 
 
+_SAFE_LOG_VALUE = re.compile(r"[A-Za-z0-9._:@/+-]{1,256}")
+
+
+def _log_value(value: Optional[str]) -> str:
+    """A log-safe rendering: plain tokens as-is, anything else as an
+    ASCII-escaped JSON string, so a value can never start a new log line."""
+    if value is None or value == "":
+        return "-"
+    if _SAFE_LOG_VALUE.fullmatch(value):
+        return value
+    return json.dumps(value[:256], ensure_ascii=True)
+
+
 def log_report_outcome(
     outcome: str,
     project: str,
@@ -430,12 +503,14 @@ def log_report_outcome(
     """One structured log line and one counter per report outcome.
 
     Reports are not audited objects: this line and the metric are the
-    record of who reported what.
+    record of who reported what. Caller-supplied values (project, app,
+    identity) are escaped; the metric carries only bounded tags.
     """
-    app = (report.labels.get("app") if report else None) or "-"
+    app = report.labels.get("app") if report else None
     line = (
-        f"feature_server_report outcome={outcome} reason={reason} "
-        f"project={project} app={app} identity={identity or '-'}"
+        f"feature_server_report outcome={_log_value(outcome)} "
+        f"reason={_log_value(reason)} project={_log_value(project)} "
+        f"app={_log_value(app)} identity={_log_value(identity)}"
     )
     if outcome == OUTCOME_REJECTED:
         logger.warning(line)
@@ -444,7 +519,7 @@ def log_report_outcome(
     try:
         get_metrics_client().increment(
             METRIC_NAME,
-            tags=[f"outcome:{outcome}", f"reason:{reason}", f"app:{app}"],
+            tags=[f"outcome:{outcome}", f"reason:{reason}"],
         )
     except Exception:  # metrics must never fail a report
         logger.debug("feature_server_report metric failed", exc_info=True)

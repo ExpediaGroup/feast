@@ -1976,7 +1976,9 @@ class TestSqlRegistryFeatureServerReports:
         assert record.versions == {"v1": _REPORT_T0}
         assert record.first_seen == record.last_seen == _REPORT_T0
         assert record.registry == "grpc"
-        assert record.verified is True
+        # The identity hook fails closed (EAPC-23485 OQ8): an authenticated
+        # identity is recorded, but the record is not verified.
+        assert record.verified is False
         assert record.identity == "svc-app"
 
         rows = _feature_server_rows(sqlite_registry_reports)
@@ -2275,6 +2277,164 @@ class TestSqlRegistryFeatureServerReports:
             assert len(registry.list_feature_servers("test_project")) == 1
         finally:
             registry.teardown()
+
+
+@contextmanager
+def _identity_hook_accepts():
+    with patch(
+        "feast.infra.registry.feature_server_reports.check_reporter_identity",
+        return_value=True,
+    ) as hook:
+        yield hook
+
+
+class TestSqlRegistryFeatureServerReportTrust:
+    def test_verified_is_the_hook_result(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0), _identity_hook_accepts() as hook:
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(), verified=True, identity="svc"
+            )
+        hook.assert_called_once()
+        assert hook.call_args.args[0] == "test_project"
+        assert hook.call_args.args[2] == "svc"
+        record = sqlite_registry_reports.list_feature_servers("test_project")[0]
+        assert record.verified is True and record.identity == "svc"
+
+    def test_hook_not_consulted_without_identity(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0), _identity_hook_accepts() as hook:
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(), verified=True, identity=None
+            )
+        hook.assert_not_called()
+        assert (
+            sqlite_registry_reports.list_feature_servers("test_project")[0].verified
+            is False
+        )
+
+    def test_control_character_identity_is_dropped(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(), verified=True, identity="a\nb"
+            )
+        record = sqlite_registry_reports.list_feature_servers("test_project")[0]
+        assert record.identity is None and record.verified is False
+
+    def test_unverified_report_does_not_downgrade_verified_record(
+        self, sqlite_registry_reports
+    ):
+        with _report_clock(_REPORT_T0), _identity_hook_accepts():
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(), verified=True, identity="svc"
+            )
+        later = _REPORT_T0 + timedelta(hours=3)
+        hostile = _fs_report(version="v9", labels={"app": "attacker"}, registry="http")
+        with _report_clock(later):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", hostile, identity="intruder"
+            )
+        record = sqlite_registry_reports.list_feature_servers("test_project")[0]
+        assert record.verified is True
+        assert record.identity == "svc"
+        assert record.labels == {"app": "app"}
+        assert record.registry == "grpc"
+        assert record.last_seen == later
+        assert set(record.versions) == {"v1", "v9"}
+
+    def _fill_to_cap(self, registry, verified_hosts=()):
+        with _report_clock(_REPORT_T0):
+            for i in range(50):
+                host = f"h{i}"
+                if host in verified_hosts:
+                    with _identity_hook_accepts():
+                        registry.report_feature_server(
+                            "test_project",
+                            _fs_report(host),
+                            verified=True,
+                            identity="svc",
+                        )
+                else:
+                    with _report_clock(_REPORT_T0 + timedelta(minutes=i)):
+                        registry.report_feature_server("test_project", _fs_report(host))
+
+    def test_verified_report_evicts_least_recently_seen_unverified(
+        self, sqlite_registry_reports
+    ):
+        # h0 is verified; h1 is the oldest unverified record.
+        self._fill_to_cap(sqlite_registry_reports, verified_hosts={"h0"})
+        with (
+            _report_clock(_REPORT_T0 + timedelta(hours=2)),
+            _identity_hook_accepts(),
+        ):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("new"), verified=True, identity="svc"
+            )
+        apps = {
+            r.labels["app"]
+            for r in sqlite_registry_reports.list_feature_servers("test_project")
+        }
+        assert len(apps) == 50
+        assert "new" in apps and "h0" in apps and "h1" not in apps
+
+    def test_unverified_report_still_rejected_at_cap(self, sqlite_registry_reports):
+        self._fill_to_cap(sqlite_registry_reports)
+        with _report_clock(_REPORT_T0 + timedelta(hours=2)):
+            with pytest.raises(FeatureServerReportLimitExceeded):
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report("new"), identity="someone"
+                )
+        assert len(_feature_server_rows(sqlite_registry_reports)) == 50
+
+    def test_verified_report_rejected_when_all_verified(self, sqlite_registry_reports):
+        self._fill_to_cap(
+            sqlite_registry_reports, verified_hosts={f"h{i}" for i in range(50)}
+        )
+        with (
+            _report_clock(_REPORT_T0 + timedelta(hours=2)),
+            _identity_hook_accepts(),
+        ):
+            with pytest.raises(FeatureServerReportLimitExceeded):
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report("new"), verified=True, identity="svc"
+                )
+        assert len(_feature_server_rows(sqlite_registry_reports)) == 50
+
+    def test_verified_report_evicts_unreadable_row_first(self, sqlite_registry_reports):
+        self._fill_to_cap(sqlite_registry_reports)
+        rows = sorted(
+            r._mapping["metadata_key"]
+            for r in _feature_server_rows(sqlite_registry_reports)
+        )
+        sqlite_registry_reports.set_project_metadata(
+            "test_project", rows[-1], "not json"
+        )
+        with (
+            _report_clock(_REPORT_T0 + timedelta(hours=2)),
+            _identity_hook_accepts(),
+        ):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("new"), verified=True, identity="svc"
+            )
+        keys = {
+            r._mapping["metadata_key"]
+            for r in _feature_server_rows(sqlite_registry_reports)
+        }
+        assert rows[-1] not in keys
+        assert len(keys) == 50
+
+    def test_metric_has_no_app_tag(self, sqlite_registry_reports):
+        from unittest.mock import MagicMock
+
+        client = MagicMock()
+        with (
+            _report_clock(_REPORT_T0),
+            patch(
+                "feast.infra.registry.feature_server_reports.get_metrics_client",
+                return_value=client,
+            ),
+        ):
+            sqlite_registry_reports.report_feature_server("test_project", _fs_report())
+        tags = client.increment.call_args.kwargs["tags"]
+        assert tags == ["outcome:accepted", "reason:-"]
 
 
 class TestSqlRegistryProjectMetadataHelpers:
