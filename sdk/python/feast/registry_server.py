@@ -18,6 +18,10 @@ from feast.feature_view import FeatureView
 from feast.grpc_error_interceptor import ErrorInterceptor
 from feast.infra.infra_object import Infra
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.infra.registry.feature_server_reports import (
+    record_to_proto,
+    report_from_proto,
+)
 from feast.infra.registry.sql import SqlRegistry
 from feast.infra.registry.sql_fallback import SqlFallbackRegistry
 from feast.on_demand_feature_view import OnDemandFeatureView
@@ -27,6 +31,7 @@ from feast.permissions.permission import Permission
 from feast.permissions.security_manager import (
     assert_permissions,
     assert_permissions_to_update,
+    get_security_manager,
     permitted_resources,
 )
 from feast.permissions.server.grpc import AuthInterceptor, WritePathAuthInterceptor
@@ -996,6 +1001,28 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
             pagination=pagination_metadata,
         )
 
+    def ReportFeatureServer(
+        self, request: RegistryServer_pb2.ReportFeatureServerRequest, context
+    ):
+        # The auth interceptor decides whether a user is set (see
+        # feature_server_report_auth); a set user means a verified report.
+        identity = _current_username()
+        self.proxied_registry.report_feature_server(
+            project=request.project,
+            report=report_from_proto(request.report),
+            verified=identity is not None,
+            identity=identity,
+        )
+        return Empty()
+
+    def ListFeatureServers(
+        self, request: RegistryServer_pb2.ListFeatureServersRequest, context
+    ):
+        records = self.proxied_registry.list_feature_servers(project=request.project)
+        return RegistryServer_pb2.ListFeatureServersResponse(
+            feature_servers=[record_to_proto(record) for record in records]
+        )
+
     def UpdateInfra(self, request: RegistryServer_pb2.UpdateInfraRequest, context):
         self.proxied_registry.update_infra(
             infra=Infra.from_proto(request.infra),
@@ -1339,6 +1366,25 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
         )
 
 
+def _current_username() -> Optional[str]:
+    sm = get_security_manager()
+    user = sm.current_user if sm is not None else None
+    return user.username if user is not None and user.username else None
+
+
+def _check_feature_server_report_auth(
+    auth_type: AuthManagerType, auth_config: Optional[AuthConfig]
+) -> None:
+    """Refuse to start when report auth is asked for but cannot be applied."""
+    setting = getattr(auth_config, "feature_server_report_auth", "off")
+    if setting != "off" and auth_type == AuthManagerType.NONE:
+        raise ValueError(
+            f"auth.feature_server_report_auth is '{setting}' but auth type is "
+            "no_auth, so no report can carry an identity. Set "
+            "feature_server_report_auth to 'off' or configure oidc auth."
+        )
+
+
 def start_server(
     store: FeatureStore,
     port: int,
@@ -1347,6 +1393,7 @@ def start_server(
     tls_cert_path: str = "",
 ):
     auth_manager_type = str_to_auth_manager_type(store.config.auth_config.type)
+    _check_feature_server_report_auth(auth_manager_type, store.config.auth_config)
     init_security_manager(auth_type=auth_manager_type, fs=store)
     init_auth_manager(
         auth_type=auth_manager_type,
@@ -1415,6 +1462,10 @@ def _grpc_interceptors(
 
     write_auth_only = bool(getattr(auth_config, "write_auth_only", False))
     if auth_type == AuthManagerType.OIDC and write_auth_only:
-        return [WritePathAuthInterceptor(), ErrorInterceptor()]
+        report_auth = getattr(auth_config, "feature_server_report_auth", "off")
+        return [
+            WritePathAuthInterceptor(feature_server_report_auth=report_auth),
+            ErrorInterceptor(),
+        ]
 
     return [AuthInterceptor(), ErrorInterceptor()]

@@ -16,13 +16,13 @@ import gzip
 import tempfile
 import threading
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import delete, func, inspect, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.sql import Select
 
 from feast.entity import Entity
@@ -30,6 +30,9 @@ from feast.errors import (
     DataSourceObjectNotFoundException,
     EntityNotFoundException,
     FeastBadRequest,
+    FeatureServerReportLimitExceeded,
+    FeatureServerReportsDisabled,
+    FeatureServerReportUnavailable,
     FeatureViewNotFoundException,
     PermissionNotFoundException,
     ProjectObjectNotFoundException,
@@ -39,6 +42,10 @@ from feast.field import Field
 from feast.infra.infra_object import Infra
 from feast.infra.offline_stores.file_source import FileSource
 from feast.infra.online_stores.sqlite import SqliteTable
+from feast.infra.registry.feature_server_reports import (
+    FeatureServerReport,
+    FeatureServerUrl,
+)
 from feast.infra.registry.sql import (
     FeastMetadataKeys,
     ObjectAuditLogObjectType,
@@ -1895,3 +1902,400 @@ class TestSqlFallbackRegistryObjectAuditLog:
         )
         with pytest.raises(PermissionNotFoundException):
             registry.get_permission("read_permission", "test_project", allow_cache=True)
+
+
+@pytest.fixture
+def sqlite_registry_reports():
+    """SQL registry with feature server reports and the audit log enabled."""
+    fd, registry_path = tempfile.mkstemp()
+    registry_config = SqlRegistryConfig(
+        registry_type="sql",
+        path=f"sqlite:///{registry_path}",
+        purge_feast_metadata=False,
+        enable_object_audit_log=True,
+        enable_feature_server_reports=True,
+    )
+    registry = SqlRegistry(registry_config, "test_project", None)
+    registry.apply_project(Project(name="test_project"))
+    yield registry
+    registry.teardown()
+
+
+_REPORT_T0 = datetime(2026, 11, 4, 12, 0, tzinfo=timezone.utc)
+
+
+def _fs_report(host: str = "app", version: str = "v1", **overrides):
+    values = dict(
+        contract=1,
+        urls=[
+            FeatureServerUrl(url=f"grpcs://{host}.example.com:443", scope="external")
+        ],
+        version=version,
+        registry="grpc",
+        labels={"app": host},
+    )
+    values.update(overrides)
+    return FeatureServerReport(**values)
+
+
+@contextmanager
+def _report_clock(at: datetime):
+    with patch("feast.infra.registry.sql._utc_now", return_value=at):
+        yield
+
+
+def _feature_server_rows(registry: SqlRegistry, project: str = "test_project"):
+    with registry.read_engine.begin() as conn:
+        return conn.execute(
+            select(feast_metadata).where(
+                feast_metadata.c.project_id == project,
+                feast_metadata.c.metadata_key.startswith("feature_server:"),
+            )
+        ).all()
+
+
+class TestSqlRegistryFeatureServerReports:
+    def test_config_defaults_to_off(self):
+        config = SqlRegistryConfig(registry_type="sql", path="sqlite:///:memory:")
+        assert config.enable_feature_server_reports is False
+
+    def test_report_then_list(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            assert (
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report(), verified=True, identity="svc-app"
+                )
+                is True
+            )
+        records = sqlite_registry_reports.list_feature_servers("test_project")
+        assert len(records) == 1
+        record = records[0]
+        assert record.key.startswith("feature_server:") and len(record.key) == 31
+        assert [u.url for u in record.urls] == ["grpcs://app.example.com:443"]
+        assert record.labels == {"app": "app"}
+        assert record.versions == {"v1": _REPORT_T0}
+        assert record.first_seen == record.last_seen == _REPORT_T0
+        assert record.registry == "grpc"
+        assert record.verified is True
+        assert record.identity == "svc-app"
+
+        rows = _feature_server_rows(sqlite_registry_reports)
+        assert len(rows) == 1
+        assert rows[0]._mapping["metadata_key"] == record.key
+        assert rows[0]._mapping["last_updated_timestamp"] == int(_REPORT_T0.timestamp())
+
+    def test_throttled_report_returns_false_and_writes_nothing(
+        self, sqlite_registry_reports
+    ):
+        with _report_clock(_REPORT_T0):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report()
+            )
+        with _report_clock(_REPORT_T0 + timedelta(minutes=30)):
+            assert (
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report()
+                )
+                is False
+            )
+        record = sqlite_registry_reports.list_feature_servers("test_project")[0]
+        assert record.last_seen == _REPORT_T0
+
+        later = _REPORT_T0 + timedelta(hours=1)
+        with _report_clock(later):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report()
+            )
+        record = sqlite_registry_reports.list_feature_servers("test_project")[0]
+        assert record.last_seen == later
+        assert record.first_seen == _REPORT_T0
+
+    def test_versions_pruned_after_48_hours(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(version="old")
+            )
+        with _report_clock(_REPORT_T0 + timedelta(hours=1)):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(version="new")
+            )
+        record = sqlite_registry_reports.list_feature_servers("test_project")[0]
+        assert set(record.versions) == {"old", "new"}
+
+        with _report_clock(_REPORT_T0 + timedelta(hours=49)):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(version="new")
+            )
+        record = sqlite_registry_reports.list_feature_servers("test_project")[0]
+        assert set(record.versions) == {"new"}
+
+    def test_list_sorted_by_key_and_scoped_to_project(self, sqlite_registry_reports):
+        sqlite_registry_reports.apply_project(Project(name="other_project"))
+        with _report_clock(_REPORT_T0):
+            for host in ("c", "a", "b"):
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report(host)
+                )
+            sqlite_registry_reports.report_feature_server(
+                "other_project", _fs_report("z")
+            )
+        records = sqlite_registry_reports.list_feature_servers("test_project")
+        assert len(records) == 3
+        assert [r.key for r in records] == sorted(r.key for r in records)
+        assert {r.labels["app"] for r in records} == {"a", "b", "c"}
+        other = sqlite_registry_reports.list_feature_servers("other_project")
+        assert [r.labels["app"] for r in other] == ["z"]
+        assert sqlite_registry_reports.list_feature_servers("no_such_project") == []
+
+    def test_unknown_project_rejected_without_phantom_project(
+        self, sqlite_registry_reports
+    ):
+        with pytest.raises(ProjectObjectNotFoundException):
+            sqlite_registry_reports.report_feature_server("ghost", _fs_report())
+        assert _feature_server_rows(sqlite_registry_reports, "ghost") == []
+        assert "ghost" not in {
+            m.project_name for m in sqlite_registry_reports.get_all_project_metadata()
+        }
+        assert "ghost" not in {
+            p.name for p in sqlite_registry_reports.list_projects(allow_cache=False)
+        }
+
+    def test_reports_do_not_change_project_listings(self, sqlite_registry_reports):
+        before = {
+            m.project_name: m.project_uuid
+            for m in sqlite_registry_reports.get_all_project_metadata()
+        }
+        model_before = sqlite_registry_reports.get_project_metadata_model(
+            "test_project"
+        )
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server("test_project", _fs_report())
+        after = {
+            m.project_name: m.project_uuid
+            for m in sqlite_registry_reports.get_all_project_metadata()
+        }
+        assert after == before
+        model_after = sqlite_registry_reports.get_project_metadata_model("test_project")
+        assert model_after.project_uuid == model_before.project_uuid
+        assert model_after.last_updated_timestamp == model_before.last_updated_timestamp
+
+    def test_disabled_rejects_and_list_still_works(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server("test_project", _fs_report())
+        sqlite_registry_reports.registry_config.enable_feature_server_reports = False
+        with pytest.raises(FeatureServerReportsDisabled):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("other")
+            )
+        records = sqlite_registry_reports.list_feature_servers("test_project")
+        assert [r.labels["app"] for r in records] == ["app"]
+
+    def test_disabled_by_default(self, sqlite_registry):
+        sqlite_registry.apply_project(Project(name="test_project"))
+        with pytest.raises(FeatureServerReportsDisabled):
+            sqlite_registry.report_feature_server("test_project", _fs_report())
+        assert _feature_server_rows(sqlite_registry) == []
+        assert sqlite_registry.list_feature_servers("test_project") == []
+
+    def test_invalid_report_rejected_before_project_check(
+        self, sqlite_registry_reports
+    ):
+        from feast.errors import FeatureServerReportInvalid
+
+        bad = _fs_report(urls=[FeatureServerUrl(url="https://user:pw@host")])
+        with pytest.raises(FeatureServerReportInvalid):
+            sqlite_registry_reports.report_feature_server("test_project", bad)
+        assert _feature_server_rows(sqlite_registry_reports) == []
+
+    def test_cap_of_50_records_per_project(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            for i in range(50):
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report(f"h{i}")
+                )
+            with pytest.raises(FeatureServerReportLimitExceeded) as exc:
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report("h50")
+                )
+        assert exc.value.reason == "too_many_records"
+        assert len(_feature_server_rows(sqlite_registry_reports)) == 50
+        # Updating an existing record still works at the cap.
+        with _report_clock(_REPORT_T0 + timedelta(hours=2)):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("h0", version="v2")
+            )
+
+    def test_cleanup_frees_room_under_the_cap(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            for i in range(50):
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report(f"h{i}")
+                )
+        with _report_clock(_REPORT_T0 + timedelta(days=31)):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("h50")
+            )
+        records = sqlite_registry_reports.list_feature_servers("test_project")
+        assert [r.labels["app"] for r in records] == ["h50"]
+
+    def test_write_deletes_records_not_seen_for_30_days(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("old")
+            )
+        with _report_clock(_REPORT_T0 + timedelta(days=10)):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("mid")
+            )
+        with _report_clock(_REPORT_T0 + timedelta(days=30)):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("new")
+            )
+        # Exactly 30 days old is kept.
+        assert {
+            r.labels["app"]
+            for r in sqlite_registry_reports.list_feature_servers("test_project")
+        } == {"old", "mid", "new"}
+        with _report_clock(_REPORT_T0 + timedelta(days=30, hours=2)):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("new")
+            )
+        assert {
+            r.labels["app"]
+            for r in sqlite_registry_reports.list_feature_servers("test_project")
+        } == {"mid", "new"}
+
+    def test_throttled_report_does_not_clean_up(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("old")
+            )
+        with _report_clock(_REPORT_T0 + timedelta(days=30) - timedelta(minutes=10)):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("new")
+            )
+        # "old" is now past 30 days, but a throttled report writes nothing.
+        with _report_clock(_REPORT_T0 + timedelta(days=30, minutes=10)):
+            assert (
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report("new")
+                )
+                is False
+            )
+        assert {
+            r.labels["app"]
+            for r in sqlite_registry_reports.list_feature_servers("test_project")
+        } == {"old", "new"}
+
+    def test_concurrent_first_insert_counts_as_written(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(version="first")
+            )
+        # A second writer that did not see the first row inserts the same key.
+        with (
+            _report_clock(_REPORT_T0 + timedelta(seconds=1)),
+            patch.object(
+                sqlite_registry_reports,
+                "list_project_metadata_by_prefix",
+                return_value={},
+            ),
+        ):
+            assert (
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report(version="second")
+                )
+                is True
+            )
+        records = sqlite_registry_reports.list_feature_servers("test_project")
+        assert len(records) == 1
+        assert set(records[0].versions) == {"first"}
+
+    def test_delete_project_removes_reports(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server("test_project", _fs_report())
+        sqlite_registry_reports.delete_project("test_project")
+        assert _feature_server_rows(sqlite_registry_reports) == []
+        assert sqlite_registry_reports.list_feature_servers("test_project") == []
+
+    def test_reports_never_write_the_audit_log(self, sqlite_registry_reports):
+        before = _object_audit_log_row_count(sqlite_registry_reports)
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server("test_project", _fs_report())
+        with _report_clock(_REPORT_T0 + timedelta(hours=2)):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(version="v2")
+            )
+        assert _object_audit_log_row_count(sqlite_registry_reports) == before
+
+    def test_database_failure_is_unavailable(self, sqlite_registry_reports):
+        error = OperationalError("SELECT 1", {}, Exception("connection refused"))
+        with patch.object(
+            sqlite_registry_reports, "write_engine", wraps=None
+        ) as engine:
+            engine.begin.side_effect = error
+            with pytest.raises(FeatureServerReportUnavailable):
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report()
+                )
+        with patch.object(sqlite_registry_reports, "read_engine") as engine:
+            engine.begin.side_effect = error
+            with pytest.raises(FeatureServerReportUnavailable):
+                sqlite_registry_reports.list_feature_servers("test_project")
+
+    def test_unreadable_row_is_skipped_by_list(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server("test_project", _fs_report())
+        sqlite_registry_reports.set_project_metadata(
+            "test_project", "feature_server:0000000000000000", "not json"
+        )
+        records = sqlite_registry_reports.list_feature_servers("test_project")
+        assert [r.labels["app"] for r in records] == ["app"]
+        # A write still works alongside the unreadable row.
+        with _report_clock(_REPORT_T0 + timedelta(hours=2)):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("other")
+            )
+
+    def test_sql_fallback_registry_reports(self):
+        fd, registry_path = tempfile.mkstemp()
+        registry = SqlFallbackRegistry(
+            SqlFallbackRegistryConfig(
+                registry_type="sql-fallback",
+                path=f"sqlite:///{registry_path}",
+                purge_feast_metadata=False,
+                enable_feature_server_reports=True,
+            ),
+            "test_project",
+            None,
+        )
+        try:
+            registry.apply_project(Project(name="test_project"))
+            assert registry.report_feature_server("test_project", _fs_report())
+            assert len(registry.list_feature_servers("test_project")) == 1
+        finally:
+            registry.teardown()
+
+
+class TestSqlRegistryProjectMetadataHelpers:
+    def test_list_by_prefix_matches_prefix_literally(self, sqlite_registry):
+        sqlite_registry.set_project_metadata("p", "feature_server:a", "1")
+        sqlite_registry.set_project_metadata("p", "feature_server:b", "2")
+        sqlite_registry.set_project_metadata("p", "featureXserver:c", "3")
+        sqlite_registry.set_project_metadata("p", "other", "4")
+        sqlite_registry.set_project_metadata("q", "feature_server:d", "5")
+        assert sqlite_registry.list_project_metadata_by_prefix(
+            "p", "feature_server:"
+        ) == {"feature_server:a": "1", "feature_server:b": "2"}
+        assert sqlite_registry.list_project_metadata_by_prefix("p", "100%") == {}
+        assert sqlite_registry.list_project_metadata_by_prefix("none", "f") == {}
+
+    def test_delete_project_metadata_deletes_one_key(self, sqlite_registry):
+        sqlite_registry.set_project_metadata("p", "k1", "1")
+        sqlite_registry.set_project_metadata("p", "k2", "2")
+        sqlite_registry.set_project_metadata("q", "k1", "3")
+        assert sqlite_registry.delete_project_metadata("p", "k1") is True
+        assert sqlite_registry.delete_project_metadata("p", "k1") is False
+        assert sqlite_registry.get_project_metadata("p", "k1") is None
+        assert sqlite_registry.get_project_metadata("p", "k2") == "2"
+        assert sqlite_registry.get_project_metadata("q", "k1") == "3"

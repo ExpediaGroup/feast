@@ -18,16 +18,19 @@ from feast.permissions.security_manager import (
     set_security_manager,
 )
 from feast.permissions.server.grpc import (
+    REPORT_RPC_METHODS,
     WRITE_RPC_METHODS,
     AuthInterceptor,
     WritePathAuthInterceptor,
     _authenticate_and_call,
     _authenticate_and_stream,
     _set_user_from_metadata,
+    is_report_rpc,
     is_write_rpc,
 )
 from feast.permissions.server.utils import AuthManagerType
 from feast.permissions.user import User
+from feast.project import Project
 from feast.protos.feast.registry import RegistryServer_pb2, RegistryServer_pb2_grpc
 from feast.registry_server import _grpc_interceptors, start_server
 from feast.repo_config import RepoConfig
@@ -135,6 +138,8 @@ def test_write_rpc_allowlist_is_registry_writes_only():
         "/feast.registry.RegistryServer/ExpediaSearchProjects",
         "/feast.registry.RegistryServer/ExpediaSearchFeatureViews",
         "/feast.registry.RegistryServer/ListAuditLogs",
+        "/feast.registry.RegistryServer/ReportFeatureServer",
+        "/feast.registry.RegistryServer/ListFeatureServers",
         "/grpc.health.v1.Health/Check",
         "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
         "/feast.serving.ServingService/GetOnlineFeatures",
@@ -596,3 +601,284 @@ def test_authenticate_and_stream_holds_context_until_exhausted(monkeypatch):
         assert sm.request_id == "prior-request-id"
     finally:
         no_security_manager()
+
+
+# --------------------------------------------------------------------------
+# Feature server reports: the "report write" category
+# --------------------------------------------------------------------------
+
+_REPORT_METHOD = "/feast.registry.RegistryServer/ReportFeatureServer"
+
+
+def test_report_rpc_is_its_own_category_not_a_write():
+    assert REPORT_RPC_METHODS == frozenset({_REPORT_METHOD})
+    assert _REPORT_METHOD not in WRITE_RPC_METHODS
+    assert not is_write_rpc(_REPORT_METHOD)
+    assert is_report_rpc(_REPORT_METHOD)
+    assert not is_report_rpc("/feast.registry.RegistryServer/ListFeatureServers")
+    assert REPORT_RPC_METHODS.isdisjoint(WRITE_RPC_METHODS)
+
+
+def test_write_path_interceptor_rejects_unknown_report_auth_setting():
+    with pytest.raises(ValueError, match="feature_server_report_auth"):
+        WritePathAuthInterceptor(feature_server_report_auth="on")
+
+
+def test_grpc_interceptor_passes_report_auth_setting():
+    write_oidc = OidcAuthConfig(
+        type="oidc",
+        auth_discovery_url="https://example/.well-known/openid-configuration",
+        client_id=CLIENT_ID,
+        write_auth_only=True,
+        feature_server_report_auth="optional",
+    )
+    interceptor = _grpc_interceptors(AuthManagerType.OIDC, write_oidc)[0]
+    assert isinstance(interceptor, WritePathAuthInterceptor)
+    assert interceptor.feature_server_report_auth == "optional"
+    assert WritePathAuthInterceptor().feature_server_report_auth == "off"
+
+
+def test_write_path_interceptor_report_off_passes_handler_through():
+    handler = _unary_handler()
+    interceptor = WritePathAuthInterceptor(feature_server_report_auth="off")
+    assert (
+        interceptor.intercept_service(lambda _: handler, _call_details(_REPORT_METHOD))
+        is handler
+    )
+
+
+@pytest.mark.parametrize("setting", ["optional", "required"])
+def test_write_path_interceptor_report_wraps_when_not_off(setting):
+    handler = _unary_handler()
+    interceptor = WritePathAuthInterceptor(feature_server_report_auth=setting)
+    wrapped = interceptor.intercept_service(
+        lambda _: handler, _call_details(_REPORT_METHOD)
+    )
+    assert wrapped is not handler
+
+
+@pytest.mark.parametrize("setting", ["off", "optional", "required"])
+def test_write_path_interceptor_list_feature_servers_stays_open(setting):
+    handler = _unary_handler()
+    interceptor = WritePathAuthInterceptor(feature_server_report_auth=setting)
+    assert (
+        interceptor.intercept_service(
+            lambda _: handler,
+            _call_details("/feast.registry.RegistryServer/ListFeatureServers"),
+        )
+        is handler
+    )
+
+
+def _oidc_report_auth_config(setting) -> dict:
+    config = _oidc_write_auth_config()
+    config["feature_server_report_auth"] = setting
+    return config
+
+
+def _store_sql_reports(tmp_path, auth: dict) -> FeatureStore:
+    store = FeatureStore(
+        config=RepoConfig(
+            registry={
+                "registry_type": "sql",
+                "path": f"sqlite:///{tmp_path / 'sql_registry.db'}",
+                "purge_feast_metadata": False,
+                "enable_feature_server_reports": True,
+            },
+            project=PROJECT,
+            provider="local",
+            entity_key_serialization_version=3,
+            offline_store={"type": "file"},
+            online_store={"type": "sqlite", "path": str(tmp_path / "online.db")},
+            auth=auth,
+        )
+    )
+    store.registry.apply_project(Project(name=PROJECT))
+    return store
+
+
+def _report_request() -> RegistryServer_pb2.ReportFeatureServerRequest:
+    return RegistryServer_pb2.ReportFeatureServerRequest(
+        project=PROJECT,
+        report=RegistryServer_pb2.FeatureServerReport(
+            contract=1,
+            urls=[
+                RegistryServer_pb2.FeatureServerUrl(
+                    url="grpcs://app.example.com:443", scope="external"
+                )
+            ],
+            version="v1",
+            registry="grpc",
+            labels={"app": "app"},
+        ),
+    )
+
+
+def _listed(stub):
+    return list(
+        stub.ListFeatureServers(
+            RegistryServer_pb2.ListFeatureServersRequest(project=PROJECT)
+        ).feature_servers
+    )
+
+
+def _bad_token(private_key) -> str:
+    return encode_jwt(generate_rsa_keypair()[0])
+
+
+@pytest.mark.parametrize(
+    "setting,token_kind,expected",
+    [
+        # off: never parses a token, so even a valid one stays unverified.
+        ("off", None, "unverified"),
+        ("off", "valid", "unverified"),
+        ("off", "invalid", "unverified"),
+        ("optional", None, "unverified"),
+        ("optional", "valid", "verified"),
+        ("optional", "invalid", "unverified"),
+        ("required", None, "unauthenticated"),
+        ("required", "invalid", "unauthenticated"),
+        ("required", "valid", "verified"),
+    ],
+)
+def test_report_auth_settings_end_to_end(
+    tmp_path, rsa_keypair, monkeypatch, setting, token_kind, expected
+):
+    private_key, public_key = rsa_keypair
+    patch_oidc_jwks(monkeypatch, public_key)
+    store = _store_sql_reports(tmp_path, _oidc_report_auth_config(setting))
+    server, channel, stub, _ = _start_registry(store)
+    try:
+        metadata = None
+        if token_kind == "valid":
+            metadata = _auth_metadata(encode_jwt(private_key))
+        elif token_kind == "invalid":
+            metadata = _auth_metadata(_bad_token(private_key))
+
+        if expected == "unauthenticated":
+            with pytest.raises(grpc.RpcError) as exc:
+                stub.ReportFeatureServer(_report_request(), metadata=metadata)
+            assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
+            # Listing stays open, with no token.
+            assert _listed(stub) == []
+            return
+
+        stub.ReportFeatureServer(_report_request(), metadata=metadata)
+        records = _listed(stub)  # no token: listing is open
+        assert len(records) == 1
+        if expected == "verified":
+            assert records[0].verified is True
+            assert records[0].identity == "okta-app"
+        else:
+            assert records[0].verified is False
+            assert records[0].identity == ""
+    finally:
+        channel.close()
+        server.stop(grace=None)
+
+
+def test_report_auth_optional_does_not_leak_user_between_calls(
+    tmp_path, rsa_keypair, monkeypatch
+):
+    private_key, public_key = rsa_keypair
+    patch_oidc_jwks(monkeypatch, public_key)
+    store = _store_sql_reports(tmp_path, _oidc_report_auth_config("optional"))
+    server, channel, stub, _ = _start_registry(store)
+    try:
+        stub.ReportFeatureServer(
+            _report_request(), metadata=_auth_metadata(encode_jwt(private_key))
+        )
+        assert _listed(stub)[0].verified is True
+        # A later unverified report from the same server downgrades the record
+        # (the throttle compares verified), so no user leaked into this call.
+        stub.ReportFeatureServer(_report_request())
+        assert _listed(stub)[0].verified is False
+    finally:
+        channel.close()
+        server.stop(grace=None)
+
+
+def test_report_with_no_auth_and_reports_off_succeeds(tmp_path):
+    store = _store_sql_reports(tmp_path, {"type": "no_auth"})
+    server, channel, stub, _ = _start_registry(store)
+    try:
+        stub.ReportFeatureServer(_report_request())
+        assert _listed(stub)[0].verified is False
+    finally:
+        channel.close()
+        server.stop(grace=None)
+
+
+@pytest.mark.parametrize("setting", ["optional", "required"])
+def test_no_auth_with_report_auth_refuses_to_start(tmp_path, setting):
+    store = _store_sql_reports(
+        tmp_path, {"type": "no_auth", "feature_server_report_auth": setting}
+    )
+    with pytest.raises(ValueError, match="feature_server_report_auth"):
+        start_server(store, free_port(), wait_for_termination=False)
+
+
+def test_report_auth_setting_defaults_to_off():
+    assert AuthConfig().feature_server_report_auth == "off"
+
+
+@pytest.mark.parametrize(
+    "yaml_value,expected",
+    [
+        ("off", "off"),  # YAML 1.1: unquoted off loads as False
+        ("'off'", "off"),
+        ('"optional"', "optional"),
+        ("optional", "optional"),
+        ("required", "required"),
+        ("no", "off"),
+        ("false", "off"),
+    ],
+)
+def test_report_auth_setting_from_yaml(yaml_value, expected):
+    import yaml
+
+    raw = yaml.safe_load(
+        "type: oidc\n"
+        "client_id: placeholder\n"
+        "auth_discovery_url: https://example/.well-known/openid-configuration\n"
+        "write_auth_only: true\n"
+        f"feature_server_report_auth: {yaml_value}\n"
+    )
+    config = OidcAuthConfig(**raw)
+    assert config.feature_server_report_auth == expected
+
+
+@pytest.mark.parametrize("yaml_value", ["on", "yes", "true"])
+def test_report_auth_setting_yaml_true_is_rejected(yaml_value):
+    import yaml
+    from pydantic import ValidationError
+
+    raw = yaml.safe_load(f"feature_server_report_auth: {yaml_value}\n")
+    assert raw["feature_server_report_auth"] is True
+    with pytest.raises(ValidationError, match="ambiguous"):
+        AuthConfig(**raw)
+
+
+def test_report_auth_setting_rejects_unknown_string():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        AuthConfig(feature_server_report_auth="enforce")
+
+
+def test_report_auth_setting_through_repo_config_yaml(tmp_path):
+    from feast.repo_config import load_repo_config
+
+    (tmp_path / "feature_store.yaml").write_text(
+        "project: test_project\n"
+        "provider: local\n"
+        f"registry: {tmp_path / 'registry.db'}\n"
+        "entity_key_serialization_version: 3\n"
+        "online_store:\n"
+        "  type: sqlite\n"
+        "auth:\n"
+        "  type: no_auth\n"
+        "  feature_server_report_auth: off\n"
+    )
+    config = load_repo_config(tmp_path, tmp_path / "feature_store.yaml")
+    assert config.auth_config.feature_server_report_auth == "off"

@@ -49,6 +49,10 @@ from feast.infra.offline_stores.contrib.spark_offline_store.spark_source import 
 )
 from feast.infra.registry import proto_registry_utils
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.infra.registry.feature_server_reports import (
+    FeatureServerRecord,
+    FeatureServerReport,
+)
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.permission import Permission
 from feast.project import Project
@@ -1030,3 +1034,44 @@ class HttpRegistry(BaseRegistry):
 
     def get_project_metadata(self, project: str, key: str) -> Optional[str]:
         pass
+
+    def report_feature_server(
+        self,
+        project: str,
+        report: FeatureServerReport,
+        verified: bool = False,
+        identity: Optional[str] = None,
+    ) -> bool:
+        """POST the report to ``/projects/{project}/feature_servers``.
+
+        ``verified`` and ``identity`` are ignored: the registry decides them.
+        The route answers 204 whether the record was written or unchanged,
+        so this returns True on success.
+        """
+        url = f"{self.base_url}/projects/{project}/feature_servers"
+        try:
+            request = httpx.Request(
+                method="POST",
+                url=url,
+                content=report.model_dump_json(),
+                headers={"Content-Type": "application/json"},
+            )
+            response = self.http_client.send(request)
+            response.raise_for_status()
+        except Exception as exception:
+            self._handle_exception(exception)
+        return True
+
+    def list_feature_servers(  # type: ignore[return]
+        self, project: str
+    ) -> List[FeatureServerRecord]:
+        """GET ``/projects/{project}/feature_servers``, sorted by key."""
+        try:
+            url = f"{self.base_url}/projects/{project}/feature_servers"
+            response_data = self._send_request("GET", url)
+            records = [
+                FeatureServerRecord.model_validate(item) for item in response_data
+            ]
+            return sorted(records, key=lambda record: record.key)
+        except Exception as exception:
+            self._handle_exception(exception)

@@ -44,8 +44,22 @@ WRITE_RPC_METHODS = frozenset(
 )
 
 
+# "Report write" RPCs: a running feature server reports its own URLs. These
+# write project metadata, never feature definitions, so they are deliberately
+# NOT in WRITE_RPC_METHODS: auth_config.feature_server_report_auth governs
+# them (off -> optional -> required) under WritePathAuthInterceptor. Moving a
+# method between the two sets must be a deliberate change (a test pins it).
+REPORT_RPC_METHODS = frozenset({f"{_REGISTRY_SERVICE}/ReportFeatureServer"})
+
+FEATURE_SERVER_REPORT_AUTH_SETTINGS = ("off", "optional", "required")
+
+
 def is_write_rpc(method: Optional[str]) -> bool:
     return bool(method) and method in WRITE_RPC_METHODS
+
+
+def is_report_rpc(method: Optional[str]) -> bool:
+    return bool(method) and method in REPORT_RPC_METHODS
 
 
 class AuthInterceptor(grpc.ServerInterceptor):
@@ -73,18 +87,82 @@ class WritePathAuthInterceptor(grpc.ServerInterceptor):
 
     Non-write methods (Get/List/Health/reflection/Refresh/Expedia search) pass
     through with no token and no RBAC.
+
+    REPORT_RPC_METHODS follow feature_server_report_auth: "off" passes through
+    with no token parsed; "optional" authenticates when an authorization
+    header is present and continues unverified (with a warning) when it is
+    invalid; "required" authenticates like a write.
     """
+
+    def __init__(self, feature_server_report_auth: str = "off"):
+        if feature_server_report_auth not in FEATURE_SERVER_REPORT_AUTH_SETTINGS:
+            raise ValueError(
+                "feature_server_report_auth must be one of "
+                f"{FEATURE_SERVER_REPORT_AUTH_SETTINGS}, got "
+                f"{feature_server_report_auth!r}"
+            )
+        self.feature_server_report_auth = feature_server_report_auth
 
     def intercept_service(self, continuation, handler_call_details):
         handler = continuation(handler_call_details)
         if handler is None:
             return None
 
-        if not is_write_rpc(handler_call_details.method):
+        method = handler_call_details.method
+        if is_report_rpc(method):
+            if self.feature_server_report_auth == "off":
+                return handler
+            metadata = dict(handler_call_details.invocation_metadata or ())
+            if self.feature_server_report_auth == "optional":
+                return _wrap_optionally_authenticated_handler(handler, metadata)
+            return _wrap_authenticated_handler(handler, metadata)
+
+        if not is_write_rpc(method):
             return handler
 
         metadata = dict(handler_call_details.invocation_metadata or ())
         return _wrap_authenticated_handler(handler, metadata)
+
+
+def _has_authorization_header(metadata: dict) -> bool:
+    return any(str(header).lower() == "authorization" for header in metadata)
+
+
+def _wrap_optionally_authenticated_handler(handler, metadata: dict):
+    if not handler.unary_unary:
+        # Report RPCs are unary; anything else gets the strict wrapper.
+        return _wrap_authenticated_handler(handler, metadata)
+    return grpc.unary_unary_rpc_method_handler(
+        lambda req, ctx: _optionally_authenticate_and_call(
+            handler.unary_unary, req, ctx, metadata
+        ),
+        request_deserializer=handler.request_deserializer,
+        response_serializer=handler.response_serializer,
+    )
+
+
+def _optionally_authenticate_and_call(
+    behavior: Callable[..., Any], request, context, metadata: dict
+):
+    """Set the current user when a valid token comes with the call; otherwise
+    run the handler with no user (an unverified report)."""
+    sm = get_security_manager()
+    user_token: Optional[Token] = None
+    request_id_token: Optional[Token] = None
+    try:
+        if _has_authorization_header(metadata):
+            try:
+                user_token, request_id_token = _set_user_from_metadata(metadata)
+            except AuthenticationError as e:
+                logger.warning(
+                    "Ignoring invalid token on a feature server report; "
+                    "continuing unverified: %s",
+                    e,
+                )
+        return behavior(request, context)
+    finally:
+        if sm is not None:
+            sm.reset_request_context(user_token, request_id_token)
 
 
 def _wrap_authenticated_handler(handler, metadata: dict):

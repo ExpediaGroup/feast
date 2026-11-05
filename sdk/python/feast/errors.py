@@ -550,3 +550,81 @@ class FeastBadRequest(FeastError):
 
     def http_status_code(self) -> int:
         return HttpStatusCode.HTTP_400_BAD_REQUEST
+
+
+class FeatureServerReportError(FeastError):
+    """Base class for feature server report outcomes other than success.
+
+    `reason` is a short, stable code (e.g. "invalid_url", "too_many_urls")
+    used in the outcome log line and metric tags; the message carries detail.
+    """
+
+    default_reason = "error"
+
+    def __init__(self, message: str, reason: Optional[str] = None):
+        super().__init__(message)
+        self._reason = reason or self.default_reason
+
+    @property
+    def reason(self) -> str:
+        # Instances rebuilt by FeastError.from_error_detail skip __init__.
+        return getattr(self, "_reason", self.default_reason)
+
+
+class FeatureServerReportInvalid(FeatureServerReportError):
+    """The report is malformed: bad URL, bad label key, contract < 1."""
+
+    default_reason = "invalid"
+
+    def grpc_status_code(self) -> "GrpcStatusCode":
+        from grpc import StatusCode as GrpcStatusCode
+
+        return GrpcStatusCode.INVALID_ARGUMENT
+
+    def http_status_code(self) -> int:
+        return HttpStatusCode.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+class FeatureServerReportLimitExceeded(FeatureServerReportError):
+    """The report, or the project's stored reports, exceed a size limit."""
+
+    default_reason = "limit_exceeded"
+
+    def grpc_status_code(self) -> "GrpcStatusCode":
+        from grpc import StatusCode as GrpcStatusCode
+
+        return GrpcStatusCode.RESOURCE_EXHAUSTED
+
+    def http_status_code(self) -> int:
+        return HttpStatusCode.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+class FeatureServerReportsDisabled(FeatureServerReportError):
+    """The registry has feature server reports switched off."""
+
+    default_reason = "disabled"
+
+    def __init__(self, message: str = "Feature server reports are disabled"):
+        super().__init__(message)
+
+    def grpc_status_code(self) -> "GrpcStatusCode":
+        from grpc import StatusCode as GrpcStatusCode
+
+        return GrpcStatusCode.UNAVAILABLE
+
+    def http_status_code(self) -> int:
+        return HttpStatusCode.HTTP_503_SERVICE_UNAVAILABLE
+
+
+class FeatureServerReportUnavailable(FeatureServerReportError):
+    """The registry database could not store or read the report."""
+
+    default_reason = "db_unavailable"
+
+    def grpc_status_code(self) -> "GrpcStatusCode":
+        from grpc import StatusCode as GrpcStatusCode
+
+        return GrpcStatusCode.UNAVAILABLE
+
+    def http_status_code(self) -> int:
+        return HttpStatusCode.HTTP_503_SERVICE_UNAVAILABLE
