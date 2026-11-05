@@ -16,6 +16,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/registry"
 	"github.com/feast-dev/feast/go/internal/feast/server"
 	"github.com/feast-dev/feast/go/internal/feast/server/logging"
+	"github.com/feast-dev/feast/go/internal/feast/server/reporter"
 	"github.com/feast-dev/feast/go/internal/feast/version"
 	"github.com/rs/zerolog/log"
 
@@ -138,6 +139,25 @@ func main() {
 
 }
 
+// startFeatureServerReporter starts the background feature server reporter
+// (FEATURE_SERVER_REPORTING) over the registry this server already uses, in
+// every serving mode. The registry type, not the serving mode, picks the
+// transport; the mode only shows in the advertised URLs the environment sets.
+// It returns a function that stops the reporter; it never affects serving.
+func startFeatureServerReporter(fs *feast.FeatureStore, config *registry.RepoConfig) func() {
+	if fs == nil {
+		return func() {}
+	}
+	if config == nil {
+		config = fs.GetRepoConfig()
+	}
+	project := ""
+	if config != nil {
+		project = config.Project
+	}
+	return reporter.Start(fs.Registry(), project, os.Getenv, version.GetVersionInfo().Version)
+}
+
 func datadogTracingEnabled() bool {
 	return strings.ToLower(os.Getenv("ENABLE_DATADOG_TRACING")) == "true"
 }
@@ -215,6 +235,7 @@ func StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingServi
 	}
 
 	grpcServer := ser.RegisterServices()
+	stopReporter := startFeatureServerReporter(fs, config)
 
 	// Running Prometheus metrics endpoint on a separate goroutine
 	go func() {
@@ -230,6 +251,7 @@ func StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingServi
 		// As soon as these signals are received from OS, try to gracefully stop the gRPC server
 		<-stop
 		log.Info().Msg("Stopping the gRPC server...")
+		stopReporter()
 		grpcServer.GracefulStop()
 		if loggingService != nil {
 			loggingService.Stop()
@@ -244,6 +266,7 @@ func StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingServi
 func StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
 	ser := server.NewHttpServer(fs, loggingService, metricsClient, config)
 	log.Info().Msgf("Starting a HTTP server on host %s, port %d", host, port)
+	stopReporter := startFeatureServerReporter(fs, config)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -252,6 +275,7 @@ func StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingServi
 		// As soon as these signals are received from OS, try to gracefully stop the HTTP server
 		<-stop
 		log.Info().Msg("Stopping the HTTP server...")
+		stopReporter()
 		err := ser.Stop()
 		if err != nil {
 			log.Error().Err(err).Msg("Error when stopping the HTTP server")
@@ -283,12 +307,14 @@ func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPo
 
 	httpSer := server.NewHttpServer(fs, loggingService, metricsClient, config)
 	log.Info().Msgf("Starting a HTTP server on host %s, port %d", host, httpPort)
+	stopReporter := startFeatureServerReporter(fs, config)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-stop
+		stopReporter()
 		log.Info().Msg("Stopping the HTTP server...")
 		err := httpSer.Stop()
 		if err != nil {
