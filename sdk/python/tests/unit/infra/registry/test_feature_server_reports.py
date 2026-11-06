@@ -281,7 +281,8 @@ class TestErrors:
                 grpc.StatusCode.RESOURCE_EXHAUSTED,
                 422,
             ),
-            (FeatureServerReportsDisabled(), grpc.StatusCode.UNAVAILABLE, 503),
+            # A setting, not an outage: never treated as retryable.
+            (FeatureServerReportsDisabled(), grpc.StatusCode.FAILED_PRECONDITION, 409),
             (FeatureServerReportUnavailable("x"), grpc.StatusCode.UNAVAILABLE, 503),
         ],
     )

@@ -4,6 +4,9 @@ package reporter
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +81,12 @@ func TestConfigFromEnv_BadUrlsIgnoredWithWarning(t *testing.T) {
 		"https://",                            // no host
 		"https://user:secret@app.example.net", // credentials
 		"external=not a url",
+		"https://app.example.net:99999",       // port out of range
+		"https://app.example.net:0",           // port out of range
+		"https://app.example.net:",            // empty port
+		"https://app.exa\u0007mple.net",       // control character
+		"https://app.example.net/" + strings.Repeat("a", MaxUrlLength), // too long
+		strings.Repeat("s", MaxScopeLength+1) + "=https://app.example.net", // scope too long
 	}
 	for _, entry := range bad {
 		t.Run(entry, func(t *testing.T) {
@@ -126,4 +135,96 @@ func TestConfigFromEnv_Interval(t *testing.T) {
 			assert.Equal(t, want, ConfigFromEnv(envOf(map[string]string{EnvInterval: raw}), "v").Interval)
 		})
 	}
+}
+
+
+func TestConfigFromEnv_DuplicateUrlDropped(t *testing.T) {
+	logs := captureLogs(t)
+	cfg := ConfigFromEnv(envOf(map[string]string{
+		EnvAdvertisedUrls: "external=https://a.example.net,nearest=https://a.example.net",
+	}), "v")
+	assert.Equal(t, []AdvertisedUrl{{Url: "https://a.example.net", Scope: "external"}}, cfg.Urls)
+	assert.Contains(t, logs.String(), "duplicate URL")
+}
+
+func TestConfigFromEnv_AtMostMaxUrlsKeepingTheFirst(t *testing.T) {
+	entries := make([]string, 0, MaxUrls+3)
+	for i := 0; i < MaxUrls+3; i++ {
+		entries = append(entries, fmt.Sprintf("https://h%d.example.net", i))
+	}
+	logs := captureLogs(t)
+	cfg := ConfigFromEnv(envOf(map[string]string{EnvAdvertisedUrls: strings.Join(entries, ",")}), "v")
+	assert.Len(t, cfg.Urls, MaxUrls)
+	assert.Equal(t, "https://h0.example.net", cfg.Urls[0].Url)
+	assert.Equal(t, fmt.Sprintf("https://h%d.example.net", MaxUrls-1), cfg.Urls[MaxUrls-1].Url)
+	assert.Contains(t, logs.String(), "at most")
+}
+
+func TestConfigFromEnv_ReportKeptUnderSizeLimit(t *testing.T) {
+	// Ten URLs each just under the length limit add up to more than 16 KB.
+	entries := make([]string, 0, MaxUrls)
+	for i := 0; i < MaxUrls; i++ {
+		base := fmt.Sprintf("https://h%d.example.net/", i)
+		entries = append(entries, base+strings.Repeat("a", MaxUrlLength-len(base)))
+	}
+	logs := captureLogs(t)
+	cfg := ConfigFromEnv(envOf(map[string]string{EnvAdvertisedUrls: strings.Join(entries, ",")}), "v")
+	assert.Less(t, len(cfg.Urls), MaxUrls)
+	assert.NotEmpty(t, cfg.Urls)
+	assert.Equal(t, entries[0], cfg.Urls[0].Url, "the first URLs are kept")
+	assert.LessOrEqual(t, reportSize(cfg, cfg.Urls), MaxReportBytes)
+	assert.Contains(t, logs.String(), "under")
+
+	// The registry measures the JSON it receives; check the real encoding too.
+	type u struct {
+		Url   string `json:"url"`
+		Scope string `json:"scope"`
+	}
+	var urls []u
+	for _, x := range cfg.Urls {
+		urls = append(urls, u{x.Url, x.Scope})
+	}
+	encoded, _ := json.Marshal(map[string]any{"contract": 1, "urls": urls, "version": cfg.Version, "registry": "grpc", "labels": cfg.Labels})
+	assert.LessOrEqual(t, len(encoded), MaxReportBytes)
+}
+
+func TestConfigFromEnv_BadLabelsDropped(t *testing.T) {
+	logs := captureLogs(t)
+	cfg := ConfigFromEnv(envOf(map[string]string{
+		EnvLabels: strings.Join([]string{
+			"app=ok",
+			strings.Repeat("k", MaxLabelKeyLength+1) + "=v",
+			"long=" + strings.Repeat("v", MaxLabelValueLength+1),
+			"ctl=a\u0001b",
+		}, ","),
+	}), "v")
+	assert.Equal(t, map[string]string{"app": "ok"}, cfg.Labels)
+	assert.Equal(t, 3, strings.Count(logs.String(), `"level":"warn"`))
+}
+
+func TestConfigFromEnv_AtMostMaxLabels(t *testing.T) {
+	entries := make([]string, 0, MaxLabels+5)
+	for i := 0; i < MaxLabels+5; i++ {
+		entries = append(entries, fmt.Sprintf("k%02d=v", i))
+	}
+	captureLogs(t)
+	cfg := ConfigFromEnv(envOf(map[string]string{EnvLabels: strings.Join(entries, ",")}), "v")
+	assert.Len(t, cfg.Labels, MaxLabels)
+	assert.Contains(t, cfg.Labels, "k00")
+	assert.NotContains(t, cfg.Labels, fmt.Sprintf("k%02d", MaxLabels), "kept deterministically: the first keys in order")
+}
+
+func TestConfigFromEnv_BadVersionFallsBackToBuildVersion(t *testing.T) {
+	for _, bad := range []string{strings.Repeat("v", MaxVersionLength+1), "v1\nv2"} {
+		captureLogs(t)
+		cfg := ConfigFromEnv(envOf(map[string]string{EnvVersion: bad}), "build-1")
+		assert.Equal(t, "build-1", cfg.Version)
+	}
+}
+
+func TestConfigFromEnv_ValidPortsKept(t *testing.T) {
+	cfg := ConfigFromEnv(envOf(map[string]string{
+		EnvAdvertisedUrls: "a=grpcs://h.example.net:1,b=grpcs://h.example.net:65535,c=https://h.example.net",
+	}), "v")
+	assert.Len(t, cfg.Urls, 3)
 }

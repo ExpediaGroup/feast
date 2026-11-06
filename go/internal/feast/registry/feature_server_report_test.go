@@ -301,3 +301,25 @@ func TestRegistryFeatureServerReportTransport(t *testing.T) {
 	_, ok = (&Registry{registryStore: &S3RegistryStore{}}).FeatureServerReportTransport()
 	assert.False(t, ok)
 }
+
+
+func TestHttpReportFeatureServer_ConflictMeansDisabled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"detail":{"reason":"reports_disabled"}}`))
+	}))
+	defer server.Close()
+
+	reportErr := asReportError(t, newReportHttpStore(server.URL).ReportFeatureServer(context.Background(), sampleReport("http")))
+	assert.True(t, reportErr.Disabled)
+	assert.False(t, reportErr.Retryable)
+	assert.Equal(t, "disabled", reportErr.Outcome)
+}
+
+func TestGrpcReportFeatureServer_FailedPreconditionMeansDisabled(t *testing.T) {
+	store := newReportGrpcStore(t, &reportRegistryServer{err: status.Error(codes.FailedPrecondition, "reports are disabled")})
+	reportErr := asReportError(t, store.ReportFeatureServer(context.Background(), sampleReport("grpc")))
+	assert.True(t, reportErr.Disabled)
+	assert.False(t, reportErr.Retryable)
+	assert.Equal(t, "disabled", reportErr.Outcome)
+}

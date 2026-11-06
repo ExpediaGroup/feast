@@ -600,7 +600,11 @@ class FeatureServerReportLimitExceeded(FeatureServerReportError):
 
 
 class FeatureServerReportsDisabled(FeatureServerReportError):
-    """The registry has feature server reports switched off."""
+    """The registry has feature server reports switched off.
+
+    A setting, not an outage: FAILED_PRECONDITION / 409, so feature servers
+    don't treat it as retryable (UNAVAILABLE / 503 means the database is down).
+    """
 
     default_reason = "disabled"
 
@@ -610,10 +614,10 @@ class FeatureServerReportsDisabled(FeatureServerReportError):
     def grpc_status_code(self) -> "GrpcStatusCode":
         from grpc import StatusCode as GrpcStatusCode
 
-        return GrpcStatusCode.UNAVAILABLE
+        return GrpcStatusCode.FAILED_PRECONDITION
 
     def http_status_code(self) -> int:
-        return HttpStatusCode.HTTP_503_SERVICE_UNAVAILABLE
+        return HttpStatusCode.HTTP_409_CONFLICT
 
 
 class FeatureServerReportUnavailable(FeatureServerReportError):

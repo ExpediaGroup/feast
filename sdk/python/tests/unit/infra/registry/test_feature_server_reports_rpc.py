@@ -286,7 +286,7 @@ class TestHttpRegistryFeatureServers:
         assert FeatureServerReport.model_validate(seen["body"]) == _report()
         assert seen["body"]["contract"] == 1
 
-    @pytest.mark.parametrize("status", [404, 413, 422, 503])
+    @pytest.mark.parametrize("status", [404, 409, 413, 422, 503])
     def test_report_error_status_raises(self, http_registry_factory, status):
         registry = http_registry_factory(
             lambda request: httpx.Response(status, json={"detail": "x"})
@@ -313,6 +313,31 @@ class TestHttpRegistryFeatureServers:
         assert records == sorted([record, other], key=lambda r: r.key)
         assert all(isinstance(r, FeatureServerRecord) for r in records)
         assert records[0].last_seen.tzinfo is not None
+
+    @pytest.mark.parametrize(
+        "project,encoded",
+        [
+            ("a/b", "a%2Fb"),
+            ("p?x=1", "p%3Fx%3D1"),
+            ("p#frag", "p%23frag"),
+            ("with space", "with%20space"),
+            ("plain_project", "plain_project"),
+        ],
+    )
+    def test_project_is_escaped_in_the_path(
+        self, http_registry_factory, project, encoded
+    ):
+        """Same route as the Go reporter, which uses url.PathEscape."""
+        paths = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            paths.append(request.url.raw_path.decode())
+            return httpx.Response(204 if request.method == "POST" else 200, json=[])
+
+        registry = http_registry_factory(handler)
+        registry.report_feature_server(project, _report())
+        registry.list_feature_servers(project)
+        assert paths == [f"/projects/{encoded}/feature_servers"] * 2
 
     def test_list_error_status_raises(self, http_registry_factory):
         registry = http_registry_factory(lambda request: httpx.Response(503))

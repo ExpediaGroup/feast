@@ -41,7 +41,7 @@ type Reporter struct {
 	RetryDelay time.Duration
 	Timeout    time.Duration
 	Clock      Clock
-	// Offset picks the delay from start to the first periodic report, in [0, interval).
+	// Offset picks the delay from start to the first periodic report, in [interval/2, interval).
 	Offset func(interval time.Duration) time.Duration
 }
 
@@ -60,11 +60,15 @@ func New(cfg Config, transport registry.FeatureServerReportTransport, project st
 	}
 }
 
+// randomOffset picks the first periodic report's delay in [interval/2,
+// interval): spread across pods, but always well after the startup report,
+// so a rollout doesn't make every new pod call the registry twice.
 func randomOffset(interval time.Duration) time.Duration {
 	if interval <= 0 {
 		return 0
 	}
-	return rand.N(interval)
+	half := interval / 2
+	return half + rand.N(interval-half)
 }
 
 func buildReport(cfg Config, registryType string) *registryPb.FeatureServerReport {
@@ -162,6 +166,11 @@ func (r *Reporter) send(ctx context.Context, isRetry bool) (retry bool) {
 	var reportErr *registry.FeatureServerReportError
 	if !errors.As(err, &reportErr) {
 		reportErr = &registry.FeatureServerReportError{Retryable: true, Outcome: "error", Err: err}
+	}
+	if reportErr.Disabled {
+		log.Info().Str("project", r.project).Str("registry", r.report.GetRegistry()).Str("app", app).
+			Msg("feature_server_report outcome=disabled; the registry has reports switched off, not retrying")
+		return false
 	}
 	event := log.Warn().Err(err).Str("project", r.project).Str("registry", r.report.GetRegistry()).
 		Str("app", app).Str("outcome", reportErr.Outcome).Bool("retry", isRetry)

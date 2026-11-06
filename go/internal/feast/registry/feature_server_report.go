@@ -41,6 +41,10 @@ type FeatureServerReportTransport interface {
 // INVALID_ARGUMENT, NOT_FOUND, RESOURCE_EXHAUSTED, UNAUTHENTICATED, ...).
 type FeatureServerReportError struct {
 	Retryable bool
+	// Disabled is set when the registry has feature server reports switched
+	// off (gRPC FAILED_PRECONDITION, HTTP 409). It is a setting, not an outage,
+	// so it is never retried.
+	Disabled bool
 	// Outcome is a short label for logs: an HTTP status code, a gRPC code
 	// name, or "no_response".
 	Outcome string
@@ -140,6 +144,8 @@ func classifyHttpReportStatus(code int, detail string) error {
 	switch {
 	case code >= 200 && code < 300:
 		return nil
+	case code == http.StatusConflict:
+		return &FeatureServerReportError{Disabled: true, Outcome: "disabled", Detail: detail}
 	case code >= 500:
 		return &FeatureServerReportError{Retryable: true, Outcome: fmt.Sprintf("http_%d", code), Detail: detail}
 	default:
@@ -171,6 +177,9 @@ func classifyGrpcReportError(err error) error {
 	code := st.Code()
 	if errors.Is(err, context.DeadlineExceeded) {
 		code = codes.DeadlineExceeded
+	}
+	if code == codes.FailedPrecondition {
+		return &FeatureServerReportError{Disabled: true, Outcome: "disabled", Detail: st.Message()}
 	}
 	retryable := code == codes.Unavailable || code == codes.DeadlineExceeded
 	return &FeatureServerReportError{Retryable: retryable, Outcome: code.String(), Detail: st.Message()}

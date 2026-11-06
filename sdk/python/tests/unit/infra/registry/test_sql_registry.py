@@ -2110,17 +2110,23 @@ class TestSqlRegistryFeatureServerReports:
         assert _feature_server_rows(sqlite_registry_reports) == []
 
     def test_cap_of_50_records_per_project(self, sqlite_registry_reports):
-        with _report_clock(_REPORT_T0):
-            for i in range(50):
+        for i in range(50):
+            with _report_clock(_REPORT_T0 + timedelta(minutes=i)):
                 sqlite_registry_reports.report_feature_server(
                     "test_project", _fs_report(f"h{i}")
                 )
-            with pytest.raises(FeatureServerReportLimitExceeded) as exc:
-                sqlite_registry_reports.report_feature_server(
-                    "test_project", _fs_report("h50")
-                )
-        assert exc.value.reason == "too_many_records"
+        # At the cap a new record replaces the least recently seen one, so a
+        # project never stops accepting new servers while auth is off.
+        with _report_clock(_REPORT_T0 + timedelta(hours=1)):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("h50")
+            )
         assert len(_feature_server_rows(sqlite_registry_reports)) == 50
+        apps = {
+            r.labels["app"]
+            for r in sqlite_registry_reports.list_feature_servers("test_project")
+        }
+        assert "h50" in apps and "h0" not in apps and "h1" in apps
         # Updating an existing record still works at the cap.
         with _report_clock(_REPORT_T0 + timedelta(hours=2)):
             assert sqlite_registry_reports.report_feature_server(
@@ -2375,13 +2381,50 @@ class TestSqlRegistryFeatureServerReportTrust:
         assert len(apps) == 50
         assert "new" in apps and "h0" in apps and "h1" not in apps
 
-    def test_unverified_report_still_rejected_at_cap(self, sqlite_registry_reports):
+    def test_unverified_report_evicts_least_recently_seen_unverified(
+        self, sqlite_registry_reports
+    ):
         self._fill_to_cap(sqlite_registry_reports)
         with _report_clock(_REPORT_T0 + timedelta(hours=2)):
-            with pytest.raises(FeatureServerReportLimitExceeded):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("new"), identity="someone"
+            )
+        apps = {
+            r.labels["app"]
+            for r in sqlite_registry_reports.list_feature_servers("test_project")
+        }
+        assert len(apps) == 50
+        assert "new" in apps and "h0" not in apps
+
+    def test_unverified_report_never_evicts_a_verified_record(
+        self, sqlite_registry_reports
+    ):
+        # h0..h48 verified (h0 is the least recently seen); only h49 is not.
+        self._fill_to_cap(
+            sqlite_registry_reports, verified_hosts={f"h{i}" for i in range(49)}
+        )
+        with _report_clock(_REPORT_T0 + timedelta(hours=2)):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("new")
+            )
+        apps = {
+            r.labels["app"]
+            for r in sqlite_registry_reports.list_feature_servers("test_project")
+        }
+        assert "new" in apps and "h49" not in apps and "h0" in apps
+
+    def test_unverified_report_rejected_when_all_verified(
+        self, sqlite_registry_reports
+    ):
+        self._fill_to_cap(
+            sqlite_registry_reports, verified_hosts={f"h{i}" for i in range(50)}
+        )
+        with _report_clock(_REPORT_T0 + timedelta(hours=2)):
+            with pytest.raises(FeatureServerReportLimitExceeded) as exc:
                 sqlite_registry_reports.report_feature_server(
-                    "test_project", _fs_report("new"), identity="someone"
+                    "test_project", _fs_report("new")
                 )
+        assert exc.value.reason == "too_many_records"
         assert len(_feature_server_rows(sqlite_registry_reports)) == 50
 
     def test_verified_report_rejected_when_all_verified(self, sqlite_registry_reports):
@@ -2563,3 +2606,30 @@ class TestSqlRegistryFeatureServerReportsReviewFixes:
         assert len(record.versions) == MAX_VERSIONS_PER_RECORD
         assert f"build-{MAX_VERSIONS_PER_RECORD + 4}" in record.versions
         assert "build-0" not in record.versions
+
+
+class TestSqlRegistryFeatureServerListing:
+    def test_expired_records_are_not_listed(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("old")
+            )
+        with _report_clock(_REPORT_T0 + timedelta(days=20)):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report("new")
+            )
+
+        def listed_at(at):
+            with _report_clock(at):
+                return {
+                    r.labels["app"]
+                    for r in sqlite_registry_reports.list_feature_servers(
+                        "test_project"
+                    )
+                }
+
+        # No write happens after day 20, so nothing deletes "old"; listing
+        # must still leave it out once it is past the 30-day retention.
+        assert listed_at(_REPORT_T0 + timedelta(days=29)) == {"old", "new"}
+        assert listed_at(_REPORT_T0 + timedelta(days=31)) == {"new"}
+        assert listed_at(_REPORT_T0 + timedelta(days=51)) == set()

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Lock
 from typing import Any, List, Optional, Set, Union
+from urllib.parse import quote
 
 import httpx
 from httpx import HTTPStatusError
@@ -1048,7 +1049,7 @@ class HttpRegistry(BaseRegistry):
         The route answers 204 whether the record was written or unchanged,
         so this returns True on success.
         """
-        url = f"{self.base_url}/projects/{project}/feature_servers"
+        url = f"{self.base_url}/projects/{quote(project, safe='')}/feature_servers"
         try:
             request = httpx.Request(
                 method="POST",
@@ -1067,7 +1068,7 @@ class HttpRegistry(BaseRegistry):
     ) -> List[FeatureServerRecord]:
         """GET ``/projects/{project}/feature_servers``, sorted by key."""
         try:
-            url = f"{self.base_url}/projects/{project}/feature_servers"
+            url = f"{self.base_url}/projects/{quote(project, safe='')}/feature_servers"
             response_data = self._send_request("GET", url)
             records = [
                 FeatureServerRecord.model_validate(item) for item in response_data

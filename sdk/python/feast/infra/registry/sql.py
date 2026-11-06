@@ -2577,21 +2577,18 @@ class SqlRegistry(CachingRegistry):
             value = fsr.record_to_json(merged)
             if key not in records:
                 if len(records) >= fsr.MAX_RECORDS_PER_PROJECT:
-                    evict = (
-                        self._feature_server_record_to_evict(records)
-                        if merged.verified
-                        else None
-                    )
+                    evict = self._feature_server_record_to_evict(records)
                     if evict is None:
                         raise FeatureServerReportLimitExceeded(
                             f"Project {project} already has "
-                            f"{fsr.MAX_RECORDS_PER_PROJECT} feature server records",
+                            f"{fsr.MAX_RECORDS_PER_PROJECT} verified feature "
+                            "server records",
                             reason="too_many_records",
                         )
                     self.delete_project_metadata(project, evict, conn)
                     logger.info(
                         "Evicted feature server record %s in project %s to make "
-                        "room for a verified report",
+                        "room for a new record",
                         evict,
                         project,
                     )
@@ -2614,9 +2611,10 @@ class SqlRegistry(CachingRegistry):
     def _feature_server_record_to_evict(
         records: Dict[str, Optional["fsr.FeatureServerRecord"]],
     ) -> Optional[str]:
-        """At the cap, a verified report may replace an unverified record:
-        an unreadable row first, else the least recently seen unverified
-        record. None when every record is verified."""
+        """At the cap, a new record replaces the least recently seen
+        unverified record, so a project never stops accepting new servers
+        (URL changes and short-lived servers add records). Verified records
+        are never pushed out. None when every record is verified."""
         unreadable = sorted(k for k, record in records.items() if record is None)
         if unreadable:
             return unreadable[0]
@@ -2631,7 +2629,8 @@ class SqlRegistry(CachingRegistry):
         """List a project's stored feature server records, sorted by key.
 
         Works whether or not reports are enabled; an unknown project has no
-        records. Unreadable rows are skipped with a warning.
+        records. Unreadable rows are skipped with a warning, and records not
+        seen within the retention window are left out.
         """
         try:
             stored = self.list_project_metadata_by_prefix(
@@ -2642,15 +2641,21 @@ class SqlRegistry(CachingRegistry):
                 f"Could not read feature server records: {type(e).__name__}"
             ) from e
         records = []
+        now = _utc_now()
         for key in sorted(stored):
             try:
-                records.append(fsr.record_from_json(key, stored[key]))
+                record = fsr.record_from_json(key, stored[key])
             except Exception:
                 logger.warning(
                     "Ignoring unreadable feature server record %s in project %s",
                     key,
                     project,
                 )
+                continue
+            # Expired records are only deleted on a write to the project, so
+            # a project that stops getting reports would list them forever.
+            if not fsr.is_record_expired(record, now):
+                records.append(record)
         return records
 
     def get_project_metadata_model(

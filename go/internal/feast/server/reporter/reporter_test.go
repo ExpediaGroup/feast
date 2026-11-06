@@ -192,7 +192,9 @@ func TestNew_BuildsReport(t *testing.T) {
 func TestRandomOffsetWithinInterval(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		d := randomOffset(24 * time.Hour)
-		assert.GreaterOrEqual(t, d, time.Duration(0))
+		// Never in the first half, so the first periodic report is always
+		// well after the startup one (no double call per pod in a rollout).
+		assert.GreaterOrEqual(t, d, 12*time.Hour)
 		assert.Less(t, d, 24*time.Hour)
 	}
 	assert.Equal(t, time.Duration(0), randomOffset(0))
@@ -422,4 +424,19 @@ func TestStart_FileRegistryIsSkipped(t *testing.T) {
 func TestStart_NilRegistryIsSkipped(t *testing.T) {
 	stop := Start(nil, "my_project", envOf(map[string]string{EnvReporting: "on"}), "v")
 	stop()
+}
+
+
+func TestRun_DisabledRegistryIsNotRetriedAndLogsInfo(t *testing.T) {
+	logs := captureLogs(t)
+	clock := newFakeClock()
+	disabled := &registry.FeatureServerReportError{Disabled: true, Outcome: "disabled"}
+	transport := newFakeTransport(clock, disabled)
+	startTestReporter(t, transport, clock, 10*time.Hour)
+
+	transport.nextCall(t)
+	w := clock.nextWait(t)
+	assert.Equal(t, 10*time.Hour, w.d, "reports switched off is a setting, not an outage: no retry")
+	assert.Contains(t, logs.String(), "outcome=disabled")
+	assert.NotContains(t, logs.String(), `"level":"warn"`)
 }
