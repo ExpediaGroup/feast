@@ -914,3 +914,65 @@ def test_report_verified_only_when_identity_hook_accepts(
     finally:
         channel.close()
         server.stop(grace=None)
+
+
+@pytest.mark.parametrize(
+    "header", ["Bearer a b", "Bearer  ", "Basic c2VjcmV0LWNyZWRz", "Token secret-creds"]
+)
+def test_report_auth_optional_malformed_header_stays_unverified(
+    tmp_path, rsa_keypair, monkeypatch, caplog, header
+):
+    """Optional mode never aborts on a bad Authorization header, and never
+    logs the header value (it can carry credentials)."""
+    _, public_key = rsa_keypair
+    patch_oidc_jwks(monkeypatch, public_key)
+    store = _store_sql_reports(tmp_path, _oidc_report_auth_config("optional"))
+    server, channel, stub, _ = _start_registry(store)
+    try:
+        with caplog.at_level("WARNING"):
+            stub.ReportFeatureServer(
+                _report_request(), metadata=(("authorization", header),)
+            )
+        records = _listed(stub)
+        assert len(records) == 1
+        assert records[0].verified is False and records[0].identity == ""
+        secret = header.split(" ", 1)[1].strip()
+        if secret:
+            assert secret not in caplog.text
+    finally:
+        channel.close()
+        server.stop(grace=None)
+
+
+@pytest.mark.parametrize("header", ["Bearer a b", "Bearer  "])
+def test_report_auth_required_malformed_header_is_unauthenticated(
+    tmp_path, rsa_keypair, monkeypatch, header
+):
+    _, public_key = rsa_keypair
+    patch_oidc_jwks(monkeypatch, public_key)
+    store = _store_sql_reports(tmp_path, _oidc_report_auth_config("required"))
+    server, channel, stub, _ = _start_registry(store)
+    try:
+        with pytest.raises(grpc.RpcError) as exc:
+            stub.ReportFeatureServer(
+                _report_request(), metadata=(("authorization", header),)
+            )
+        assert exc.value.code() == grpc.StatusCode.UNAUTHENTICATED
+    finally:
+        channel.close()
+        server.stop(grace=None)
+
+
+def test_report_auth_setting_without_write_path_auth_warns(caplog):
+    from feast.registry_server import _check_feature_server_report_auth
+
+    config = OidcAuthConfig(
+        type="oidc",
+        client_id="c",
+        auth_discovery_url="https://example.com/.well-known/openid-configuration",
+        write_auth_only=False,
+        feature_server_report_auth="optional",
+    )
+    with caplog.at_level("WARNING"):
+        _check_feature_server_report_auth(AuthManagerType.OIDC, config)
+    assert "only takes effect" in caplog.text

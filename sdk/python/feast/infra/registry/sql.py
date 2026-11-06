@@ -2396,9 +2396,12 @@ class SqlRegistry(CachingRegistry):
             feast_metadata.c.project_id == project,
             feast_metadata.c.metadata_key.startswith(prefix, autoescape=True),
         )
+        # LIKE is case-insensitive under MySQL's default collation; keep only
+        # exact-prefix keys so callers never see (or delete) other rows.
         return {
             str(row._mapping["metadata_key"]): str(row._mapping["metadata_value"])
             for row in conn.execute(stmt).all()
+            if str(row._mapping["metadata_key"]).startswith(prefix)
         }
 
     def delete_project_metadata(self, project: str, key: str, conn=None) -> bool:
@@ -2478,7 +2481,11 @@ class SqlRegistry(CachingRegistry):
         verified: bool,
         identity: Optional[str],
     ) -> bool:
-        if not self.registry_config.enable_feature_server_reports:
+        if (
+            not self.registry_config.enable_feature_server_reports
+            # Purge mode deletes feast_metadata on sync, reports included.
+            or self.purge_feast_metadata
+        ):
             raise FeatureServerReportsDisabled()
         fsr.validate_report(report)
         verified = bool(
@@ -2489,11 +2496,45 @@ class SqlRegistry(CachingRegistry):
         key = fsr.feature_server_key(report)
         now = _utc_now()
 
+        # Fast path, no lock: most reports repeat the stored record within the
+        # throttle window. Answer those without locking the projects row, which
+        # every pod's report and every apply would otherwise queue on.
+        with self.write_engine.begin() as conn:
+            current = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == project,
+                    feast_metadata.c.metadata_key == key,
+                )
+            ).first()
+            if current is not None:
+                try:
+                    existing_record = fsr.record_from_json(
+                        key, str(current._mapping["metadata_value"])
+                    )
+                except Exception:
+                    existing_record = None
+                if (
+                    existing_record is not None
+                    and fsr.merge_report(
+                        existing_record, report, now, verified, identity
+                    )
+                    is None
+                    and conn.execute(
+                        select(projects.c.project_id).where(
+                            projects.c.project_id == project
+                        )
+                    ).first()
+                    is not None
+                ):
+                    return False
+
         with self.write_engine.begin() as conn:
             # Lock the project row so a concurrent delete_project cannot
             # remove the project between this check and the metadata write,
             # which would leave a phantom project in get_all_project_metadata.
-            # Same lock order as _apply_object: projects, then feast_metadata.
+            # delete_project deletes child tables, then projects, then
+            # feast_metadata; this path locks projects, then writes only
+            # feature_server: rows, so the two cannot wait on each other.
             if (
                 conn.execute(
                     select(projects.c.project_id)
@@ -2525,10 +2566,10 @@ class SqlRegistry(CachingRegistry):
                 return False
 
             for stored_key, record in list(records.items()):
-                if (
-                    stored_key != key
-                    and record is not None
-                    and fsr.is_record_expired(record, now)
+                # Expired records and unreadable rows under our prefix are
+                # removed, so neither can hold the per-project cap forever.
+                if stored_key != key and (
+                    record is None or fsr.is_record_expired(record, now)
                 ):
                     self.delete_project_metadata(project, stored_key, conn)
                     del records[stored_key]

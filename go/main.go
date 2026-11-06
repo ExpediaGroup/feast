@@ -266,6 +266,12 @@ func StartGrpcServer(fs *feast.FeatureStore, host string, port int, loggingServi
 func StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingService *logging.LoggingService, metricsClient metrics.StatsdClient, config *registry.RepoConfig) error {
 	ser := server.NewHttpServer(fs, loggingService, metricsClient, config)
 	log.Info().Msgf("Starting a HTTP server on host %s, port %d", host, port)
+	// Bind before reporting, so the server never announces itself before
+	// its port accepts connections.
+	httpLis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+	if err != nil {
+		return err
+	}
 	stopReporter := startFeatureServerReporter(fs, config)
 
 	stop := make(chan os.Signal, 1)
@@ -286,7 +292,7 @@ func StartHttpServer(fs *feast.FeatureStore, host string, port int, loggingServi
 		log.Info().Msg("HTTP server terminated")
 	}()
 
-	return ser.Serve(host, port, server.DefaultHttpHandlers(ser))
+	return ser.ServeListener(httpLis, server.DefaultHttpHandlers(ser))
 }
 
 // StartHybridServer creates a gRPC Server and HTTP server
@@ -307,6 +313,12 @@ func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPo
 
 	httpSer := server.NewHttpServer(fs, loggingService, metricsClient, config)
 	log.Info().Msgf("Starting a HTTP server on host %s, port %d", host, httpPort)
+	// Bind both ports before reporting (see StartHttpServer).
+	httpLis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, httpPort))
+	if err != nil {
+		_ = lis.Close()
+		return err
+	}
 	stopReporter := startFeatureServerReporter(fs, config)
 
 	stop := make(chan os.Signal, 1)
@@ -331,7 +343,7 @@ func StartHybridServer(fs *feast.FeatureStore, host string, httpPort int, grpcPo
 	}()
 
 	go func() {
-		if err := httpSer.Serve(host, httpPort, server.DefaultHybridHandlers(httpSer, grpcPort)); err != nil && err != http.ErrServerClosed {
+		if err := httpSer.ServeListener(httpLis, server.DefaultHybridHandlers(httpSer, grpcPort)); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Msg("HTTP server failed")
 		}
 	}()

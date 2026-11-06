@@ -8,6 +8,7 @@ import (
 	"github.com/feast-dev/feast/go/internal/feast/version"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -794,6 +795,18 @@ func recoverMiddleware(next http.Handler) http.Handler {
 }
 
 func (s *HttpServer) Serve(host string, port int, handlers []Handler) error {
+	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+	if err != nil {
+		log.Fatal().Stack().Err(err).Msg("Failed to start HTTP server")
+		return err
+	}
+	return s.ServeListener(lis, handlers)
+}
+
+// ServeListener serves on a listener that is already bound, so a caller can
+// bind the port first and only then announce the server (e.g. the feature
+// server reporter).
+func (s *HttpServer) ServeListener(lis net.Listener, handlers []Handler) error {
 	if strings.ToLower(os.Getenv("ENABLE_DATADOG_TRACING")) == "true" {
 		tracer.Start(tracer.WithRuntimeMetrics())
 		defer tracer.Stop()
@@ -804,8 +817,8 @@ func (s *HttpServer) Serve(host string, port int, handlers []Handler) error {
 		mux.Handle(handler.Path, handler.HandlerFunc)
 	}
 
-	s.server = &http.Server{Addr: fmt.Sprintf("%s:%d", host, port), Handler: mux, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 15 * time.Second}
-	err := s.server.ListenAndServe()
+	s.server = &http.Server{Addr: lis.Addr().String(), Handler: mux, ReadTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 15 * time.Second}
+	err := s.server.Serve(lis)
 	// Don't return the error if it's caused by graceful shutdown using Stop()
 	if err == http.ErrServerClosed {
 		return nil

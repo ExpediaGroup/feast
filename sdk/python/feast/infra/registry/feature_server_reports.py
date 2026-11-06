@@ -48,6 +48,10 @@ MAX_REGISTRY_LENGTH = 32
 MAX_REPORT_BYTES = 16 * 1024
 MAX_RECORDS_PER_PROJECT = 50
 MAX_IDENTITY_LENGTH = 256
+# Versions kept per record. The 16 KB limit covers one report, not the stored
+# record, so a server that puts a build id in `version` and reports often
+# would otherwise grow its record until the column overflows.
+MAX_VERSIONS_PER_RECORD = 20
 
 THROTTLE_WINDOW = timedelta(hours=1)
 VERSION_RETENTION = timedelta(hours=48)
@@ -156,6 +160,11 @@ def _check_url(url: str) -> None:
         raise FeatureServerReportInvalid(
             f"URL {url!r} must be absolute with a host", reason="url_missing_host"
         )
+    if parts.netloc.endswith(":"):
+        # urlsplit reads "http://host:" as host with no port; it is malformed.
+        raise FeatureServerReportInvalid(
+            f"URL {url!r} has an empty port", reason="invalid_url_port"
+        )
     if port is not None and not 1 <= port <= 65535:
         raise FeatureServerReportInvalid(
             f"URL {url!r} has an invalid port", reason="invalid_url_port"
@@ -236,6 +245,7 @@ def validate_report(report: FeatureServerReport) -> None:
                 f"{MAX_LABEL_VALUE_LENGTH} characters",
                 reason="label_value_too_long",
             )
+    seen_urls: set = set()
     for entry in report.urls:
         if len(entry.scope) > MAX_SCOPE_LENGTH:
             raise FeatureServerReportLimitExceeded(
@@ -243,6 +253,12 @@ def validate_report(report: FeatureServerReport) -> None:
                 reason="scope_too_long",
             )
         _check_url(entry.url)
+        if entry.url in seen_urls:
+            # [a, a] and [a] would otherwise be two different records.
+            raise FeatureServerReportInvalid(
+                f"URL {entry.url!r} appears more than once", reason="duplicate_url"
+            )
+        seen_urls.add(entry.url)
     size = len(report.model_dump_json().encode("utf-8"))
     if size > MAX_REPORT_BYTES:
         raise FeatureServerReportLimitExceeded(
@@ -316,6 +332,9 @@ def _versions_with(
         if now - seen <= VERSION_RETENTION
     }
     versions[version] = now
+    if len(versions) > MAX_VERSIONS_PER_RECORD:
+        newest = sorted(versions.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)
+        versions = dict(newest[:MAX_VERSIONS_PER_RECORD])
     return versions
 
 

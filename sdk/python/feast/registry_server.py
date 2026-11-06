@@ -1010,18 +1010,33 @@ class RegistryServer(RegistryServer_pb2_grpc.RegistryServerServicer):
         # verified is decided by the shared check_reporter_identity hook,
         # which fails closed until EAPC-23485 open question 8 is settled.
         identity = _current_username()
-        self.proxied_registry.report_feature_server(
-            project=request.project,
-            report=report_from_proto(request.report),
-            verified=identity is not None,
-            identity=identity,
-        )
+        try:
+            self.proxied_registry.report_feature_server(
+                project=request.project,
+                report=report_from_proto(request.report),
+                verified=identity is not None,
+                identity=identity,
+            )
+        except NotImplementedError:
+            # Registry types without report storage (file, snowflake, ...).
+            context.abort(
+                grpc.StatusCode.UNIMPLEMENTED,
+                "this registry type does not store feature server reports",
+            )
         return Empty()
 
     def ListFeatureServers(
         self, request: RegistryServer_pb2.ListFeatureServersRequest, context
     ):
-        records = self.proxied_registry.list_feature_servers(project=request.project)
+        try:
+            records = self.proxied_registry.list_feature_servers(
+                project=request.project
+            )
+        except NotImplementedError:
+            context.abort(
+                grpc.StatusCode.UNIMPLEMENTED,
+                "this registry type does not store feature server reports",
+            )
         return RegistryServer_pb2.ListFeatureServersResponse(
             feature_servers=[record_to_proto(record) for record in records]
         )
@@ -1387,6 +1402,16 @@ def _check_feature_server_report_auth(
             f"auth.feature_server_report_auth is '{setting}' but auth type is "
             "no_auth, so no report can carry an identity. Set "
             "feature_server_report_auth to 'off' or configure oidc auth."
+        )
+    write_auth_only = bool(getattr(auth_config, "write_auth_only", False))
+    if setting != "off" and not (auth_type == AuthManagerType.OIDC and write_auth_only):
+        # Only WritePathAuthInterceptor applies the setting. Any other auth
+        # setup authenticates every RPC, so reports always need a token.
+        logger.warning(
+            "auth.feature_server_report_auth is '%s', but it only takes effect "
+            "with oidc auth and write_auth_only: true; every RPC, reports "
+            "included, needs a valid token with this auth setup.",
+            setting,
         )
 
 

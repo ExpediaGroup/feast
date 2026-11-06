@@ -2459,3 +2459,107 @@ class TestSqlRegistryProjectMetadataHelpers:
         assert sqlite_registry.get_project_metadata("p", "k1") is None
         assert sqlite_registry.get_project_metadata("p", "k2") == "2"
         assert sqlite_registry.get_project_metadata("q", "k1") == "3"
+
+
+class TestSqlRegistryFeatureServerReportsReviewFixes:
+    """Fixes from the PR #389 review."""
+
+    def test_unreadable_row_is_removed_on_write(self, sqlite_registry_reports):
+        sqlite_registry_reports.set_project_metadata(
+            "test_project", "feature_server:0000000000000000", "not json"
+        )
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server("test_project", _fs_report())
+        keys = {
+            r._mapping["metadata_key"]
+            for r in _feature_server_rows(sqlite_registry_reports)
+        }
+        assert "feature_server:0000000000000000" not in keys
+        assert len(keys) == 1
+
+    def test_other_case_keys_are_never_listed_or_deleted(self, sqlite_registry_reports):
+        # sqlite's LIKE, like MySQL's default collation, ignores case.
+        sqlite_registry_reports.set_project_metadata(
+            "test_project", "Feature_Server:someone-else", "not json"
+        )
+        assert (
+            sqlite_registry_reports.list_project_metadata_by_prefix(
+                "test_project", "feature_server:"
+            )
+            == {}
+        )
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server("test_project", _fs_report())
+        assert (
+            sqlite_registry_reports.get_project_metadata(
+                "test_project", "Feature_Server:someone-else"
+            )
+            == "not json"
+        )
+
+    def test_purge_mode_refuses_reports(self, tmp_path):
+        registry = SqlRegistry(
+            SqlRegistryConfig(
+                registry_type="sql",
+                path=f"sqlite:///{tmp_path / 'registry.db'}",
+                purge_feast_metadata=True,
+                enable_feature_server_reports=True,
+            ),
+            "test_project",
+            None,
+        )
+        try:
+            registry.apply_project(Project(name="test_project"))
+            with pytest.raises(FeatureServerReportsDisabled):
+                registry.report_feature_server("test_project", _fs_report())
+        finally:
+            registry.teardown()
+
+    def test_throttled_report_takes_no_project_lock(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            assert sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report()
+            )
+        with (
+            _report_clock(_REPORT_T0 + timedelta(minutes=10)),
+            patch(
+                "sqlalchemy.sql.selectable.Select.with_for_update",
+                side_effect=AssertionError("locked the project row"),
+            ),
+        ):
+            assert (
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report()
+                )
+                is False
+            )
+
+    def test_throttle_fast_path_still_checks_the_project(self, sqlite_registry_reports):
+        with _report_clock(_REPORT_T0):
+            sqlite_registry_reports.report_feature_server("test_project", _fs_report())
+        # A leftover report row for a project whose projects row is gone must
+        # not be answered "unchanged" by the fast path.
+        with sqlite_registry_reports.write_engine.begin() as conn:
+            conn.execute(
+                delete(projects).where(projects.c.project_id == "test_project")
+            )
+        with _report_clock(_REPORT_T0 + timedelta(minutes=10)):
+            with pytest.raises(ProjectObjectNotFoundException):
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report()
+                )
+
+    def test_versions_are_capped(self, sqlite_registry_reports):
+        from feast.infra.registry.feature_server_reports import (
+            MAX_VERSIONS_PER_RECORD,
+        )
+
+        for i in range(MAX_VERSIONS_PER_RECORD + 5):
+            with _report_clock(_REPORT_T0 + timedelta(seconds=i)):
+                sqlite_registry_reports.report_feature_server(
+                    "test_project", _fs_report(version=f"build-{i}")
+                )
+        record = sqlite_registry_reports.list_feature_servers("test_project")[0]
+        assert len(record.versions) == MAX_VERSIONS_PER_RECORD
+        assert f"build-{MAX_VERSIONS_PER_RECORD + 4}" in record.versions
+        assert "build-0" not in record.versions

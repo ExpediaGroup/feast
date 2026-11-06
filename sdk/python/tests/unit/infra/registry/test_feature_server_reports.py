@@ -252,7 +252,7 @@ class TestValidation:
     def test_serialized_size_limit(self):
         # Every field within its own limit, the whole report over 16 KB.
         url = "https://h.example.com/" + "a" * 1900
-        urls = [FeatureServerUrl(url=url, scope=str(i)) for i in range(9)]
+        urls = [FeatureServerUrl(url=f"{url}{i}", scope=str(i)) for i in range(9)]
         report = _report(urls=urls)
         assert len(report.model_dump_json()) > fsr.MAX_REPORT_BYTES
         with pytest.raises(FeatureServerReportLimitExceeded) as exc:
@@ -654,3 +654,39 @@ class TestReporterIdentity:
     )
     def test_normalize_identity(self, identity, expected):
         assert fsr.normalize_identity(identity) == expected
+
+
+class TestReviewFixes:
+    """Fixes from the PR #389 review."""
+
+    @pytest.mark.parametrize("url", ["http://host:", "grpcs://host.example.com:"])
+    def test_empty_port_rejected(self, url):
+        with pytest.raises(FeatureServerReportInvalid) as exc:
+            fsr.validate_report(FeatureServerReport(urls=[FeatureServerUrl(url=url)]))
+        assert exc.value.reason == "invalid_url_port"
+
+    def test_duplicate_url_rejected(self):
+        report = FeatureServerReport(
+            urls=[
+                FeatureServerUrl(url="grpcs://a.example.com:443", scope="external"),
+                FeatureServerUrl(url="grpcs://a.example.com:443", scope="nearest"),
+            ]
+        )
+        with pytest.raises(FeatureServerReportInvalid) as exc:
+            fsr.validate_report(report)
+        assert exc.value.reason == "duplicate_url"
+
+    def test_versions_capped_keeping_newest(self):
+        t0 = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        record = None
+        for i in range(fsr.MAX_VERSIONS_PER_RECORD + 3):
+            report = FeatureServerReport(
+                urls=[FeatureServerUrl(url="grpcs://a.example.com:443")],
+                version=f"b{i}",
+            )
+            record = fsr.merge_report(record, report, t0 + timedelta(seconds=i))
+        assert record is not None
+        assert len(record.versions) == fsr.MAX_VERSIONS_PER_RECORD
+        assert set(record.versions) == {
+            f"b{i}" for i in range(3, fsr.MAX_VERSIONS_PER_RECORD + 3)
+        }

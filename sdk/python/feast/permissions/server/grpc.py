@@ -153,11 +153,14 @@ def _optionally_authenticate_and_call(
         if _has_authorization_header(metadata):
             try:
                 user_token, request_id_token = _set_user_from_metadata(metadata)
-            except AuthenticationError as e:
+            except Exception as e:  # noqa: BLE001 - optional mode never aborts
+                # Any failure (bad scheme, malformed header, undecodable token)
+                # leaves the report unverified. Log only the exception type:
+                # its message can contain the raw Authorization header.
                 logger.warning(
-                    "Ignoring invalid token on a feature server report; "
-                    "continuing unverified: %s",
-                    e,
+                    "Ignoring an unusable token on a feature server report; "
+                    "continuing unverified (%s)",
+                    type(e).__name__,
                 )
         return behavior(request, context)
     finally:

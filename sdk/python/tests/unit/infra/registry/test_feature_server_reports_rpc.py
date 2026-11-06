@@ -18,6 +18,7 @@ import tempfile
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
+import grpc
 import httpx
 import pytest
 
@@ -317,3 +318,28 @@ class TestHttpRegistryFeatureServers:
         registry = http_registry_factory(lambda request: httpx.Response(503))
         with pytest.raises(httpx.HTTPStatusError):
             registry.list_feature_servers("test_project")
+
+
+class TestUnsupportedRegistryType:
+    def test_rpcs_return_unimplemented(self):
+        class Minimal(BaseRegistry):
+            pass
+
+        Minimal.__abstractmethods__ = frozenset()
+        server = RegistryServer.__new__(RegistryServer)
+        server.proxied_registry = Minimal()
+        context = MagicMock()
+        context.abort.side_effect = RuntimeError("aborted")
+        for call, request in [
+            (
+                server.ReportFeatureServer,
+                ReportFeatureServerRequest(
+                    project="p", report=fsr.report_to_proto(_report())
+                ),
+            ),
+            (server.ListFeatureServers, ListFeatureServersRequest(project="p")),
+        ]:
+            context.abort.reset_mock()
+            with pytest.raises(RuntimeError):
+                call(request, context)
+            assert context.abort.call_args[0][0] == grpc.StatusCode.UNIMPLEMENTED

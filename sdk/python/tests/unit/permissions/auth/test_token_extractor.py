@@ -49,6 +49,11 @@ def test_rest_token_extractor_failures(error_type, dict, header):
         (AuthenticationError, {}, ""),
         (AuthenticationError, {}, "abcd"),
         (AuthenticationError, {}, "other-scheme abcd"),
+        # Match the Bearer pattern but are not one token: these used to raise
+        # ValueError from split(), which surfaced as INTERNAL, not UNAUTHENTICATED.
+        (AuthenticationError, {}, "Bearer a b"),
+        (AuthenticationError, {}, "Bearer  "),
+        (AuthenticationError, {}, "Bearer \t"),
     ],
 )
 def test_grpc_token_extractor_failures(error_type, dict, header):
@@ -138,3 +143,13 @@ def test_arrow_flight_token_extractor():
     assertpy.assert_that(
         token_extractor.extract_access_token(headers=headers)
     ).is_equal_to(token)
+
+
+@pytest.mark.parametrize(
+    "header", ["Bearer abcd", "bearer abcd", "Bearer  abcd ", "Bearer abcd\n"]
+)
+def test_grpc_token_extractor_accepts_one_token(header):
+    assert (
+        GrpcTokenExtractor().extract_access_token(metadata={"authorization": header})
+        == "abcd"
+    )
