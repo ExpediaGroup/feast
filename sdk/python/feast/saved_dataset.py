@@ -351,7 +351,9 @@ class ValidationReference:
         ref = ValidationReference(
             name=proto.name,
             dataset_name=proto.reference_dataset_name,
-            profiler=profiler,
+            # A proto without a profiler yields None here (used for object
+            # equality); __init__ is typed for the user-facing path.
+            profiler=cast(Profiler, profiler),
             description=proto.description,
             tags=dict(proto.tags),
         )
