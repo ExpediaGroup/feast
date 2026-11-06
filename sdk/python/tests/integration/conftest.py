@@ -13,6 +13,9 @@ from testcontainers.minio import MinioContainer
 from testcontainers.mysql import MySqlContainer
 from testcontainers.postgres import PostgresContainer
 
+from tests.integration.feature_repos.universal.data_sources.file import (
+    MINIO_TEST_IMAGE,
+)
 from tests.utils.auth_permissions_util import setup_permissions_on_keycloak
 
 logger = logging.getLogger(__name__)
@@ -154,7 +157,7 @@ def postgres_server():
 
 @pytest.fixture(scope="session")
 def minio_server():
-    container = MinioContainer()
+    container = MinioContainer(image=MINIO_TEST_IMAGE)
     container.start()
 
     yield container

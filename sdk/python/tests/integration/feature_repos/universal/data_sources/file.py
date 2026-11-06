@@ -149,10 +149,16 @@ class DeltaFileSourceCreator(FileDataSourceCreator):
         return FileLoggingDestination(path=d)
 
 
+# MinIO no longer publishes its images (minio/minio is gone from Docker Hub
+# and quay.io), so every MinIO test container pins this S3-compatible image by
+# digest instead.
+MINIO_TEST_IMAGE = "chainguard/minio@sha256:aea6c163749e1caca37f907976dcf337177ddf5f558808f2aa591618fd3a6eef"
+
+
 class DeltaS3FileSourceCreator(FileDataSourceCreator):
     def __init__(self, project_name: str, *args, **kwargs):
         super().__init__(project_name)
-        self.minio = MinioContainer()
+        self.minio = MinioContainer(image=MINIO_TEST_IMAGE)
         self.minio.start()
         client = self.minio.get_client()
         if not client.bucket_exists("test"):
@@ -256,7 +262,7 @@ class S3FileDataSourceCreator(DataSourceCreator):
     bucket = "feast-test"
     access_key = "AKIAIOSFODNN7EXAMPLE"
     secret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
-    minio_image = "minio/minio:RELEASE.2021-08-17T20-53-08Z"
+    minio_image = MINIO_TEST_IMAGE
 
     def __init__(self, _: str):
         self._setup_minio()
