@@ -691,3 +691,17 @@ class TestReviewFixes:
         assert set(record.versions) == {
             f"b{i}" for i in range(3, fsr.MAX_VERSIONS_PER_RECORD + 3)
         }
+
+
+class TestStaleness:
+    def test_stale_after_48_hours(self):
+        t0 = datetime(2026, 11, 1, tzinfo=timezone.utc)
+        record = fsr.merge_report(
+            None,
+            FeatureServerReport(urls=[FeatureServerUrl(url="https://a.example.com")]),
+            t0,
+        )
+        assert record is not None
+        assert not fsr.is_record_stale(record, t0 + timedelta(hours=47))
+        assert fsr.is_record_stale(record, t0 + timedelta(hours=49))
+        assert fsr.RECORD_STALE_AFTER < fsr.RECORD_RETENTION

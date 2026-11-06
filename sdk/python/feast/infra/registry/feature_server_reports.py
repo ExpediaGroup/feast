@@ -56,6 +56,9 @@ MAX_VERSIONS_PER_RECORD = 20
 THROTTLE_WINDOW = timedelta(hours=1)
 VERSION_RETENTION = timedelta(hours=48)
 RECORD_RETENTION = timedelta(days=30)
+# A record not seen for this long belongs to a server that stopped reporting
+# (servers report at least daily); an unverified report may replace it at the cap.
+RECORD_STALE_AFTER = timedelta(hours=48)
 
 OUTCOME_ACCEPTED = "accepted"
 OUTCOME_UNCHANGED = "unchanged"
@@ -391,6 +394,11 @@ def merge_report(
         verified=verified,
         identity=identity,
     )
+
+
+def is_record_stale(record: FeatureServerRecord, now: datetime) -> bool:
+    """True when the record was last seen more than 48 hours before ``now``."""
+    return _as_utc(now) - record.last_seen > RECORD_STALE_AFTER
 
 
 def is_record_expired(record: FeatureServerRecord, now: datetime) -> bool:

@@ -2577,12 +2577,14 @@ class SqlRegistry(CachingRegistry):
             value = fsr.record_to_json(merged)
             if key not in records:
                 if len(records) >= fsr.MAX_RECORDS_PER_PROJECT:
-                    evict = self._feature_server_record_to_evict(records)
+                    evict = self._feature_server_record_to_evict(
+                        records, now, merged.verified
+                    )
                     if evict is None:
                         raise FeatureServerReportLimitExceeded(
                             f"Project {project} already has "
-                            f"{fsr.MAX_RECORDS_PER_PROJECT} verified feature "
-                            "server records",
+                            f"{fsr.MAX_RECORDS_PER_PROJECT} feature server records "
+                            "that are verified or still reporting",
                             reason="too_many_records",
                         )
                     self.delete_project_metadata(project, evict, conn)
@@ -2610,18 +2612,28 @@ class SqlRegistry(CachingRegistry):
     @staticmethod
     def _feature_server_record_to_evict(
         records: Dict[str, Optional["fsr.FeatureServerRecord"]],
+        now: datetime,
+        incoming_verified: bool,
     ) -> Optional[str]:
-        """At the cap, a new record replaces the least recently seen
-        unverified record, so a project never stops accepting new servers
-        (URL changes and short-lived servers add records). Verified records
-        are never pushed out. None when every record is verified."""
+        """Pick the record a new one replaces at the per-project cap.
+
+        Verified records are never pushed out. A verified report may replace
+        the least recently seen unverified record. An unverified report (any
+        report while report auth is off) may only replace an unverified record
+        that has gone stale (not seen for RECORD_STALE_AFTER): servers that
+        stopped reporting (URL changes, renamed or short-lived deployments)
+        free their slot, but a flood of unauthenticated reports cannot push out
+        servers that are still reporting. None when nothing may be replaced.
+        """
         unreadable = sorted(k for k, record in records.items() if record is None)
         if unreadable:
             return unreadable[0]
         unverified = [
             (record.last_seen, k)
             for k, record in records.items()
-            if record is not None and not record.verified
+            if record is not None
+            and not record.verified
+            and (incoming_verified or fsr.is_record_stale(record, now))
         ]
         return min(unverified)[1] if unverified else None
 
