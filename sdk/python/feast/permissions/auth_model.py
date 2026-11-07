@@ -9,9 +9,9 @@
 # --------------------------------------------------------------------
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict, field_validator, model_validator
 
 from feast.repo_config import FeastConfigBaseModel
 
@@ -21,6 +21,31 @@ class AuthConfig(FeastConfigBaseModel):
     # Opt-in write-path gRPC auth. Default false so existing no_auth / stock OIDC
     # servers are unchanged. extra=forbid requires this field to be declared.
     write_auth_only: bool = False
+    # Auth for the "report write" category (ReportFeatureServer, see
+    # REPORT_RPC_METHODS in permissions/server/grpc.py). Reports are project
+    # metadata, not feature definitions, so they have their own setting:
+    #   off      - no token parsed; reports are stored unverified.
+    #   optional - a valid token marks the report verified; a missing or
+    #              invalid token is logged and the report stays unverified.
+    #   required - a valid token is required (UNAUTHENTICATED otherwise).
+    # Applies with write_auth_only; refused at registry startup with no_auth.
+    feature_server_report_auth: Literal["off", "optional", "required"] = "off"
+
+    @field_validator("feature_server_report_auth", mode="before")
+    @classmethod
+    def _yaml_bool_report_auth(cls, value: Any) -> Any:
+        # feature_store.yaml is parsed as YAML 1.1, where an unquoted `off`
+        # (also `no`, `false`) loads as False and `on`/`yes` as True.
+        if value is False:
+            return "off"
+        if value is True:
+            raise ValueError(
+                "feature_server_report_auth must be 'off', 'optional' or "
+                "'required'; got a boolean true (an unquoted on/yes/true in "
+                "YAML), which is ambiguous. Quote the value, e.g. "
+                'feature_server_report_auth: "optional".'
+            )
+        return value
 
 
 class OidcAuthConfig(AuthConfig):

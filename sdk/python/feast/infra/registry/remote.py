@@ -17,6 +17,12 @@ from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
 from feast.infra.infra_object import Infra
 from feast.infra.registry.base_registry import BaseRegistry
+from feast.infra.registry.feature_server_reports import (
+    FeatureServerRecord,
+    FeatureServerReport,
+    record_from_proto,
+    report_to_proto,
+)
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.auth_model import AuthConfig, NoAuthConfig
 from feast.permissions.client.grpc_client_auth_interceptor import (
@@ -444,6 +450,30 @@ class RemoteRegistry(BaseRegistry):
         request.pagination.limit = limit
         response = self.stub.ListAuditLogs(request)
         return list(response.audit_logs), response.pagination
+
+    def report_feature_server(
+        self,
+        project: str,
+        report: FeatureServerReport,
+        verified: bool = False,
+        identity: Optional[str] = None,
+    ) -> bool:
+        """Send a report over ReportFeatureServer.
+
+        ``verified`` and ``identity`` are ignored: the registry server
+        decides them from the caller's token. The RPC returns Empty whether
+        the record was written or unchanged, so this returns True on success.
+        """
+        request = RegistryServer_pb2.ReportFeatureServerRequest(
+            project=project, report=report_to_proto(report)
+        )
+        self.stub.ReportFeatureServer(request)
+        return True
+
+    def list_feature_servers(self, project: str) -> List[FeatureServerRecord]:
+        request = RegistryServer_pb2.ListFeatureServersRequest(project=project)
+        response = self.stub.ListFeatureServers(request)
+        return [record_from_proto(record) for record in response.feature_servers]
 
     def apply_saved_dataset(
         self,

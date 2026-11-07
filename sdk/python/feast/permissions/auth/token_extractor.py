@@ -38,8 +38,13 @@ class TokenExtractor(ABC):
         pattern = r"(?i)Bearer .+"
         if not bool(re.match(pattern, auth_header)):
             raise AuthenticationError(f"Expected Bearer schema, found {auth_header}")
-        _, access_token = auth_header.split()
-        return access_token
+        # "Bearer a b" or "Bearer " match the pattern above; reject them as an
+        # authentication failure (UNAUTHENTICATED), not a ValueError (INTERNAL).
+        parts = auth_header.split(None, 1)
+        token = parts[1].strip() if len(parts) == 2 else ""
+        if not token or any(c.isspace() for c in token):
+            raise AuthenticationError("Expected a single Bearer token")
+        return token
 
 
 class NoAuthTokenExtractor(TokenExtractor):

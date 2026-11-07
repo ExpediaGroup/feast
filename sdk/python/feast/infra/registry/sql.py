@@ -37,7 +37,7 @@ from sqlalchemy import (  # type: ignore
 )
 from sqlalchemy.dialects import mysql
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 
 from feast import utils
 from feast.base_feature_view import BaseFeatureView
@@ -47,6 +47,10 @@ from feast.errors import (
     DataSourceObjectNotFoundException,
     EntityNotFoundException,
     FeastBadRequest,
+    FeatureServerReportError,
+    FeatureServerReportLimitExceeded,
+    FeatureServerReportsDisabled,
+    FeatureServerReportUnavailable,
     FeatureServiceNotFoundException,
     FeatureViewNotFoundException,
     PermissionNotFoundException,
@@ -61,6 +65,7 @@ from feast.expediagroup.pydantic_models.project_metadata_model import (
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
 from feast.infra.infra_object import Infra
+from feast.infra.registry import feature_server_reports as fsr
 from feast.infra.registry.caching_registry import CachingRegistry
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.permission import Permission
@@ -526,6 +531,18 @@ class SqlRegistryConfig(RegistryConfig):
               registry_type: sql
               path: postgresql://...
               enable_object_audit_log: true
+    """
+
+    enable_feature_server_reports: StrictBool = False
+    """ bool: When true, report_feature_server stores feature server reports as
+        project metadata. Off by default: reports are rejected with
+        FeatureServerReportsDisabled (UNAVAILABLE / 503) and nothing is stored.
+        list_feature_servers works either way. feature_store.yaml:
+
+            registry:
+              registry_type: sql
+              path: postgresql://...
+              enable_feature_server_reports: true
     """
 
     @field_validator("enable_object_audit_log", "purge_feast_metadata")
@@ -2362,6 +2379,296 @@ class SqlRegistry(CachingRegistry):
             if row:
                 return row._mapping["metadata_value"]
             return None
+
+    def list_project_metadata_by_prefix(
+        self, project: str, prefix: str, conn=None
+    ) -> Dict[str, str]:
+        """Return a project's feast_metadata values whose key starts with prefix.
+
+        The prefix is matched literally (``_`` and ``%`` are escaped).
+        """
+        if conn is None:
+            with self.read_engine.begin() as conn:
+                return self.list_project_metadata_by_prefix(project, prefix, conn)
+        stmt = select(
+            feast_metadata.c.metadata_key, feast_metadata.c.metadata_value
+        ).where(
+            feast_metadata.c.project_id == project,
+            feast_metadata.c.metadata_key.startswith(prefix, autoescape=True),
+        )
+        # LIKE is case-insensitive under MySQL's default collation; keep only
+        # exact-prefix keys so callers never see (or delete) other rows.
+        return {
+            str(row._mapping["metadata_key"]): str(row._mapping["metadata_value"])
+            for row in conn.execute(stmt).all()
+            if str(row._mapping["metadata_key"]).startswith(prefix)
+        }
+
+    def delete_project_metadata(self, project: str, key: str, conn=None) -> bool:
+        """Delete one feast_metadata key of a project. True if a row was deleted."""
+        if conn is None:
+            with self.write_engine.begin() as conn:
+                return self.delete_project_metadata(project, key, conn)
+        result = conn.execute(
+            delete(feast_metadata).where(
+                feast_metadata.c.project_id == project,
+                feast_metadata.c.metadata_key == key,
+            )
+        )
+        return bool(result.rowcount)
+
+    def report_feature_server(
+        self,
+        project: str,
+        report: "fsr.FeatureServerReport",
+        verified: bool = False,
+        identity: Optional[str] = None,
+    ) -> bool:
+        """Store a feature server report as project metadata.
+
+        Returns True when the record was written and False when nothing
+        changed within the throttle window. Never touches feature
+        definitions and never writes the object audit log.
+
+        ``identity`` is the authenticated user name (token subject or client
+        id) when the caller authenticated the reporter; it is stored as is.
+        ``verified`` says the caller authenticated that identity, but the
+        stored ``verified`` flag is only set when
+        ``feature_server_reports.check_reporter_identity`` also accepts it,
+        which fails closed today (EAPC-23485, open question 8).
+
+        Raises:
+            FeatureServerReportsDisabled: enable_feature_server_reports is off.
+            FeatureServerReportInvalid / FeatureServerReportLimitExceeded: checks failed.
+            ProjectObjectNotFoundException: the project is not in this registry.
+            FeatureServerReportUnavailable: the database failed.
+        """
+        identity = fsr.normalize_identity(identity)
+        try:
+            written = self._report_feature_server(project, report, verified, identity)
+        except (FeatureServerReportError, ProjectObjectNotFoundException) as e:
+            fsr.log_report_outcome(
+                fsr.OUTCOME_REJECTED,
+                project,
+                report,
+                identity,
+                reason=(
+                    "project_not_found"
+                    if isinstance(e, ProjectObjectNotFoundException)
+                    else fsr.rejection_reason(e)
+                ),
+            )
+            raise
+        except (OperationalError, DBAPIError) as e:
+            fsr.log_report_outcome(
+                fsr.OUTCOME_REJECTED, project, report, identity, reason="db_unavailable"
+            )
+            raise FeatureServerReportUnavailable(
+                f"Could not store the feature server report: {type(e).__name__}"
+            ) from e
+        fsr.log_report_outcome(
+            fsr.OUTCOME_ACCEPTED if written else fsr.OUTCOME_UNCHANGED,
+            project,
+            report,
+            identity,
+        )
+        return written
+
+    def _report_feature_server(
+        self,
+        project: str,
+        report: "fsr.FeatureServerReport",
+        verified: bool,
+        identity: Optional[str],
+    ) -> bool:
+        if (
+            not self.registry_config.enable_feature_server_reports
+            # Purge mode deletes feast_metadata on sync, reports included.
+            or self.purge_feast_metadata
+        ):
+            raise FeatureServerReportsDisabled()
+        fsr.validate_report(report)
+        verified = bool(
+            verified
+            and identity
+            and fsr.check_reporter_identity(project, report, identity)
+        )
+        key = fsr.feature_server_key(report)
+        now = _utc_now()
+
+        # Fast path, no lock: most reports repeat the stored record within the
+        # throttle window. Answer those without locking the projects row, which
+        # every pod's report and every apply would otherwise queue on.
+        with self.write_engine.begin() as conn:
+            current = conn.execute(
+                select(feast_metadata.c.metadata_value).where(
+                    feast_metadata.c.project_id == project,
+                    feast_metadata.c.metadata_key == key,
+                )
+            ).first()
+            if current is not None:
+                try:
+                    existing_record = fsr.record_from_json(
+                        key, str(current._mapping["metadata_value"])
+                    )
+                except Exception:
+                    existing_record = None
+                if (
+                    existing_record is not None
+                    and fsr.merge_report(
+                        existing_record, report, now, verified, identity
+                    )
+                    is None
+                    and conn.execute(
+                        select(projects.c.project_id).where(
+                            projects.c.project_id == project
+                        )
+                    ).first()
+                    is not None
+                ):
+                    return False
+
+        with self.write_engine.begin() as conn:
+            # Lock the project row so a concurrent delete_project cannot
+            # remove the project between this check and the metadata write,
+            # which would leave a phantom project in get_all_project_metadata.
+            # delete_project deletes child tables, then projects, then
+            # feast_metadata; this path locks projects, then writes only
+            # feature_server: rows, so the two cannot wait on each other.
+            if (
+                conn.execute(
+                    select(projects.c.project_id)
+                    .where(projects.c.project_id == project)
+                    .with_for_update()
+                ).first()
+                is None
+            ):
+                raise ProjectObjectNotFoundException(project)
+
+            stored = self.list_project_metadata_by_prefix(
+                project, fsr.FEATURE_SERVER_KEY_PREFIX, conn
+            )
+            records: Dict[str, Optional[fsr.FeatureServerRecord]] = {}
+            for stored_key, value in stored.items():
+                try:
+                    records[stored_key] = fsr.record_from_json(stored_key, value)
+                except Exception:
+                    logger.warning(
+                        "Ignoring unreadable feature server record %s in project %s",
+                        stored_key,
+                        project,
+                    )
+                    records[stored_key] = None
+            existing = records.get(key)
+
+            merged = fsr.merge_report(existing, report, now, verified, identity)
+            if merged is None:
+                return False
+
+            for stored_key, record in list(records.items()):
+                # Expired records and unreadable rows under our prefix are
+                # removed, so neither can hold the per-project cap forever.
+                if stored_key != key and (
+                    record is None or fsr.is_record_expired(record, now)
+                ):
+                    self.delete_project_metadata(project, stored_key, conn)
+                    del records[stored_key]
+
+            value = fsr.record_to_json(merged)
+            if key not in records:
+                if len(records) >= fsr.MAX_RECORDS_PER_PROJECT:
+                    evict = self._feature_server_record_to_evict(
+                        records, now, merged.verified
+                    )
+                    if evict is None:
+                        raise FeatureServerReportLimitExceeded(
+                            f"Project {project} already has "
+                            f"{fsr.MAX_RECORDS_PER_PROJECT} feature server records "
+                            "that are verified or still reporting",
+                            reason="too_many_records",
+                        )
+                    self.delete_project_metadata(project, evict, conn)
+                    logger.info(
+                        "Evicted feature server record %s in project %s to make "
+                        "room for a new record",
+                        evict,
+                        project,
+                    )
+                # A concurrent first insert of the same record wins; its
+                # data is equivalent, so a conflict counts as written.
+                _insert_feast_metadata_do_nothing(
+                    conn,
+                    {
+                        "project_id": project,
+                        "metadata_key": key,
+                        "metadata_value": value,
+                        "last_updated_timestamp": int(now.timestamp()),
+                    },
+                )
+            else:
+                self.set_project_metadata(project, key, value, conn)
+        return True
+
+    @staticmethod
+    def _feature_server_record_to_evict(
+        records: Dict[str, Optional["fsr.FeatureServerRecord"]],
+        now: datetime,
+        incoming_verified: bool,
+    ) -> Optional[str]:
+        """Pick the record a new one replaces at the per-project cap.
+
+        Verified records are never pushed out. A verified report may replace
+        the least recently seen unverified record. An unverified report (any
+        report while report auth is off) may only replace an unverified record
+        that has gone stale (not seen for RECORD_STALE_AFTER): servers that
+        stopped reporting (URL changes, renamed or short-lived deployments)
+        free their slot, but a flood of unauthenticated reports cannot push out
+        servers that are still reporting. None when nothing may be replaced.
+        """
+        unreadable = sorted(k for k, record in records.items() if record is None)
+        if unreadable:
+            return unreadable[0]
+        unverified = [
+            (record.last_seen, k)
+            for k, record in records.items()
+            if record is not None
+            and not record.verified
+            and (incoming_verified or fsr.is_record_stale(record, now))
+        ]
+        return min(unverified)[1] if unverified else None
+
+    def list_feature_servers(self, project: str) -> List["fsr.FeatureServerRecord"]:
+        """List a project's stored feature server records, sorted by key.
+
+        Works whether or not reports are enabled; an unknown project has no
+        records. Unreadable rows are skipped with a warning, and records not
+        seen within the retention window are left out.
+        """
+        try:
+            stored = self.list_project_metadata_by_prefix(
+                project, fsr.FEATURE_SERVER_KEY_PREFIX
+            )
+        except (OperationalError, DBAPIError) as e:
+            raise FeatureServerReportUnavailable(
+                f"Could not read feature server records: {type(e).__name__}"
+            ) from e
+        records = []
+        now = _utc_now()
+        for key in sorted(stored):
+            try:
+                record = fsr.record_from_json(key, stored[key])
+            except Exception:
+                logger.warning(
+                    "Ignoring unreadable feature server record %s in project %s",
+                    key,
+                    project,
+                )
+                continue
+            # Expired records are only deleted on a write to the project, so
+            # a project that stops getting reports would list them forever.
+            if not fsr.is_record_expired(record, now):
+                records.append(record)
+        return records
 
     def get_project_metadata_model(
         self,

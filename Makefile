@@ -201,13 +201,18 @@ test-python-integration: ## Run Python integration tests (CI)
 		--log-cli-level=INFO -s \
 		sdk/python/tests
 
+# Workers for test-python-integration-local. 4 matches the CPUs of a GitHub-hosted
+# runner: at 8, Spark, Ray and the test containers ran it out of memory and the
+# runner was shut down mid-run. Override locally, e.g. INTEGRATION_TEST_WORKERS=8.
+INTEGRATION_TEST_WORKERS ?= 4
+
 test-python-integration-local: ## Run Python integration tests (local dev mode)
 	FEAST_IS_LOCAL_TEST=True \
 	FEAST_LOCAL_ONLINE_CONTAINER=True \
 	HADOOP_HOME=$$HOME/hadoop \
 	CLASSPATH="$$( $$HADOOP_HOME/bin/hadoop classpath --glob ):$$CLASSPATH" \
 	HADOOP_USER_NAME=root \
-	python -m pytest --tb=short -v -n 8 --color=yes --integration --durations=10 --timeout=1200 --timeout_method=thread --dist loadgroup \
+	python -m pytest --tb=short -v -n $(INTEGRATION_TEST_WORKERS) --color=yes --integration --durations=10 --timeout=1200 --timeout_method=thread --dist loadgroup \
 		-k "not test_lambda_materialization and not test_snowflake_materialization" \
 		-m "not rbac_remote_integration_test" \
 		--log-cli-level=INFO -s \
