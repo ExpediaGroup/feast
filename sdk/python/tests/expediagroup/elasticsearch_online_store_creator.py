@@ -2,6 +2,10 @@ import logging
 
 from testcontainers.elasticsearch import ElasticSearchContainer
 
+from tests.integration.feature_repos.universal.online_store.elasticsearch import (
+    ES_TEST_JAVA_OPTS,
+    ES_TEST_MEM_LIMIT,
+)
 from tests.integration.feature_repos.universal.online_store_creator import (
     OnlineStoreCreator,
 )
@@ -15,10 +19,13 @@ class ElasticsearchOnlineStoreCreator(OnlineStoreCreator):
     def __init__(self, project_name: str):
         super().__init__(project_name)
         self.es_port = 9200
+        # Heap and memory capped for the same reason as the universal
+        # Elasticsearch creator (ES_TEST_JAVA_OPTS).
         self.elasticsearch_container = ElasticSearchContainer(
             image="docker.elastic.co/elasticsearch/elasticsearch:8.8.2",
             port=self.es_port,
-        )
+            mem_limit=ES_TEST_MEM_LIMIT,
+        ).with_env("ES_JAVA_OPTS", ES_TEST_JAVA_OPTS)
 
     def create_online_store(self):
         # Start the container

@@ -27,6 +27,10 @@ from feast.entity import Entity
 from feast.feature_service import FeatureService
 from feast.feature_view import FeatureView
 from feast.infra.infra_object import Infra
+from feast.infra.registry.feature_server_reports import (
+    FeatureServerRecord,
+    FeatureServerReport,
+)
 from feast.on_demand_feature_view import OnDemandFeatureView
 from feast.permissions.permission import Permission
 from feast.project import Project
@@ -558,6 +562,42 @@ class BaseRegistry(ABC):
         """
         raise NotImplementedError(
             "list_object_audit_logs is only implemented for SQL registries"
+        )
+
+    # Feature server report operations
+    def report_feature_server(
+        self,
+        project: str,
+        report: FeatureServerReport,
+        verified: bool = False,
+        identity: Optional[str] = None,
+    ) -> bool:
+        """
+        Store what a running feature server reports about itself (its URLs,
+        version and labels) as project metadata. Implemented by SQL
+        registries and by the remote (gRPC) and HTTP registry clients;
+        other backends raise NotImplementedError.
+
+        Args:
+            project: Feast project name; must already exist.
+            report: The report.
+            verified: True when the caller authenticated the reporter.
+            identity: The authenticated identity, stored when verified.
+
+        Returns:
+            True if the record was written, False if nothing changed within
+            the throttle window.
+        """
+        raise NotImplementedError(
+            "report_feature_server is only implemented for SQL, remote and HTTP registries"
+        )
+
+    def list_feature_servers(self, project: str) -> List[FeatureServerRecord]:
+        """
+        List a project's stored feature server records, sorted by key.
+        """
+        raise NotImplementedError(
+            "list_feature_servers is only implemented for SQL, remote and HTTP registries"
         )
 
     # Saved dataset operations

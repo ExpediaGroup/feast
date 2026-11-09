@@ -303,6 +303,16 @@ class RegistryServerStub(object):
                 request_serializer=feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsRequest.SerializeToString,
                 response_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsResponse.FromString,
                 )
+        self.ReportFeatureServer = channel.unary_unary(
+                '/feast.registry.RegistryServer/ReportFeatureServer',
+                request_serializer=feast_dot_registry_dot_RegistryServer__pb2.ReportFeatureServerRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                )
+        self.ListFeatureServers = channel.unary_unary(
+                '/feast.registry.RegistryServer/ListFeatureServers',
+                request_serializer=feast_dot_registry_dot_RegistryServer__pb2.ListFeatureServersRequest.SerializeToString,
+                response_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ListFeatureServersResponse.FromString,
+                )
 
 
 class RegistryServerServicer(object):
@@ -654,6 +664,22 @@ class RegistryServerServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ReportFeatureServer(self, request, context):
+        """Feature server report RPCs. A running feature server reports the URLs it
+        can be reached at; readers list a project's reports. Reports are project
+        metadata, not feature definitions, so ReportFeatureServer is governed by
+        auth_config.feature_server_report_auth, not by the write-path allowlist.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListFeatureServers(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_RegistryServerServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -931,6 +957,16 @@ def add_RegistryServerServicer_to_server(servicer, server):
                     servicer.ListAuditLogs,
                     request_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsRequest.FromString,
                     response_serializer=feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsResponse.SerializeToString,
+            ),
+            'ReportFeatureServer': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReportFeatureServer,
+                    request_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ReportFeatureServerRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'ListFeatureServers': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListFeatureServers,
+                    request_deserializer=feast_dot_registry_dot_RegistryServer__pb2.ListFeatureServersRequest.FromString,
+                    response_serializer=feast_dot_registry_dot_RegistryServer__pb2.ListFeatureServersResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -1874,5 +1910,39 @@ class RegistryServer(object):
         return grpc.experimental.unary_unary(request, target, '/feast.registry.RegistryServer/ListAuditLogs',
             feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsRequest.SerializeToString,
             feast_dot_registry_dot_RegistryServer__pb2.ListAuditLogsResponse.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def ReportFeatureServer(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/feast.registry.RegistryServer/ReportFeatureServer',
+            feast_dot_registry_dot_RegistryServer__pb2.ReportFeatureServerRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options, channel_credentials,
+            insecure, call_credentials, compression, wait_for_ready, timeout, metadata)
+
+    @staticmethod
+    def ListFeatureServers(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(request, target, '/feast.registry.RegistryServer/ListFeatureServers',
+            feast_dot_registry_dot_RegistryServer__pb2.ListFeatureServersRequest.SerializeToString,
+            feast_dot_registry_dot_RegistryServer__pb2.ListFeatureServersResponse.FromString,
             options, channel_credentials,
             insecure, call_credentials, compression, wait_for_ready, timeout, metadata)

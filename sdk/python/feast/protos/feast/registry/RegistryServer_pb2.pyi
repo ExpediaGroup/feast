@@ -2201,3 +2201,203 @@ class ListAuditLogsResponse(google.protobuf.message.Message):
     def ClearField(self, field_name: typing_extensions.Literal["audit_logs", b"audit_logs", "pagination", b"pagination"]) -> None: ...
 
 global___ListAuditLogsResponse = ListAuditLogsResponse
+
+class FeatureServerUrl(google.protobuf.message.Message):
+    """A URL a feature server can be called at."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    URL_FIELD_NUMBER: builtins.int
+    SCOPE_FIELD_NUMBER: builtins.int
+    url: builtins.str
+    """absolute URL: http, https, grpc or grpcs; no user name or password"""
+    scope: builtins.str
+    """free-form, e.g. "external", "nearest", "internal" """
+    def __init__(
+        self,
+        *,
+        url: builtins.str = ...,
+        scope: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["scope", b"scope", "url", b"url"]) -> None: ...
+
+global___FeatureServerUrl = FeatureServerUrl
+
+class FeatureServerReport(google.protobuf.message.Message):
+    """What a feature server reports about itself (report contract version 1)."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    class LabelsEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        value: builtins.str
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: builtins.str = ...,
+        ) -> None: ...
+        def ClearField(self, field_name: typing_extensions.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+    CONTRACT_FIELD_NUMBER: builtins.int
+    URLS_FIELD_NUMBER: builtins.int
+    VERSION_FIELD_NUMBER: builtins.int
+    REGISTRY_FIELD_NUMBER: builtins.int
+    LABELS_FIELD_NUMBER: builtins.int
+    contract: builtins.int
+    """report contract version; 1 today"""
+    @property
+    def urls(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___FeatureServerUrl]: ...
+    version: builtins.str
+    """deployed server version, free-form"""
+    registry: builtins.str
+    """registry type the server uses: "http" or "grpc" """
+    @property
+    def labels(self) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.str]:
+        """free-form; stored without interpretation"""
+    def __init__(
+        self,
+        *,
+        contract: builtins.int = ...,
+        urls: collections.abc.Iterable[global___FeatureServerUrl] | None = ...,
+        version: builtins.str = ...,
+        registry: builtins.str = ...,
+        labels: collections.abc.Mapping[builtins.str, builtins.str] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["contract", b"contract", "labels", b"labels", "registry", b"registry", "urls", b"urls", "version", b"version"]) -> None: ...
+
+global___FeatureServerReport = FeatureServerReport
+
+class ReportFeatureServerRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    PROJECT_FIELD_NUMBER: builtins.int
+    REPORT_FIELD_NUMBER: builtins.int
+    project: builtins.str
+    @property
+    def report(self) -> global___FeatureServerReport: ...
+    def __init__(
+        self,
+        *,
+        project: builtins.str = ...,
+        report: global___FeatureServerReport | None = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["report", b"report"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["project", b"project", "report", b"report"]) -> None: ...
+
+global___ReportFeatureServerRequest = ReportFeatureServerRequest
+
+class FeatureServerRecord(google.protobuf.message.Message):
+    """One stored feature server record: one per distinct URL list in a project."""
+
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    class LabelsEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        value: builtins.str
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: builtins.str = ...,
+        ) -> None: ...
+        def ClearField(self, field_name: typing_extensions.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+    class VersionsEntry(google.protobuf.message.Message):
+        DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+        KEY_FIELD_NUMBER: builtins.int
+        VALUE_FIELD_NUMBER: builtins.int
+        key: builtins.str
+        @property
+        def value(self) -> google.protobuf.timestamp_pb2.Timestamp: ...
+        def __init__(
+            self,
+            *,
+            key: builtins.str = ...,
+            value: google.protobuf.timestamp_pb2.Timestamp | None = ...,
+        ) -> None: ...
+        def HasField(self, field_name: typing_extensions.Literal["value", b"value"]) -> builtins.bool: ...
+        def ClearField(self, field_name: typing_extensions.Literal["key", b"key", "value", b"value"]) -> None: ...
+
+    KEY_FIELD_NUMBER: builtins.int
+    URLS_FIELD_NUMBER: builtins.int
+    LABELS_FIELD_NUMBER: builtins.int
+    VERSIONS_FIELD_NUMBER: builtins.int
+    REGISTRY_FIELD_NUMBER: builtins.int
+    FIRST_SEEN_FIELD_NUMBER: builtins.int
+    LAST_SEEN_FIELD_NUMBER: builtins.int
+    VERIFIED_FIELD_NUMBER: builtins.int
+    IDENTITY_FIELD_NUMBER: builtins.int
+    key: builtins.str
+    """"feature_server:<16 hex>" """
+    @property
+    def urls(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___FeatureServerUrl]: ...
+    @property
+    def labels(self) -> google.protobuf.internal.containers.ScalarMap[builtins.str, builtins.str]: ...
+    @property
+    def versions(self) -> google.protobuf.internal.containers.MessageMap[builtins.str, google.protobuf.timestamp_pb2.Timestamp]:
+        """version -> last seen"""
+    registry: builtins.str
+    @property
+    def first_seen(self) -> google.protobuf.timestamp_pb2.Timestamp: ...
+    @property
+    def last_seen(self) -> google.protobuf.timestamp_pb2.Timestamp: ...
+    verified: builtins.bool
+    """last report carried a valid identity"""
+    identity: builtins.str
+    """that identity, when verified"""
+    def __init__(
+        self,
+        *,
+        key: builtins.str = ...,
+        urls: collections.abc.Iterable[global___FeatureServerUrl] | None = ...,
+        labels: collections.abc.Mapping[builtins.str, builtins.str] | None = ...,
+        versions: collections.abc.Mapping[builtins.str, google.protobuf.timestamp_pb2.Timestamp] | None = ...,
+        registry: builtins.str = ...,
+        first_seen: google.protobuf.timestamp_pb2.Timestamp | None = ...,
+        last_seen: google.protobuf.timestamp_pb2.Timestamp | None = ...,
+        verified: builtins.bool = ...,
+        identity: builtins.str = ...,
+    ) -> None: ...
+    def HasField(self, field_name: typing_extensions.Literal["first_seen", b"first_seen", "last_seen", b"last_seen"]) -> builtins.bool: ...
+    def ClearField(self, field_name: typing_extensions.Literal["first_seen", b"first_seen", "identity", b"identity", "key", b"key", "labels", b"labels", "last_seen", b"last_seen", "registry", b"registry", "urls", b"urls", "verified", b"verified", "versions", b"versions"]) -> None: ...
+
+global___FeatureServerRecord = FeatureServerRecord
+
+class ListFeatureServersRequest(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    PROJECT_FIELD_NUMBER: builtins.int
+    project: builtins.str
+    def __init__(
+        self,
+        *,
+        project: builtins.str = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["project", b"project"]) -> None: ...
+
+global___ListFeatureServersRequest = ListFeatureServersRequest
+
+class ListFeatureServersResponse(google.protobuf.message.Message):
+    DESCRIPTOR: google.protobuf.descriptor.Descriptor
+
+    FEATURE_SERVERS_FIELD_NUMBER: builtins.int
+    @property
+    def feature_servers(self) -> google.protobuf.internal.containers.RepeatedCompositeFieldContainer[global___FeatureServerRecord]: ...
+    def __init__(
+        self,
+        *,
+        feature_servers: collections.abc.Iterable[global___FeatureServerRecord] | None = ...,
+    ) -> None: ...
+    def ClearField(self, field_name: typing_extensions.Literal["feature_servers", b"feature_servers"]) -> None: ...
+
+global___ListFeatureServersResponse = ListFeatureServersResponse
