@@ -91,7 +91,7 @@ func ConfigFromEnv(getenv func(string) string, defaultVersion string) Config {
 			cfg.Version = ""
 		}
 	}
-	cfg.Urls = fitReportSize(cfg)
+	fitReportSize(&cfg)
 	return cfg
 }
 
@@ -134,16 +134,59 @@ func reportSize(cfg Config, urls []AdvertisedUrl) int {
 	return len(encoded)
 }
 
-// fitReportSize drops URLs from the end until the report fits the registry's
-// size limit; the first URLs are the most useful (external before internal).
-func fitReportSize(cfg Config) []AdvertisedUrl {
+// fitReportSize keeps the report under the registry's size limit, which
+// rejects an oversized report outright (never retried). Labels can be the
+// problem on their own (20 labels of 256 multibyte characters exceed 16 KB):
+// then the largest labels are dropped, with one warning, until the report fits
+// without any URLs, so the URLs aren't thrown away for nothing. After that,
+// URLs are dropped from the end; the first ones are the most useful (external
+// before internal).
+func fitReportSize(cfg *Config) {
+	if reportSize(*cfg, nil) > MaxReportBytes {
+		cfg.Labels = trimLabelsToFit(*cfg)
+	}
 	urls := cfg.Urls
-	for len(urls) > 0 && reportSize(cfg, urls) > MaxReportBytes {
+	for len(urls) > 0 && reportSize(*cfg, urls) > MaxReportBytes {
 		dropped := urls[len(urls)-1]
 		log.Warn().Msgf("%s: dropping %q to keep the report under %d bytes", EnvAdvertisedUrls, dropped.Url, MaxReportBytes)
 		urls = urls[:len(urls)-1]
 	}
-	return urls
+	cfg.Urls = urls
+}
+
+// trimLabelsToFit drops labels, largest first (ties by key, for a stable
+// result), until the report without URLs fits, and logs them in one warning.
+func trimLabelsToFit(cfg Config) map[string]string {
+	labels := make(map[string]string, len(cfg.Labels))
+	for k, v := range cfg.Labels {
+		labels[k] = v
+	}
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		si, sj := len(keys[i])+len(labels[keys[i]]), len(keys[j])+len(labels[keys[j]])
+		if si != sj {
+			return si > sj
+		}
+		return keys[i] < keys[j]
+	})
+	var dropped []string
+	for _, k := range keys {
+		trial := cfg
+		trial.Labels = labels
+		if reportSize(trial, nil) <= MaxReportBytes {
+			break
+		}
+		delete(labels, k)
+		dropped = append(dropped, k)
+	}
+	if len(dropped) > 0 {
+		log.Warn().Msgf("%s: dropping labels %s: the labels alone put the report over %d bytes",
+			EnvLabels, strings.Join(dropped, ", "), MaxReportBytes)
+	}
+	return labels
 }
 
 func parseEnabled(raw string) bool {

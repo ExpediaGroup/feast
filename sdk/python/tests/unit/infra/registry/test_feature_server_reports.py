@@ -309,23 +309,47 @@ class TestKey:
     def test_stable_value(self):
         # Pinned: changing the formula would split every stored record.
         report = _report(
-            urls=[FeatureServerUrl(url="https://a"), FeatureServerUrl(url="https://b")]
+            urls=[FeatureServerUrl(url="https://a"), FeatureServerUrl(url="https://b")],
+            labels={"app": "x"},
+            registry="grpc",
         )
         import hashlib
 
-        expected = hashlib.sha256(b'["https://a","https://b"]').hexdigest()[:16]
+        material = (
+            b'{"labels":[["app","x"]],"registry":"grpc",'
+            b'"urls":[["https://a",""],["https://b",""]]}'
+        )
+        expected = hashlib.sha256(material).hexdigest()[:16]
         assert fsr.feature_server_key(report) == f"feature_server:{expected}"
 
-    def test_independent_of_url_order_scope_version_labels_registry(self):
-        a = _report()
+    def test_independent_of_url_order_label_order_and_version(self):
+        """Every pod of one deployment, and every rollout, keeps one record."""
+        a = _report(labels={"app": "app", "instance": "i"})
         b = _report(
             urls=list(reversed(a.urls)),
+            labels={"instance": "i", "app": "app"},
             version="v2",
-            labels={"app": "other"},
-            registry="http",
         )
-        b.urls[0].scope = "changed"
         assert fsr.feature_server_key(a) == fsr.feature_server_key(b)
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"labels": {"app": "green"}},  # blue/green behind one load balancer
+            {"labels": {"app": "app", "environment": "prod"}},
+            {"registry": "http"},
+        ],
+    )
+    def test_deployments_sharing_urls_get_separate_records(self, change):
+        base = _report(labels={"app": "app"}, registry="grpc")
+        other = _report(**{"labels": {"app": "app"}, "registry": "grpc", **change})
+        assert base.urls == other.urls
+        assert fsr.feature_server_key(base) != fsr.feature_server_key(other)
+
+    def test_scope_is_part_of_the_key(self):
+        a = _report(urls=[FeatureServerUrl(url="https://a", scope="external")])
+        b = _report(urls=[FeatureServerUrl(url="https://a", scope="internal")])
+        assert fsr.feature_server_key(a) != fsr.feature_server_key(b)
 
     def test_different_urls_give_different_keys(self):
         a = _report(urls=[FeatureServerUrl(url="https://a")])

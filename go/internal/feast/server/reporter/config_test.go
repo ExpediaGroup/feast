@@ -81,11 +81,11 @@ func TestConfigFromEnv_BadUrlsIgnoredWithWarning(t *testing.T) {
 		"https://",                            // no host
 		"https://user:secret@app.example.net", // credentials
 		"external=not a url",
-		"https://app.example.net:99999",       // port out of range
-		"https://app.example.net:0",           // port out of range
-		"https://app.example.net:",            // empty port
-		"https://app.exa\u0007mple.net",       // control character
-		"https://app.example.net/" + strings.Repeat("a", MaxUrlLength), // too long
+		"https://app.example.net:99999", // port out of range
+		"https://app.example.net:0",     // port out of range
+		"https://app.example.net:",      // empty port
+		"https://app.exa\u0007mple.net", // control character
+		"https://app.example.net/" + strings.Repeat("a", MaxUrlLength),     // too long
 		strings.Repeat("s", MaxScopeLength+1) + "=https://app.example.net", // scope too long
 	}
 	for _, entry := range bad {
@@ -136,7 +136,6 @@ func TestConfigFromEnv_Interval(t *testing.T) {
 		})
 	}
 }
-
 
 func TestConfigFromEnv_DuplicateUrlDropped(t *testing.T) {
 	logs := captureLogs(t)
@@ -227,4 +226,42 @@ func TestConfigFromEnv_ValidPortsKept(t *testing.T) {
 		EnvAdvertisedUrls: "a=grpcs://h.example.net:1,b=grpcs://h.example.net:65535,c=https://h.example.net",
 	}), "v")
 	assert.Len(t, cfg.Urls, 3)
+}
+
+func TestConfigFromEnv_OversizedLabelsTrimmedNotUrls(t *testing.T) {
+	// 20 labels of up to 256 four-byte characters (each within the registry's
+	// per-label limits, which count characters): about 20 KB without any URL.
+	entries := make([]string, 0, MaxLabels)
+	for i := 0; i < MaxLabels; i++ {
+		entries = append(entries, fmt.Sprintf("k%02d=%s", i, strings.Repeat("😀", MaxLabelValueLength-i)))
+	}
+	base := Config{Labels: map[string]string{}}
+	for i := 0; i < MaxLabels; i++ {
+		base.Labels[fmt.Sprintf("k%02d", i)] = strings.Repeat("😀", MaxLabelValueLength-i)
+	}
+	assert.Greater(t, reportSize(base, nil), MaxReportBytes, "precondition: the labels alone are too big")
+	logs := captureLogs(t)
+	cfg := ConfigFromEnv(envOf(map[string]string{
+		EnvLabels:         strings.Join(entries, ","),
+		EnvAdvertisedUrls: "external=grpcs://app.example.net:443,internal=grpc://app.ns.svc.cluster.local:6566",
+	}), "v")
+
+	assert.Len(t, cfg.Urls, 2, "the URLs are kept; the labels are what made it too big")
+	assert.Less(t, len(cfg.Labels), MaxLabels)
+	assert.NotEmpty(t, cfg.Labels)
+	// Largest first: k00 (longest value) goes, k19 (shortest) stays.
+	assert.NotContains(t, cfg.Labels, "k00")
+	assert.Contains(t, cfg.Labels, "k19")
+	assert.LessOrEqual(t, reportSize(cfg, cfg.Urls), MaxReportBytes)
+	assert.Equal(t, 1, strings.Count(logs.String(), "dropping labels"), "one warning for the labels")
+	assert.NotContains(t, logs.String(), "dropping \"", "no URL was dropped")
+}
+
+func TestConfigFromEnv_SmallLabelsUntouchedByTheSizeCheck(t *testing.T) {
+	cfg := ConfigFromEnv(envOf(map[string]string{
+		EnvLabels:         "app=a,instance=b",
+		EnvAdvertisedUrls: "external=https://a.example.net",
+	}), "v")
+	assert.Equal(t, map[string]string{"app": "a", "instance": "b"}, cfg.Labels)
+	assert.Len(t, cfg.Urls, 1)
 }

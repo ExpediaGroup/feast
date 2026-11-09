@@ -426,7 +426,6 @@ func TestStart_NilRegistryIsSkipped(t *testing.T) {
 	stop()
 }
 
-
 func TestRun_DisabledRegistryIsNotRetriedAndLogsInfo(t *testing.T) {
 	logs := captureLogs(t)
 	clock := newFakeClock()

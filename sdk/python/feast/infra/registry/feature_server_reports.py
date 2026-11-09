@@ -305,19 +305,24 @@ def normalize_identity(identity: Optional[str]) -> Optional[str]:
 def feature_server_key(report: FeatureServerReport) -> str:
     """Stable record key: ``feature_server:`` + 16 hex chars (31 chars).
 
-    The hash is SHA-256 of the compact JSON of the sorted URL strings, so
-    every pod of one deployment lands on one record whatever order it lists
-    its URLs in. When ``urls`` is empty, the sorted ``[key, value]`` label
-    pairs are hashed instead, so location-less servers of different apps do
-    not collapse into one record.
+    One record per deployment. The hash is SHA-256 of the compact JSON of
+    everything that identifies a deployment: the sorted (url, scope) pairs,
+    the sorted label pairs and the registry type. Every pod of one deployment
+    sends the same values, whatever order it lists them in, so it lands on one
+    record. Two deployments behind the same URLs (blue/green behind one load
+    balancer, apps behind a shared ingress) differ in their labels and get
+    separate records instead of overwriting each other. A deployment whose
+    labels change starts a new record; the old one ages out like any record
+    that stops reporting. The version is not part of the key: a rollout keeps
+    its record and adds the new version to it.
     """
-    material: object
-    if report.urls:
-        material = sorted(entry.url for entry in report.urls)
-    else:
-        material = sorted([k, v] for k, v in report.labels.items())
+    material = {
+        "urls": _url_set(report.urls),
+        "labels": sorted([k, v] for k, v in report.labels.items()),
+        "registry": report.registry,
+    }
     digest = hashlib.sha256(
-        json.dumps(material, separators=(",", ":")).encode("utf-8")
+        json.dumps(material, separators=(",", ":"), sort_keys=True).encode("utf-8")
     ).hexdigest()
     return f"{FEATURE_SERVER_KEY_PREFIX}{digest[:_KEY_HASH_LENGTH]}"
 

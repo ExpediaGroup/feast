@@ -536,7 +536,8 @@ class SqlRegistryConfig(RegistryConfig):
     enable_feature_server_reports: StrictBool = False
     """ bool: When true, report_feature_server stores feature server reports as
         project metadata. Off by default: reports are rejected with
-        FeatureServerReportsDisabled (UNAVAILABLE / 503) and nothing is stored.
+        FeatureServerReportsDisabled (FAILED_PRECONDITION / 409, which
+        feature servers do not retry) and nothing is stored.
         list_feature_servers works either way. feature_store.yaml:
 
             registry:

@@ -2342,19 +2342,51 @@ class TestSqlRegistryFeatureServerReportTrust:
             sqlite_registry_reports.report_feature_server(
                 "test_project", _fs_report(), verified=True, identity="svc"
             )
+        # Same deployment (same URLs, labels, registry), no identity: the
+        # record keeps its verified state and only refreshes last_seen and
+        # its versions.
         later = _REPORT_T0 + timedelta(hours=3)
-        hostile = _fs_report(version="v9", labels={"app": "attacker"}, registry="http")
         with _report_clock(later):
             assert sqlite_registry_reports.report_feature_server(
-                "test_project", hostile, identity="intruder"
+                "test_project", _fs_report(version="v9"), identity="intruder"
             )
-        record = sqlite_registry_reports.list_feature_servers("test_project")[0]
+        [record] = sqlite_registry_reports.list_feature_servers("test_project")
         assert record.verified is True
         assert record.identity == "svc"
         assert record.labels == {"app": "app"}
         assert record.registry == "grpc"
         assert record.last_seen == later
         assert set(record.versions) == {"v1", "v9"}
+
+    def test_lookalike_report_cannot_touch_a_verified_record(
+        self, sqlite_registry_reports
+    ):
+        with _report_clock(_REPORT_T0), _identity_hook_accepts():
+            sqlite_registry_reports.report_feature_server(
+                "test_project", _fs_report(), verified=True, identity="svc"
+            )
+        verified_key = sqlite_registry_reports.list_feature_servers("test_project")[
+            0
+        ].key
+        # Same URLs, different labels and registry: a different deployment, so
+        # a separate unverified record; the verified one is left exactly as is.
+        hostile = _fs_report(version="v9", labels={"app": "attacker"}, registry="http")
+        with _report_clock(_REPORT_T0 + timedelta(hours=3)):
+            sqlite_registry_reports.report_feature_server(
+                "test_project", hostile, identity="intruder"
+            )
+        records = {
+            r.key: r
+            for r in sqlite_registry_reports.list_feature_servers("test_project")
+        }
+        assert len(records) == 2
+        kept = records.pop(verified_key)
+        assert kept.verified is True and kept.identity == "svc"
+        assert kept.labels == {"app": "app"} and kept.registry == "grpc"
+        assert kept.last_seen == _REPORT_T0 and set(kept.versions) == {"v1"}
+        [lookalike] = records.values()
+        assert lookalike.verified is False
+        assert lookalike.labels == {"app": "attacker"}
 
     def _fill_to_cap(self, registry, verified_hosts=()):
         with _report_clock(_REPORT_T0):
