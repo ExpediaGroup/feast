@@ -43,7 +43,7 @@
         <project.custom.groupId>dev.feast</project.custom.groupId>
 
         <grpc.version>1.63.0</grpc.version>
-        <protoc.version>3.12.2</protoc.version>
+        <protoc.version>${protobuf.version}</protoc.version>
         <protobuf.version>3.25.5</protobuf.version>
         <com.google.cloud.version>1.111.1</com.google.cloud.version>
         <io.prometheus.version>0.8.0</io.prometheus.version>
