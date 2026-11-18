@@ -26,6 +26,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
+      # ubuntu-latest (26.04) defaults to a JDK that PySpark 3.5 can't start on
+      # ("getSubject is not supported"); pin a supported one.
+      - name: Setup Java
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v5
         with:
