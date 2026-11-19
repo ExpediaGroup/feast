@@ -2709,3 +2709,128 @@ class TestSqlRegistryFeatureServerListing:
         assert listed_at(_REPORT_T0 + timedelta(days=29)) == {"old", "new"}
         assert listed_at(_REPORT_T0 + timedelta(days=31)) == {"new"}
         assert listed_at(_REPORT_T0 + timedelta(days=51)) == set()
+
+
+class TestProjectMetadataReadsOnlyKnownKeys:
+    """The project metadata readers fetch only PROJECT_UUID and
+    LAST_UPDATED_TIMESTAMP rows, so feature server reports (and any later
+    feast_metadata key) never reach those paths."""
+
+    @staticmethod
+    def _fill_with_other_rows(registry):
+        with _report_clock(_REPORT_T0):
+            for i in range(20):
+                registry.report_feature_server("test_project", _fs_report(f"h{i}"))
+        registry.set_project_metadata("test_project", "some_future_key", "x" * 5000)
+
+    def test_results_unchanged_by_other_rows(self, sqlite_registry_reports):
+        registry = sqlite_registry_reports
+        before_model = registry.get_project_metadata_model("test_project")
+        before_all = {m.project_name: m for m in registry.get_all_project_metadata()}
+        before_list = registry.list_project_metadata("test_project")
+        assert before_model.project_uuid
+
+        self._fill_with_other_rows(registry)
+
+        after_model = registry.get_project_metadata_model("test_project")
+        assert after_model.project_uuid == before_model.project_uuid
+        assert after_model.last_updated_timestamp == before_model.last_updated_timestamp
+        after_all = {m.project_name: m for m in registry.get_all_project_metadata()}
+        assert after_all.keys() == before_all.keys()
+        assert (
+            after_all["test_project"].project_uuid
+            == before_all["test_project"].project_uuid
+        )
+        after_list = registry.list_project_metadata("test_project")
+        assert [m.project_uuid for m in after_list] == [
+            m.project_uuid for m in before_list
+        ]
+
+    def test_project_with_only_other_keys_is_not_listed(self, sqlite_registry_reports):
+        registry = sqlite_registry_reports
+        # A metadata row with no PROJECT_UUID / LAST_UPDATED_TIMESTAMP for its
+        # project must not make that project appear (no phantom project).
+        registry.set_project_metadata("ghost_project", "feature_server:abc", "{}")
+        names = {m.project_name for m in registry.get_all_project_metadata()}
+        assert "ghost_project" not in names
+        assert registry.list_project_metadata("ghost_project") == []
+        model = registry.get_project_metadata_model("ghost_project")
+        assert model.project_uuid in ("", None)
+
+    def test_readers_filter_on_the_two_keys_in_sql(self, sqlite_registry_reports):
+        from sqlalchemy import event
+
+        registry = sqlite_registry_reports
+        self._fill_with_other_rows(registry)
+        statements = []
+
+        def capture(conn, cursor, statement, parameters, context, executemany):
+            if "feast_metadata" in statement:
+                statements.append((statement, parameters))
+
+        engines = {id(registry.read_engine): registry.read_engine}
+        for engine in engines.values():
+            event.listen(engine, "before_cursor_execute", capture)
+        try:
+            registry.get_project_metadata_model("test_project")
+            registry.get_all_project_metadata()
+            registry.list_project_metadata("test_project")
+        finally:
+            for engine in engines.values():
+                event.remove(engine, "before_cursor_execute", capture)
+
+        reads = [s for s in statements if s[0].lstrip().upper().startswith("SELECT")]
+        assert len(reads) == 3, reads
+        for statement, parameters in reads:
+            assert "metadata_key IN" in statement, statement
+            values = (
+                set(parameters.values())
+                if isinstance(parameters, dict)
+                else set(parameters)
+            )
+            assert {"project_uuid", "last_updated_timestamp"} <= values, parameters
+            assert not any(str(v).startswith("feature_server:") for v in values)
+
+    def test_rows_fetched_do_not_grow_with_reports(self, sqlite_registry_reports):
+        from sqlalchemy import event
+
+        registry = sqlite_registry_reports
+        captured = []
+
+        def capture(conn, cursor, statement, parameters, context, executemany):
+            if (
+                statement.lstrip().upper().startswith("SELECT")
+                and "feast_metadata" in statement
+            ):
+                captured.append((statement, parameters))
+
+        def rows_fetched(call):
+            captured.clear()
+            event.listen(registry.read_engine, "before_cursor_execute", capture)
+            try:
+                call()
+            finally:
+                event.remove(registry.read_engine, "before_cursor_execute", capture)
+            statement, parameters = captured[-1]
+            raw = registry.read_engine.raw_connection()
+            try:
+                cur = raw.cursor()
+                cur.execute(statement, parameters)
+                return len(cur.fetchall())
+            finally:
+                raw.close()
+
+        self._fill_with_other_rows(registry)
+        with registry.read_engine.begin() as conn:
+            total = conn.execute(
+                select(func.count())
+                .select_from(feast_metadata)
+                .where(feast_metadata.c.project_id == "test_project")
+            ).scalar_one()
+        assert total > 20  # the report rows and the extra key really are there
+        # Only the PROJECT_UUID and LAST_UPDATED_TIMESTAMP rows are read.
+        assert (
+            rows_fetched(lambda: registry.get_project_metadata_model("test_project"))
+            == 2
+        )
+        assert rows_fetched(lambda: registry.list_project_metadata("test_project")) == 2

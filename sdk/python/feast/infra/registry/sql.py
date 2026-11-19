@@ -439,6 +439,16 @@ class FeastMetadataKeys(Enum):
     PROJECT_UUID = "project_uuid"
 
 
+# The only feast_metadata keys the project metadata readers use. Filtering on
+# them in SQL keeps other rows of a project (feature server reports, and any
+# key added later) off those paths: get_project_metadata_model runs on every
+# REST registry request, and get_all_project_metadata scans the whole table.
+_PROJECT_METADATA_KEYS = (
+    FeastMetadataKeys.PROJECT_UUID.value,
+    FeastMetadataKeys.LAST_UPDATED_TIMESTAMP.value,
+)
+
+
 feast_metadata = Table(
     "feast_metadata",
     metadata,
@@ -1060,6 +1070,7 @@ class SqlRegistry(CachingRegistry):
         with self.read_engine.begin() as conn:
             stmt = select(feast_metadata).where(
                 feast_metadata.c.project_id == project,
+                feast_metadata.c.metadata_key.in_(_PROJECT_METADATA_KEYS),
             )
             rows = conn.execute(stmt).all()
             if rows:
@@ -2344,7 +2355,9 @@ class SqlRegistry(CachingRegistry):
         """
         project_metadata_model_dict: Dict[str, ProjectMetadataModel] = {}
         with self.read_engine.begin() as conn:
-            stmt = select(feast_metadata)
+            stmt = select(feast_metadata).where(
+                feast_metadata.c.metadata_key.in_(_PROJECT_METADATA_KEYS)
+            )
             rows = conn.execute(stmt).all()
             if rows:
                 for row in rows:
@@ -2687,6 +2700,7 @@ class SqlRegistry(CachingRegistry):
         with self.read_engine.begin() as conn:
             stmt = select(feast_metadata).where(
                 feast_metadata.c.project_id == project,
+                feast_metadata.c.metadata_key.in_(_PROJECT_METADATA_KEYS),
             )
             rows = conn.execute(stmt).all()
             if rows:
